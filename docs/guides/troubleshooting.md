@@ -304,7 +304,10 @@ is not patched).
    CREATE initial sizing. Confirm `ResizeBlocked=NamespaceFrozen` on
    the policy. Grep webhook logs for the fail-closed admission message
    `cannot read namespace for attune.io/freeze` (Allowed, not Denied)
-   if the operator cannot read the namespace.
+   if the operator cannot read the namespace. The same skip applies
+   when `ResizeBlocked` is `HPAListUnavailable` or
+   `VPAListUnavailable` (leftover recs stay in status; new pods keep
+   the template).
 8. CREATE uses the same merged `controlledValues` as reconcile
    (`AttuneDefaults`, then `AttuneNamespaceDefaults`, then the
    policy). A list error for those CRs skips the mutation (Allowed,
@@ -357,7 +360,7 @@ for `namespaces` get/list/watch on the operator ServiceAccount.
 stays `Monitoring`. Events say `cannot list HorizontalPodAutoscalers; new
 apply skipped (check horizontalpodautoscalers list/watch RBAC)`.
 Recommendations still appear in status. No in-place resizes, template
-persistence, or startup boosts run that cycle.
+persistence, startup boosts, or CREATE initial sizing run that cycle.
 
 **Cause**: The operator could not list `HorizontalPodAutoscaler` objects in
 the policy namespace (missing RBAC `list`/`watch`, or an apiserver error).
