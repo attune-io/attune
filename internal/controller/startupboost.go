@@ -133,13 +133,10 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 			continue
 		}
 		if r.Client != nil {
-			obj, err := r.getWorkloadByName(ctx, policy.Namespace, rec.Kind, rec.Workload)
-			if err != nil {
-				logger.V(1).Info("Skipping startup boost: failed to get workload",
-					"workload", rec.Workload, "kind", rec.Kind, "error", err)
-				continue
-			}
-			if classifyObjectScale(obj, hpas).idle() {
+			// Get errors cannot classify idle; keep boosting (same as
+			// tests and persist, which use already-listed objects).
+			if obj, err := r.getWorkloadByName(ctx, policy.Namespace, rec.Kind, rec.Workload); err == nil &&
+				classifyObjectScale(obj, hpas).idle() {
 				logger.V(1).Info("Skipping startup boost for idle workload",
 					"workload", rec.Workload)
 				continue
