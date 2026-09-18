@@ -6,6 +6,16 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.29](https://github.com/attune-io/attune/compare/v0.1.28...v0.1.29) (2026-09-18)
+
+
+### Bug Fixes
+
+* close post-0.1.26 resize apply gaps from review wave ([#816](https://github.com/attune-io/attune/issues/816)) ([7684a49](https://github.com/attune-io/attune/commit/7684a497a6936609b8ffbb29cb637bc9f3b89503)), closes [#801](https://github.com/attune-io/attune/issues/801) [#802](https://github.com/attune-io/attune/issues/802) [#803](https://github.com/attune-io/attune/issues/803) [#804](https://github.com/attune-io/attune/issues/804) [#805](https://github.com/attune-io/attune/issues/805) [#806](https://github.com/attune-io/attune/issues/806) [#807](https://github.com/attune-io/attune/issues/807) [#808](https://github.com/attune-io/attune/issues/808) [#809](https://github.com/attune-io/attune/issues/809) [#810](https://github.com/attune-io/attune/issues/810) [#811](https://github.com/attune-io/attune/issues/811) [#812](https://github.com/attune-io/attune/issues/812) [#813](https://github.com/attune-io/attune/issues/813) [#814](https://github.com/attune-io/attune/issues/814) [#815](https://github.com/attune-io/attune/issues/815)
+* emit oneshot envelope skip when every replica is blocked ([#817](https://github.com/attune-io/attune/issues/817)) ([cc8410e](https://github.com/attune-io/attune/commit/cc8410eca79c5d47eb34702ec42afea68fe448f8))
+* fail-closed create and boost apply paths ([#781](https://github.com/attune-io/attune/issues/781)) ([e7bcb26](https://github.com/attune-io/attune/commit/e7bcb266c79c95388467f611a72d61d2e9429dce))
+* preserve extended resources and close resize apply gaps ([#800](https://github.com/attune-io/attune/issues/800)) ([3156e6a](https://github.com/attune-io/attune/commit/3156e6ad1dbd7952ac35d5d2e3abc266f4fe259c))
+
 ## [0.1.28](https://github.com/attune-io/attune/compare/v0.1.27...v0.1.28) (2026-09-16)
 
 
