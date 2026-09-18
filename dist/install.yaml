@@ -3866,6 +3866,12 @@ rules:
   - patch
   - update
 - apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+- apiGroups:
   - autoscaling
   resources:
   - horizontalpodautoscalers

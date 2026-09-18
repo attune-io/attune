@@ -135,13 +135,22 @@ func (r *AttunePolicyReconciler) adjustHPATargets(
 		adjusted := false
 		for j := range hpa.Spec.Metrics {
 			m := &hpa.Spec.Metrics[j]
-			if m.Type != autoscalingv2.ResourceMetricSourceType || m.Resource == nil {
+			var currentUtil *int32
+			switch {
+			case m.Type == autoscalingv2.ResourceMetricSourceType && m.Resource != nil &&
+				m.Resource.Name == corev1.ResourceCPU &&
+				m.Resource.Target.Type == autoscalingv2.UtilizationMetricType &&
+				m.Resource.Target.AverageUtilization != nil:
+				currentUtil = m.Resource.Target.AverageUtilization
+			case m.Type == autoscalingv2.ContainerResourceMetricSourceType && m.ContainerResource != nil &&
+				m.ContainerResource.Name == corev1.ResourceCPU &&
+				m.ContainerResource.Target.Type == autoscalingv2.UtilizationMetricType &&
+				m.ContainerResource.Target.AverageUtilization != nil:
+				currentUtil = m.ContainerResource.Target.AverageUtilization
+			default:
 				continue
 			}
-			if m.Resource.Name != corev1.ResourceCPU || m.Resource.Target.Type != autoscalingv2.UtilizationMetricType || m.Resource.Target.AverageUtilization == nil {
-				continue
-			}
-			currentTarget := *m.Resource.Target.AverageUtilization
+			currentTarget := *currentUtil
 			// Preserve the original absolute CPU threshold across N resizes:
 			// newTarget = originalTarget * (originalRequest / newRequest).
 			// Using the stored percent with this cycle's old/new request
@@ -195,7 +204,11 @@ func (r *AttunePolicyReconciler) adjustHPATargets(
 				"hpa", hpa.Name, "workload", workloadName,
 				"currentTarget", currentTarget, "newTarget", newTarget,
 				"oldRequest", oldCPURequest.String(), "newRequest", newCPURequest.String())
-			m.Resource.Target.AverageUtilization = &newTarget
+			if m.Type == autoscalingv2.ResourceMetricSourceType {
+				m.Resource.Target.AverageUtilization = &newTarget
+			} else {
+				m.ContainerResource.Target.AverageUtilization = &newTarget
+			}
 			// Re-fetch the HPA to get a fresh resourceVersion. The HPA list
 			// was fetched at the start of Reconcile and the HPA controller
 			// may have updated it since then (e.g., during concurrent resizes).
@@ -223,9 +236,21 @@ func (r *AttunePolicyReconciler) adjustHPATargets(
 			}
 			for fj := range fresh.Spec.Metrics {
 				fm := &fresh.Spec.Metrics[fj]
-				if fm.Type == autoscalingv2.ResourceMetricSourceType && fm.Resource != nil &&
+				if m.Type == autoscalingv2.ResourceMetricSourceType &&
+					fm.Type == autoscalingv2.ResourceMetricSourceType && fm.Resource != nil &&
 					fm.Resource.Name == corev1.ResourceCPU && fm.Resource.Target.AverageUtilization != nil {
 					fm.Resource.Target.AverageUtilization = &newTarget
+					break
+				}
+				if m.Type == autoscalingv2.ContainerResourceMetricSourceType &&
+					fm.Type == autoscalingv2.ContainerResourceMetricSourceType && fm.ContainerResource != nil &&
+					fm.ContainerResource.Name == corev1.ResourceCPU &&
+					fm.ContainerResource.Target.AverageUtilization != nil {
+					if m.ContainerResource.Container != "" &&
+						fm.ContainerResource.Container != m.ContainerResource.Container {
+						continue
+					}
+					fm.ContainerResource.Target.AverageUtilization = &newTarget
 					break
 				}
 			}

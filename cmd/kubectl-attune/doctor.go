@@ -290,7 +290,7 @@ func runDoctorChecks(ctx context.Context, disc discovery.DiscoveryInterface, nod
 			name: "Prometheus", required: false, ok: false,
 			detail: detail,
 		})
-		results = append(results, attunePolicyDoctorResult(objects))
+		results = append(results, attunePolicyDoctorResult(objects, listErr))
 		return results
 	}
 	var failed []string
@@ -321,7 +321,7 @@ func runDoctorChecks(ctx context.Context, disc discovery.DiscoveryInterface, nod
 		results = append(results, doctorResult{
 			name: "Prometheus", required: false, detail: strings.Join(failed, "; "),
 		})
-		results = append(results, attunePolicyDoctorResult(objects))
+		results = append(results, attunePolicyDoctorResult(objects, listErr))
 		return results
 	}
 	detail := strings.Join(reachable, ", ") + " " + prometheusHealthyPath
@@ -344,7 +344,7 @@ func runDoctorChecks(ctx context.Context, disc discovery.DiscoveryInterface, nod
 		name: "Prometheus", required: false, ok: len(reachable) > 0,
 		detail: detail,
 	})
-	results = append(results, attunePolicyDoctorResult(objects))
+	results = append(results, attunePolicyDoctorResult(objects, listErr))
 	return results
 }
 
@@ -425,8 +425,8 @@ func nfdKernelCgroupV2(ctx context.Context, nodes cluster.NodeLister) bool {
 	return false
 }
 
-func attunePolicyDoctorResult(objects []unstructured.Unstructured) doctorResult {
-	var total, notReady int
+func attunePolicyDoctorResult(objects []unstructured.Unstructured, listErr error) doctorResult {
+	var total, readyTrue, notReady, unknown int
 	var reasons []string
 	seen := map[string]struct{}{}
 	for _, obj := range objects {
@@ -435,35 +435,56 @@ func attunePolicyDoctorResult(objects []unstructured.Unstructured) doctorResult 
 		}
 		total++
 		status, reason, _ := readyConditionFields(obj)
-		if status != "False" {
-			continue
+		switch status {
+		case "True":
+			readyTrue++
+		case "False":
+			notReady++
+			if reason == "" {
+				reason = "Unknown"
+			}
+			if _, ok := seen[reason]; ok {
+				continue
+			}
+			seen[reason] = struct{}{}
+			reasons = append(reasons, reason)
+		default:
+			unknown++
 		}
-		notReady++
-		if reason == "" {
-			reason = "Unknown"
-		}
-		if _, ok := seen[reason]; ok {
-			continue
-		}
-		seen[reason] = struct{}{}
-		reasons = append(reasons, reason)
 	}
 	if total == 0 {
+		if listErr != nil {
+			return doctorResult{
+				name: "AttunePolicies", required: false,
+				detail: fmt.Sprintf("could not list AttunePolicies: %v", listErr),
+			}
+		}
 		return doctorResult{
 			name: "AttunePolicies", required: false,
 			detail: "no AttunePolicies in scope",
 		}
 	}
-	if notReady == 0 {
+	incomplete := ""
+	if listErr != nil {
+		incomplete = "; list incomplete: " + listErr.Error()
+	}
+	if notReady == 0 && unknown == 0 {
 		return doctorResult{
 			name: "AttunePolicies", required: false, ok: true,
-			detail: fmt.Sprintf("%d policies Ready", total),
+			detail: fmt.Sprintf("%d policies Ready", total) + incomplete,
+		}
+	}
+	if unknown > 0 {
+		return doctorResult{
+			name: "AttunePolicies", required: false,
+			detail: fmt.Sprintf("%d policies, %d Ready=True, %d without Ready=True",
+				total, readyTrue, notReady+unknown) + incomplete,
 		}
 	}
 	return doctorResult{
 		name: "AttunePolicies", required: false,
 		detail: fmt.Sprintf("%d policies, %d Ready=False (reasons: %s)",
-			total, notReady, strings.Join(reasons, ", ")),
+			total, notReady, strings.Join(reasons, ", ")) + incomplete,
 	}
 }
 

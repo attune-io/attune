@@ -239,9 +239,9 @@ func applyPlannedContainer(pod *corev1.Pod, container string, target corev1.Reso
 		return planned
 	}
 	if isInit {
-		planned.Spec.InitContainers[idx].Resources = mergeResources(planned.Spec.InitContainers[idx].Resources, target)
+		planned.Spec.InitContainers[idx].Resources = MergeResources(planned.Spec.InitContainers[idx].Resources, target)
 	} else {
-		planned.Spec.Containers[idx].Resources = mergeResources(planned.Spec.Containers[idx].Resources, target)
+		planned.Spec.Containers[idx].Resources = MergeResources(planned.Spec.Containers[idx].Resources, target)
 	}
 	return planned
 }

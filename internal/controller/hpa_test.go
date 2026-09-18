@@ -292,6 +292,62 @@ func TestAdjustHPATargets_ScalesTargetUtilization(t *testing.T) {
 	assert.Equal(t, "200m", hpa.Annotations[annotationHPAOriginalCPURequest])
 }
 
+func TestAdjustHPATargets_ContainerResourceScalesTargetUtilization(t *testing.T) {
+	scheme := testScheme()
+	oldTarget := int32(80)
+	hpas := []autoscalingv2.HorizontalPodAutoscaler{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "my-app-hpa",
+				Namespace: "default",
+				Annotations: map[string]string{
+					annotationHPAAutoTune: "true",
+				},
+			},
+			Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+				ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+					Kind: "Deployment",
+					Name: "my-app",
+				},
+				Metrics: []autoscalingv2.MetricSpec{
+					{
+						Type: autoscalingv2.ContainerResourceMetricSourceType,
+						ContainerResource: &autoscalingv2.ContainerResourceMetricSource{
+							Name:      corev1.ResourceCPU,
+							Container: "app",
+							Target: autoscalingv2.MetricTarget{
+								Type:               autoscalingv2.UtilizationMetricType,
+								AverageUtilization: &oldTarget,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&hpas[0]).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+
+	// CPU went from 200m to 400m, so target should halve: 80 * (200/400) = 40.
+	r.adjustHPATargets(context.Background(), hpas, "my-app", "Deployment",
+		resource.MustParse("200m"), resource.MustParse("400m"), resource.Quantity{})
+
+	var hpa autoscalingv2.HorizontalPodAutoscaler
+	err := fakeClient.Get(context.Background(), client.ObjectKey{
+		Namespace: "default",
+		Name:      "my-app-hpa",
+	}, &hpa)
+	require.NoError(t, err)
+	require.NotNil(t, hpa.Spec.Metrics[0].ContainerResource)
+	require.NotNil(t, hpa.Spec.Metrics[0].ContainerResource.Target.AverageUtilization)
+	assert.Equal(t, int32(40), *hpa.Spec.Metrics[0].ContainerResource.Target.AverageUtilization)
+	assert.Equal(t, "80", hpa.Annotations[annotationHPAOriginalCPU])
+	assert.Equal(t, "200m", hpa.Annotations[annotationHPAOriginalCPURequest])
+}
+
 func TestAdjustHPATargets_PreservesThirdPartyAnnotations(t *testing.T) {
 	scheme := testScheme()
 	oldTarget := int32(80)

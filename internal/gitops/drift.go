@@ -87,7 +87,7 @@ func ComputeDrift(
 			continue
 		}
 		for _, cRec := range rec.Containers {
-			c := findContainer(tpl.Spec.Containers, cRec.Name)
+			c := findTemplateContainer(&tpl.Spec, cRec.Name)
 			if c == nil {
 				continue
 			}
@@ -263,4 +263,21 @@ func findContainer(containers []corev1.Container, name string) *corev1.Container
 		}
 	}
 	return nil
+}
+
+// findTemplateContainer looks up a rec container in the workload template.
+// Regular containers win; native sidecars (init restartPolicy Always) are
+// next. Job-style init containers are not drift targets.
+func findTemplateContainer(spec *corev1.PodSpec, name string) *corev1.Container {
+	if spec == nil {
+		return nil
+	}
+	if c := findContainer(spec.Containers, name); c != nil {
+		return c
+	}
+	c := findContainer(spec.InitContainers, name)
+	if c == nil || c.RestartPolicy == nil || *c.RestartPolicy != corev1.ContainerRestartPolicyAlways {
+		return nil
+	}
+	return c
 }

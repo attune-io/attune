@@ -420,12 +420,18 @@ operator queries. The wizard inherit option uses that omit shape.
 > Container Insights `ContainerInsights` namespace and supports IRSA/Pod
 > Identity credentials with optional cross-account role assumption.
 
+### Prometheus
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `metricsSource.prometheus.bearerTokenSecret` | object | (optional) | Secret `name` + `key` for a bearer token. The creating user must be allowed to get that Secret. |
+
 ### Datadog
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `metricsSource.datadog.site` | string | `datadoghq.com` | Datadog site (e.g., `datadoghq.eu`, `us5.datadoghq.com`, `ddog-gov.com`) |
-| `metricsSource.datadog.apiKeySecretRef.name` | string | (required) | Name of the Secret containing the Datadog API key |
+| `metricsSource.datadog.apiKeySecretRef.name` | string | (required) | Name of the Secret containing the Datadog API key. The creating user must be allowed to get that Secret. |
 | `metricsSource.datadog.apiKeySecretRef.key` | string | (required) | Key within the Secret that holds the API key |
 
 ### CloudWatch Container Insights
@@ -512,7 +518,7 @@ provider PRs when templates drift. Full cookbook:
 | `updateStrategy.export.pullRequest.enabled` | bool | `false` | Opt-in PR automation (GitHub or GitLab). Requires `repository` and `tokenSecretRef` when enabled. |
 | `updateStrategy.export.pullRequest.provider` | string | `github` | `github` or `gitlab`. |
 | `updateStrategy.export.pullRequest.repository` | string | (required when enabled) | `owner/repo` (GitHub) or project path/id (GitLab). |
-| `updateStrategy.export.pullRequest.tokenSecretRef` | object | (required when enabled) | Secret `name` + `key` for a fine-scoped API token. Never log the token. |
+| `updateStrategy.export.pullRequest.tokenSecretRef` | object | (required when enabled) | Secret `name` + `key` for a fine-scoped API token. Never log the token. The creating user must be allowed to get that Secret. |
 | `updateStrategy.export.pullRequest.apiUrl` | string | provider default | Enterprise GitHub or self-hosted GitLab API base (SSRF-validated). |
 | `updateStrategy.export.pullRequest.allowPrivateEndpoints` | bool | `false` | Permit RFC1918/ULA API hosts for self-hosted forges. Loopback, link-local (IMDS), and unspecified stay blocked. |
 | `updateStrategy.export.pullRequest.baseBranch` | string | `main` | Target branch for the PR. |

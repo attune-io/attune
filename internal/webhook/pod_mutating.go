@@ -268,6 +268,8 @@ func (h *PodMutatingHandler) findMatchingPolicy(
 	ownerKind, ownerName, podName string,
 	defaults *attunev1alpha1.AttuneDefaults,
 ) (*attunev1alpha1.AttunePolicy, *attunev1alpha1.WorkloadRecommendation) {
+	var bestPolicy *attunev1alpha1.AttunePolicy
+	var bestRec *attunev1alpha1.WorkloadRecommendation
 	for i := range policies {
 		policy := policies[i].DeepCopy()
 		pkgdefaults.MergeDefaults(policy, defaults)
@@ -336,12 +338,29 @@ func (h *PodMutatingHandler) findMatchingPolicy(
 			}
 			if rec.Workload == ownerName && rec.Kind == ownerKind {
 				if recEligibleForCreateSizing(rec, policy.Status.ResizeHistory, ownerName) {
-					return policy, rec
+					if betterCreatePolicy(policy, bestPolicy) {
+						bestPolicy = policy
+						bestRec = rec
+					}
+					break
 				}
 			}
 		}
 	}
-	return nil, nil
+	return bestPolicy, bestRec
+}
+
+// betterCreatePolicy reports whether candidate should win CREATE sizing over
+// current. Same rule as conflict.CheckPolicyConflictInMemory: strictly
+// higher weight wins; equal weight uses lexicographic name (smaller wins).
+func betterCreatePolicy(candidate, current *attunev1alpha1.AttunePolicy) bool {
+	if current == nil {
+		return true
+	}
+	if candidate.Spec.Weight != current.Spec.Weight {
+		return candidate.Spec.Weight > current.Spec.Weight
+	}
+	return candidate.Name < current.Name
 }
 
 // targetRefMatches reports whether this policy's targetRef covers the

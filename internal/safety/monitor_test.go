@@ -607,6 +607,95 @@ func TestRevertPod(t *testing.T) {
 	assert.True(t, foundResize, "UpdateResize should have been called")
 }
 
+func TestRevertPod_PreservesExtendedRequests(t *testing.T) {
+	gpu := corev1.ResourceName("nvidia.com/gpu")
+	huge := corev1.ResourceName("hugepages-2Mi")
+	eph := corev1.ResourceEphemeralStorage
+	// Production OriginalResources is CPU/memory only.
+	original := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pod",
+			Namespace: "default",
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "app",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("750m"),
+							corev1.ResourceMemory: resource.MustParse("512Mi"),
+							gpu:                   resource.MustParse("1"),
+							huge:                  resource.MustParse("4Mi"),
+							eph:                   resource.MustParse("1Gi"),
+						},
+						Limits: corev1.ResourceList{
+							gpu: resource.MustParse("1"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	logger := testr.New(t)
+	monitor := NewMonitor(clientset, logger)
+
+	record := ResizeRecord{
+		PodName:           "test-pod",
+		Namespace:         "default",
+		Container:         "app",
+		OriginalResources: original,
+		ResizedAt:         time.Now().Add(-1 * time.Minute),
+	}
+
+	err := monitor.RevertPod(context.Background(), record)
+	require.NoError(t, err)
+
+	var foundResize bool
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			foundResize = true
+			updated := a.(k8stesting.UpdateAction).GetObject().(*corev1.Pod)
+			reqs := updated.Spec.Containers[0].Resources.Requests
+			cpu := reqs[corev1.ResourceCPU]
+			mem := reqs[corev1.ResourceMemory]
+			assert.True(t, cpu.Equal(resource.MustParse("500m")),
+				"CPU should be reverted to 500m, got %s", cpu.String())
+			assert.True(t, mem.Equal(resource.MustParse("256Mi")),
+				"memory should be reverted to 256Mi, got %s", mem.String())
+			require.Contains(t, reqs, gpu, "nvidia.com/gpu request must survive revert")
+			gpuReq := reqs[gpu]
+			assert.True(t, gpuReq.Equal(resource.MustParse("1")),
+				"gpu request should stay 1, got %s", gpuReq.String())
+			require.Contains(t, reqs, huge, "hugepages-2Mi request must survive revert")
+			hugeReq := reqs[huge]
+			assert.True(t, hugeReq.Equal(resource.MustParse("4Mi")),
+				"hugepages-2Mi request should stay 4Mi, got %s", hugeReq.String())
+			require.Contains(t, reqs, eph, "ephemeral-storage request must survive revert")
+			ephReq := reqs[eph]
+			assert.True(t, ephReq.Equal(resource.MustParse("1Gi")),
+				"ephemeral-storage request should stay 1Gi, got %s", ephReq.String())
+			lims := updated.Spec.Containers[0].Resources.Limits
+			require.Contains(t, lims, gpu, "gpu limit must survive revert")
+			gpuLim := lims[gpu]
+			assert.True(t, gpuLim.Equal(resource.MustParse("1")),
+				"gpu limit should stay 1, got %s", gpuLim.String())
+		}
+	}
+	assert.True(t, foundResize, "UpdateResize should have been called")
+}
+
 func TestRevertPod_MemoryLimitClampedOnV133(t *testing.T) {
 	// Simulates K8s v1.33 constraint: memory limits cannot be decreased
 	// in-place when resize policy is NotRequired. The revert should clamp

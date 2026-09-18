@@ -58,6 +58,77 @@ func TestComputeDrift_AboveThreshold(t *testing.T) {
 	assert.NotContains(t, body, "token")
 }
 
+func TestComputeDrift_NativeSidecarInitContainer(t *testing.T) {
+	t.Parallel()
+	always := corev1.ContainerRestartPolicyAlways
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api"},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name: "app",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("500m"),
+							},
+						},
+					}},
+					InitContainers: []corev1.Container{
+						{
+							Name:          "mesh",
+							RestartPolicy: &always,
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU: resource.MustParse("200m"),
+								},
+							},
+						},
+						{
+							Name: "init-db",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU: resource.MustParse("200m"),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{
+			{
+				Name: "app",
+				Recommended: attunev1alpha1.ResourceValues{
+					CPURequest: resource.MustParse("500m"),
+				},
+			},
+			{
+				Name: "mesh",
+				Recommended: attunev1alpha1.ResourceValues{
+					CPURequest: resource.MustParse("100m"),
+				},
+			},
+			{
+				Name: "init-db",
+				Recommended: attunev1alpha1.ResourceValues{
+					CPURequest: resource.MustParse("50m"),
+				},
+			},
+		},
+	}}
+	d := ComputeDrift([]client.Object{dep}, recs, 10)
+	require.Len(t, d, 1, "native sidecar mesh must drift; app is at rec; Job-style init must be skipped")
+	assert.Equal(t, "mesh", d[0].Container)
+	assert.Equal(t, "cpu", d[0].Resource)
+	assert.Equal(t, "200m", d[0].Template)
+	assert.Equal(t, "100m", d[0].Recommended)
+}
+
 func TestComputeDrift_LimitsOnlyMismatchIsNotDrift(t *testing.T) {
 	t.Parallel()
 	dep := &appsv1.Deployment{

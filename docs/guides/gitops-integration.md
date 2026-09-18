@@ -129,11 +129,12 @@ Default **off**. When enabled, Attune compares recommendations to **workload
 pod templates** (Deployment / StatefulSet / DaemonSet). If any container
 request drifts by at least `minChangePercent` (default 10), the operator
 opens or updates a GitHub or GitLab pull request (subject to `cooldown`,
-default 24h).
+default 24h). Native sidecars (init containers with `restartPolicy: Always`)
+are included; regular Job-style init containers are not.
 
 ### Security
 
-- Token is read from a Kubernetes Secret via `tokenSecretRef`.
+- Token is read from a Kubernetes Secret via `tokenSecretRef`. The creating user must be allowed to get that Secret.
 - Tokens are **never** written to logs, events, or status.
 - Use a fine-scoped PAT with write access to create branches and PRs:
   - **GitHub** (fine-grained): repository **Contents: Read and write** and

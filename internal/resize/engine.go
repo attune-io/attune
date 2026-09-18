@@ -112,11 +112,11 @@ func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container s
 		adjustedTarget := ClampMemoryLimitForPolicy(fresh, container, target, r.AllowInPlaceMemoryLimitDecrease)
 		if isInit {
 			current = fresh.Spec.InitContainers[idx].Resources
-			applied = mergeResources(current, adjustedTarget)
+			applied = MergeResources(current, adjustedTarget)
 			updated.Spec.InitContainers[idx].Resources = applied
 		} else {
 			current = fresh.Spec.Containers[idx].Resources
-			applied = mergeResources(current, adjustedTarget)
+			applied = MergeResources(current, adjustedTarget)
 			updated.Spec.Containers[idx].Resources = applied
 		}
 		if r.InPlacePodLevelResources && updated.Spec.Resources != nil {
@@ -171,17 +171,24 @@ func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container s
 	return results, nil
 }
 
-// mergeResources builds the final ResourceRequirements by applying target values on top
-// of the current resources. Requests are taken from the target, then clamped so they
-// do not exceed leftover destination limits. Limits are taken from the target only if
-// the target specifies them; otherwise the pod's existing limits are preserved. This
-// prevents adding limits to pods that never had them.
+// MergeResources overlays target onto current. Requests start as a copy of
+// current so extended keys (GPU, hugepages, ephemeral-storage) survive, then
+// every key in target.Requests overwrites. Limits start from current and
+// overlay target the same way; existing limits stay when the target omits
+// them. This prevents adding limits to pods that never had them.
 //
-// Memory limits are never decreased below the current value because Kubernetes
-// forbids in-place memory limit decreases (requires RestartContainer resize policy).
-func mergeResources(current, target corev1.ResourceRequirements) corev1.ResourceRequirements {
+// Memory limits are never decreased below the current value unless the
+// target explicitly set memory, because Kubernetes forbids in-place memory
+// limit decreases (requires RestartContainer resize policy).
+func MergeResources(current, target corev1.ResourceRequirements) corev1.ResourceRequirements {
 	merged := corev1.ResourceRequirements{
-		Requests: target.Requests.DeepCopy(),
+		Requests: current.Requests.DeepCopy(),
+	}
+	if merged.Requests == nil {
+		merged.Requests = corev1.ResourceList{}
+	}
+	for res, qty := range target.Requests {
+		merged.Requests[res] = qty.DeepCopy()
 	}
 	if len(target.Limits) > 0 || len(current.Limits) > 0 {
 		// Start with current limits to preserve uncontrolled resources (e.g.,
