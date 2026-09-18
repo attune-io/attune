@@ -98,12 +98,17 @@ func policySecretNames(policy *attunev1alpha1.AttunePolicy) []string {
 	return names
 }
 
+func admissionRequest(ctx context.Context) (admission.Request, bool) {
+	req, err := admission.RequestFromContext(ctx)
+	return req, err == nil
+}
+
 func (v *AttunePolicyValidator) checkReferencedSecretAccess(ctx context.Context, policy *attunev1alpha1.AttunePolicy) error {
 	if v.SecretAccess == nil {
 		return nil
 	}
-	req, err := admission.RequestFromContext(ctx)
-	if err != nil {
+	req, ok := admissionRequest(ctx)
+	if !ok {
 		return nil
 	}
 	ns := policy.Namespace
