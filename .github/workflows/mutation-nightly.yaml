@@ -1,0 +1,55 @@
+name: Mutation Nightly
+
+on:
+  schedule:
+    # After E2E Nightly (03:00 UTC).
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutation-nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mutate:
+    name: Mutation score
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install gremlins
+        shell: bash -Eeuo pipefail {0}
+        run: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
+
+      - name: Unleash mutants
+        shell: bash -Eeuo pipefail {0}
+        run: |
+          # No --threshold-*: first run is a report, not a gate.
+          {
+            echo "## resize"
+            gremlins unleash --tags="" ./internal/resize
+            echo
+            echo "## safety"
+            gremlins unleash --tags="" ./internal/safety
+            echo
+            echo "## recommendation"
+            gremlins unleash --tags="" ./internal/recommendation
+          } | tee -a "$GITHUB_STEP_SUMMARY"
