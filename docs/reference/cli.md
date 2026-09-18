@@ -267,7 +267,7 @@ Doctor is single-context. `--all-contexts` and `--contexts` are rejected.
 | `pods/resize` | Yes | Discovery lists the `pods/resize` subresource |
 | cgroup v2 | No | Never Pass. There is no Node field for the runtime cgroup version, and doctor does not exec onto nodes. Default is `WARN` with `could not determine` (expected on k3s, kind, and most managed clusters). An NFD label `feature.node.kubernetes.io/kernel.config.CGROUP_V2=true` is kernel compile-time only and is printed as a footnote; it never makes this row `ok`. On Kubernetes 1.37+ the same WARN mentions kubelet `failCgroupV1`. |
 | Prometheus | No | Skip-without-ping is `WARN` (`ok:false`), not Pass: no address was seen (none set, or listing failed with no objects). Also `WARN` for in-cluster DNS (`.svc` / `.cluster.local`) and for HTTP 401/403 on an address that sets `bearerTokenSecret` or `headers` (this host does not send the operator's auth). Other addresses, including `service.namespace` without `.svc`, are GET `/-/healthy` from this host (SSRF-checked first). Optional failures print `WARN`, not `FAIL`. |
-| AttunePolicies | No | `WARN` when the scoped list is empty (`no AttunePolicies in scope`) or any policy is `Ready=False` (reasons include `ConflictCheckFailed`). |
+| AttunePolicies | No | `WARN` when listing fails (`could not list AttunePolicies`), the scoped list is empty (`no AttunePolicies in scope`), any policy is `Ready=False` (reasons include `ConflictCheckFailed`), or a policy is missing `Ready` / `Ready=Unknown`. Pass only when every listed policy is `Ready=True`. |
 
 Exit 0 when every required check passes. A failed Prometheus check is
 printed as `WARN` and does not change the exit code. The ping runs on

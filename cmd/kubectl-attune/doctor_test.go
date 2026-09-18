@@ -587,6 +587,33 @@ func TestRunDoctorChecks_PolicyScopeWarn(t *testing.T) {
 		assert.False(t, doctorFailed(results))
 	})
 
+	t.Run("list error with zero policies is not empty scope", func(t *testing.T) {
+		t.Parallel()
+		results := runDoctorChecks(ctx, disc, nil, nil, fmt.Errorf("list AttunePolicies: forbidden"), nil)
+		got := results[len(results)-1]
+		assert.Equal(t, "AttunePolicies", got.name)
+		assert.False(t, got.required)
+		assert.False(t, got.ok)
+		assert.Contains(t, got.detail, "could not list")
+		assert.NotContains(t, got.detail, "in scope")
+		assert.False(t, doctorFailed(results))
+	})
+
+	t.Run("missing Ready is not claimed Ready", func(t *testing.T) {
+		t.Parallel()
+		policy := unstructured.Unstructured{Object: map[string]interface{}{
+			"kind":     "AttunePolicy",
+			"metadata": map[string]interface{}{"name": "web", "namespace": "default"},
+		}}
+		results := runDoctorChecks(ctx, disc, nil, []unstructured.Unstructured{policy}, nil, nil)
+		got := results[len(results)-1]
+		assert.Equal(t, "AttunePolicies", got.name)
+		assert.False(t, got.required)
+		assert.False(t, got.ok)
+		assert.NotContains(t, got.detail, "1 policies Ready")
+		assert.False(t, doctorFailed(results))
+	})
+
 	t.Run("Ready False ConflictCheckFailed", func(t *testing.T) {
 		t.Parallel()
 		policy := unstructured.Unstructured{Object: map[string]interface{}{
