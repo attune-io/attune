@@ -826,3 +826,207 @@ func derefPods(pods []*corev1.Pod) []corev1.Pod {
 	}
 	return out
 }
+
+// ---------- resolveCanaryPhase ----------
+
+func TestResolveCanaryPhase_DoesNotInitializeWithoutHistory(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeCanary
+	policy.Spec.UpdateStrategy.Canary = &attunev1alpha1.CanaryConfig{
+		Percentage:        20,
+		ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
+		AutoPromote:       true,
+	}
+
+	reconciler := NewAttunePolicyReconciler()
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+
+	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "first call should stay in canary mode")
+	assert.Nil(t, policy.Status.Canary, "observation must not start before an in-place resize")
+}
+
+func TestResolveCanaryPhase_PromotesAfterObservation(t *testing.T) {
+	startTime := metav1.NewTime(time.Now().Add(-10 * time.Minute))
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeCanary
+	policy.Spec.UpdateStrategy.Canary = &attunev1alpha1.CanaryConfig{
+		Percentage:        20,
+		ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
+		AutoPromote:       true,
+	}
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase:     attunev1alpha1.CanaryPhaseInProgress,
+		StartTime: &startTime,
+	}
+	// No reverts in history.
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{
+		{Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(startTime.Add(1 * time.Minute))},
+	}
+
+	reconciler := NewAttunePolicyReconciler()
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+
+	assert.Equal(t, attunev1alpha1.UpdateTypeAuto, mode, "should promote to auto after observation passes")
+	assert.Equal(t, attunev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
+}
+
+func TestResolveCanaryPhase_LegacyHistoryWithoutMethodPromotesCanary(t *testing.T) {
+	startTime := metav1.NewTime(time.Now().Add(-10 * time.Minute))
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeCanary
+	policy.Spec.UpdateStrategy.Canary = &attunev1alpha1.CanaryConfig{
+		Percentage:        20,
+		ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
+		AutoPromote:       true,
+	}
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase:     attunev1alpha1.CanaryPhaseInProgress,
+		StartTime: &startTime,
+	}
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{
+		{Result: attunev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(startTime.Add(1 * time.Minute))},
+	}
+
+	reconciler := NewAttunePolicyReconciler()
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+
+	assert.Equal(t, attunev1alpha1.UpdateTypeAuto, mode, "legacy in-place history without method should still promote canary")
+	assert.Equal(t, attunev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
+}
+
+func TestResolveCanaryPhase_EvictionDoesNotPromoteCanary(t *testing.T) {
+	startTime := metav1.NewTime(time.Now().Add(-10 * time.Minute))
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeCanary
+	policy.Spec.UpdateStrategy.Canary = &attunev1alpha1.CanaryConfig{
+		Percentage:        20,
+		ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
+		AutoPromote:       true,
+	}
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase:     attunev1alpha1.CanaryPhaseInProgress,
+		StartTime: &startTime,
+	}
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{
+		{Method: "Eviction", Result: attunev1alpha1.ResizeResultEvicted, Timestamp: metav1.NewTime(startTime.Add(1 * time.Minute))},
+	}
+
+	reconciler := NewAttunePolicyReconciler()
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+
+	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "eviction-only history should not count as a successful canary resize")
+	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
+}
+
+func TestResolveCanaryPhase_WaitsDuringObservation(t *testing.T) {
+	startTime := metav1.NewTime(time.Now().Add(-1 * time.Minute))
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeCanary
+	policy.Spec.UpdateStrategy.Canary = &attunev1alpha1.CanaryConfig{
+		Percentage:        20,
+		ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
+		AutoPromote:       true,
+	}
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase:     attunev1alpha1.CanaryPhaseInProgress,
+		StartTime: &startTime,
+	}
+
+	reconciler := NewAttunePolicyReconciler()
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+
+	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "should stay in canary during observation")
+}
+
+func TestResolveCanaryPhase_BlocksOnRevert(t *testing.T) {
+	startTime := metav1.NewTime(time.Now().Add(-10 * time.Minute))
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeCanary
+	policy.Spec.UpdateStrategy.Canary = &attunev1alpha1.CanaryConfig{
+		Percentage:        20,
+		ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
+		AutoPromote:       true,
+	}
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase:     attunev1alpha1.CanaryPhaseInProgress,
+		StartTime: &startTime,
+	}
+	// Production flip-in-place (same timestamp as the original Success).
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{
+		flippedSuccessRevert("api-server", "InPlace", startTime.Add(2*time.Minute), "oomkill"),
+	}
+
+	reconciler := NewAttunePolicyReconciler()
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+
+	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "should block promotion when revert happened")
+	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
+	assert.Nil(t, policy.Status.Canary.StartTime, "revert must clear the observation clock")
+}
+
+func TestResolveCanaryPhase_FullRolloutStaysAuto(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase: attunev1alpha1.CanaryPhaseFullRollout,
+	}
+
+	reconciler := NewAttunePolicyReconciler()
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+
+	assert.Equal(t, attunev1alpha1.UpdateTypeAuto, mode, "FullRollout should map to Auto")
+}
+
+func TestResolveCanaryPhase_ResetsOnSpecChange(t *testing.T) {
+	startTime := metav1.NewTime(time.Now().Add(-10 * time.Minute))
+	policy := newTestPolicy("test-policy", "default")
+	policy.Generation = 3
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeCanary
+	policy.Spec.UpdateStrategy.Canary = &attunev1alpha1.CanaryConfig{
+		Percentage:        20,
+		ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
+		AutoPromote:       true,
+	}
+	// Canary was started at generation 2 -- spec has since changed.
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase:              attunev1alpha1.CanaryPhaseFullRollout,
+		StartTime:          &startTime,
+		ObservedGeneration: 2,
+	}
+
+	reconciler := NewAttunePolicyReconciler()
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+
+	// Should reset and wait for the next in-place resize, staying in canary mode.
+	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "spec change should reset canary, not stay in FullRollout")
+	if policy.Status.Canary != nil {
+		assert.NotEqual(t, attunev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
+		assert.Nil(t, policy.Status.Canary.StartTime, "spec change must not start a new clock before a resize")
+	}
+}
+
+func TestResolveCanaryPhase_NoResetWhenGenerationMatches(t *testing.T) {
+	startTime := metav1.NewTime(time.Now().Add(-10 * time.Minute))
+	policy := newTestPolicy("test-policy", "default")
+	policy.Generation = 2
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeCanary
+	policy.Spec.UpdateStrategy.Canary = &attunev1alpha1.CanaryConfig{
+		Percentage:        20,
+		ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
+		AutoPromote:       true,
+	}
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase:              attunev1alpha1.CanaryPhaseInProgress,
+		StartTime:          &startTime,
+		ObservedGeneration: 2,
+	}
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{
+		{Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(startTime.Add(1 * time.Minute))},
+	}
+
+	reconciler := NewAttunePolicyReconciler()
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+
+	// Same generation: should promote normally after observation period.
+	assert.Equal(t, attunev1alpha1.UpdateTypeAuto, mode, "same generation should promote normally")
+	assert.Equal(t, attunev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
+}
