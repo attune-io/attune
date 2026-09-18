@@ -63,6 +63,7 @@ const (
 // informer cache, not the API server) and mutates pod resources at creation time.
 type PodMutatingHandler struct {
 	Client       client.Client
+	APIReader    client.Reader
 	Logger       logr.Logger
 	Capabilities *cluster.Capabilities
 }
@@ -99,7 +100,7 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 		return admission.Allowed("no recognized owner")
 	}
 	if ownerKind == "Job" {
-		cronKind, cronName, err := resolveCronJobOwner(ctx, h.Client, req.Namespace, ownerName)
+		cronKind, cronName, err := resolveCronJobOwner(ctx, h.jobOwnerReader(), req.Namespace, ownerName)
 		if err != nil {
 			h.Logger.Error(err, "getting Job for CronJob initial sizing; skipping",
 				"namespace", req.Namespace, "job", ownerName)
@@ -157,7 +158,7 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 	boosted := false
 	for i := range pod.Spec.Containers {
 		container := &pod.Spec.Containers[i]
-		ok, didBoost := h.mutateContainer(container, rec, policy)
+		ok, didBoost := h.mutateContainer(container, rec, policy, ownerKind)
 		if ok {
 			mutated = true
 		}
@@ -168,7 +169,7 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 	for i := range pod.Spec.InitContainers {
 		container := &pod.Spec.InitContainers[i]
 		if container.RestartPolicy != nil && *container.RestartPolicy == corev1.ContainerRestartPolicyAlways {
-			ok, didBoost := h.mutateContainer(container, rec, policy)
+			ok, didBoost := h.mutateContainer(container, rec, policy, ownerKind)
 			if ok {
 				mutated = true
 			}
@@ -422,6 +423,7 @@ func (h *PodMutatingHandler) mutateContainer(
 	container *corev1.Container,
 	rec *attunev1alpha1.WorkloadRecommendation,
 	policy *attunev1alpha1.AttunePolicy,
+	ownerKind string,
 ) (mutated bool, boosted bool) {
 	for _, cr := range rec.Containers {
 		if cr.Name != container.Name {
@@ -460,7 +462,7 @@ func (h *PodMutatingHandler) mutateContainer(
 			}
 		}
 
-		if !cr.Recommended.CPURequest.IsZero() {
+		if !cr.Recommended.CPURequest.IsZero() && ownerKind != "Job" && ownerKind != "CronJob" {
 			boosted = applyCreateStartupBoost(container, policy, cr.Recommended.CPULimit)
 		}
 
@@ -599,7 +601,20 @@ func resolveOwner(refs []metav1.OwnerReference) (kind, name string) {
 // resolveCronJobOwner returns the CronJob that owns jobName. Empty name
 // means a standalone Job. Get errors fail closed so CREATE does not
 // size from the generated Job name.
-func resolveCronJobOwner(ctx context.Context, c client.Client, namespace, jobName string) (kind, name string, err error) {
+func (h *PodMutatingHandler) jobOwnerReader() client.Reader {
+	if h != nil && h.APIReader != nil {
+		return h.APIReader
+	}
+	if h != nil {
+		return h.Client
+	}
+	return nil
+}
+
+func resolveCronJobOwner(ctx context.Context, c client.Reader, namespace, jobName string) (kind, name string, err error) {
+	if c == nil {
+		return "", "", fmt.Errorf("no client to resolve Job %s/%s", namespace, jobName)
+	}
 	job := &batchv1.Job{}
 	if err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: jobName}, job); err != nil {
 		return "", "", err
@@ -638,10 +653,40 @@ func recEligibleForCreateSizing(
 	if rec == nil {
 		return false
 	}
+	if latestInPlaceOutcomeBlocksCreate(history, workload) {
+		return false
+	}
 	if hasMinConfidence(rec.Containers, minConfidenceForInitialSizing) {
 		return true
 	}
 	return hasSuccessfulInPlaceHistory(history, workload)
+}
+
+// latestInPlaceOutcomeBlocksCreate is true when the newest persist-relevant
+// in-place row for the workload is Reverted or Failed.
+func latestInPlaceOutcomeBlocksCreate(history []attunev1alpha1.ResizeHistoryEntry, workload string) bool {
+	if workload == "" {
+		return false
+	}
+	for i := len(history) - 1; i >= 0; i-- {
+		h := history[i]
+		if h.Workload != workload {
+			continue
+		}
+		if h.Resource == "template" || h.Method == "TemplatePersistence" {
+			continue
+		}
+		method := h.Method
+		if method == "" {
+			method = "InPlace"
+		}
+		if method != "InPlace" {
+			continue
+		}
+		return h.Result == attunev1alpha1.ResizeResultReverted ||
+			h.Result == attunev1alpha1.ResizeResultFailed
+	}
+	return false
 }
 
 func hasSuccessfulInPlaceHistory(history []attunev1alpha1.ResizeHistoryEntry, workload string) bool {

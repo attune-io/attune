@@ -35,6 +35,7 @@ import (
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -652,6 +653,87 @@ func TestPodMutatingHandler_LowConfidence_RevertedHistorySkips(t *testing.T) {
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
 	require.True(t, resp.Allowed)
 	assert.Nil(t, resp.Patches, "Reverted history must not unlock CREATE")
+}
+
+func TestPodMutatingHandler_HighConfidence_LatestRevertedSkips(t *testing.T) {
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{
+		{
+			Workload: "my-app",
+			Method:   "InPlace",
+			Result:   attunev1alpha1.ResizeResultReverted,
+		},
+	}
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+		WithObjects(policy, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
+	require.True(t, resp.Allowed)
+	assert.Nil(t, resp.Patches, "high-confidence rec after Reverted must not CREATE-size")
+}
+
+func TestPodMutatingHandler_CronJobStartupBoostDoesNotRaise(t *testing.T) {
+	policy := testPolicy("etl-policy", "default", "CronJob", "nightly-etl", true, attunev1alpha1.UpdateTypeRecommend)
+	policy.Spec.CPU.StartupBoost = &attunev1alpha1.StartupBoost{
+		Multiplier: "3.0",
+		Duration:   metav1.Duration{Duration: 30 * time.Second},
+	}
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "nightly-etl-29184000",
+			Namespace: "default",
+			OwnerReferences: []metav1.OwnerReference{
+				{Kind: "CronJob", Name: "nightly-etl"},
+			},
+		},
+	}
+	pod := testPod("nightly-etl-29184000-abc", "Job", "nightly-etl-29184000")
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+		WithObjects(policy, job, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	req := makeAdmissionRequest(t, pod, "default")
+	resp := handler.Handle(context.Background(), req)
+	require.True(t, resp.Allowed)
+	require.NotEmpty(t, resp.Patches)
+	mutatedPod := patchedPod(t, req.Object.Raw, resp)
+	got := mutatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+	assert.True(t, got.Equal(resource.MustParse("500m")),
+		"CronJob CREATE must stay at rec, got %s", got.String())
+	assert.Empty(t, mutatedPod.Annotations[AnnotationStartupBoostAt])
+}
+
+func TestPodMutatingHandler_JobCacheMissUsesAPIReader(t *testing.T) {
+	policy := testPolicy("etl-policy", "default", "CronJob", "nightly-etl", true, attunev1alpha1.UpdateTypeRecommend)
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "nightly-etl-29184000",
+			Namespace: "default",
+			OwnerReferences: []metav1.OwnerReference{
+				{Kind: "CronJob", Name: "nightly-etl"},
+			},
+		},
+	}
+	pod := testPod("nightly-etl-29184000-abc", "Job", "nightly-etl-29184000")
+	cache := fake.NewClientBuilder().WithScheme(testScheme()).
+		WithObjects(policy, testNamespace("default", nil)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*batchv1.Job); ok {
+					return apierrors.NewNotFound(batchv1.Resource("jobs"), key.Name)
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}).Build()
+	live := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(job).Build()
+	handler := &PodMutatingHandler{Client: cache, APIReader: live, Logger: logr.Discard()}
+
+	req := makeAdmissionRequest(t, pod, "default")
+	resp := handler.Handle(context.Background(), req)
+	require.True(t, resp.Allowed)
+	require.NotEmpty(t, resp.Patches, "live Job Get must still CREATE-size")
 }
 
 func TestPodMutatingHandler_LowConfidence_EmptyMethodHistoryApplies(t *testing.T) {

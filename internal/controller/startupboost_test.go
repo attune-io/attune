@@ -442,6 +442,80 @@ func TestApplyStartupBoosts_SkipsWhenAlreadyAtBoostedLevel(t *testing.T) {
 		"already-at-boosted inside the window must persist a startup-boost annotation so expiry can run")
 }
 
+func TestApplyStartupBoosts_AboveBoostTargetDoesNotStamp(t *testing.T) {
+	scheme := testScheme()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
+				StartupBoost: &attunev1alpha1.StartupBoost{
+					Multiplier: "2.0",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute},
+				},
+			},
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "my-app-abc",
+			Namespace:         "default",
+			CreationTimestamp: metav1.NewTime(now.Add(-30 * time.Second)),
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1000m"),
+							corev1.ResourceMemory: resource.MustParse("128Mi"),
+						},
+					},
+				},
+			},
+		},
+	}
+	clientset := kubefake.NewSimpleClientset(pod)
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+	r.SetNowFunc(func() time.Time { return now })
+
+	logger := ctrl.Log.WithName("test")
+	resizer := resize.NewPodResizer(clientset, logger)
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "my-app",
+			Kind:     "Deployment",
+			Containers: []attunev1alpha1.ContainerRecommendation{
+				{
+					Name: "main",
+					Recommended: attunev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("200m"),
+					},
+				},
+			},
+		},
+	}
+	r.applyStartupBoosts(context.Background(), policy, map[string][]corev1.Pod{"my-app": {*pod}}, recs, resizer, nil)
+
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			t.Fatal("must not resize when current CPU is already above rec*multiplier")
+		}
+	}
+	var updated corev1.Pod
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "my-app-abc", Namespace: "default",
+	}, &updated))
+	assert.Empty(t, updated.Annotations[annotationStartupBoostAt],
+		"template leftover above the boost target must not be stamped")
+}
+
 func TestApplyStartupBoosts_RetriesAnnotationWhenAlreadyBoosted(t *testing.T) {
 	// After a successful boost resize, if annotation persist fails, the
 	// next reconcile sees current >= boosted and must retry the annotation
@@ -2116,4 +2190,70 @@ func TestApplyStartupBoosts_DestCap(t *testing.T) {
 				"live startup boost CPU dest")
 		})
 	}
+}
+
+func TestApplyStartupBoosts_RequestsAndLimitsDoesNotInventMemoryLimit(t *testing.T) {
+	scheme := testScheme()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	both := attunev1alpha1.ControlledRequestsAndLimits
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
+				ControlledValues: &both,
+				StartupBoost: &attunev1alpha1.StartupBoost{
+					Multiplier: "2.0",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute},
+				},
+			},
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "burstable-app",
+			Namespace:         "default",
+			CreationTimestamp: metav1.NewTime(now.Add(-30 * time.Second)),
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning, QOSClass: corev1.PodQOSBurstable},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "main",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("100m"),
+						corev1.ResourceMemory: resource.MustParse("256Mi"),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("200m"),
+					},
+				},
+			}},
+		},
+	}
+	clientset := kubefake.NewSimpleClientset(pod)
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+	r.SetNowFunc(func() time.Time { return now })
+
+	resizer := resize.NewPodResizer(clientset, ctrl.Log)
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "burstable-app",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "main",
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest: resource.MustParse("100m"),
+				CPULimit:   resource.MustParse("200m"),
+			},
+		}},
+	}}
+	r.applyStartupBoosts(context.Background(), policy, map[string][]corev1.Pod{"burstable-app": {*pod}}, recs, resizer, nil)
+
+	got, err := clientset.CoreV1().Pods(pod.Namespace).Get(context.Background(), pod.Name, metav1.GetOptions{})
+	require.NoError(t, err)
+	_, hasMemLim := got.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory]
+	assert.False(t, hasMemLim, "CPU RequestsAndLimits boost must not invent a memory dest")
 }

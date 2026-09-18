@@ -324,7 +324,7 @@ type CloudWatchConfig struct {
 }
 
 // ResourceConfig defines resource recommendation parameters.
-// +kubebuilder:validation:XValidation:rule="!has(self.minAllowed) || !has(self.maxAllowed) || quantity(self.minAllowed).compareTo(quantity(self.maxAllowed)) <= 0",message="minAllowed must be less than or equal to maxAllowed"
+// +kubebuilder:validation:XValidation:rule="!has(self.minAllowed) || !has(self.maxAllowed) || quantity(string(self.minAllowed)).compareTo(quantity(string(self.maxAllowed))) <= 0",message="minAllowed must be less than or equal to maxAllowed"
 type ResourceConfig struct {
 	// Percentile is the usage percentile to target for recommendations.
 	// Supported values: 50, 90, 95, 99. Omit or set to 0 to use the default

@@ -12,9 +12,11 @@ Startup boost has two apply paths.
 
 **CREATE webhook.** When a matching policy has a recommendation and
 `initialSizing` is on, the mutating webhook writes
-`recommended_cpu * multiplier` onto the new pod. Recommend mode
-CREATE is limited to CronJob and Job owners (those pods cannot be
-resized in place). In `RequestsAndLimits` mode the webhook raises
+`recommended_cpu * multiplier` onto the new pod. Job and CronJob
+pods are admitted at the steady recommendation only. Boost never
+applies there because batch pods are not resized in place, so
+expiry cannot run. Recommend mode CREATE is limited to CronJob
+and Job owners. In `RequestsAndLimits` mode the webhook raises
 the CPU dest with the boosted request only when rec dest is
 non-zero, so Guaranteed pods still get headroom. A zero rec dest
 dest-caps leftover dest only and does not invent dest.

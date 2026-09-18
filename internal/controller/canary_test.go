@@ -218,6 +218,27 @@ func TestFirstOneShotPodNeedingResize_SkipsMemoryPressureIncrease(t *testing.T) 
 	assert.Equal(t, "pod-1", got[0].Name)
 }
 
+func TestFirstOneShotPodNeedingResize_SkipsStartupBoostWindow(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	pod0 := oneshotResizePod("pod-0", "1", "512Mi")
+	pod0.Annotations = map[string]string{
+		annotationStartupBoostAt: now.UTC().Format(time.RFC3339),
+	}
+	pod1 := oneshotResizePod("pod-1", "1", "512Mi")
+	rec := newResizeRecommendation("api", "1", "512Mi", "0", "0", "500m", "512Mi", "0", "0")
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.CPU.StartupBoost = &attunev1alpha1.StartupBoost{
+		Multiplier: "2.0",
+		Duration:   metav1.Duration{Duration: 2 * time.Minute},
+	}
+
+	r := newReconcilerWithClient()
+	r.SetNowFunc(func() time.Time { return now })
+	got := r.firstOneShotPodNeedingResize(context.Background(), policy, []corev1.Pod{pod0, pod1}, rec, nil)
+	require.Len(t, got, 1)
+	assert.Equal(t, "pod-1", got[0].Name)
+}
+
 func TestFirstOneShotPodNeedingResize_SkipsQoSChange(t *testing.T) {
 	// pod-0 is Guaranteed (500/500). Rec lowers memory request only, so
 	// PreservesQoS is false and shouldSkipResize blocks it. pod-1 is

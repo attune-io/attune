@@ -533,6 +533,48 @@ func TestIncreaseExceedsCurrentEnvelope_InitContainerLimit(t *testing.T) {
 	assert.True(t, initRes.Limits.Cpu().Equal(qty(t, "400m")))
 }
 
+func TestSumContainerRequests_RegularInitDoesNotInflateRunningSum(t *testing.T) {
+	pod := newTestPod("web-0", "default", "app", "200m", "128Mi", "200m", "256Mi")
+	pod.Spec.InitContainers = []corev1.Container{{
+		Name: "migrate",
+		Resources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("500m"),
+			},
+		},
+	}}
+	sum := sumContainerRequests(pod, corev1.ResourceCPU)
+	assert.True(t, sum.Equal(resource.MustParse("500m")),
+		"CREATE/template raise uses max(running, init)=500m, not 700m; got %s", sum.String())
+
+	pod.Spec.Resources = &corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("200m")},
+	}
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("200m")},
+	}
+	planned := applyPlannedContainer(pod, "app", target)
+	assert.False(t, increaseExceedsCurrentEnvelope(pod, planned, "app", target),
+		"app staying at 200m must not skip because of a regular init")
+}
+
+func TestSumContainerRequests_NativeSidecarCounts(t *testing.T) {
+	always := corev1.ContainerRestartPolicyAlways
+	pod := newTestPod("web-0", "default", "app", "200m", "128Mi", "200m", "256Mi")
+	pod.Spec.InitContainers = []corev1.Container{{
+		Name:          "mesh",
+		RestartPolicy: &always,
+		Resources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("100m"),
+			},
+		},
+	}}
+	sum := sumContainerRequests(pod, corev1.ResourceCPU)
+	assert.True(t, sum.Equal(resource.MustParse("300m")),
+		"native sidecar must count in the running sum, got %s", sum.String())
+}
+
 func TestContainerResources_NilAndMissing(t *testing.T) {
 	assert.Empty(t, containerResources(nil, "app").Requests)
 	pod := newTestPod("web-0", "default", "app", "100m", "128Mi", "200m", "256Mi")

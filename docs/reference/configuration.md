@@ -565,7 +565,7 @@ Temporarily increases CPU requests for newly created or restarted pods to accele
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `startupBoost.multiplier` | string | (none) | Scales the recommended CPU request during startup. For example, `"3.0"` means 3x the steady-state recommendation. Must be > 1.0 and <= 10.0. |
-| `startupBoost.duration` | duration | (none) | How long the boost lasts before reducing to the steady-state recommendation. Must be >= 10s and <= 1h. CREATE and live reconcile dest-cap the boosted request at leftover dest when `controlledValues` is `RequestsOnly`. When it is `RequestsAndLimits` and a rec dest is set, dest-cap uses that rec dest (leftover dest is not a skip). |
+| `startupBoost.duration` | duration | (none) | How long the boost lasts before reducing to the steady-state recommendation. Must be >= 10s and <= 1h. CREATE and live reconcile dest-cap the boosted request at leftover dest when `controlledValues` is `RequestsOnly`. When it is `RequestsAndLimits` and a rec dest is set, dest-cap uses that rec dest (leftover dest is not a skip). Job and CronJob pods skip CREATE boost because expiry cannot run. |
 
 Example:
 

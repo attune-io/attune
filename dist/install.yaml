@@ -221,7 +221,7 @@ spec:
                 type: object
                 x-kubernetes-validations:
                 - message: minAllowed must be less than or equal to maxAllowed
-                  rule: '!has(self.minAllowed) || !has(self.maxAllowed) || quantity(self.minAllowed).compareTo(quantity(self.maxAllowed))
+                  rule: '!has(self.minAllowed) || !has(self.maxAllowed) || quantity(string(self.minAllowed)).compareTo(quantity(string(self.maxAllowed)))
                     <= 0'
               excludeKnownSidecars:
                 description: |-
@@ -381,7 +381,7 @@ spec:
                 type: object
                 x-kubernetes-validations:
                 - message: minAllowed must be less than or equal to maxAllowed
-                  rule: '!has(self.minAllowed) || !has(self.maxAllowed) || quantity(self.minAllowed).compareTo(quantity(self.maxAllowed))
+                  rule: '!has(self.minAllowed) || !has(self.maxAllowed) || quantity(string(self.minAllowed)).compareTo(quantity(string(self.maxAllowed)))
                     <= 0'
               metricsSource:
                 description: MetricsSource configures default metrics source settings.
@@ -1165,7 +1165,7 @@ spec:
                 type: object
                 x-kubernetes-validations:
                 - message: minAllowed must be less than or equal to maxAllowed
-                  rule: '!has(self.minAllowed) || !has(self.maxAllowed) || quantity(self.minAllowed).compareTo(quantity(self.maxAllowed))
+                  rule: '!has(self.minAllowed) || !has(self.maxAllowed) || quantity(string(self.minAllowed)).compareTo(quantity(string(self.maxAllowed)))
                     <= 0'
               excludeKnownSidecars:
                 description: |-
@@ -1325,7 +1325,7 @@ spec:
                 type: object
                 x-kubernetes-validations:
                 - message: minAllowed must be less than or equal to maxAllowed
-                  rule: '!has(self.minAllowed) || !has(self.maxAllowed) || quantity(self.minAllowed).compareTo(quantity(self.maxAllowed))
+                  rule: '!has(self.minAllowed) || !has(self.maxAllowed) || quantity(string(self.minAllowed)).compareTo(quantity(string(self.maxAllowed)))
                     <= 0'
               metricsSource:
                 description: MetricsSource configures default metrics source settings.
@@ -2105,7 +2105,7 @@ spec:
                 type: object
                 x-kubernetes-validations:
                 - message: minAllowed must be less than or equal to maxAllowed
-                  rule: '!has(self.minAllowed) || !has(self.maxAllowed) || quantity(self.minAllowed).compareTo(quantity(self.maxAllowed))
+                  rule: '!has(self.minAllowed) || !has(self.maxAllowed) || quantity(string(self.minAllowed)).compareTo(quantity(string(self.maxAllowed)))
                     <= 0'
               excludeKnownSidecars:
                 description: |-
@@ -2273,7 +2273,7 @@ spec:
                 type: object
                 x-kubernetes-validations:
                 - message: minAllowed must be less than or equal to maxAllowed
-                  rule: '!has(self.minAllowed) || !has(self.maxAllowed) || quantity(self.minAllowed).compareTo(quantity(self.maxAllowed))
+                  rule: '!has(self.minAllowed) || !has(self.maxAllowed) || quantity(string(self.minAllowed)).compareTo(quantity(string(self.maxAllowed)))
                     <= 0'
               metricsSource:
                 description: |-

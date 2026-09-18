@@ -515,6 +515,11 @@ func TestRetryTemplateRestoreIfAlreadyReverted_UsesCallerPod(t *testing.T) {
 		Enabled: boolPtr(true),
 		When:    attunev1alpha1.TemplatePersistenceAfterSuccessfulResize,
 	}
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{{
+		Workload:  "api",
+		Container: "app",
+		Result:    attunev1alpha1.ResizeResultReverted,
+	}}
 	record := original256MiRecord()
 	live := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "api-abc", Namespace: "default"},
@@ -533,6 +538,48 @@ func TestRetryTemplateRestoreIfAlreadyReverted_UsesCallerPod(t *testing.T) {
 	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(deploy), &got))
 	assert.True(t, got.Spec.Template.Spec.Containers[0].Resources.Requests.Memory().Equal(resource.MustParse("256Mi")),
 		"restore must use the caller-supplied live pod, not a Clientset Get")
+}
+
+func TestRetryTemplateRestoreIfAlreadyReverted_SafeWithoutRevertDoesNotRestore(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+
+	deploy := persistAtRec64MiDeployment()
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: boolPtr(true),
+		When:    attunev1alpha1.TemplatePersistenceAfterSuccessfulResize,
+	}
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{{
+		Workload:  "api",
+		Container: "app",
+		Result:    attunev1alpha1.ResizeResultSuccess,
+	}}
+	record := original256MiRecord()
+	live := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "api-abc", Namespace: "default"},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name:      "app",
+				Resources: record.OriginalResources,
+			}},
+		},
+	}
+
+	err := r.retryTemplateRestoreIfAlreadyReverted(context.Background(), policy, []client.Object{deploy}, live, record)
+	require.NoError(t, err)
+
+	var got appsv1.Deployment
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(deploy), &got))
+	assert.True(t, got.Spec.Template.Spec.Containers[0].Resources.Requests.Memory().Equal(resource.MustParse("64Mi")),
+		"Safe match without a Reverted row must not restore the original snapshot")
 }
 
 func TestAcquireReleaseEvictionLock_DeletesWhenIdle(t *testing.T) {

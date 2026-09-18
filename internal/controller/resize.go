@@ -303,6 +303,10 @@ func (r *AttunePolicyReconciler) oneShotPodAllNeedingContainersBlocked(
 			blocked++
 			continue
 		}
+		if reason := startupBoostBlocksCPUDecrease(policy, pod, containerRec.Name, target, r.now()); reason != "" {
+			blocked++
+			continue
+		}
 		skip, reason := r.shouldSkipResize(ctx, pod, containerRec, target, checks)
 		if skip && reason != "" {
 			blocked++
@@ -1056,6 +1060,10 @@ func (r *AttunePolicyReconciler) resizeContainer(
 			if r.Recorder != nil {
 				r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, string(attunev1alpha1.ResizeResultReverted), "revert",
 					"Reverted resize on %s/%s: %s", workloadName, containerRec.Name, reason)
+			}
+			if err := r.markResizeTime(ctx, policy, workloadName); err != nil {
+				logger.Error(err, "Failed to stamp last-resize-time after apply revert",
+					"pod", pod.Name, "workload", workloadName)
 			}
 		}
 		// Always mark history entries regardless of whether the revert succeeded.

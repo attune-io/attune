@@ -394,6 +394,7 @@ func main() {
 		mgr.GetWebhookServer().Register("/mutate-v1-pod",
 			&webhookserver.Admission{Handler: &webhook.PodMutatingHandler{
 				Client:       mgr.GetClient(),
+				APIReader:    mgr.GetAPIReader(),
 				Logger:       setupLog.WithName("pod-initial-sizing"),
 				Capabilities: caps,
 			}})
