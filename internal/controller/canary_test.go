@@ -252,6 +252,21 @@ func TestFirstOneShotPodNeedingResize_SkipsEnvelopeConstraint(t *testing.T) {
 	assert.Equal(t, "pod-1", got[0].Name)
 }
 
+func TestFirstOneShotPodNeedingResize_AllBlockedReturnsFirst(t *testing.T) {
+	pod0 := oneshotResizePod("pod-0", "200m", "256Mi")
+	withPodEnvelope(&pod0, "200m", "256Mi", "", "")
+	pod0.Status.QOSClass = corev1.PodQOSBurstable
+	pod1 := oneshotResizePod("pod-1", "200m", "256Mi")
+	withPodEnvelope(&pod1, "200m", "256Mi", "", "")
+	pod1.Status.QOSClass = corev1.PodQOSBurstable
+	rec := newResizeRecommendation("api", "200m", "256Mi", "0", "0", "500m", "256Mi", "0", "0")
+
+	r := newReconcilerWithClient()
+	got := r.firstOneShotPodNeedingResize(context.Background(), newTestPolicy("test-policy", "default"), []corev1.Pod{pod0, pod1}, rec, nil)
+	require.Len(t, got, 1)
+	assert.Equal(t, "pod-0", got[0].Name)
+}
+
 func TestFirstOneShotPodNeedingResize_SkipsQoSChange(t *testing.T) {
 	// pod-0 is Guaranteed (500/500). Rec lowers memory request only, so
 	// PreservesQoS is false and shouldSkipResize blocks it. pod-1 is

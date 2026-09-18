@@ -74,9 +74,10 @@ func selectPodsForResize(pods []corev1.Pod, mode attunev1alpha1.UpdateType, cana
 
 // firstOneShotPodNeedingResize returns the first eligible pod whose live
 // requests/limits still differ from the post-clamp post-floor target (at
-// most one) and that is not blocked from applying that change. Already-at-
-// target and permanently blocked replicas are skipped so OneShot can walk
-// the remaining set across cycles.
+// most one). Unblocked needing replicas are preferred. If every needing
+// replica is blocked (envelope, boost, QoS, ...), the first blocked
+// needing live pod is returned so resizeContainer can emit ResizeSkipped
+// and a Failed history row. Already-at-target replicas are skipped.
 func (r *AttunePolicyReconciler) firstOneShotPodNeedingResize(
 	ctx context.Context,
 	policy *attunev1alpha1.AttunePolicy,
@@ -84,6 +85,7 @@ func (r *AttunePolicyReconciler) firstOneShotPodNeedingResize(
 	rec attunev1alpha1.WorkloadRecommendation,
 	checks *resizePreChecks,
 ) []corev1.Pod {
+	var firstBlocked *corev1.Pod
 	for i := range pods {
 		p := &pods[i]
 		if !resize.IsEligibleForResize(p) {
@@ -109,9 +111,15 @@ func (r *AttunePolicyReconciler) firstOneShotPodNeedingResize(
 			continue
 		}
 		if r.oneShotPodAllNeedingContainersBlocked(ctx, policy, p, rec, checks) {
+			if firstBlocked == nil {
+				firstBlocked = p
+			}
 			continue
 		}
 		return []corev1.Pod{*p}
+	}
+	if firstBlocked != nil {
+		return []corev1.Pod{*firstBlocked}
 	}
 	return nil
 }

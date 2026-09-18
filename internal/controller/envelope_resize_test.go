@@ -102,6 +102,44 @@ func TestExecuteResizes_EnvelopeInPlaceOff_SkipsIncrease(t *testing.T) {
 	}
 }
 
+func TestExecuteResizes_OneShotEnvelopeSkipRecordsHistory(t *testing.T) {
+	pod := withPodEnvelope(newResizePod("api-server", "200m", "256Mi", "1000m", "1Gi"),
+		"200m", "256Mi", "", "")
+	pod.Status.QOSClass = corev1.PodQOSBurstable
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	reconciler, _ := newResizeReconciler(pod, deploy)
+	recorder := events.NewFakeRecorder(10)
+	reconciler.Recorder = recorder
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeOneShot
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server",
+			"200m", "256Mi", "1000m", "1Gi",
+			"500m", "256Mi", "1000m", "1Gi"),
+	}
+
+	count, history := reconciler.executeResizes(context.Background(), policy,
+		[]client.Object{deploy}, recommendations, podMap("api-server", pod), nil, nil)
+	assert.Equal(t, 0, count)
+	require.NotEmpty(t, history)
+	assert.Equal(t, attunev1alpha1.ResizeResultFailed, history[0].Result)
+	assert.Equal(t, resize.ReasonEnvelopeConstraint, history[0].Reason)
+
+	found := false
+	for {
+		select {
+		case event := <-recorder.Events:
+			if strings.Contains(event, "ResizeSkipped") && strings.Contains(event, resize.EnvelopeSkipMessage) {
+				found = true
+			}
+		default:
+			require.True(t, found, "expected ResizeSkipped with envelope message")
+			return
+		}
+	}
+}
+
 func TestExecuteResizes_EnvelopeInPlaceOn_RaisesInSameUpdate(t *testing.T) {
 	pod := withPodEnvelope(newResizePod("api-server", "200m", "256Mi", "1000m", "1Gi"),
 		"200m", "256Mi", "", "")
