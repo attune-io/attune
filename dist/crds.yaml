@@ -3051,9 +3051,9 @@ spec:
                 type: object
               lastReconcileTime:
                 description: |-
-                  LastReconcileTime is the timestamp of the most recent reconciliation.
-                  Serves as a heartbeat to confirm the operator is actively evaluating
-                  this policy, even when no state changes occur.
+                  LastReconcileTime is the timestamp of the most recent status write.
+                  A reconcile that finds Ready already in the intended state does not
+                  stamp this field again.
                 format: date-time
                 type: string
               recommendations:

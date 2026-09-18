@@ -850,9 +850,9 @@ type AttunePolicyStatus struct {
 	// +optional
 	Canary *CanaryStatus `json:"canary,omitempty"`
 
-	// LastReconcileTime is the timestamp of the most recent reconciliation.
-	// Serves as a heartbeat to confirm the operator is actively evaluating
-	// this policy, even when no state changes occur.
+	// LastReconcileTime is the timestamp of the most recent status write.
+	// A reconcile that finds Ready already in the intended state does not
+	// stamp this field again.
 	// +optional
 	LastReconcileTime *metav1.Time `json:"lastReconcileTime,omitempty"`
 

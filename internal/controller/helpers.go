@@ -161,10 +161,29 @@ func appendResizedContainer(pod *corev1.Pod, containerName string) {
 	pod.Annotations[annotationResizedContainers] = existing + "," + containerName
 }
 
+// failedReadyAlreadySet is true when Ready is already False with this
+// reason, message, and generation. setFailedCondition uses this to skip
+// a no-op status write on a converged reconcile.
+func failedReadyAlreadySet(policy *attunev1alpha1.AttunePolicy, reason, message string) bool {
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionReady)
+	if cond == nil {
+		return false
+	}
+	return cond.Status == metav1.ConditionFalse &&
+		cond.Reason == reason &&
+		cond.Message == message &&
+		cond.ObservedGeneration == policy.Generation
+}
+
 // setFailedCondition sets a Ready=False condition on the policy and updates
-// the status subresource. Errors from the status update are logged but not
-// returned, since the caller typically returns a requeue result regardless.
+// the status subresource. A matching Ready=False is left unwritten so a
+// second reconcile does not bump LastReconcileTime. Errors from the status
+// update are logged but not returned, since the caller typically returns a
+// requeue result regardless.
 func (r *AttunePolicyReconciler) setFailedCondition(ctx context.Context, policy *attunev1alpha1.AttunePolicy, reason, message string) {
+	if failedReadyAlreadySet(policy, reason, message) {
+		return
+	}
 	logger := log.FromContext(ctx)
 	key := types.NamespacedName{Name: policy.Name, Namespace: policy.Namespace}
 
