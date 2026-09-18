@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -241,6 +242,49 @@ func TestPlanPodActions_RequestsOnlyKeepsLiveLeftoverLimit(t *testing.T) {
 	assert.Equal(t, int64(200), actions[0].Target.Limits.Cpu().MilliValue(),
 		"RequestsOnly must keep dest leftover limit 200m, not template 500m")
 	assert.Contains(t, actions[0].Clamped, "cpu")
+}
+
+func TestPlanPodActions_BoostWindowAndEnvelopeZeroBudget(t *testing.T) {
+	t.Parallel()
+
+	t.Run("startup boost window", func(t *testing.T) {
+		now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+		pod := newResizePod("api-server", "1", "512Mi", "1", "512Mi")
+		pod.Annotations = map[string]string{
+			annotationStartupBoostAt: now.UTC().Format(time.RFC3339),
+		}
+		r := NewAttunePolicyReconciler()
+		r.SetNowFunc(func() time.Time { return now })
+		policy := newTestPolicy("p", "default")
+		policy.Spec.CPU.StartupBoost = &attunev1alpha1.StartupBoost{
+			Multiplier: "2.0",
+			Duration:   metav1.Duration{Duration: 2 * time.Minute},
+		}
+		rec := newResizeRecommendation("api-server",
+			"1", "512Mi", "1", "512Mi",
+			"500m", "512Mi", "0", "0")
+
+		actions := r.planPodActions(policy, pod, rec)
+		require.Len(t, actions, 1)
+		assert.False(t, actions[0].AtTarget)
+		assert.Equal(t, int64(0), actions[0].CPUIncrease)
+	})
+
+	t.Run("envelope skip", func(t *testing.T) {
+		pod := withPodEnvelope(newResizePod("api-server", "200m", "256Mi", "1000m", "1Gi"),
+			"200m", "256Mi", "", "")
+		pod.Status.QOSClass = corev1.PodQOSBurstable
+		r := NewAttunePolicyReconciler()
+		policy := newTestPolicy("p", "default")
+		rec := newResizeRecommendation("api-server",
+			"200m", "256Mi", "1000m", "1Gi",
+			"500m", "256Mi", "1000m", "1Gi")
+
+		actions := r.planPodActions(policy, pod, rec)
+		require.Len(t, actions, 1)
+		assert.False(t, actions[0].AtTarget)
+		assert.Equal(t, int64(0), actions[0].CPUIncrease)
+	})
 }
 
 func TestObserveAndPlanPod_SkipsLiveGetWhenListedAtTarget(t *testing.T) {
