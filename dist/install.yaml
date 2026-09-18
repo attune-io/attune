@@ -214,7 +214,15 @@ spec:
                     - duration
                     - multiplier
                     type: object
+                    x-kubernetes-validations:
+                    - message: startupBoost.duration must be between 10s and 1h
+                      rule: duration(self.duration) >= duration('10s') && duration(self.duration)
+                        <= duration('1h')
                 type: object
+                x-kubernetes-validations:
+                - message: minAllowed must be less than or equal to maxAllowed
+                  rule: '!has(self.minAllowed) || !has(self.maxAllowed) || quantity(self.minAllowed).compareTo(quantity(self.maxAllowed))
+                    <= 0'
               excludeKnownSidecars:
                 description: |-
                   ExcludeKnownSidecars, when true (the default when unset on both
@@ -366,7 +374,15 @@ spec:
                     - duration
                     - multiplier
                     type: object
+                    x-kubernetes-validations:
+                    - message: startupBoost.duration must be between 10s and 1h
+                      rule: duration(self.duration) >= duration('10s') && duration(self.duration)
+                        <= duration('1h')
                 type: object
+                x-kubernetes-validations:
+                - message: minAllowed must be less than or equal to maxAllowed
+                  rule: '!has(self.minAllowed) || !has(self.maxAllowed) || quantity(self.minAllowed).compareTo(quantity(self.maxAllowed))
+                    <= 0'
               metricsSource:
                 description: MetricsSource configures default metrics source settings.
                 properties:
@@ -1142,7 +1158,15 @@ spec:
                     - duration
                     - multiplier
                     type: object
+                    x-kubernetes-validations:
+                    - message: startupBoost.duration must be between 10s and 1h
+                      rule: duration(self.duration) >= duration('10s') && duration(self.duration)
+                        <= duration('1h')
                 type: object
+                x-kubernetes-validations:
+                - message: minAllowed must be less than or equal to maxAllowed
+                  rule: '!has(self.minAllowed) || !has(self.maxAllowed) || quantity(self.minAllowed).compareTo(quantity(self.maxAllowed))
+                    <= 0'
               excludeKnownSidecars:
                 description: |-
                   ExcludeKnownSidecars, when true (the default when unset on both
@@ -1294,7 +1318,15 @@ spec:
                     - duration
                     - multiplier
                     type: object
+                    x-kubernetes-validations:
+                    - message: startupBoost.duration must be between 10s and 1h
+                      rule: duration(self.duration) >= duration('10s') && duration(self.duration)
+                        <= duration('1h')
                 type: object
+                x-kubernetes-validations:
+                - message: minAllowed must be less than or equal to maxAllowed
+                  rule: '!has(self.minAllowed) || !has(self.maxAllowed) || quantity(self.minAllowed).compareTo(quantity(self.maxAllowed))
+                    <= 0'
               metricsSource:
                 description: MetricsSource configures default metrics source settings.
                 properties:
@@ -2066,7 +2098,15 @@ spec:
                     - duration
                     - multiplier
                     type: object
+                    x-kubernetes-validations:
+                    - message: startupBoost.duration must be between 10s and 1h
+                      rule: duration(self.duration) >= duration('10s') && duration(self.duration)
+                        <= duration('1h')
                 type: object
+                x-kubernetes-validations:
+                - message: minAllowed must be less than or equal to maxAllowed
+                  rule: '!has(self.minAllowed) || !has(self.maxAllowed) || quantity(self.minAllowed).compareTo(quantity(self.maxAllowed))
+                    <= 0'
               excludeKnownSidecars:
                 description: |-
                   ExcludeKnownSidecars, when true (the default), automatically skips
@@ -2226,7 +2266,15 @@ spec:
                     - duration
                     - multiplier
                     type: object
+                    x-kubernetes-validations:
+                    - message: startupBoost.duration must be between 10s and 1h
+                      rule: duration(self.duration) >= duration('10s') && duration(self.duration)
+                        <= duration('1h')
                 type: object
+                x-kubernetes-validations:
+                - message: minAllowed must be less than or equal to maxAllowed
+                  rule: '!has(self.minAllowed) || !has(self.maxAllowed) || quantity(self.minAllowed).compareTo(quantity(self.maxAllowed))
+                    <= 0'
               metricsSource:
                 description: |-
                   MetricsSource configures where and how to collect metrics.

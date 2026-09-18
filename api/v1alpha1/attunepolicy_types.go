@@ -324,6 +324,7 @@ type CloudWatchConfig struct {
 }
 
 // ResourceConfig defines resource recommendation parameters.
+// +kubebuilder:validation:XValidation:rule="!has(self.minAllowed) || !has(self.maxAllowed) || quantity(self.minAllowed).compareTo(quantity(self.maxAllowed)) <= 0",message="minAllowed must be less than or equal to maxAllowed"
 type ResourceConfig struct {
 	// Percentile is the usage percentile to target for recommendations.
 	// Supported values: 50, 90, 95, 99. Omit or set to 0 to use the default
@@ -432,6 +433,7 @@ type ResourceConfig struct {
 }
 
 // StartupBoost configures temporary CPU inflation for cold-start optimization.
+// +kubebuilder:validation:XValidation:rule="duration(self.duration) >= duration('10s') && duration(self.duration) <= duration('1h')",message="startupBoost.duration must be between 10s and 1h"
 type StartupBoost struct {
 	// Multiplier scales the recommended CPU request during startup.
 	// For example, "3.0" means 3x the steady-state recommendation.
