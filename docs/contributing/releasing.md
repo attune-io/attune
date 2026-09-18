@@ -165,6 +165,9 @@ local noise).
 - [ ] `Chart.yaml` version and appVersion bumped
 - [ ] No uncommitted changes
 - [ ] Tag pushed to origin
+- [ ] If `attune.io/*` tracking annotation keys or value format changed,
+  add `internal/controller/testdata/annotations/vX.Y.Z.json` and keep
+  older fixtures
 - [ ] GitHub Actions billing is active (the release workflow uses
   `ubuntu-latest`, not self-hosted runners)
 

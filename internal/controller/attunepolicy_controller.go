@@ -298,6 +298,9 @@ func (r *AttunePolicyReconciler) SetNowFunc(fn func() time.Time) {
 	} else {
 		r.nowFunc.Store(&fn)
 	}
+	if r.eventDedup != nil {
+		r.eventDedup.setNow(fn)
+	}
 }
 
 // now returns the current time, using the injected clock if set, otherwise time.Now.

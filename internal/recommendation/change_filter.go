@@ -20,55 +20,39 @@ import (
 	"math"
 
 	"k8s.io/apimachinery/pkg/api/resource"
-
-	"github.com/attune-io/attune/internal/metrics"
 )
 
-// changeFilter rejects changes that are too small (below minChangePercent)
-// or caps changes that are too large (above maxChangePercent). Used only in
-// unit tests; the production path inlines this logic in RecommendWithExplanation.
-type changeFilter struct {
-	minChangePercent float64
-	maxChangePercent float64
-	inner            estimator
-}
-
-// Estimate delegates to the inner estimator and then applies change
-// filtering. If the change is below MinChangePercent, the current value
-// is returned unchanged. If the change exceeds MaxChangePercent, it is
-// capped at MaxChangePercent in the appropriate direction.
-func (e *changeFilter) Estimate(profile metrics.UsageProfile, current resource.Quantity) resource.Quantity {
-	recommended := e.inner.Estimate(profile, current)
-
+// applyChangeFilter is the single min/max change implementation used by
+// RecommendWithExplanation. A change below minChangePercent is skipped.
+// A change above the directional cap is clamped. currentMillis==0 skips
+// the filter so a first recommendation is not divided by zero.
+func applyChangeFilter(current, recommended resource.Quantity, minChangePercent, maxIncreasePercent, maxDecreasePercent float64) (resource.Quantity, string) {
 	currentMillis := float64(current.MilliValue())
-	recommendedMillis := float64(recommended.MilliValue())
-
-	// If current is zero, return recommended as-is to avoid division by zero.
 	if currentMillis == 0 {
-		return recommended
+		return recommended, ""
 	}
 
+	recommendedMillis := float64(recommended.MilliValue())
 	changePct := math.Abs(recommendedMillis-currentMillis) / currentMillis * 100
-
-	// Below minimum threshold: return current unchanged.
-	if changePct < e.minChangePercent {
-		return current.DeepCopy()
+	isIncrease := recommendedMillis > currentMillis
+	maxPct := maxDecreasePercent
+	if isIncrease {
+		maxPct = maxIncreasePercent
 	}
 
-	// Above maximum threshold: cap the change.
-	if changePct > e.maxChangePercent {
-		maxDelta := currentMillis * e.maxChangePercent / 100
-		var capped float64
-		if recommendedMillis > currentMillis {
+	if changePct < minChangePercent {
+		return current.DeepCopy(), "min_change_filtered"
+	}
+	if changePct > maxPct {
+		maxDelta := currentMillis * maxPct / 100
+		capped := currentMillis - maxDelta
+		if isIncrease {
 			capped = currentMillis + maxDelta
-		} else {
-			capped = currentMillis - maxDelta
 		}
 		if recommended.Format == resource.BinarySI {
-			return *resource.NewQuantity(int64(math.Ceil(capped/1000)), resource.BinarySI)
+			return *resource.NewQuantity(int64(math.Ceil(capped/1000)), resource.BinarySI), "max_change_capped"
 		}
-		return *resource.NewMilliQuantity(int64(math.Ceil(capped)), resource.DecimalSI)
+		return *resource.NewMilliQuantity(int64(math.Ceil(capped)), resource.DecimalSI), "max_change_capped"
 	}
-
-	return recommended
+	return recommended, ""
 }

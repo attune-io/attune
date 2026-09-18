@@ -1,0 +1,20 @@
+{
+  "version": "v0.1.27",
+  "observationPeriod": "5m",
+  "now": "2026-01-07T12:02:00Z",
+  "labels": {
+    "attune.io/tracked": "true"
+  },
+  "annotations": {
+    "attune.io/resized-at": "2026-01-07T12:00:00Z",
+    "attune.io/resized-containers": "app",
+    "attune.io/resized-workload": "api-server",
+    "attune.io/original-cpu-request.app": "500m",
+    "attune.io/original-memory-request.app": "512Mi",
+    "attune.io/original-cpu-limit.app": "1",
+    "attune.io/original-memory-limit.app": "1Gi",
+    "attune.io/original-restart-count.app": "0"
+  },
+  "wantPhase": "Observing",
+  "wantContainers": ["app"]
+}

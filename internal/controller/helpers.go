@@ -27,6 +27,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -161,10 +162,29 @@ func appendResizedContainer(pod *corev1.Pod, containerName string) {
 	pod.Annotations[annotationResizedContainers] = existing + "," + containerName
 }
 
+// failedReadyAlreadySet is true when Ready is already False with this
+// reason, message, and generation. setFailedCondition uses this to skip
+// a no-op status write on a converged reconcile.
+func failedReadyAlreadySet(policy *attunev1alpha1.AttunePolicy, reason, message string) bool {
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionReady)
+	if cond == nil {
+		return false
+	}
+	return cond.Status == metav1.ConditionFalse &&
+		cond.Reason == reason &&
+		cond.Message == message &&
+		cond.ObservedGeneration == policy.Generation
+}
+
 // setFailedCondition sets a Ready=False condition on the policy and updates
-// the status subresource. Errors from the status update are logged but not
-// returned, since the caller typically returns a requeue result regardless.
+// the status subresource. A matching Ready=False is left unwritten so a
+// second reconcile does not bump LastReconcileTime. Errors from the status
+// update are logged but not returned, since the caller typically returns a
+// requeue result regardless.
 func (r *AttunePolicyReconciler) setFailedCondition(ctx context.Context, policy *attunev1alpha1.AttunePolicy, reason, message string) {
+	if failedReadyAlreadySet(policy, reason, message) {
+		return
+	}
 	logger := log.FromContext(ctx)
 	key := types.NamespacedName{Name: policy.Name, Namespace: policy.Namespace}
 
@@ -223,6 +243,7 @@ type eventDedup struct {
 	seen  map[string]time.Time
 	ttl   time.Duration
 	calls int
+	now   func() time.Time
 }
 
 func newEventDedup(ttl time.Duration) *eventDedup {
@@ -230,6 +251,19 @@ func newEventDedup(ttl time.Duration) *eventDedup {
 		seen: make(map[string]time.Time),
 		ttl:  ttl,
 	}
+}
+
+func (d *eventDedup) setNow(fn func() time.Time) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.now = fn
+}
+
+func (d *eventDedup) nowTime() time.Time {
+	if d.now != nil {
+		return d.now()
+	}
+	return time.Now()
 }
 
 // shouldEmit returns true if the event should be emitted (not recently seen).
@@ -240,18 +274,18 @@ func (d *eventDedup) shouldEmit(key string) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.calls++
+	now := d.nowTime()
 	if d.calls%1000 == 0 {
-		now := time.Now()
 		for k, t := range d.seen {
 			if now.Sub(t) >= d.ttl {
 				delete(d.seen, k)
 			}
 		}
 	}
-	if last, ok := d.seen[key]; ok && time.Since(last) < d.ttl {
+	if last, ok := d.seen[key]; ok && now.Sub(last) < d.ttl {
 		return false
 	}
-	d.seen[key] = time.Now()
+	d.seen[key] = now
 	return true
 }
 
@@ -1088,11 +1122,47 @@ func maxConsecutiveReverts(history []attunev1alpha1.ResizeHistoryEntry) int {
 	return max
 }
 
+// statusEqualIgnoringHeartbeat is true when two statuses match except
+// LastReconcileTime, condition LastTransitionTime, and per-container
+// LastUpdated. Used to skip a no-op status write on a converged reconcile.
+func statusEqualIgnoringHeartbeat(a, b attunev1alpha1.AttunePolicyStatus) bool {
+	ac := a.DeepCopy()
+	bc := b.DeepCopy()
+	ac.LastReconcileTime = nil
+	bc.LastReconcileTime = nil
+	for i := range ac.Conditions {
+		ac.Conditions[i].LastTransitionTime = metav1.Time{}
+	}
+	for i := range bc.Conditions {
+		bc.Conditions[i].LastTransitionTime = metav1.Time{}
+	}
+	stripRecommendationClocks(ac.Recommendations)
+	stripRecommendationClocks(bc.Recommendations)
+	return apiequality.Semantic.DeepEqual(ac, bc)
+}
+
+func stripRecommendationClocks(recs []attunev1alpha1.WorkloadRecommendation) {
+	for i := range recs {
+		for j := range recs[i].Containers {
+			recs[i].Containers[j].LastUpdated = metav1.Time{}
+		}
+	}
+}
+
 // updateStatusWithRetry performs a status update with up to 4 attempts
 // (3 retries + 1 final) on conflict. On each conflict it re-fetches the
 // policy and re-applies the saved status fields, preserving the higher
-// Resized count from concurrent reconciles.
+// Resized count from concurrent reconciles. A status that only differs
+// by LastReconcileTime is left unwritten.
 func (r *AttunePolicyReconciler) updateStatusWithRetry(ctx context.Context, policy *attunev1alpha1.AttunePolicy, key types.NamespacedName) error {
+	var stored attunev1alpha1.AttunePolicy
+	if err := r.Get(ctx, key, &stored); err != nil {
+		return err
+	}
+	if statusEqualIgnoringHeartbeat(stored.Status, policy.Status) {
+		return nil
+	}
+
 	const maxRetries = 3
 	logger := log.FromContext(ctx)
 

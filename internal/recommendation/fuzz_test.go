@@ -54,11 +54,11 @@ func FuzzPercentileEstimator(f *testing.F) {
 	f.Add(0.1, 0.5, 95)       // typical mid-range
 	f.Add(0.0, 0.0, 50)       // zero input, min percentile
 	f.Add(1000.0, 1000.0, 99) // max bounds, max percentile
-	f.Add(0.5, 0.1, 75)       // inverted p50 > p95
+	f.Add(0.5, 0.1, 90)       // inverted p50 > p95
 	f.Add(0.001, 0.001, 50)   // near-zero boundary
 
 	f.Fuzz(func(t *testing.T, p50, p95 float64, percentile int) {
-		if percentile < 50 || percentile > 99 {
+		if !validCRDPercentile(percentile) {
 			t.Skip()
 		}
 		if p50 < 0 || p95 < 0 || p50 > 1000 || p95 > 1000 {
@@ -101,11 +101,11 @@ func FuzzRecommendationEngine(f *testing.F) {
 	f.Add(0.001, 0.01, 0.0, 50)  // near-zero, no overhead, min percentile
 	f.Add(99.0, 99.0, 499.0, 99) // near-max values
 	f.Add(0.5, 0.01, 100.0, 95)  // high usage vs low current (underprovisioned)
-	f.Add(0.01, 99.0, 50.0, 75)  // low usage vs high current (overprovisioned)
+	f.Add(0.01, 99.0, 50.0, 90)  // low usage vs high current (overprovisioned)
 
 	f.Fuzz(func(t *testing.T, usage, current, overhead float64, percentile int) {
-		// Validate inputs.
-		if percentile < 50 || percentile > 99 || overhead < 0 || overhead > 500 {
+		// Validate inputs. Percentile must be a CRD enum value.
+		if !validCRDPercentile(percentile) || overhead < 0 || overhead > 500 {
 			t.Skip()
 		}
 		if usage < 0 || current <= 0 || usage > 100 || current > 100 {

@@ -6,11 +6,13 @@ Run all unit tests with race detection and coverage:
 make test
 ```
 
-This uses `gotestsum` with auto-retry for flaky tests:
+This uses `gotestsum` with race detection and coverage. Unit tests do
+not retry failures; a flake must be fixed (usually by injecting a clock)
+instead of hidden. `make test-integration` still retries because
+envtest has real infrastructure flakes:
 
 ```bash
 gotestsum --format pkgname \
-  --rerun-fails --rerun-fails-max-failures=5 \
   --packages="./api/... ./cmd/... ./internal/... ./pkg/..." \
   -- -race -timeout=10m \
   -coverpkg=./internal/... \

@@ -25,7 +25,7 @@ import (
 // boundsEstimator clamps the result from the inner estimator to
 // user-defined minimum and maximum values. Values below min are raised
 // to min; values above max are lowered to max. Used only in unit tests;
-// the production path inlines this logic in RecommendWithExplanation.
+// production calls applyBounds from RecommendWithExplanation.
 type boundsEstimator struct {
 	min   resource.Quantity
 	max   resource.Quantity
@@ -36,13 +36,27 @@ type boundsEstimator struct {
 // configured [Min, Max] range.
 func (e *boundsEstimator) Estimate(profile metrics.UsageProfile, current resource.Quantity) resource.Quantity {
 	inner := e.inner.Estimate(profile, current)
+	clamped, _ := applyBounds(inner, e.min, e.max)
+	return clamped
+}
 
-	if inner.Cmp(e.min) < 0 {
-		return e.min.DeepCopy()
+// applyBounds clamps q into [min, max]. The second return is "min", "max",
+// or empty when the value was already inside the range.
+func applyBounds(q, min, max resource.Quantity) (resource.Quantity, string) {
+	if q.Cmp(min) < 0 {
+		return min.DeepCopy(), "min"
 	}
-	if inner.Cmp(e.max) > 0 {
-		return e.max.DeepCopy()
+	if q.Cmp(max) > 0 {
+		return max.DeepCopy(), "max"
 	}
+	return q, ""
+}
 
-	return inner
+func validCRDPercentile(p int) bool {
+	switch p {
+	case 0, 50, 90, 95, 99:
+		return true
+	default:
+		return false
+	}
 }

@@ -324,6 +324,7 @@ type CloudWatchConfig struct {
 }
 
 // ResourceConfig defines resource recommendation parameters.
+// +kubebuilder:validation:XValidation:rule="!has(self.minAllowed) || !has(self.maxAllowed) || quantity(self.minAllowed).compareTo(quantity(self.maxAllowed)) <= 0",message="minAllowed must be less than or equal to maxAllowed"
 type ResourceConfig struct {
 	// Percentile is the usage percentile to target for recommendations.
 	// Supported values: 50, 90, 95, 99. Omit or set to 0 to use the default
@@ -432,6 +433,7 @@ type ResourceConfig struct {
 }
 
 // StartupBoost configures temporary CPU inflation for cold-start optimization.
+// +kubebuilder:validation:XValidation:rule="duration(self.duration) >= duration('10s') && duration(self.duration) <= duration('1h')",message="startupBoost.duration must be between 10s and 1h"
 type StartupBoost struct {
 	// Multiplier scales the recommended CPU request during startup.
 	// For example, "3.0" means 3x the steady-state recommendation.
@@ -765,6 +767,9 @@ type ResizeSchedule struct {
 
 	// DaysOfWeek restricts resizes to specific days. Values: Monday through Sunday.
 	// If omitted, all days are allowed.
+	// An overnight window (End before Start) uses the weekday when the window
+	// opened for the post-midnight tail. Monday 22:00-06:00 includes Tuesday
+	// 03:00 and excludes Tuesday 23:00.
 	// +optional
 	// +kubebuilder:validation:items:Enum=Monday;Tuesday;Wednesday;Thursday;Friday;Saturday;Sunday
 	DaysOfWeek []string `json:"daysOfWeek,omitempty"`
@@ -783,7 +788,9 @@ type TimeWindow struct {
 	Start string `json:"start"`
 
 	// End time in HH:MM format (24-hour). If end < start, the window
-	// wraps past midnight (e.g. start=22:00, end=06:00).
+	// wraps past midnight (e.g. start=22:00, end=06:00). Times are local
+	// wall-clock minutes in Timezone, including DST spring-forward gaps
+	// and fall-back repeated hours.
 	// +kubebuilder:validation:Pattern=`^([01]\d|2[0-3]):[0-5]\d$`
 	End string `json:"end"`
 }
@@ -845,9 +852,9 @@ type AttunePolicyStatus struct {
 	// +optional
 	Canary *CanaryStatus `json:"canary,omitempty"`
 
-	// LastReconcileTime is the timestamp of the most recent reconciliation.
-	// Serves as a heartbeat to confirm the operator is actively evaluating
-	// this policy, even when no state changes occur.
+	// LastReconcileTime is the timestamp of the most recent status write.
+	// A reconcile that finds Ready already in the intended state does not
+	// stamp this field again.
 	// +optional
 	LastReconcileTime *metav1.Time `json:"lastReconcileTime,omitempty"`
 

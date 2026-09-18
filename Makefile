@@ -216,7 +216,6 @@ lint-fix: golangci-lint ## Run golangci-lint with auto-fix
 .PHONY: test
 test: manifests generate gotestsum ## Run unit tests
 	$(GOTESTSUM) --format pkgname \
-		--rerun-fails --rerun-fails-max-failures=5 \
 		--packages="./api/... ./cmd/... ./internal/... ./pkg/..." \
 		-- -race -timeout=10m \
 		-coverpkg=./internal/... \

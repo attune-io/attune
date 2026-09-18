@@ -202,8 +202,19 @@ func pingPrometheusHealthy(ctx context.Context, address string) error {
 	if err != nil {
 		return err
 	}
+	// Own transport when DefaultTransport is a *http.Transport. Sharing it
+	// lets parallel httptest.Server.Close() abort an in-flight ping with
+	// "http: CloseIdleConnections called". Tests may replace DefaultTransport
+	// with a stub RoundTripper; keep that path.
+	transport := http.DefaultTransport
+	if base, ok := http.DefaultTransport.(*http.Transport); ok {
+		cloned := base.Clone()
+		cloned.DisableKeepAlives = true
+		transport = cloned
+	}
 	client := &http.Client{
-		Timeout: prometheusPingTimeout,
+		Timeout:   prometheusPingTimeout,
+		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 5 {
 				return fmt.Errorf("too many redirects")

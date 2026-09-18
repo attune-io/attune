@@ -640,12 +640,12 @@ func TestCombineDefaultsLayers_ClusterOnly(t *testing.T) {
 	cl := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "cl"},
 		Spec: attunev1alpha1.AttuneDefaultsSpec{
-			CPU: &attunev1alpha1.ResourceConfig{Percentile: 80},
+			CPU: &attunev1alpha1.ResourceConfig{Percentile: 90},
 		},
 	}
 	got := CombineDefaultsLayers(cl, nil)
 	require.NotNil(t, got)
-	assert.Equal(t, int32(80), got.Spec.CPU.Percentile)
+	assert.Equal(t, int32(90), got.Spec.CPU.Percentile)
 }
 
 func TestCombineDefaultsLayers_ThreeTier(t *testing.T) {
@@ -673,9 +673,9 @@ func TestCombineDefaultsLayers_ThreeTier(t *testing.T) {
 
 	// Policy still overrides both via MergeDefaults.
 	policy := &attunev1alpha1.AttunePolicy{}
-	policy.Spec.CPU.Percentile = 85
+	policy.Spec.CPU.Percentile = 50
 	MergeDefaults(policy, got)
-	assert.Equal(t, int32(85), policy.Spec.CPU.Percentile)
+	assert.Equal(t, int32(50), policy.Spec.CPU.Percentile)
 	assert.Equal(t, "20", policy.Spec.CPU.Overhead)
 	assert.Equal(t, 10*time.Minute, policy.Spec.UpdateStrategy.Cooldown.Duration)
 }
@@ -699,7 +699,7 @@ func TestCombineDefaultsLayers_AllSpecSectionsAndCostPricing(t *testing.T) {
 	ns := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "ns"},
 		Spec: attunev1alpha1.AttuneDefaultsSpec{
-			CPU: &attunev1alpha1.ResourceConfig{Percentile: 80},
+			CPU: &attunev1alpha1.ResourceConfig{Percentile: 50},
 			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type: attunev1alpha1.UpdateTypeAuto,
 			},
@@ -708,7 +708,7 @@ func TestCombineDefaultsLayers_AllSpecSectionsAndCostPricing(t *testing.T) {
 	}
 	got := CombineDefaultsLayers(cluster, ns)
 	require.NotNil(t, got)
-	assert.Equal(t, int32(80), got.Spec.CPU.Percentile)
+	assert.Equal(t, int32(50), got.Spec.CPU.Percentile)
 	require.NotNil(t, got.Spec.Memory)
 	assert.Equal(t, int32(99), got.Spec.Memory.Percentile)
 	require.NotNil(t, got.Spec.MetricsSource)

@@ -132,46 +132,13 @@ func (e *RecommendationEngine) RecommendWithExplanation(profile metrics.UsagePro
 	}
 	afterConfidence := scaleQuantity(afterBurst, confidenceFactor)
 
-	afterBounds := afterConfidence.DeepCopy()
-	boundsApplied := ""
-	if afterBounds.Cmp(e.minBound) < 0 {
-		afterBounds = e.minBound.DeepCopy()
-		boundsApplied = "min"
-	} else if afterBounds.Cmp(e.maxBound) > 0 {
-		afterBounds = e.maxBound.DeepCopy()
-		boundsApplied = "max"
-	}
+	afterBounds, boundsApplied := applyBounds(afterConfidence, e.minBound, e.maxBound)
 
-	afterChangeFilter := afterBounds.DeepCopy()
-	changeFilterApplied := ""
-	// Determine which directional cap applies. Default to increase cap
-	// for the explanation when current is zero (no change filter runs).
+	afterChangeFilter, changeFilterApplied := applyChangeFilter(
+		current, afterBounds, e.minChangePercent, e.maxIncreasePercent, e.maxDecreasePercent)
 	maxPct := e.maxIncreasePercent
-	currentMillis := float64(current.MilliValue())
-	if currentMillis != 0 {
-		afterBoundsMillis := float64(afterBounds.MilliValue())
-		changePct := math.Abs(afterBoundsMillis-currentMillis) / currentMillis * 100
-		isIncrease := afterBoundsMillis > currentMillis
+	if current.MilliValue() != 0 && afterBounds.MilliValue() <= current.MilliValue() {
 		maxPct = e.maxDecreasePercent
-		if isIncrease {
-			maxPct = e.maxIncreasePercent
-		}
-		if changePct < e.minChangePercent {
-			afterChangeFilter = current.DeepCopy()
-			changeFilterApplied = "min_change_filtered"
-		} else if changePct > maxPct {
-			maxDelta := currentMillis * maxPct / 100
-			capped := currentMillis - maxDelta
-			if isIncrease {
-				capped = currentMillis + maxDelta
-			}
-			if afterBounds.Format == resource.BinarySI {
-				afterChangeFilter = *resource.NewQuantity(int64(math.Ceil(capped/1000)), resource.BinarySI)
-			} else {
-				afterChangeFilter = *resource.NewMilliQuantity(int64(math.Ceil(capped)), resource.DecimalSI)
-			}
-			changeFilterApplied = "max_change_capped"
-		}
 	}
 
 	explanation = RecommendationExplanation{
