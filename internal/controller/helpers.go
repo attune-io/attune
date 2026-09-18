@@ -27,6 +27,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -1121,11 +1122,47 @@ func maxConsecutiveReverts(history []attunev1alpha1.ResizeHistoryEntry) int {
 	return max
 }
 
+// statusEqualIgnoringHeartbeat is true when two statuses match except
+// LastReconcileTime, condition LastTransitionTime, and per-container
+// LastUpdated. Used to skip a no-op status write on a converged reconcile.
+func statusEqualIgnoringHeartbeat(a, b attunev1alpha1.AttunePolicyStatus) bool {
+	ac := a.DeepCopy()
+	bc := b.DeepCopy()
+	ac.LastReconcileTime = nil
+	bc.LastReconcileTime = nil
+	for i := range ac.Conditions {
+		ac.Conditions[i].LastTransitionTime = metav1.Time{}
+	}
+	for i := range bc.Conditions {
+		bc.Conditions[i].LastTransitionTime = metav1.Time{}
+	}
+	stripRecommendationClocks(ac.Recommendations)
+	stripRecommendationClocks(bc.Recommendations)
+	return apiequality.Semantic.DeepEqual(ac, bc)
+}
+
+func stripRecommendationClocks(recs []attunev1alpha1.WorkloadRecommendation) {
+	for i := range recs {
+		for j := range recs[i].Containers {
+			recs[i].Containers[j].LastUpdated = metav1.Time{}
+		}
+	}
+}
+
 // updateStatusWithRetry performs a status update with up to 4 attempts
 // (3 retries + 1 final) on conflict. On each conflict it re-fetches the
 // policy and re-applies the saved status fields, preserving the higher
-// Resized count from concurrent reconciles.
+// Resized count from concurrent reconciles. A status that only differs
+// by LastReconcileTime is left unwritten.
 func (r *AttunePolicyReconciler) updateStatusWithRetry(ctx context.Context, policy *attunev1alpha1.AttunePolicy, key types.NamespacedName) error {
+	var stored attunev1alpha1.AttunePolicy
+	if err := r.Get(ctx, key, &stored); err != nil {
+		return err
+	}
+	if statusEqualIgnoringHeartbeat(stored.Status, policy.Status) {
+		return nil
+	}
+
 	const maxRetries = 3
 	logger := log.FromContext(ctx)
 

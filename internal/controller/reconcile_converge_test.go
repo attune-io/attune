@@ -34,11 +34,23 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	rsmetrics "github.com/attune-io/attune/internal/metrics"
 )
 
 // writeCounter counts client writes (Update, Patch, status subresource).
 type writeCounter struct {
 	n atomic.Int32
+}
+
+func samplesEndingAt(now time.Time, count int, baseValue float64) []rsmetrics.Sample {
+	samples := make([]rsmetrics.Sample, count)
+	for i := 0; i < count; i++ {
+		samples[i] = rsmetrics.Sample{
+			Timestamp: now.Add(-time.Duration(count-1-i) * time.Hour),
+			Value:     baseValue + float64(i%10)*0.01,
+		}
+	}
+	return samples
 }
 
 func (w *writeCounter) take() int32 {
@@ -191,4 +203,81 @@ func TestReconcile_Paused_UnpauseWritesAgain(t *testing.T) {
 	require.NoError(t, err)
 	assert.Greater(t, writes.take(), int32(0),
 		"leaving Paused must write a new Ready reason")
+}
+
+func TestReconcile_RecommendMode_SecondPassNoWrites(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Finalizers = []string{finalizerName}
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeRecommend
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	sampleNow := time.Date(2026, 1, 7, 12, 0, 0, 0, time.UTC)
+	now := sampleNow
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return samplesEndingAt(sampleNow, 200, 0.1), nil
+		},
+	}
+	writes := &writeCounter{}
+	scheme := testScheme()
+	c := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(ensureTestNamespaces([]client.Object{policy, deploy})...).
+		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
+		WithInterceptorFuncs(writes.funcs()).
+		Build()
+	r := newReconcilerForReconcileWithClient(mc, c, scheme)
+	r.SetNowFunc(func() time.Time { return now })
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"}}
+
+	first, err := r.Reconcile(context.Background(), req)
+	require.NoError(t, err)
+	require.Greater(t, writes.take(), int32(0))
+
+	second, err := r.Reconcile(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, first, second)
+	assert.Equal(t, int32(0), writes.take(),
+		"second recommend-only reconcile must not rewrite status")
+
+	now = now.Add(time.Minute)
+	r.SetNowFunc(func() time.Time { return now })
+	_, err = r.Reconcile(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, int32(0), writes.take(),
+		"advancing the clock must not rewrite status when recs are unchanged")
+}
+
+func TestReconcile_ObserveMode_SecondPassNoWrites(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Finalizers = []string{finalizerName}
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeObserve
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+	now := time.Date(2026, 1, 7, 12, 0, 0, 0, time.UTC)
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return samplesEndingAt(now, 200, 0.1), nil
+		},
+	}
+	writes := &writeCounter{}
+	scheme := testScheme()
+	c := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(ensureTestNamespaces([]client.Object{policy, deploy, pod})...).
+		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
+		WithInterceptorFuncs(writes.funcs()).
+		Build()
+	r := newReconcilerForReconcileWithClient(mc, c, scheme)
+	r.SetNowFunc(func() time.Time { return now })
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"}}
+
+	first, err := r.Reconcile(context.Background(), req)
+	require.NoError(t, err)
+	require.Greater(t, writes.take(), int32(0))
+
+	second, err := r.Reconcile(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, first, second)
+	assert.Equal(t, int32(0), writes.take(),
+		"second observe reconcile must not rewrite status")
 }
