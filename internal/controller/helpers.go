@@ -1057,7 +1057,37 @@ func resourcesIncreaseRequests(current, target corev1.ResourceRequirements) bool
 // entries whose timestamp equals the first (newest) match. Entries from
 // earlier resize cycles (different timestamps) are left untouched, preventing
 // consecutiveReverts from being inflated by a single revert event.
+func latestHistoryIsReverted(history []attunev1alpha1.ResizeHistoryEntry, workload, container string) bool {
+	if workload == "" || container == "" {
+		return false
+	}
+	for i := len(history) - 1; i >= 0; i-- {
+		h := history[i]
+		if h.Workload != workload || h.Container != container {
+			continue
+		}
+		if h.Resource == "template" || h.Method == "TemplatePersistence" {
+			continue
+		}
+		return h.Result == attunev1alpha1.ResizeResultReverted
+	}
+	return false
+}
+
 func markLatestCycleReverted(history []attunev1alpha1.ResizeHistoryEntry, workload, container, reason string) {
+	for i := len(history) - 1; i >= 0; i-- {
+		h := history[i]
+		if h.Workload != workload || h.Container != container {
+			continue
+		}
+		if h.Resource == "template" || h.Method == "TemplatePersistence" {
+			continue
+		}
+		if h.Result == attunev1alpha1.ResizeResultReverted {
+			return
+		}
+		break
+	}
 	var matched bool
 	var matchTS time.Time
 	for i := len(history) - 1; i >= 0; i-- {

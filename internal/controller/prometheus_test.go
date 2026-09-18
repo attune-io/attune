@@ -492,6 +492,28 @@ func TestHoldMissingResourceRequest_PrefersLargerLastRecOverTemplateLive(t *test
 		lastRec.String(), templateMem.String(), rec.Recommended.MemoryRequest.String())
 }
 
+func TestHoldMissingResourceRequest_SkipsBoostedPodMax(t *testing.T) {
+	t.Parallel()
+	rec := &attunev1alpha1.ContainerRecommendation{
+		Name: "main",
+		Current: attunev1alpha1.ResourceValues{
+			CPURequest: resource.MustParse("100m"),
+		},
+		Recommended: attunev1alpha1.ResourceValues{
+			CPURequest: resource.MustParse("100m"),
+		},
+	}
+	steady := newResizePod("api-a", "100m", "256Mi", "200m", "256Mi")
+	boosted := newResizePod("api-b", "300m", "256Mi", "600m", "256Mi")
+	boosted.Annotations = map[string]string{
+		annotationStartupBoostAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	ok := holdMissingResourceRequest(rec, corev1.ResourceCPU, []corev1.Pod{*steady, *boosted}, nil)
+	require.True(t, ok)
+	assert.Equal(t, int64(100), rec.Recommended.CPURequest.MilliValue(),
+		"boosted replica must not raise the held CPU")
+}
+
 func TestHoldMissingResourceRequest_LargerLiveBeatsSmallerLastRec(t *testing.T) {
 	liveMem := resource.MustParse("1Gi")
 	rec := &attunev1alpha1.ContainerRecommendation{

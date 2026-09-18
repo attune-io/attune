@@ -524,6 +524,13 @@ func (r *AttunePolicyReconciler) retryTemplateRestoreIfAlreadyReverted(
 	}
 
 	logger := log.FromContext(ctx)
+	workload := record.WorkloadName
+	if workload == "" {
+		return nil
+	}
+	if !latestHistoryIsReverted(policy.Status.ResizeHistory, workload, record.Container) {
+		return nil
+	}
 	if !liveContainerMatchesOriginal(listed, record) {
 		return nil
 	}

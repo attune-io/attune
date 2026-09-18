@@ -72,7 +72,11 @@ func (r *AttunePolicyReconciler) planPodActions(
 		atTarget := c != nil && containerMatchesAppliedTarget(c, target)
 		cpuInc, memInc := int64(0), int64(0)
 		if !atTarget {
-			cpuInc, memInc = budgetIncrease(pod, containerRec.Name, target)
+			boostBlocked := startupBoostBlocksCPUDecrease(policy, pod, containerRec.Name, target, r.now()) != ""
+			envelopeSkip := r.evaluatePodEnvelope(policy, pod, containerRec.Name, target).Skip
+			if !boostBlocked && !envelopeSkip {
+				cpuInc, memInc = budgetIncrease(pod, containerRec.Name, target)
+			}
 		}
 		actions = append(actions, resizeAction{
 			PodName:      pod.Name,

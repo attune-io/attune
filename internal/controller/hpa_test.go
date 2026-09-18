@@ -88,6 +88,34 @@ func TestHPACPUFromResizeHistory(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestHPACPUFromResizeHistory_TwoPodsSameContainerDoesNotDouble(t *testing.T) {
+	t.Parallel()
+	history := []attunev1alpha1.ResizeHistoryEntry{
+		{
+			Workload:  "api-server",
+			Container: "main",
+			Resource:  "cpu",
+			From:      "200m",
+			To:        "400m",
+			Method:    "InPlace",
+			Result:    attunev1alpha1.ResizeResultSuccess,
+		},
+		{
+			Workload:  "api-server",
+			Container: "main",
+			Resource:  "cpu",
+			From:      "200m",
+			To:        "400m",
+			Method:    "InPlace",
+			Result:    attunev1alpha1.ResizeResultSuccess,
+		},
+	}
+	oldCPU, newCPU, ok := hpaCPUFromResizeHistory(history, "api-server")
+	require.True(t, ok)
+	assert.Equal(t, int64(200), oldCPU.MilliValue())
+	assert.Equal(t, int64(400), newCPU.MilliValue())
+}
+
 func TestRetuneHPAAfterResize_UsesAppliedCPU(t *testing.T) {
 	t.Parallel()
 	scheme := testScheme()

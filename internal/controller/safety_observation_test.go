@@ -1506,6 +1506,11 @@ func TestCheckPendingSafetyObservations_RestoreRetryAfterRevertWhenPodNowSafe(t 
 		Enabled: boolPtr(true),
 		When:    attunev1alpha1.TemplatePersistenceAfterSuccessfulResize,
 	}
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{{
+		Workload:  "api-server",
+		Container: "main",
+		Result:    attunev1alpha1.ResizeResultSuccess,
+	}}
 
 	pending := reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, []client.Object{deploy})
 	assert.True(t, pending, "failed template restore must keep observations pending")
@@ -1651,6 +1656,11 @@ func TestCheckPendingSafetyObservations_RestoreRetryWhenLiveMatchesClampedRevert
 		Enabled: boolPtr(true),
 		When:    attunev1alpha1.TemplatePersistenceAfterSuccessfulResize,
 	}
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{{
+		Workload:  "api-server",
+		Container: "main",
+		Result:    attunev1alpha1.ResizeResultSuccess,
+	}}
 
 	pending := reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, []client.Object{deploy})
 	assert.True(t, pending, "failed template restore must keep observations pending")

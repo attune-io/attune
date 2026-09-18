@@ -609,10 +609,15 @@ func holdMissingResourceRequest(
 
 	req, lim := liveReq, liveLim
 	// Prefer last rec when it is larger than live, or when live is still
-	// the template Current (in-place resize not applied yet).
+	// the template Current (in-place resize not applied yet). A prior
+	// that was inflated by a startup-boost hold must not ratchet forever.
 	if priorOK {
 		templateReq := requestFromResourceValues(rec.Current, res)
-		if !liveOK || priorReq.Cmp(liveReq) > 0 || liveReq.Equal(templateReq) {
+		preferPrior := !liveOK || liveReq.Equal(templateReq)
+		if liveOK && priorReq.Cmp(liveReq) > 0 && !anyStartupBoostAnnotation(pods) {
+			preferPrior = true
+		}
+		if preferPrior {
 			req, lim = priorReq, priorLim
 		}
 	}
@@ -645,6 +650,9 @@ func requestFromResourceValues(v attunev1alpha1.ResourceValues, res corev1.Resou
 
 func liveResourceHold(pods []corev1.Pod, container string, res corev1.ResourceName) (req, lim k8sresource.Quantity, ok bool) {
 	for i := range pods {
+		if pods[i].Annotations != nil && pods[i].Annotations[annotationStartupBoostAt] != "" {
+			continue
+		}
 		c := findContainerByName(&pods[i], container)
 		if c == nil {
 			continue
@@ -664,6 +672,15 @@ func liveResourceHold(pods []corev1.Pod, container string, res corev1.ResourceNa
 		}
 	}
 	return req, lim, ok
+}
+
+func anyStartupBoostAnnotation(pods []corev1.Pod) bool {
+	for i := range pods {
+		if pods[i].Annotations != nil && pods[i].Annotations[annotationStartupBoostAt] != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func priorResourceHold(prior *attunev1alpha1.ContainerRecommendation, res corev1.ResourceName) (req, lim k8sresource.Quantity, ok bool) {

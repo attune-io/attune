@@ -417,6 +417,16 @@ func TestMarkLatestCycleReverted(t *testing.T) {
 			container:  "c",
 			wantResult: nil,
 		},
+		{
+			name: "already reverted does not flip older success",
+			history: []attunev1alpha1.ResizeHistoryEntry{
+				{Workload: "w", Container: "c", Resource: "cpu", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(earlier)},
+				{Workload: "w", Container: "c", Resource: "cpu", Result: attunev1alpha1.ResizeResultReverted, Timestamp: metav1.NewTime(now)},
+			},
+			workload:   "w",
+			container:  "c",
+			wantResult: []attunev1alpha1.ResizeResult{attunev1alpha1.ResizeResultSuccess, attunev1alpha1.ResizeResultReverted},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

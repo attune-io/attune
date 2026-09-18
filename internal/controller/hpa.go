@@ -60,9 +60,11 @@ func (r *AttunePolicyReconciler) retuneHPAAfterResize(
 		}
 		cpuLimit := destCPULimitFromPods(pods)
 		if !resourceControlledRequestsOnly(policy, corev1.ResourceCPU) {
-			// After RequestsAndLimits apply, leftover dest is the applied To.
-			// podsByWorkload is the pre-resize list and still has old limits.
-			cpuLimit = newCPU.DeepCopy()
+			if recDest := recCPULimitFromRecommendation(rec); !recDest.IsZero() {
+				cpuLimit = recDest
+			} else {
+				cpuLimit = newCPU.DeepCopy()
+			}
 		} else if cpuLimit.IsZero() {
 			cpuLimit = newCPU.DeepCopy()
 		}
@@ -73,8 +75,8 @@ func (r *AttunePolicyReconciler) retuneHPAAfterResize(
 // hpaCPUFromResizeHistory sums From/To on this-cycle successful in-place
 // CPU rows for workload. ok is false when no parseable rows exist.
 func hpaCPUFromResizeHistory(history []attunev1alpha1.ResizeHistoryEntry, workload string) (oldCPU, newCPU resource.Quantity, ok bool) {
-	var oldMilli, newMilli int64
-	found := false
+	type pair struct{ old, neu int64 }
+	byContainer := map[string]pair{}
 	for _, h := range history {
 		if h.Workload != workload || h.Resource != "cpu" || !isSuccessfulInPlaceHistory(h) {
 			continue
@@ -84,25 +86,46 @@ func hpaCPUFromResizeHistory(history []attunev1alpha1.ResizeHistoryEntry, worklo
 		if fromErr != nil || toErr != nil {
 			continue
 		}
-		oldMilli += from.MilliValue()
-		newMilli += to.MilliValue()
-		found = true
+		if _, seen := byContainer[h.Container]; seen {
+			continue
+		}
+		byContainer[h.Container] = pair{from.MilliValue(), to.MilliValue()}
 	}
-	if !found {
+	if len(byContainer) == 0 {
 		return resource.Quantity{}, resource.Quantity{}, false
+	}
+	var oldMilli, newMilli int64
+	for _, p := range byContainer {
+		oldMilli += p.old
+		newMilli += p.neu
 	}
 	return *resource.NewMilliQuantity(oldMilli, resource.DecimalSI),
 		*resource.NewMilliQuantity(newMilli, resource.DecimalSI), true
 }
 
-// destCPULimitFromPods sums leftover dest CPU limits across listed pods.
+// destCPULimitFromPods is one pod's leftover dest CPU (sum of that pod's
+// containers). Fleet sums would make the HPA cap depend on replica count.
 func destCPULimitFromPods(pods []corev1.Pod) resource.Quantity {
-	var total int64
 	for i := range pods {
+		var total int64
 		for _, c := range pods[i].Spec.Containers {
 			if lim, ok := c.Resources.Limits[corev1.ResourceCPU]; ok && !lim.IsZero() {
 				total += lim.MilliValue()
 			}
+		}
+		if total > 0 {
+			return *resource.NewMilliQuantity(total, resource.DecimalSI)
+		}
+	}
+	return resource.Quantity{}
+}
+
+// recCPULimitFromRecommendation is per-pod dest (sum of container rec dests).
+func recCPULimitFromRecommendation(rec attunev1alpha1.WorkloadRecommendation) resource.Quantity {
+	var total int64
+	for _, c := range rec.Containers {
+		if !c.Recommended.CPULimit.IsZero() {
+			total += c.Recommended.CPULimit.MilliValue()
 		}
 	}
 	if total == 0 {

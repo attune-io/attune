@@ -752,6 +752,18 @@ func omitRevertedOrFailedContainers(
 ) []attunev1alpha1.WorkloadRecommendation {
 	skip := make(map[string]bool)
 	seen := make(map[string]bool)
+	hasSuccess := make(map[string]bool)
+	for _, h := range history {
+		if h.Resource == "template" || h.Method == "TemplatePersistence" {
+			continue
+		}
+		if h.Workload == "" || h.Container == "" || h.Container == "*" {
+			continue
+		}
+		if h.Result == attunev1alpha1.ResizeResultSuccess || h.Result == attunev1alpha1.ResizeResultEvicted {
+			hasSuccess[h.Workload+"/"+h.Container] = true
+		}
+	}
 	for i := len(history) - 1; i >= 0; i-- {
 		h := history[i]
 		if h.Resource == "template" || h.Method == "TemplatePersistence" {
@@ -765,8 +777,13 @@ func omitRevertedOrFailedContainers(
 			continue
 		}
 		seen[key] = true
-		if h.Result == attunev1alpha1.ResizeResultReverted || h.Result == attunev1alpha1.ResizeResultFailed {
+		switch h.Result {
+		case attunev1alpha1.ResizeResultReverted:
 			skip[key] = true
+		case attunev1alpha1.ResizeResultFailed:
+			if !hasSuccess[key] {
+				skip[key] = true
+			}
 		}
 	}
 	if len(skip) == 0 {

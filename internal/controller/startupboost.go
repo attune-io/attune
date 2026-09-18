@@ -201,10 +201,14 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 					} else if cpuLim, hasLim := c.Resources.Limits[corev1.ResourceCPU]; hasLim && boostedCPU.Cmp(cpuLim) > 0 {
 						boostedCPU = cpuLim.DeepCopy()
 					}
-					if c.Resources.Requests.Cpu().Cmp(boostedCPU) >= 0 {
-						// Already at/above boosted CPU inside the window.
-						// Persist the annotation so expiry can run later.
-						// Do not /resize again.
+					if c.Resources.Requests.Cpu().Cmp(boostedCPU) > 0 {
+						// Already above the boost target (template leftover).
+						// Do not stamp: expiry would shrink this pod off-pipeline.
+						continue
+					}
+					if c.Resources.Requests.Cpu().Cmp(boostedCPU) == 0 {
+						// Exact match: persist so a missed stamp after a
+						// successful boost resize can still expire.
 						persistAnnotation = true
 						continue
 					}
@@ -236,9 +240,6 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 						if memLim, ok := c.Resources.Limits[corev1.ResourceMemory]; ok {
 							boostRec.Recommended.MemoryLimit = memLim.DeepCopy()
 							boostTarget.Limits[corev1.ResourceMemory] = memLim.DeepCopy()
-						} else if memReq, ok := c.Resources.Requests[corev1.ResourceMemory]; ok {
-							boostRec.Recommended.MemoryLimit = memReq.DeepCopy()
-							boostTarget.Limits[corev1.ResourceMemory] = memReq.DeepCopy()
 						}
 					}
 					if dec := r.evaluatePodEnvelope(policy, pod, c.Name, boostTarget); dec.Skip {
@@ -362,9 +363,6 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 							if memLim, ok := c.Resources.Limits[corev1.ResourceMemory]; ok {
 								expireRec.Recommended.MemoryLimit = memLim.DeepCopy()
 								expireTarget.Limits[corev1.ResourceMemory] = memLim.DeepCopy()
-							} else if memReq, ok := c.Resources.Requests[corev1.ResourceMemory]; ok {
-								expireRec.Recommended.MemoryLimit = memReq.DeepCopy()
-								expireTarget.Limits[corev1.ResourceMemory] = memReq.DeepCopy()
 							}
 						}
 						if dec := r.evaluatePodEnvelope(policy, pod, c.Name, expireTarget); dec.Skip {

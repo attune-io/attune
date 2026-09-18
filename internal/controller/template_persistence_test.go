@@ -2568,6 +2568,16 @@ func TestOmitRevertedOrFailedContainers(t *testing.T) {
 			want: [][]string{{"app"}},
 		},
 		{
+			name: "sibling failed after success does not omit container",
+			recs: two,
+			history: []attunev1alpha1.ResizeHistoryEntry{
+				{Workload: "api", Container: "app", Result: attunev1alpha1.ResizeResultSuccess},
+				{Workload: "api", Container: "app", Result: attunev1alpha1.ResizeResultFailed},
+				{Workload: "api", Container: "worker", Result: attunev1alpha1.ResizeResultSuccess},
+			},
+			want: [][]string{{"app", "worker"}},
+		},
+		{
 			name: "all containers reverted omits the rec",
 			recs: two,
 			history: []attunev1alpha1.ResizeHistoryEntry{
