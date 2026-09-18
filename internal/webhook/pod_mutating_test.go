@@ -499,6 +499,73 @@ func TestPodMutatingHandler_ConflictCheckFailedDoesNotOverrideHealthyPolicy(t *t
 	assert.Contains(t, logged, "policy conflict check failed")
 }
 
+func TestPodMutatingHandler_OverlappingHealthyPoliciesPicksHighestWeight(t *testing.T) {
+	t.Run("highest weight", func(t *testing.T) {
+		// Two healthy Auto policies, same target. B is listed first with a
+		// huge rec; A has higher weight. Winner must be A (reconcile rule).
+		policyB := testPolicy("policy-b", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+		policyB.Spec.Weight = 1
+		policyB.Status.Recommendations[0].Containers[0].Recommended.CPURequest = resource.MustParse("999m")
+		policyB.Status.Recommendations[0].Containers[0].Recommended.MemoryRequest = resource.MustParse("1Gi")
+
+		policyA := testPolicy("policy-a", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+		policyA.Spec.Weight = 1000
+
+		cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policyA, policyB, testNamespace("default", nil)).Build()
+		handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+		picked, rec := handler.findMatchingPolicy(context.Background(), "default",
+			[]attunev1alpha1.AttunePolicy{*policyB, *policyA},
+			"Deployment", "my-app", "my-app-abc-xyz", nil)
+		require.NotNil(t, picked, "highest-weight healthy policy must match")
+		require.NotNil(t, rec)
+		assert.Equal(t, "policy-a", picked.Name, "first List hit must not beat higher weight")
+		assert.Equal(t, resource.MustParse("500m"), rec.Containers[0].Recommended.CPURequest)
+
+		pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+		req := makeAdmissionRequest(t, pod, "default")
+		resp := handler.Handle(context.Background(), req)
+		require.True(t, resp.Allowed)
+		require.NotEmpty(t, resp.Patches, "highest-weight policy must CREATE-size")
+
+		mutatedPod := patchedPod(t, req.Object.Raw, resp)
+		assert.Equal(t, resource.MustParse("500m"), mutatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU])
+		assert.Equal(t, resource.MustParse("256Mi"), mutatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory])
+		assert.Equal(t, "default/policy-a", mutatedPod.Annotations[AnnotationInitialSizingPolicy])
+	})
+
+	t.Run("equal weight lexicographic name", func(t *testing.T) {
+		policyZ := testPolicy("policy-z", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+		policyZ.Spec.Weight = 100
+		policyZ.Status.Recommendations[0].Containers[0].Recommended.CPURequest = resource.MustParse("999m")
+		policyZ.Status.Recommendations[0].Containers[0].Recommended.MemoryRequest = resource.MustParse("1Gi")
+
+		policyA := testPolicy("policy-a", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+		policyA.Spec.Weight = 100
+
+		cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policyA, policyZ, testNamespace("default", nil)).Build()
+		handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+		picked, rec := handler.findMatchingPolicy(context.Background(), "default",
+			[]attunev1alpha1.AttunePolicy{*policyZ, *policyA},
+			"Deployment", "my-app", "my-app-abc-xyz", nil)
+		require.NotNil(t, picked, "equal-weight policies must still pick a winner")
+		require.NotNil(t, rec)
+		assert.Equal(t, "policy-a", picked.Name, "equal weight uses lexicographic name")
+		assert.Equal(t, resource.MustParse("500m"), rec.Containers[0].Recommended.CPURequest)
+
+		pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+		req := makeAdmissionRequest(t, pod, "default")
+		resp := handler.Handle(context.Background(), req)
+		require.True(t, resp.Allowed)
+		require.NotEmpty(t, resp.Patches, "lexicographic winner must CREATE-size")
+
+		mutatedPod := patchedPod(t, req.Object.Raw, resp)
+		assert.Equal(t, resource.MustParse("500m"), mutatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU])
+		assert.Equal(t, "default/policy-a", mutatedPod.Annotations[AnnotationInitialSizingPolicy])
+	})
+}
+
 func TestPodMutatingHandler_StaleRecommendation(t *testing.T) {
 	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
 	policy.Status.Recommendations[0].Stale = true
