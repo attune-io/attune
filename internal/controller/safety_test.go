@@ -551,16 +551,19 @@ func TestAcquireEvictionLock_SerializesSameKey(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	key := "default/api"
 	mu := r.acquireEvictionLock(key)
+	entering := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
+		close(entering)
 		mu2 := r.acquireEvictionLock(key)
 		close(done)
 		r.releaseEvictionLock(key, mu2)
 	}()
+	<-entering
 	select {
 	case <-done:
 		t.Fatal("second acquire must wait while the first holder is active")
-	case <-time.After(30 * time.Millisecond):
+	case <-time.After(50 * time.Millisecond):
 	}
 	r.releaseEvictionLock(key, mu)
 	select {
