@@ -206,7 +206,7 @@ func TestMain(m *testing.M) {
 	// Register webhooks (validation + defaulting).
 	err = ctrl.NewWebhookManagedBy(mgr, &attunev1alpha1.AttunePolicy{}).
 		WithDefaulter(&webhook.AttunePolicyDefaulter{}).
-		WithValidator(&webhook.AttunePolicyValidator{}).
+		WithValidator(&webhook.AttunePolicyValidator{SecretAccess: webhook.NewSARSecretChecker(clientset)}).
 		Complete()
 	if err != nil {
 		panic("failed to setup webhook: " + err.Error())

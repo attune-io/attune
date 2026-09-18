@@ -33,13 +33,19 @@ import (
 )
 
 // AttunePolicyValidator implements the typed Validator interface for AttunePolicy.
-type AttunePolicyValidator struct{}
+type AttunePolicyValidator struct {
+	// SecretAccess, when set, requires the admission user to get each referenced Secret.
+	SecretAccess SecretAccessChecker
+}
 
 // ValidateCreate validates a new AttunePolicy.
 func (v *AttunePolicyValidator) ValidateCreate(ctx context.Context, policy *attunev1alpha1.AttunePolicy) (admission.Warnings, error) {
 	timer := operatormetrics.NewWebhookTimer("validate_create")
 	defer timer.Observe()
 	w, err := v.validate(policy)
+	if err == nil {
+		err = v.checkReferencedSecretAccess(ctx, policy)
+	}
 	timer.RecordResult(err)
 	return w, err
 }
@@ -49,6 +55,9 @@ func (v *AttunePolicyValidator) ValidateUpdate(ctx context.Context, oldPolicy, p
 	timer := operatormetrics.NewWebhookTimer("validate_update")
 	defer timer.Observe()
 	w, err := v.validate(policy)
+	if err == nil {
+		err = v.checkReferencedSecretAccess(ctx, policy)
+	}
 	timer.RecordResult(err)
 	return w, err
 }

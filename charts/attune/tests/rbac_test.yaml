@@ -208,6 +208,18 @@ tests:
             verbs:
               - get
 
+  - it: should include subjectaccessreviews create for secret get checks
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - authorization.k8s.io
+            resources:
+              - subjectaccessreviews
+            verbs:
+              - create
+
   - it: should include resourcequotas and limitranges read permissions
     asserts:
       - contains:

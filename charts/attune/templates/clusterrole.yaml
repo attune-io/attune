@@ -184,6 +184,13 @@ rules:
       - secrets
     verbs:
       - get
+  # SubjectAccessReview: admission requires the user to get referenced Secrets
+  - apiGroups:
+      - authorization.k8s.io
+    resources:
+      - subjectaccessreviews
+    verbs:
+      - create
   # ResourceQuotas and LimitRanges: read-only (pre-resize compatibility checks)
   - apiGroups:
       - ""

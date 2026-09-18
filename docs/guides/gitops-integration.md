@@ -133,7 +133,7 @@ default 24h).
 
 ### Security
 
-- Token is read from a Kubernetes Secret via `tokenSecretRef`.
+- Token is read from a Kubernetes Secret via `tokenSecretRef`. The creating user must be allowed to get that Secret.
 - Tokens are **never** written to logs, events, or status.
 - Use a fine-scoped PAT with write access to create branches and PRs:
   - **GitHub** (fine-grained): repository **Contents: Read and write** and
