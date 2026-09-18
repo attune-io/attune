@@ -364,6 +364,78 @@ func TestApplyStartupBoosts_AppliesBoostToNewPod(t *testing.T) {
 	assert.True(t, foundResize, "expected a resize action for startup boost")
 }
 
+func TestApplyStartupBoosts_EnvelopeSkipDoesNotResize(t *testing.T) {
+	scheme := testScheme()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
+				StartupBoost: &attunev1alpha1.StartupBoost{
+					Multiplier: "3.0",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute},
+				},
+			},
+		},
+	}
+	pod := withPodEnvelope(&corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "my-app-abc",
+			Namespace:         "default",
+			CreationTimestamp: metav1.NewTime(now.Add(-30 * time.Second)),
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning, QOSClass: corev1.PodQOSBurstable},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("128Mi"),
+						},
+					},
+				},
+			},
+		},
+	}, "100m", "128Mi", "", "")
+	clientset := kubefake.NewSimpleClientset(pod)
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+	r.SetNowFunc(func() time.Time { return now })
+
+	logger := ctrl.Log.WithName("test")
+	resizer := resize.NewPodResizer(clientset, logger)
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "my-app",
+			Kind:     "Deployment",
+			Containers: []attunev1alpha1.ContainerRecommendation{
+				{
+					Name: "main",
+					Recommended: attunev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("200m"),
+					},
+				},
+			},
+		},
+	}
+	podsByWorkload := map[string][]corev1.Pod{"my-app": {*pod}}
+
+	r.applyStartupBoosts(context.Background(), policy, podsByWorkload, recs, resizer, nil)
+
+	for _, a := range clientset.Actions() {
+		assert.NotEqual(t, "resize", a.GetSubresource(), "envelope skip must not UpdateResize")
+	}
+	var stored corev1.Pod
+	require.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, &stored))
+	assert.Empty(t, stored.Annotations[annotationStartupBoostAt],
+		"envelope skip must not stamp startup-boost-at")
+}
+
 func TestApplyStartupBoosts_SkipsWhenAlreadyAtBoostedLevel(t *testing.T) {
 	scheme := testScheme()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
