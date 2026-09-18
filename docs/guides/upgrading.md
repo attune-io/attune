@@ -8,6 +8,133 @@ Maintainers: before publishing a release after multi-version product changes,
 run the full E2E Nightly matrix on tip of `main` (see
 [Releasing: full E2E matrix](../contributing/releasing.md#1b-full-e2e-matrix-required-before-tagging-a-product-release)).
 
+## v0.1.28 to v0.1.29
+
+v0.1.29 keeps GPU, hugepages, and other extended resources on live
+`/resize`, and it fails closed when HPA cannot be listed or when
+CREATE would re-admit a just-reverted size. OneShot now records
+envelope skips the same way Auto already did. Existing policy YAML
+keeps working. Bare integer `minAllowed` / `maxAllowed` values that
+v0.1.26 accepted are accepted again. Read this section if you use
+GPU or hugepages, OneShot, startup boost, CREATE initial sizing,
+HPA auto-tune, or scripts that watch `kubectl attune doctor`.
+
+### Live /resize keeps GPU, hugepages, and ephemeral-storage
+
+A successful in-place resize or safety revert used to drop extended
+resources from the live request map. Apply now overlays CPU and
+memory only. Template persist still writes only CPU and memory, so
+those extra keys stay on the pod.
+
+### AfterSuccessfulResize restore-retry needs a Reverted row
+
+A Safe pod could have its workload template rolled back to the
+pre-resize snapshot when live requests happened to match the
+clamped revert target. Restore-retry now requires a real `Reverted`
+history row.
+
+See [Troubleshooting: Template restore after safety
+revert](troubleshooting.md#template-restore-after-safety-revert).
+
+### Persist skips only the failed container
+
+One Failed history row on a single replica used to block template
+persist for the whole workload. Persist now omits only the pod and
+container that failed or reverted. Envelope math counts running
+containers only, not run-to-completion init containers.
+
+See [Troubleshooting: Pod-level resource envelope blocked an
+increase](troubleshooting.md#pod-level-resource-envelope-blocked-an-increase).
+
+### OneShot records envelope skips
+
+OneShot still walks past a replica that cannot apply so a sibling
+can move. If every needing replica is blocked, it keeps the first
+blocked pod and emits `ResizeSkipped` plus a Failed
+`envelope_constraint` history row, matching Auto. Boost-window CPU
+decreases are walked past the same way QoS and node-pressure skips
+already were. Envelope and boost skips do not consume
+`maxTotalCpuIncrease`, so a later replica is not deferred with a
+misleading BudgetExhausted event.
+
+See [Troubleshooting: OneShot skipped the first replica but others
+still need a
+resize](troubleshooting.md#oneshot-skipped-the-first-replica-but-others-still-need-a-resize)
+and [Troubleshooting: Budget
+exhausted](troubleshooting.md#budget-exhausted).
+
+### Startup boost stamps only after a successful boost
+
+`attune.io/startup-boost-at` is written only after a successful
+boost `/resize`. Expiry of a never-boosted stamp no longer shrinks
+the pod. `RequestsAndLimits` boost raises CPU dest only and does
+not add a memory limit. CREATE no longer boosts Job or CronJob
+pods (expiry skips batch workloads). A leftover Running pod under
+HPA `ScaledToZero` no longer receives a startup boost. A malformed
+`attune.io/startup-boost-at` blocks CPU decrease the same way a
+failed expiry already did.
+
+See [Startup boost](startup-boost.md) and [Troubleshooting: HPA
+ScaledToZero left leftover pods at old
+requests](troubleshooting.md#hpa-scaledtozero-left-leftover-pods-at-old-requests).
+
+### CREATE fails closed on HPA list and after a safety revert
+
+CREATE no longer sizes a new pod while `ResizeBlocked=HPAListUnavailable`,
+or from a recommendation that was just safety-reverted. Scripts that
+assumed CREATE would still size while HPA could not be listed will
+see those pods admitted at template size until the list succeeds. A
+CronJob pod is no longer admitted unsized when its Job is not yet
+in the informer cache; admission reads the Job from the API.
+
+See [Troubleshooting: HPAListUnavailable](troubleshooting.md#hpalistunavailable).
+
+### HPA retune is per-pod
+
+HPA auto-tune used to sum CPU across every resized pod, so the
+target depended on how many replicas had already resized. Retune is
+per-pod From/To. RequestsAndLimits still caps that dest at 100% of
+the recommendation dest. ContainerResource HPA metrics on sidecars
+are retuned with the resized container. VPA missing-resource hold
+ignores temporary boost stamps so the hold does not ratchet up.
+
+See [HPA coexistence](hpa-coexistence.md).
+
+### Immediate safety revert stamps cooldown
+
+An immediate safety revert now stamps cooldown so the same
+recommendation is not re-applied on the next reconcile.
+
+### minAllowed / maxAllowed accept bare integers again
+
+CEL rejected bare integers that v0.1.26 accepted. The rule
+type-guards `quantity()` so integer-or-string values work again.
+Apply CRDs before `helm upgrade` so the restored rule is on the
+cluster.
+
+### kubectl attune doctor Ready
+
+`kubectl attune doctor` reports Ready only when every required
+check passed. A failed list or webhook check no longer prints Ready.
+
+See [CLI: doctor](../reference/cli.md#doctor).
+
+### Upgrade the chart and image
+
+1. Upgrade the chart to 0.1.29, or set `image.tag` to `0.1.29` or
+   `v0.1.29`.
+2. Pull `ghcr.io/attune-io/attune:v0.1.29` or
+   `ghcr.io/attune-io/attune:0.1.29`. Both tags point at the same
+   digest.
+3. Helm does not upgrade CRDs on `helm upgrade`. Apply CRDs before the
+   chart upgrade so the restored integer-or-string CEL rule is on the
+   cluster:
+
+```bash
+kubectl apply --server-side --force-conflicts -f \
+  https://github.com/attune-io/attune/releases/latest/download/crds.yaml
+```
+
 ## v0.1.27 to v0.1.28
 
 v0.1.28 keeps existing pod-level resource envelopes valid when
