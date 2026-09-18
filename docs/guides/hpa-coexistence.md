@@ -136,7 +136,8 @@ eviction. Leftover Running pods stay untouched. Attune does not evict
 the last replica to finish scale-to-zero.
 
 HPA conflict detection is unchanged: same target plus a CPU or memory
-resource metric. ScaledToZero is not a new conflict type.
+Resource or ContainerResource metric. ScaledToZero is not a new
+conflict type.
 
 CREATE initial sizing does not look at the owner replica count. When
 HPA scales the workload back up, new pods still receive initial

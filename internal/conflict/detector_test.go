@@ -439,6 +439,29 @@ func TestCheckHPAConflict_ResourceMetricsOnlyNoScaleToZeroType(t *testing.T) {
 		assert.Equal(t, ConflictHPA, conflict.Type)
 	})
 
+	t.Run("container resource cpu metric is ConflictHPA", func(t *testing.T) {
+		hpa := autoscalingv2.HorizontalPodAutoscaler{
+			ObjectMeta: metav1.ObjectMeta{Name: "sidecar-hpa"},
+			Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+				ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+					Kind: "Deployment",
+					Name: "my-app",
+				},
+				Metrics: []autoscalingv2.MetricSpec{{
+					Type: autoscalingv2.ContainerResourceMetricSourceType,
+					ContainerResource: &autoscalingv2.ContainerResourceMetricSource{
+						Name:      corev1.ResourceCPU,
+						Container: "app",
+					},
+				}},
+			},
+		}
+		conflict := detector.CheckHPAConflict([]autoscalingv2.HorizontalPodAutoscaler{hpa}, "my-app", "Deployment")
+		assert.NotNil(t, conflict)
+		assert.Equal(t, ConflictHPA, conflict.Type)
+		assert.Equal(t, "sidecar-hpa", conflict.Name)
+	})
+
 	t.Run("custom metric only is not a conflict", func(t *testing.T) {
 		hpa := autoscalingv2.HorizontalPodAutoscaler{
 			ObjectMeta: metav1.ObjectMeta{Name: "custom-hpa"},

@@ -480,7 +480,7 @@ func (m *Monitor) RevertPod(ctx context.Context, record ResizeRecord) error {
 		found := false
 		for i, c := range updated.Spec.InitContainers {
 			if c.Name == record.Container {
-				updated.Spec.InitContainers[i].Resources = revertTarget
+				updated.Spec.InitContainers[i].Resources = resize.MergeResources(c.Resources, revertTarget)
 				found = true
 				break
 			}
@@ -488,7 +488,7 @@ func (m *Monitor) RevertPod(ctx context.Context, record ResizeRecord) error {
 		if !found {
 			for i, c := range updated.Spec.Containers {
 				if c.Name == record.Container {
-					updated.Spec.Containers[i].Resources = revertTarget
+					updated.Spec.Containers[i].Resources = resize.MergeResources(c.Resources, revertTarget)
 					found = true
 					break
 				}

@@ -429,7 +429,7 @@ Nightly 1.36 is the first required job expected to run this. On 1.35 the skip is
 - Controller lists HPAs once per reconcile (`result.hpaList`) in the policy namespace.
 - `conflict.CheckHPAConflict` returns a conflict for **any** HPA whose `scaleTargetRef` matches, regardless of metric type or replica count. Message is coexistence, not a hard skip. Event reason `HPAConflict`.
 - `FindMatchingHPA` is used for auto-tune.
-- `retuneHPAAfterResize` / `adjustHPATargets` only touch `Resource` + CPU utilization metrics with `attune.io/hpa-autotune=true`.
+- `retuneHPAAfterResize` / `adjustHPATargets` retune `Resource` and `ContainerResource` CPU utilization metrics on HPAs annotated `attune.io/auto-tune=true`.
 - Last-replica eviction (`tryEvictionFallback`) counts **live Running** pods. `spec.replicas` is intentionally ignored. `running <= 1` → `eviction_last_replica`.
 - `transform.StripHPAFields` sets `h.Status.Conditions = nil` and `h.Status.CurrentMetrics = nil`. **ScaledToZero is invisible in the cache.**
 - CREATE does not look at HPA or replica count.

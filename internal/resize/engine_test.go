@@ -812,7 +812,7 @@ func TestMergeResources(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			merged := mergeResources(tt.current, tt.target)
+			merged := MergeResources(tt.current, tt.target)
 			assert.Equal(t, tt.target.Requests.Cpu().MilliValue(), merged.Requests.Cpu().MilliValue())
 			if tt.wantLimitsNil {
 				assert.Nil(t, merged.Limits)
@@ -840,13 +840,64 @@ func TestMergeResources_ClampsRequestToLeftoverLiveLimit(t *testing.T) {
 		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")},
 	}
 
-	merged := mergeResources(current, target)
+	merged := MergeResources(current, target)
 	require.NotNil(t, merged.Requests)
 	require.NotNil(t, merged.Limits)
 	assert.True(t, merged.Requests.Cpu().Equal(resource.MustParse("200m")),
 		"merged CPU request %s must clamp to leftover live limit 200m", merged.Requests.Cpu().String())
 	assert.True(t, merged.Limits.Cpu().Equal(resource.MustParse("200m")),
 		"leftover CPU limit must stay 200m, got %s", merged.Limits.Cpu().String())
+}
+
+func TestMergeResources_PreservesExtendedRequests(t *testing.T) {
+	gpu := corev1.ResourceName("nvidia.com/gpu")
+	huge := corev1.ResourceName("hugepages-2Mi")
+	eph := corev1.ResourceEphemeralStorage
+	current := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
+			gpu:                   resource.MustParse("1"),
+			huge:                  resource.MustParse("4Mi"),
+			eph:                   resource.MustParse("1Gi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("1"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+			gpu:                   resource.MustParse("1"),
+		},
+	}
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("250m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+	}
+
+	merged := MergeResources(current, target)
+	require.NotNil(t, merged.Requests)
+	cpuReq := merged.Requests[corev1.ResourceCPU]
+	memReq := merged.Requests[corev1.ResourceMemory]
+	assert.True(t, cpuReq.Equal(resource.MustParse("250m")),
+		"CPU request should overlay to 250m, got %s", cpuReq.String())
+	assert.True(t, memReq.Equal(resource.MustParse("128Mi")),
+		"memory request should overlay to 128Mi, got %s", memReq.String())
+	require.Contains(t, merged.Requests, gpu, "nvidia.com/gpu request must survive merge")
+	gpuReq := merged.Requests[gpu]
+	assert.True(t, gpuReq.Equal(resource.MustParse("1")),
+		"gpu request should stay 1, got %s", gpuReq.String())
+	require.Contains(t, merged.Requests, huge, "hugepages-2Mi request must survive merge")
+	hugeReq := merged.Requests[huge]
+	assert.True(t, hugeReq.Equal(resource.MustParse("4Mi")),
+		"hugepages-2Mi request should stay 4Mi, got %s", hugeReq.String())
+	require.Contains(t, merged.Requests, eph, "ephemeral-storage request must survive merge")
+	ephReq := merged.Requests[eph]
+	assert.True(t, ephReq.Equal(resource.MustParse("1Gi")),
+		"ephemeral-storage request should stay 1Gi, got %s", ephReq.String())
+	require.Contains(t, merged.Limits, gpu, "gpu limit must survive merge")
+	gpuLim := merged.Limits[gpu]
+	assert.True(t, gpuLim.Equal(resource.MustParse("1")),
+		"gpu limit should stay 1, got %s", gpuLim.String())
 }
 
 func TestIsResizeInfeasible(t *testing.T) {
