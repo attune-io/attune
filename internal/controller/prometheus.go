@@ -331,7 +331,7 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 		// Only reuse when an eligible container had no usable data.
 		// Exclude-all must still return nil so status drops the rec.
 		// Do not keep a usage rec while memoryFromCpuRatio is waiting on CPU.
-		if eligibleContainers > 0 && !(memoryFromCPURatioSet(policy) && groupedSamplesPresent(memSamplesByContainer)) {
+		if eligibleContainers > 0 && (!memoryFromCPURatioSet(policy) || !groupedSamplesPresent(memSamplesByContainer)) {
 			freshness := recommendationFreshnessBound(queryStep)
 			if reused := reuseStaleRecommendation(policy, workloadKindName(workload), workload.GetName(), now, freshness); reused != nil {
 				logger.Info("Reusing prior recommendation as stale; Prometheus returned no fresh data",
