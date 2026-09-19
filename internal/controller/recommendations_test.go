@@ -1140,6 +1140,150 @@ func TestComputeRecommendations_UsesPodLevelSeriesWithoutExtraQuery(t *testing.T
 	require.Len(t, rec.Containers, 1)
 }
 
+// TestComputeRecommendations_MemoryFromCPURatioWaitsForCPU is the live-red
+// contract for #819: memoryFromCpuRatio must not publish a memory-usage rec
+// when CPU rate() is empty. That rec flipped Ready to Monitoring and
+// stretched requeue to cooldown+jitter (up to 3m), so the nightly wait
+// never saw derived from CPU via memoryFromCpuRatio=2.0.
+func TestComputeRecommendations_MemoryFromCPURatioWaitsForCPU(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	ratio := "2.0"
+	policy.Spec.Memory.MemoryFromCPURatio = &ratio
+	policy.Spec.Memory.AllowDecrease = boolPtr(true)
+	deploy := newTestDeployment("api-server", "default", nil)
+	pods := []corev1.Pod{*newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")}
+	reconciler := newReconcilerWithClient()
+
+	mc := &mockCollector{
+		queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			if strings.Contains(query, "memory_working_set_bytes") {
+				return map[string][]rsmetrics.Sample{"main": generateSamples(200, 8*1024*1024)}, nil
+			}
+			return map[string][]rsmetrics.Sample{}, nil
+		},
+	}
+
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, pods)
+	require.NoError(t, err)
+	assert.Nil(t, rec, "memoryFromCpuRatio must not publish a usage rec while CPU samples are missing")
+}
+
+func TestComputeRecommendations_MemoryFromCPURatioDoesNotReuseUsageRec(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	ratio := "2.0"
+	policy.Spec.Memory.MemoryFromCPURatio = &ratio
+	policy.Spec.Memory.AllowDecrease = boolPtr(true)
+	deploy := newTestDeployment("api-server", "default", nil)
+	reconciler := newReconcilerWithClient()
+	now := time.Date(2026, 9, 19, 8, 18, 12, 0, time.UTC)
+	reconciler.SetNowFunc(func() time.Time { return now })
+
+	priorData := metav1.NewTime(now.Add(-time.Minute))
+	policy.Status.Recommendations = []attunev1alpha1.WorkloadRecommendation{{
+		Workload:     "api-server",
+		Kind:         "Deployment",
+		LastDataTime: &priorData,
+		Stale:        false,
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "main",
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest:    resource.MustParse("500m"),
+				MemoryRequest: resource.MustParse("64Mi"),
+			},
+			Explanation: &attunev1alpha1.ContainerRecommendationExplanation{
+				Memory: &attunev1alpha1.ResourceRecommendationExplanation{
+					FinalAdjustment: "podAggregation=Max; burstSensitivity=0.1",
+				},
+			},
+		}},
+	}}
+
+	mc := &mockCollector{
+		queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			if strings.Contains(query, "memory_working_set_bytes") {
+				return map[string][]rsmetrics.Sample{"main": generateSamples(200, 8*1024*1024)}, nil
+			}
+			return map[string][]rsmetrics.Sample{}, nil
+		},
+	}
+
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+	assert.Nil(t, rec, "must not reuse a usage rec while memoryFromCpuRatio is waiting for CPU")
+}
+
+func TestComputeRecommendations_MemoryFromCPURatioEmptyQueryStillReuses(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	ratio := "2.0"
+	policy.Spec.Memory.MemoryFromCPURatio = &ratio
+	deploy := newTestDeployment("api-server", "default", nil)
+	reconciler := newReconcilerWithClient()
+	now := time.Date(2026, 9, 19, 8, 18, 12, 0, time.UTC)
+	reconciler.SetNowFunc(func() time.Time { return now })
+
+	priorData := metav1.NewTime(now.Add(-time.Minute))
+	cpuRec, err := resource.ParseQuantity("250m")
+	require.NoError(t, err)
+	memRec, err := resource.ParseQuantity("512Mi")
+	require.NoError(t, err)
+	policy.Status.Recommendations = []attunev1alpha1.WorkloadRecommendation{{
+		Workload:     "api-server",
+		Kind:         "Deployment",
+		LastDataTime: &priorData,
+		Stale:        false,
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "main",
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest:    cpuRec,
+				MemoryRequest: memRec,
+			},
+		}},
+	}}
+
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return nil, nil
+		},
+	}
+
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, rec, "Prometheus outage must still reuse the prior rec when both queries are empty")
+	assert.True(t, rec.Stale)
+	assert.True(t, rec.Containers[0].Recommended.MemoryRequest.Equal(memRec))
+}
+
+func TestComputeRecommendations_MemoryFromCPURatioDerivesFromCPU(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	ratio := "2.0"
+	policy.Spec.Memory.MemoryFromCPURatio = &ratio
+	policy.Spec.Memory.AllowDecrease = boolPtr(true)
+	deploy := newTestDeployment("api-server", "default", nil)
+	reconciler := newReconcilerWithClient()
+
+	mc := &mockCollector{
+		queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			if strings.Contains(query, "memory_working_set_bytes") {
+				return map[string][]rsmetrics.Sample{"main": generateSamples(200, 8*1024*1024)}, nil
+			}
+			return map[string][]rsmetrics.Sample{"main": generateSamples(200, 0.1)}, nil
+		},
+	}
+
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	require.Len(t, rec.Containers, 1)
+	require.NotNil(t, rec.Containers[0].Explanation)
+	require.NotNil(t, rec.Containers[0].Explanation.Memory)
+	assert.Contains(t, rec.Containers[0].Explanation.Memory.FinalAdjustment, "memoryFromCpuRatio=2.0")
+	floor, err := resource.ParseQuantity("128Mi")
+	require.NoError(t, err)
+	assert.True(t, rec.Containers[0].Recommended.MemoryRequest.Cmp(floor) > 0,
+		"ratio-derived memory must exceed idle RSS minAllowed (got %s)",
+		rec.Containers[0].Recommended.MemoryRequest.String())
+}
+
 func TestComputeRecommendations_PopulatesExplanation(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	deploy := newTestDeployment("api-server", "default", nil)

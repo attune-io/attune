@@ -220,6 +220,31 @@ func TestComputeVPARecommendationsForWorkload_MemoryFromCPURatio(t *testing.T) {
 	assert.Contains(t, cRec.Explanation.Memory.FinalAdjustment, "memoryFromCpuRatio=2.0")
 }
 
+func TestComputeVPARecommendationsForWorkload_MemoryFromCPURatioWaitsForCPU(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.MetricsSource.Prometheus = nil
+	policy.Spec.MetricsSource.VPA = &attunev1alpha1.VPAConfig{Name: "my-vpa"}
+	ratio := "2.0"
+	policy.Spec.Memory.MemoryFromCPURatio = &ratio
+	policy.Spec.Memory.AllowDecrease = boolPtr(true)
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	vpaRecs := []rsmetrics.VPAContainerRecommendation{
+		{
+			ContainerName: "main",
+			MemoryTarget:  resource.MustParse("128Mi"),
+			MemorySet:     true,
+		},
+	}
+
+	reconciler := NewAttunePolicyReconciler()
+	rec, _, err := reconciler.computeVPARecommendationsForWorkload(
+		context.Background(), policy, deploy, vpaRecs, nil, nil, nil, nil,
+	)
+	require.NoError(t, err)
+	assert.Nil(t, rec, "memoryFromCpuRatio must not publish the VPA memory target while CPU is unset")
+}
+
 func TestComputeVPARecommendationsForWorkload_CPUOnlyHoldsMemory(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.MetricsSource.Prometheus = nil
