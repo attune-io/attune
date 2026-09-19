@@ -238,11 +238,14 @@ func TestComputeVPARecommendationsForWorkload_MemoryFromCPURatioWaitsForCPU(t *t
 	}
 
 	reconciler := NewAttunePolicyReconciler()
-	rec, _, err := reconciler.computeVPARecommendationsForWorkload(
+	rec, maxDataPoints, err := reconciler.computeVPARecommendationsForWorkload(
 		context.Background(), policy, deploy, vpaRecs, nil, nil, nil, nil,
 	)
 	require.NoError(t, err)
 	assert.Nil(t, rec, "memoryFromCpuRatio must not publish the VPA memory target while CPU is unset")
+	// Progress while waiting must not credit the memory-only VPA target
+	// (vpaDataPoints=1) as Collecting data toward minimumDataPoints.
+	assert.Equal(t, 0, maxDataPoints, "ratio wait must not bump maxDataPoints from a memory-only VPA target")
 }
 
 func TestComputeVPARecommendationsForWorkload_CPUOnlyHoldsMemory(t *testing.T) {

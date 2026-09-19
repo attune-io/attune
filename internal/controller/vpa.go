@@ -114,10 +114,6 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 			Confidence: 1.0,
 		}
 
-		if vpaDataPoints > maxDataPoints {
-			maxDataPoints = vpaDataPoints
-		}
-
 		points := 0
 		if vpaRec.CPUSet {
 			points += vpaDataPoints
@@ -162,6 +158,8 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 			}
 		}
 		if ratioSet && !cpuApplied {
+			// Do not credit vpaDataPoints while waiting: a memory-only
+			// target would otherwise report 1/N Collecting data.
 			logger.V(1).Info("memoryFromCpuRatio waiting for VPA CPU target",
 				"container", containerName)
 			waitingRatioCPU = true
@@ -209,6 +207,10 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 			"memRecommended", &cRec.Recommended.MemoryRequest,
 			"confidence", cRec.Confidence)
 
+		// Count progress only for containers that produce a recommendation.
+		if vpaDataPoints > maxDataPoints {
+			maxDataPoints = vpaDataPoints
+		}
 		containerRecs = append(containerRecs, cRec)
 	}
 
