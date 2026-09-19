@@ -381,7 +381,8 @@ type recommendContainerInput struct {
 
 // recommendContainer builds one container rec from grouped samples.
 // ok is false when both resources are below minimumDataPoints.
-// dataPoints is the larger of the CPU and memory profile counts.
+// dataPoints is the larger of the CPU and memory profile counts, except
+// when memoryFromCpuRatio is waiting on CPU (CPU count only).
 func (r *AttunePolicyReconciler) recommendContainer(
 	ctx context.Context,
 	in recommendContainerInput,
@@ -437,13 +438,14 @@ func (r *AttunePolicyReconciler) recommendContainer(
 
 	// memoryFromCpuRatio replaces the memory signal. Using gauges while
 	// CPU rate() is empty publishes a usage rec, flips Ready to Monitoring,
-	// and stretches requeue to cooldown+jitter (#819).
+	// and stretches requeue to cooldown+jitter (#819). Progress counts CPU
+	// only so Ready does not claim 200/48 while still waiting for rate().
 	if memoryFromCPURatioSet(policy) && cpuProfile.DataPoints < int(minimumDataPoints) {
 		logger.Info("memoryFromCpuRatio waiting for CPU samples",
 			"container", containerName,
 			"cpuPoints", cpuProfile.DataPoints,
 			"minimum", minimumDataPoints)
-		return rec, false, false, dataPoints
+		return rec, false, false, cpuProfile.DataPoints
 	}
 
 	if len(cpuSamples) > 0 && cpuProfile.DataPoints == 0 {
