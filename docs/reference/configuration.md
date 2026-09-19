@@ -588,7 +588,7 @@ See the [startup boost guide](../guides/startup-boost.md) for details.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `memory.memoryFromCpuRatio` | string | (none) | Derives memory from the CPU recommendation (GiB per core) instead of the memory signal from the active source (Prometheus usage or VPA memory target). For example, `"2.0"` means 1 core = 2 GiB memory. Useful for JVM and heap-bound workloads where memory is proportional to CPU. The derived value still goes through min/max/change caps. |
+| `memory.memoryFromCpuRatio` | string | (none) | Derives memory from the CPU recommendation (GiB per core) instead of the memory signal from the active source (Prometheus usage or VPA memory target). For example, `"2.0"` means 1 core = 2 GiB memory. Useful for JVM and heap-bound workloads where memory is proportional to CPU. The derived value still goes through min/max/change caps. When CPU samples are below `minimumDataPoints` (or the VPA CPU target is unset), Attune does not fall back to the memory signal: Ready stays `InsufficientData` and reconcile retries at `queryStep` until a CPU recommendation exists. |
 
 ### SLO Guardrails
 
@@ -625,7 +625,9 @@ updateStrategy:
 | `metricsSource.vpa.namespace` | string | (policy namespace) | Namespace of the VPA. Defaults to the policy's namespace. |
 
 `memory.memoryFromCpuRatio` applies here too: when set, memory is derived
-from the CPU recommendation instead of the VPA memory target.
+from the CPU recommendation instead of the VPA memory target. If the VPA
+CPU target is unset, Attune waits (`InsufficientData`) instead of using
+the VPA memory target.
 
 Set that VPA to `updateMode: Off`. Attune then consumes
 `status.recommendation.containerRecommendations[].target` and applies

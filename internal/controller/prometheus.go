@@ -330,7 +330,8 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 	if len(containerRecs) == 0 {
 		// Only reuse when an eligible container had no usable data.
 		// Exclude-all must still return nil so status drops the rec.
-		if eligibleContainers > 0 {
+		// Do not keep a usage rec while memoryFromCpuRatio is waiting on CPU.
+		if eligibleContainers > 0 && !(memoryFromCPURatioSet(policy) && groupedSamplesPresent(memSamplesByContainer)) {
 			freshness := recommendationFreshnessBound(queryStep)
 			if reused := reuseStaleRecommendation(policy, workloadKindName(workload), workload.GetName(), now, freshness); reused != nil {
 				logger.Info("Reusing prior recommendation as stale; Prometheus returned no fresh data",
@@ -434,6 +435,17 @@ func (r *AttunePolicyReconciler) recommendContainer(
 		return rec, false, false, dataPoints
 	}
 
+	// memoryFromCpuRatio replaces the memory signal. Using gauges while
+	// CPU rate() is empty publishes a usage rec, flips Ready to Monitoring,
+	// and stretches requeue to cooldown+jitter (#819).
+	if memoryFromCPURatioSet(policy) && cpuProfile.DataPoints < int(minimumDataPoints) {
+		logger.Info("memoryFromCpuRatio waiting for CPU samples",
+			"container", containerName,
+			"cpuPoints", cpuProfile.DataPoints,
+			"minimum", minimumDataPoints)
+		return rec, false, false, dataPoints
+	}
+
 	if len(cpuSamples) > 0 && cpuProfile.DataPoints == 0 {
 		logger.V(1).Info("All CPU samples were NaN/Inf, using current CPU request",
 			"container", containerName,
@@ -462,7 +474,7 @@ func (r *AttunePolicyReconciler) recommendContainer(
 	}
 
 	memApplied := false
-	if policy.Spec.Memory.MemoryFromCPURatio != nil && *policy.Spec.Memory.MemoryFromCPURatio != "" && explanation.CPU != nil {
+	if memoryFromCPURatioSet(policy) && explanation.CPU != nil {
 		ratio := parseFloat64Ratio(*policy.Spec.Memory.MemoryFromCPURatio)
 		allowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
 		memRec, memExplain, applied := deriveMemoryFromCPU(
@@ -474,7 +486,7 @@ func (r *AttunePolicyReconciler) recommendContainer(
 			explanation.Memory = toAPIRecommendationExplanation(memExplain)
 			memApplied = true
 		}
-	} else if memProfile.DataPoints >= int(minimumDataPoints) {
+	} else if !memoryFromCPURatioSet(policy) && memProfile.DataPoints >= int(minimumDataPoints) {
 		memRec, memExplain, _ := memEngine.RecommendWithExplanation(memProfile, rec.Current.MemoryRequest)
 		memAllowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
 		memRec = r.enforceAllowDecrease(memAllowDecrease, memRec, rec.Current.MemoryRequest, &memExplain, policy, containerName, "memory")
@@ -1075,6 +1087,23 @@ func samplesForContainer(grouped map[string][]rsmetrics.Sample, container string
 		return samples
 	}
 	return grouped[""]
+}
+
+func memoryFromCPURatioSet(policy *attunev1alpha1.AttunePolicy) bool {
+	if policy == nil {
+		return false
+	}
+	r := policy.Spec.Memory.MemoryFromCPURatio
+	return r != nil && *r != ""
+}
+
+func groupedSamplesPresent(grouped map[string][]rsmetrics.Sample) bool {
+	for _, samples := range grouped {
+		if len(samples) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // deriveMemoryFromCPU computes a memory recommendation by deriving it from

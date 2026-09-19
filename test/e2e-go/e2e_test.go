@@ -4144,7 +4144,7 @@ func TestE2E_MemoryFromCPURatio_DerivesMemory(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, policy))
 
 	var note string
-	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+	err := wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
 		var p attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "memratio-policy", Namespace: ns}, &p); err != nil {
 			return false, nil
@@ -4162,7 +4162,11 @@ func TestE2E_MemoryFromCPURatio_DerivesMemory(t *testing.T) {
 			}
 		}
 		return false, nil
-	}), "memory recommendation must be derived from CPU via memoryFromCpuRatio")
+	})
+	if err != nil {
+		logPolicyExplanationState(t, "memratio-policy", ns)
+	}
+	require.NoError(t, err, "memory recommendation must be derived from CPU via memoryFromCpuRatio")
 	assert.Contains(t, note, "memoryFromCpuRatio=2.0")
 }
 

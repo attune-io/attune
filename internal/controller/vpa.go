@@ -72,6 +72,7 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 	var containerRecs []attunev1alpha1.ContainerRecommendation
 	eligibleContainers := 0
 	partialUnfilled := false
+	waitingRatioCPU := false
 
 	for _, container := range containers {
 		containerName := container.Name
@@ -148,7 +149,8 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 		// derive memory from the CPU recommendation instead of the VPA
 		// memory target (same as the Prometheus path).
 		memAllowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
-		if cpuApplied && policy.Spec.Memory.MemoryFromCPURatio != nil && *policy.Spec.Memory.MemoryFromCPURatio != "" && explanation.CPU != nil {
+		ratioSet := memoryFromCPURatioSet(policy)
+		if cpuApplied && ratioSet && explanation.CPU != nil {
 			ratio := parseFloat64Ratio(*policy.Spec.Memory.MemoryFromCPURatio)
 			memRec, memExplain, applied := deriveMemoryFromCPU(
 				cpuRec, ratio, memEngine, vpaDataPoints, cRec.Current.MemoryRequest, memAllowDecrease)
@@ -159,7 +161,13 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 				explanation.Memory = toAPIRecommendationExplanation(memExplain)
 			}
 		}
-		if explanation.Memory == nil && vpaRec.MemorySet {
+		if ratioSet && !cpuApplied {
+			logger.V(1).Info("memoryFromCpuRatio waiting for VPA CPU target",
+				"container", containerName)
+			waitingRatioCPU = true
+			continue
+		}
+		if explanation.Memory == nil && vpaRec.MemorySet && !ratioSet {
 			memRec, memExplain, _ := memEngine.RecommendWithExplanation(memProfile, cRec.Current.MemoryRequest)
 			memRec = r.enforceAllowDecrease(memAllowDecrease, memRec, cRec.Current.MemoryRequest, &memExplain, policy, containerName, "memory")
 			cRec.Recommended.MemoryRequest = memRec
@@ -207,7 +215,7 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 	if len(containerRecs) == 0 {
 		// Only reuse when an eligible container had no VPA rec.
 		// Exclude-all must still return nil so status drops the rec.
-		if eligibleContainers > 0 {
+		if eligibleContainers > 0 && !waitingRatioCPU {
 			freshness := recommendationFreshnessBound(0)
 			if reused := reuseStaleRecommendation(policy, workloadKindName(workload), workload.GetName(), now, freshness); reused != nil {
 				logger.Info("Reusing prior recommendation as stale; VPA returned no container recommendations",
