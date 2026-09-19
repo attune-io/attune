@@ -214,6 +214,12 @@ During this state the operator requeues at `min(cooldown, queryStep)` and
 does **not** add `requeueJitter`. A policy with `cooldown: 1m` and the
 default 5m step therefore retries every minute, not every 1–3 minutes.
 
+If `memory.memoryFromCpuRatio` is set, Attune waits for a CPU
+recommendation and does not use memory usage gauges or a VPA memory
+target. Ready stays `InsufficientData` and retries at `queryStep`.
+The `Collecting data: X/Y` message counts CPU samples only while
+waiting. See [memory.memoryFromCpuRatio](../reference/configuration.md#memory-from-cpu-derivation).
+
 **Fix**: Wait for more data to accumulate, or adjust these settings:
 
 - **`minimumDataPoints`**: Lower for faster (but less confident) recommendations.
