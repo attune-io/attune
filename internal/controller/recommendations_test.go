@@ -1163,9 +1163,78 @@ func TestComputeRecommendations_MemoryFromCPURatioWaitsForCPU(t *testing.T) {
 		},
 	}
 
-	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, pods)
+	rec, _, _, maxDataPoints, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, pods)
 	require.NoError(t, err)
 	assert.Nil(t, rec, "memoryFromCpuRatio must not publish a usage rec while CPU samples are missing")
+	// Progress while waiting must count CPU only. max(cpu, mem) would report
+	// 200/48 and claim the window is full while CPU rate() is still empty.
+	assert.Equal(t, 0, maxDataPoints, "ratio wait progress datapoints must be CPU count, not max(cpu, mem)")
+}
+
+// TestComputeRecommendations_MemoryFromCPURatio_BothBelowMinimumCountsCPU
+// locks the both-insufficient branch under memoryFromCpuRatio: when CPU
+// and memory are both short of minimum, progress must still be CPU-only.
+// Evaluating the both-insufficient return before the ratio wait used
+// max(cpu, mem) and inflated Collecting data (e.g. 40/48 with only 10 CPU).
+func TestComputeRecommendations_MemoryFromCPURatio_BothBelowMinimumCountsCPU(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	ratio := "2.0"
+	policy.Spec.Memory.MemoryFromCPURatio = &ratio
+	policy.Spec.Memory.AllowDecrease = boolPtr(true)
+	deploy := newTestDeployment("api-server", "default", nil)
+	pods := []corev1.Pod{*newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")}
+	reconciler := newReconcilerWithClient()
+
+	mc := &mockCollector{
+		queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			if strings.Contains(query, "memory_working_set_bytes") {
+				return map[string][]rsmetrics.Sample{"main": generateSamples(40, 8*1024*1024)}, nil
+			}
+			return map[string][]rsmetrics.Sample{"main": generateSamples(10, 0.1)}, nil
+		},
+	}
+
+	rec, _, _, maxDataPoints, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, pods)
+	require.NoError(t, err)
+	assert.Nil(t, rec, "memoryFromCpuRatio must not publish while CPU is below minimum")
+	assert.Equal(t, 10, maxDataPoints, "ratio wait progress must count CPU points (10), not max(cpu, mem)=40")
+}
+
+// TestComputeRecommendations_MemoryFromCPURatio_AllNaNCPUWaits locks the
+// all-NaN CPU + valid memory path under memoryFromCpuRatio. Without the
+// ratio wait, this falls through like CPUAllNaNMemoryValid and publishes a
+// memory-usage rec.
+func TestComputeRecommendations_MemoryFromCPURatio_AllNaNCPUWaits(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	ratio := "2.0"
+	policy.Spec.Memory.MemoryFromCPURatio = &ratio
+	policy.Spec.Memory.AllowDecrease = boolPtr(true)
+	deploy := newTestDeployment("api-server", "default", nil)
+	pods := []corev1.Pod{*newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")}
+	reconciler := newReconcilerWithClient()
+
+	nanSamples := make([]rsmetrics.Sample, 50)
+	now := time.Now()
+	for i := range nanSamples {
+		nanSamples[i] = rsmetrics.Sample{
+			Timestamp: now.Add(-time.Duration(50-i) * time.Hour),
+			Value:     math.NaN(),
+		}
+	}
+
+	mc := &mockCollector{
+		queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			if strings.Contains(query, "memory_working_set_bytes") {
+				return map[string][]rsmetrics.Sample{"main": generateSamples(200, 8*1024*1024)}, nil
+			}
+			return map[string][]rsmetrics.Sample{"main": nanSamples}, nil
+		},
+	}
+
+	rec, _, _, maxDataPoints, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, pods)
+	require.NoError(t, err)
+	assert.Nil(t, rec, "memoryFromCpuRatio must not fall through to a usage rec when CPU is all NaN")
+	assert.Equal(t, 0, maxDataPoints, "ratio wait progress datapoints must be CPU count, not memory gauges")
 }
 
 func TestComputeRecommendations_MemoryFromCPURatioDoesNotReuseUsageRec(t *testing.T) {

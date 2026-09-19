@@ -1029,6 +1029,50 @@ func TestReconcile_InsufficientDataRequeuesAtQueryStep(t *testing.T) {
 		"InsufficientData should requeue at queryStep interval, not cooldown")
 }
 
+// TestReconcile_MemoryFromCPURatioWaits_NoAutoApply locks #819/#820 at the
+// Reconcile boundary: Auto + memory gauges without CPU must stay
+// InsufficientData at queryStep (no Monitoring rec, no resize, no jitter).
+func TestReconcile_MemoryFromCPURatioWaits_NoAutoApply(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	ratio := "2.0"
+	policy.Spec.Memory.MemoryFromCPURatio = &ratio
+	policy.Spec.Memory.AllowDecrease = boolPtr(true)
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 2 * time.Hour}
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+
+	mc := &mockCollector{
+		queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			if strings.Contains(query, "memory_working_set_bytes") {
+				return map[string][]rsmetrics.Sample{"main": generateSamples(200, 8*1024*1024)}, nil
+			}
+			return map[string][]rsmetrics.Sample{}, nil
+		},
+	}
+	reconciler, fakeClient := newReconcilerForReconcile(mc, policy, deploy, pod)
+	reconciler.Clientset = kubefake.NewSimpleClientset(pod.DeepCopy())
+	reconciler.RequeueJitter = 2 * time.Minute
+
+	result, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, attunev1alpha1.DefaultQueryStep, result.RequeueAfter,
+		"memoryFromCpuRatio wait must requeue at queryStep, not cooldown or cooldown+jitter")
+
+	var updated attunev1alpha1.AttunePolicy
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "test-policy", Namespace: "default",
+	}, &updated))
+	cond := meta.FindStatusCondition(updated.Status.Conditions, attunev1alpha1.ConditionReady)
+	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, attunev1alpha1.ReasonInsufficientData, cond.Reason)
+	assert.Empty(t, updated.Status.Recommendations)
+	assert.Equal(t, int32(0), updated.Status.Workloads.Resized)
+}
+
 // Nightly #520: cooldown 1m is shorter than default queryStep 5m, so the
 // InsufficientData shortcut leaves requeueAfter == cooldown. Jitter must
 // not apply or first recommendations wait up to cooldown+jitter (3m with
