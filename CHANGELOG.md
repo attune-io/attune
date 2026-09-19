@@ -6,6 +6,13 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.30](https://github.com/attune-io/attune/compare/v0.1.29...v0.1.30) (2026-09-19)
+
+
+### Bug Fixes
+
+* hold memoryFromCpuRatio until cpu samples exist ([#820](https://github.com/attune-io/attune/issues/820)) ([bc784f7](https://github.com/attune-io/attune/commit/bc784f72f986575bc24e5d82f1bd7a8c598fc808))
+
 ## [0.1.29](https://github.com/attune-io/attune/compare/v0.1.28...v0.1.29) (2026-09-18)
 
 
