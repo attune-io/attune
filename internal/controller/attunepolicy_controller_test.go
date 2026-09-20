@@ -548,6 +548,23 @@ func TestParseFloat64Ratio_RejectsBadValues(t *testing.T) {
 	assert.InDelta(t, 0, parseFloat64Ratio("abc"), 0.001)
 }
 
+func TestMemoryFromCPURatioSet(t *testing.T) {
+	assert.False(t, memoryFromCPURatioSet(nil))
+	p := newTestPolicy("p", "default")
+	assert.False(t, memoryFromCPURatioSet(p), "unset ratio is not set")
+	empty := ""
+	p.Spec.Memory.MemoryFromCPURatio = &empty
+	assert.False(t, memoryFromCPURatioSet(p), "empty ratio is not set")
+	for _, bad := range []string{"abc", "0", "-1", "NaN", "Inf", "1001"} {
+		v := bad
+		p.Spec.Memory.MemoryFromCPURatio = &v
+		assert.False(t, memoryFromCPURatioSet(p), "invalid ratio %q must not gate the wait path", bad)
+	}
+	ok := "2.0"
+	p.Spec.Memory.MemoryFromCPURatio = &ok
+	assert.True(t, memoryFromCPURatioSet(p))
+}
+
 func TestParseOverheadPercent(t *testing.T) {
 	tests := []struct {
 		name     string

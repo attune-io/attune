@@ -18,7 +18,6 @@ package controller
 
 import (
 	"context"
-	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -46,6 +45,7 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 	pods []corev1.Pod,
 ) (rec *attunev1alpha1.WorkloadRecommendation, maxDataPoints int, err error) { //nolint:unparam // error return kept for interface contract
 	logger := log.FromContext(ctx)
+	logInvalidMemoryFromCPURatio(logger, policy)
 	containers := r.getContainers(workload)
 	if len(containers) == 0 {
 		return nil, 0, nil
@@ -72,7 +72,6 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 	var containerRecs []attunev1alpha1.ContainerRecommendation
 	eligibleContainers := 0
 	partialUnfilled := false
-	waitingRatioCPU := false
 
 	for _, container := range containers {
 		containerName := container.Name
@@ -153,7 +152,7 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 			if applied {
 				cRec.Recommended.MemoryRequest = memRec
 				memExplain.FinalAdjustment = appendNote(memExplain.FinalAdjustment,
-					fmt.Sprintf("derived from CPU via memoryFromCpuRatio=%s", *policy.Spec.Memory.MemoryFromCPURatio))
+					derivedFromCPURatioNote(*policy.Spec.Memory.MemoryFromCPURatio))
 				explanation.Memory = toAPIRecommendationExplanation(memExplain)
 			}
 		}
@@ -162,7 +161,6 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 			// target would otherwise report 1/N Collecting data.
 			logger.V(1).Info("memoryFromCpuRatio waiting for VPA CPU target",
 				"container", containerName)
-			waitingRatioCPU = true
 			continue
 		}
 		if explanation.Memory == nil && vpaRec.MemorySet && !ratioSet {
@@ -217,7 +215,8 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 	if len(containerRecs) == 0 {
 		// Only reuse when an eligible container had no VPA rec.
 		// Exclude-all must still return nil so status drops the rec.
-		if eligibleContainers > 0 && !waitingRatioCPU {
+		// Under memoryFromCpuRatio, reuse only a ratio-derived prior rec.
+		if eligibleContainers > 0 && staleReuseAllowed(policy, workloadKindName(workload), workload.GetName()) {
 			freshness := recommendationFreshnessBound(0)
 			if reused := reuseStaleRecommendation(policy, workloadKindName(workload), workload.GetName(), now, freshness); reused != nil {
 				logger.Info("Reusing prior recommendation as stale; VPA returned no container recommendations",

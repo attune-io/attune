@@ -24,8 +24,10 @@ import (
 	"math"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
 	"golang.org/x/sync/errgroup"
 	corev1 "k8s.io/api/core/v1"
 	k8sresource "k8s.io/apimachinery/pkg/api/resource"
@@ -227,6 +229,7 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 	pods []corev1.Pod,
 ) (rec *attunev1alpha1.WorkloadRecommendation, queryErrors int, failedMetricTypes []string, maxDataPoints int, seriesCapped bool, err error) { //nolint:unparam // error return kept for interface contract
 	logger := log.FromContext(ctx)
+	logInvalidMemoryFromCPURatio(logger, policy)
 	containers := r.getContainers(workload)
 	if len(containers) == 0 {
 		return nil, 0, nil, 0, false, nil
@@ -330,8 +333,8 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 	if len(containerRecs) == 0 {
 		// Only reuse when an eligible container had no usable data.
 		// Exclude-all must still return nil so status drops the rec.
-		// Do not keep a usage rec while memoryFromCpuRatio is waiting on CPU.
-		if eligibleContainers > 0 && (!memoryFromCPURatioSet(policy) || !groupedSamplesPresent(memSamplesByContainer)) {
+		// Under memoryFromCpuRatio, reuse only a ratio-derived prior rec.
+		if eligibleContainers > 0 && staleReuseAllowed(policy, workloadKindName(workload), workload.GetName()) {
 			freshness := recommendationFreshnessBound(queryStep)
 			if reused := reuseStaleRecommendation(policy, workloadKindName(workload), workload.GetName(), now, freshness); reused != nil {
 				logger.Info("Reusing prior recommendation as stale; Prometheus returned no fresh data",
@@ -486,7 +489,7 @@ func (r *AttunePolicyReconciler) recommendContainer(
 		if applied {
 			rec.Recommended.MemoryRequest = memRec
 			memExplain.FinalAdjustment = appendNote(memExplain.FinalAdjustment,
-				fmt.Sprintf("derived from CPU via memoryFromCpuRatio=%s", *policy.Spec.Memory.MemoryFromCPURatio))
+				derivedFromCPURatioNote(*policy.Spec.Memory.MemoryFromCPURatio))
 			explanation.Memory = toAPIRecommendationExplanation(memExplain)
 			memApplied = true
 		}
@@ -1093,18 +1096,62 @@ func samplesForContainer(grouped map[string][]rsmetrics.Sample, container string
 	return grouped[""]
 }
 
+const memoryFromCPURatioNote = "memoryFromCpuRatio"
+
+func derivedFromCPURatioNote(ratio string) string {
+	return fmt.Sprintf("derived from CPU via %s=%s", memoryFromCPURatioNote, ratio)
+}
+
+func explanationDerivedFromCPURatio(exp *attunev1alpha1.ContainerRecommendationExplanation) bool {
+	return exp != nil && exp.Memory != nil && strings.Contains(exp.Memory.FinalAdjustment, memoryFromCPURatioNote)
+}
+
 func memoryFromCPURatioSet(policy *attunev1alpha1.AttunePolicy) bool {
 	if policy == nil {
 		return false
 	}
 	r := policy.Spec.Memory.MemoryFromCPURatio
-	return r != nil && *r != ""
+	return r != nil && parseFloat64Ratio(*r) > 0
 }
 
-func groupedSamplesPresent(grouped map[string][]rsmetrics.Sample) bool {
-	for _, samples := range grouped {
-		if len(samples) > 0 {
-			return true
+func logInvalidMemoryFromCPURatio(logger logr.Logger, policy *attunev1alpha1.AttunePolicy) {
+	if policy == nil {
+		return
+	}
+	r := policy.Spec.Memory.MemoryFromCPURatio
+	if r == nil || *r == "" || parseFloat64Ratio(*r) > 0 {
+		return
+	}
+	logger.Info("memoryFromCpuRatio is invalid; falling back to the memory signal", "value", *r)
+}
+
+// staleReuseAllowed is true when an empty query may keep the prior rec.
+// Policies without a valid memoryFromCpuRatio reuse as before. With a
+// valid ratio, only a prior rec whose memory explanation names
+// memoryFromCpuRatio is kept, so a leftover usage rec is not applied.
+func staleReuseAllowed(policy *attunev1alpha1.AttunePolicy, kind, workload string) bool {
+	if !memoryFromCPURatioSet(policy) {
+		return true
+	}
+	return priorRecommendationDerivedFromCPURatio(policy, kind, workload)
+}
+
+func priorRecommendationDerivedFromCPURatio(policy *attunev1alpha1.AttunePolicy, kind, workload string) bool {
+	if policy == nil || workload == "" {
+		return false
+	}
+	for i := range policy.Status.Recommendations {
+		prior := &policy.Status.Recommendations[i]
+		if prior.Workload != workload {
+			continue
+		}
+		if kind != "" && prior.Kind != kind {
+			continue
+		}
+		for j := range prior.Containers {
+			if explanationDerivedFromCPURatio(prior.Containers[j].Explanation) {
+				return true
+			}
 		}
 	}
 	return false

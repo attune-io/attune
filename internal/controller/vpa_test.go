@@ -248,6 +248,41 @@ func TestComputeVPARecommendationsForWorkload_MemoryFromCPURatioWaitsForCPU(t *t
 	assert.Equal(t, 0, maxDataPoints, "ratio wait must not bump maxDataPoints from a memory-only VPA target")
 }
 
+func TestComputeVPARecommendationsForWorkload_MemoryFromCPURatioReusesDerivedRec(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.MetricsSource.Prometheus = nil
+	policy.Spec.MetricsSource.VPA = &attunev1alpha1.VPAConfig{Name: "my-vpa"}
+	ratio := "2.0"
+	policy.Spec.Memory.MemoryFromCPURatio = &ratio
+	policy.Spec.Memory.AllowDecrease = boolPtr(true)
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	vpaRecs := []rsmetrics.VPAContainerRecommendation{
+		{
+			ContainerName: "main",
+			MemoryTarget:  resource.MustParse("128Mi"),
+			MemorySet:     true,
+		},
+	}
+
+	now := time.Date(2026, 9, 19, 8, 18, 12, 0, time.UTC)
+	policy.Status.Recommendations = []attunev1alpha1.WorkloadRecommendation{
+		ratioDerivedWorkloadRec(now, "derived from CPU via memoryFromCpuRatio=2.0"),
+	}
+	wantMem := policy.Status.Recommendations[0].Containers[0].Recommended.MemoryRequest
+
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.SetNowFunc(func() time.Time { return now })
+	rec, maxDataPoints, err := reconciler.computeVPARecommendationsForWorkload(
+		context.Background(), policy, deploy, vpaRecs, nil, nil, nil, nil,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, rec, "missing VPA CPU target must keep a ratio-derived rec as stale")
+	assert.True(t, rec.Stale)
+	assert.True(t, rec.Containers[0].Recommended.MemoryRequest.Equal(wantMem))
+	assert.Equal(t, 0, maxDataPoints, "reuse while waiting must not credit memory-only VPA points")
+}
+
 func TestComputeVPARecommendationsForWorkload_CPUOnlyHoldsMemory(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.MetricsSource.Prometheus = nil
