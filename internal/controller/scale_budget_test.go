@@ -102,6 +102,44 @@ func TestApplyStatusBudget_CapsAndStripsExplanations(t *testing.T) {
 	assert.False(t, names["small"])
 }
 
+func TestApplyStatusBudget_KeepsRatioOriginWhenStripping(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+	include := false
+	r.IncludeExplanationsInStatus = &include
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "ns"},
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api-server",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "main",
+			Current: attunev1alpha1.ResourceValues{
+				CPURequest:    resource.MustParse("500m"),
+				MemoryRequest: resource.MustParse("512Mi"),
+			},
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest:    resource.MustParse("250m"),
+				MemoryRequest: resource.MustParse("512Mi"),
+			},
+			Explanation: &attunev1alpha1.ContainerRecommendationExplanation{
+				CPU: &attunev1alpha1.ResourceRecommendationExplanation{
+					FinalAdjustment: "burstSensitivity=0.1",
+				},
+				Memory: &attunev1alpha1.ResourceRecommendationExplanation{
+					FinalAdjustment: derivedFromCPURatioNote("2.0"),
+				},
+			},
+		}},
+	}}
+
+	out := r.applyStatusBudget(recs, policy)
+	require.Len(t, out, 1)
+	require.NotNil(t, out[0].Containers[0].Explanation)
+	assert.Nil(t, out[0].Containers[0].Explanation.CPU, "CPU explanation must still be stripped")
+	require.NotNil(t, out[0].Containers[0].Explanation.Memory)
+	assert.Contains(t, out[0].Containers[0].Explanation.Memory.FinalAdjustment, memoryFromCPURatioNote)
+}
+
 func TestAddRequeueJitter_Deterministic(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	r.RequeueJitter = 5 * time.Minute

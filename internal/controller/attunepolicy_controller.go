@@ -777,8 +777,13 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 	// During data collection, use a shorter interval so new policies bootstrap
 	// faster. The cooldown is designed to space out resizes, not data collection.
+	// InsufficientData and MetricsUnavailable both retry at
+	// min(cooldown, queryStep) without jitter so a CPU query blip under
+	// memoryFromCpuRatio does not wait a 1h or 2h cooldown.
 	readyCond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionReady)
-	if readyCond != nil && readyCond.Reason == attunev1alpha1.ReasonInsufficientData {
+	bootstrap := readyCond != nil && (readyCond.Reason == attunev1alpha1.ReasonInsufficientData ||
+		attunev1alpha1.IsMetricsUnavailable(readyCond.Reason))
+	if bootstrap {
 		dataInterval := r.getQueryStep(&policy)
 		if dataInterval < requeueAfter {
 			requeueAfter = dataInterval
@@ -787,10 +792,8 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Only jitter full cooldown requeues so bootstrap / observation short
 	// intervals stay tight for data collection and e2e. When cooldown is
 	// already shorter than queryStep (for example cooldown 1m vs 5m step),
-	// InsufficientData still uses cooldown. Jittering that wait delayed
-	// first recommendations by up to RequeueJitter (nightly #520).
-	bootstrap := readyCond != nil && (readyCond.Reason == attunev1alpha1.ReasonInsufficientData ||
-		attunev1alpha1.IsMetricsUnavailable(readyCond.Reason))
+	// bootstrap still uses cooldown. Jittering that wait delayed first
+	// recommendations by up to RequeueJitter (nightly #520).
 	if requeueAfter == cooldown && !bootstrap {
 		requeueAfter = r.addRequeueJitter(requeueAfter, &policy)
 	}
@@ -891,6 +894,17 @@ func (r *AttunePolicyReconciler) applyStatusBudget(
 		out[i] = *recs[idx].DeepCopy()
 		if !includeExpl {
 			for j := range out[i].Containers {
+				exp := out[i].Containers[j].Explanation
+				if explanationDerivedFromCPURatio(exp) {
+					// Keep the ratio origin so a later CPU gap can reuse
+					// this rec as Stale after explanations are stripped.
+					out[i].Containers[j].Explanation = &attunev1alpha1.ContainerRecommendationExplanation{
+						Memory: &attunev1alpha1.ResourceRecommendationExplanation{
+							FinalAdjustment: exp.Memory.FinalAdjustment,
+						},
+					}
+					continue
+				}
 				out[i].Containers[j].Explanation = nil
 			}
 		}

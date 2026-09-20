@@ -37,7 +37,9 @@ older `PrometheusUnavailable` alias until the next reconcile.
 
 **Cause**: `MetricsUnavailable` means the controller could not use the
 metrics backend (Prometheus, Datadog, or CloudWatch) for this reconcile.
-The condition message tells you which step failed:
+The condition message tells you which step failed. During this state the
+operator requeues at `min(cooldown, queryStep)` and does **not** add
+`requeueJitter`, the same bootstrap interval as `InsufficientData`.
 
 - `Cannot resolve Prometheus config` means address resolution failed. The
   operator checks (in order): policy spec, one defaults source
@@ -214,10 +216,13 @@ During this state the operator requeues at `min(cooldown, queryStep)` and
 does **not** add `requeueJitter`. A policy with `cooldown: 1m` and the
 default 5m step therefore retries every minute, not every 1–3 minutes.
 
-If `memory.memoryFromCpuRatio` is set, Attune waits for a CPU
-recommendation and does not use memory usage gauges or a VPA memory
-target. Ready stays `InsufficientData` and retries at `queryStep`.
-The `Collecting data: X/Y` message counts CPU samples only while
+If `memory.memoryFromCpuRatio` is set to a valid ratio, Attune waits for a
+CPU recommendation and does not use memory usage gauges or a VPA memory
+target. Ready stays `InsufficientData` and retries at
+`min(cooldown, queryStep)`. A CPU query error is `MetricsUnavailable` and
+uses the same short requeue (no `requeueJitter`). A prior rec whose memory
+explanation contains `memoryFromCpuRatio` is kept as Stale until CPU
+returns. The `Collecting data: X/Y` message counts CPU samples only while
 waiting. See [memory.memoryFromCpuRatio](../reference/configuration.md#memory-from-cpu-derivation).
 
 **Fix**: Wait for more data to accumulate, or adjust these settings:

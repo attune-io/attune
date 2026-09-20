@@ -588,7 +588,7 @@ See the [startup boost guide](../guides/startup-boost.md) for details.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `memory.memoryFromCpuRatio` | string | (none) | Derives memory from the CPU recommendation (GiB per core) instead of the memory signal from the active source (Prometheus usage or VPA memory target). For example, `"2.0"` means 1 core = 2 GiB memory. Useful for JVM and heap-bound workloads where memory is proportional to CPU. The derived value still goes through min/max/change caps. When CPU samples are below `minimumDataPoints` (or the VPA CPU target is unset), Attune does not fall back to the memory signal: Ready stays `InsufficientData` and reconcile retries at `queryStep` until a CPU recommendation exists. |
+| `memory.memoryFromCpuRatio` | string | (none) | Derives memory from the CPU recommendation (GiB per core) instead of the memory signal from the active source (Prometheus usage or VPA memory target). For example, `"2.0"` means 1 core = 2 GiB memory. Useful for JVM and heap-bound workloads where memory is proportional to CPU. The derived value still goes through min/max/change caps. When a valid ratio is set and CPU samples are below `minimumDataPoints` (or the VPA CPU target is unset), Attune does not fall back to the memory signal: Ready stays `InsufficientData` and reconcile retries at `min(cooldown, queryStep)` until a CPU recommendation exists. A CPU query error sets Ready to `MetricsUnavailable` and uses the same short requeue (no `requeueJitter`). An invalid ratio (non-numeric, non-positive, or above 1000) is ignored and Attune uses the memory signal; the webhook rejects these when admission is enabled. A prior rec whose memory explanation contains `memoryFromCpuRatio` is kept as Stale across a CPU-only gap. |
 
 ### SLO Guardrails
 
@@ -624,10 +624,11 @@ updateStrategy:
 | `metricsSource.vpa.name` | string | (required) | Name of the VerticalPodAutoscaler object to consume recommendations from |
 | `metricsSource.vpa.namespace` | string | (policy namespace) | Namespace of the VPA. Defaults to the policy's namespace. |
 
-`memory.memoryFromCpuRatio` applies here too: when set, memory is derived
-from the CPU recommendation instead of the VPA memory target. If the VPA
-CPU target is unset, Attune waits (`InsufficientData`) instead of using
-the VPA memory target.
+`memory.memoryFromCpuRatio` applies here too: when a valid ratio is set,
+memory is derived from the CPU recommendation instead of the VPA memory
+target. If the VPA CPU target is unset, Attune waits (`InsufficientData`)
+instead of using the VPA memory target, retries at
+`min(cooldown, queryStep)`, and keeps a prior ratio-derived rec as Stale.
 
 Set that VPA to `updateMode: Off`. Attune then consumes
 `status.recommendation.containerRecommendations[].target` and applies

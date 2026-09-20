@@ -481,7 +481,8 @@ func TestReconcile_PrometheusQueryErrorsMentionCPUAndMemoryWhenBothFail(t *testi
 
 	result, err := reconciler.Reconcile(context.Background(), req)
 	assert.NoError(t, err)
-	assert.Equal(t, reconciler.parseCooldown(policy), result.RequeueAfter)
+	assert.Equal(t, attunev1alpha1.DefaultQueryStep, result.RequeueAfter,
+		"MetricsUnavailable must requeue at min(cooldown, queryStep)")
 
 	var updated attunev1alpha1.AttunePolicy
 	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
@@ -1118,6 +1119,34 @@ func TestReconcile_MetricsUnavailableDoesNotJitter(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 1*time.Minute, result.RequeueAfter,
 		"MetricsUnavailable must not add RequeueJitter")
+
+	var updated attunev1alpha1.AttunePolicy
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "test-policy", Namespace: "default",
+	}, &updated))
+	cond := meta.FindStatusCondition(updated.Status.Conditions, attunev1alpha1.ConditionReady)
+	require.NotNil(t, cond)
+	assert.Equal(t, attunev1alpha1.ReasonMetricsUnavailable, cond.Reason)
+}
+
+func TestReconcile_MetricsUnavailableRequeuesAtQueryStep(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 2 * time.Hour}
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	reconciler, fakeClient := newReconcilerForReconcile(&mockCollector{
+		queryRangeGroupedFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			return nil, fmt.Errorf("connection refused")
+		},
+	}, policy, deploy)
+	reconciler.RequeueJitter = 2 * time.Minute
+
+	result, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, attunev1alpha1.DefaultQueryStep, result.RequeueAfter,
+		"MetricsUnavailable must requeue at min(cooldown, queryStep), not a 2h cooldown")
 
 	var updated attunev1alpha1.AttunePolicy
 	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{

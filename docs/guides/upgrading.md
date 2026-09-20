@@ -8,6 +8,50 @@ Maintainers: before publishing a release after multi-version product changes,
 run the full E2E Nightly matrix on tip of `main` (see
 [Releasing: full E2E matrix](../contributing/releasing.md#1b-full-e2e-matrix-required-before-tagging-a-product-release)).
 
+## v0.1.29 to v0.1.30
+
+v0.1.30 changes how `memory.memoryFromCpuRatio` waits for CPU and how
+bootstrap requeues work. Existing policy YAML keeps working. Read this
+section if you set `memoryFromCpuRatio`, use a cooldown longer than
+`queryStep`, or watch Ready `MetricsUnavailable`.
+
+### memoryFromCpuRatio waits for CPU
+
+A valid ratio no longer falls back to Prometheus memory gauges or the
+VPA memory target while CPU samples (or the VPA CPU target) are missing.
+Ready stays `InsufficientData` and retries at `min(cooldown, queryStep)`
+with no `requeueJitter`. Progress (`Collecting data: X/Y`) counts CPU
+samples only. A prior rec whose memory explanation contains
+`memoryFromCpuRatio` is kept as Stale across a CPU-only gap so
+`kubectl attune` and the hold baseline stay. A leftover usage rec from
+v0.1.29 is dropped. An invalid ratio (`abc`, `0`, `NaN`, or above 1000)
+is ignored and Attune uses the memory signal; the webhook still rejects
+those when admission is enabled.
+
+See [memory.memoryFromCpuRatio](../reference/configuration.md#memory-from-cpu-derivation)
+and [Troubleshooting: InsufficientData](troubleshooting.md#insufficientdata).
+
+### MetricsUnavailable uses the bootstrap requeue
+
+Ready `MetricsUnavailable` (query error or timeout, including a CPU-only
+blip under `memoryFromCpuRatio`) now requeues at `min(cooldown, queryStep)`
+without jitter. A policy with `cooldown: 2h` and the default 5m step
+retries every 5 minutes instead of waiting the full cooldown. Resize
+spacing is unchanged once Ready is `Monitoring`.
+
+See [Troubleshooting: MetricsUnavailable](troubleshooting.md#metricsunavailable).
+
+### Upgrade the chart and image
+
+1. Upgrade the chart to 0.1.30, or set `image.tag` to `0.1.30` or
+   `v0.1.30`.
+2. Pull `ghcr.io/attune-io/attune:v0.1.30` or
+   `ghcr.io/attune-io/attune:0.1.30`. Both tags point at the same
+   digest.
+3. CRDs are unchanged for this release. Helm still does not upgrade
+   CRDs on `helm upgrade`; apply them only if you skipped a previous
+   release that added CEL rules.
+
 ## v0.1.28 to v0.1.29
 
 v0.1.29 keeps GPU, hugepages, and other extended resources on live
