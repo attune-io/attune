@@ -6,6 +6,15 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.30](https://github.com/attune-io/attune/compare/v0.1.29...v0.1.30) (2026-09-20)
+
+
+### Bug Fixes
+
+* count only CPU datapoints while memoryFromCpuRatio waits ([#822](https://github.com/attune-io/attune/issues/822)) ([520cb69](https://github.com/attune-io/attune/commit/520cb69724f31927e41ba5e3735920563a32cae2))
+* hold memoryFromCpuRatio until cpu samples exist ([#820](https://github.com/attune-io/attune/issues/820)) ([bc784f7](https://github.com/attune-io/attune/commit/bc784f72f986575bc24e5d82f1bd7a8c598fc808))
+* reuse ratio-derived recs across cpu gaps ([#823](https://github.com/attune-io/attune/issues/823)) ([e3efab1](https://github.com/attune-io/attune/commit/e3efab147ccd5c32cfd41d72c3eec7c07ba08217))
+
 ## [0.1.29](https://github.com/attune-io/attune/compare/v0.1.28...v0.1.29) (2026-09-18)
 
 
