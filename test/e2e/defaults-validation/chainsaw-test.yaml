@@ -75,8 +75,8 @@ spec:
             content: |
               set -e
               trap 'kubectl delete attunedefaults zzz-e2e-deprecated-bearer --ignore-not-found' EXIT
-              set +e
-              out=$(kubectl apply -f - <<'YAML' 2>&1)
+              out=$(
+                cat <<'EOF' | kubectl apply -f - 2>&1
               apiVersion: attune.io/v1alpha1
               kind: AttuneDefaults
               metadata:
@@ -88,14 +88,9 @@ spec:
                     bearerTokenSecret:
                       name: attune-thanos-token
                       key: token
-              YAML
-              rc=$?
-              set -e
-              if [ "$rc" -ne 0 ]; then
-                echo "FAIL: deprecated AttuneDefaults bearerTokenSecret was rejected"
-                echo "$out"
-                exit 1
-              fi
+              EOF
+              )
+              echo "$out"
               echo "$out" | grep -q 'bearerTokenSecret on AttuneDefaults is deprecated'
               echo "OK: admission warned on cluster AttuneDefaults bearerTokenSecret"
 
