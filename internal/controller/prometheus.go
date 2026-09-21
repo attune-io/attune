@@ -855,17 +855,16 @@ func (r *AttunePolicyReconciler) operatorNamespace() string {
 }
 
 func (r *AttunePolicyReconciler) readServiceAccountToken() (string, error) {
-	path := r.PrometheusTokenFile
-	if path == "" {
-		path = defaultServiceAccountTokenPath
+	if r.readServiceAccountTokenFn != nil {
+		return r.readServiceAccountTokenFn()
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(defaultServiceAccountTokenPath)
 	if err != nil {
-		return "", fmt.Errorf("reading service account token %s: %w", path, err)
+		return "", fmt.Errorf("reading service account token %s: %w", defaultServiceAccountTokenPath, err)
 	}
 	token := strings.TrimSpace(string(data))
 	if token == "" {
-		return "", fmt.Errorf("service account token file %s is empty", path)
+		return "", fmt.Errorf("service account token file %s is empty", defaultServiceAccountTokenPath)
 	}
 	return token, nil
 }

@@ -18,8 +18,6 @@ package controller
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -47,7 +45,10 @@ func TestBuildCollectorOptions_PolicySecretWinsOverOperatorAuth(t *testing.T) {
 	r.PrometheusUseServiceAccountToken = true
 	r.PrometheusBearerTokenSecretName = "attune-thanos-token"
 	r.OperatorNamespace = "attune-system"
-	r.PrometheusTokenFile = filepath.Join(t.TempDir(), "missing")
+	r.readServiceAccountTokenFn = func() (string, error) {
+		t.Fatal("operator SA token must not be read when policy secret is set")
+		return "", nil
+	}
 
 	cfg := &attunev1alpha1.PrometheusConfig{
 		Address: "https://thanos-querier.openshift-monitoring.svc:9091",
@@ -89,15 +90,13 @@ func TestBuildCollectorOptions_OperatorSecretUsesOperatorNamespace(t *testing.T)
 }
 
 func TestBuildCollectorOptions_ServiceAccountTokenWhenNoSecret(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "token")
-	require.NoError(t, os.WriteFile(path, []byte("sa-token\n"), 0o600))
-
 	r := NewAttunePolicyReconciler()
 	r.Scheme = testScheme()
 	r.Client = fake.NewClientBuilder().WithScheme(r.Scheme).Build()
 	r.PrometheusUseServiceAccountToken = true
-	r.PrometheusTokenFile = path
+	r.readServiceAccountTokenFn = func() (string, error) {
+		return "sa-token", nil
+	}
 
 	cfg := &attunev1alpha1.PrometheusConfig{Address: "https://thanos-querier.openshift-monitoring.svc:9091"}
 	opts, err := r.buildCollectorOptions(context.Background(), "vpa-test", cfg)
@@ -112,7 +111,9 @@ func TestBuildCollectorOptions_InheritedNameStillReadsPolicyNamespace(t *testing
 	r.Scheme = scheme
 	r.Client = fake.NewClientBuilder().WithScheme(scheme).Build()
 	r.PrometheusUseServiceAccountToken = true
-	r.PrometheusTokenFile = filepath.Join(t.TempDir(), "token")
+	r.readServiceAccountTokenFn = func() (string, error) {
+		return "sa-token", nil
+	}
 
 	cfg := &attunev1alpha1.PrometheusConfig{
 		Address: "https://thanos-querier.openshift-monitoring.svc:9091",
