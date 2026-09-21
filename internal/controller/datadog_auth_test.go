@@ -169,6 +169,19 @@ func TestResolveDatadogCollector_NilAPIKeySecretRef(t *testing.T) {
 	assert.Zero(t, collectorCount(r))
 }
 
+func TestResolveDatadogCollector_OperatorNamespaceRequired(t *testing.T) {
+	t.Setenv("POD_NAMESPACE", "")
+	policyNS := ddSecret("vpa-test", "dd-keys", "policy-copy-key", "")
+	r := newReconcilerWithClient(policyNS)
+	r.DatadogAPIKeySecretName = "datadog-keys"
+
+	_, _, err := r.resolveDatadogCollector(context.Background(), datadogPolicy("vpa-test", "dd-keys"), datadogAuthContext{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "POD_NAMESPACE")
+	assert.NotContains(t, err.Error(), "prometheus-bearer-token-secret")
+	assert.Zero(t, collectorCount(r), "a policy-namespace copy must not satisfy a missing operator namespace")
+}
+
 func TestFetchDefaultsForAuth_DatadogFlagUsesSelectedNamespaceObject(t *testing.T) {
 	selectedQuiet := &attunev1alpha1.AttuneNamespaceDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "aaa-overrides", Namespace: "vpa-test"},
