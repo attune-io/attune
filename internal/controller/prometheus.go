@@ -927,7 +927,7 @@ func (r *AttunePolicyReconciler) requireOperatorNamespace() (string, error) {
 	if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
 		return ns, nil
 	}
-	return "", fmt.Errorf("operator namespace unknown: set POD_NAMESPACE (required when --prometheus-bearer-token-secret is set)")
+	return "", fmt.Errorf("operator namespace unknown: set POD_NAMESPACE")
 }
 
 func (r *AttunePolicyReconciler) readServiceAccountToken(ctx context.Context) (string, error) {
@@ -969,6 +969,13 @@ func (r *AttunePolicyReconciler) requestQueryServiceAccountToken(ctx context.Con
 		Spec: authenticationv1.TokenRequestSpec{ExpirationSeconds: &exp},
 	}, metav1.CreateOptions{})
 	if err != nil {
+		// The five-minute skew refreshes early. An API blip in that window
+		// must not drop a token that has not reached ExpirationTimestamp.
+		if r.queryToken != "" && now.Before(r.queryTokenExpiry) {
+			log.FromContext(ctx).V(1).Info("query ServiceAccount token refresh failed; using the cached token until it expires",
+				"serviceAccount", ns+"/"+r.PrometheusQueryServiceAccount, "error", err.Error())
+			return r.queryToken, nil
+		}
 		return "", fmt.Errorf("requesting token for query ServiceAccount %s/%s: %w", ns, r.PrometheusQueryServiceAccount, err)
 	}
 	token := strings.TrimSpace(tr.Status.Token)
