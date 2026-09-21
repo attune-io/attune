@@ -462,6 +462,78 @@ func TestReadServiceAccountToken_QueryServiceAccountCached(t *testing.T) {
 	assert.NotEqual(t, tok1, tok3)
 }
 
+func TestReadServiceAccountToken_QueryServiceAccountNilClientset(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+	r.OperatorNamespace = "attune-system"
+	r.PrometheusQueryServiceAccount = "attune-prometheus-query"
+	_, err := r.readServiceAccountToken(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "clientset")
+}
+
+func TestReadServiceAccountToken_QueryServiceAccountCreateTokenError(t *testing.T) {
+	cs := kubefake.NewSimpleClientset()
+	cs.PrependReactor("create", "serviceaccounts/token", func(action clienttesting.Action) (bool, runtime.Object, error) {
+		return true, nil, fmt.Errorf("forbidden")
+	})
+	r := NewAttunePolicyReconciler()
+	r.Clientset = cs
+	r.OperatorNamespace = "attune-system"
+	r.PrometheusQueryServiceAccount = "attune-prometheus-query"
+	_, err := r.readServiceAccountToken(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "attune-prometheus-query")
+	assert.Contains(t, err.Error(), "forbidden")
+}
+
+func TestReadServiceAccountToken_QueryServiceAccountEmptyToken(t *testing.T) {
+	cs := kubefake.NewSimpleClientset()
+	cs.PrependReactor("create", "serviceaccounts/token", func(action clienttesting.Action) (bool, runtime.Object, error) {
+		return true, &authenticationv1.TokenRequest{
+			Status: authenticationv1.TokenRequestStatus{Token: "  \n"},
+		}, nil
+	})
+	r := NewAttunePolicyReconciler()
+	r.Clientset = cs
+	r.OperatorNamespace = "attune-system"
+	r.PrometheusQueryServiceAccount = "attune-prometheus-query"
+	_, err := r.readServiceAccountToken(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "empty token")
+}
+
+func TestReadServiceAccountToken_QueryServiceAccountZeroExpiryCaches(t *testing.T) {
+	creates := 0
+	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+	cs := kubefake.NewSimpleClientset()
+	cs.PrependReactor("create", "serviceaccounts/token", func(action clienttesting.Action) (bool, runtime.Object, error) {
+		creates++
+		return true, &authenticationv1.TokenRequest{
+			Status: authenticationv1.TokenRequestStatus{
+				Token: fmt.Sprintf("tok-%d", creates),
+			},
+		}, nil
+	})
+	r := NewAttunePolicyReconciler()
+	r.Clientset = cs
+	r.OperatorNamespace = "attune-system"
+	r.PrometheusQueryServiceAccount = "attune-prometheus-query"
+	r.SetNowFunc(func() time.Time { return now })
+
+	tok1, err := r.readServiceAccountToken(context.Background())
+	require.NoError(t, err)
+	tok2, err := r.readServiceAccountToken(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, tok1, tok2)
+	assert.Equal(t, 1, creates)
+
+	now = now.Add(56 * time.Minute)
+	tok3, err := r.readServiceAccountToken(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 2, creates)
+	assert.NotEqual(t, tok1, tok3)
+}
+
 func TestBuildCollectorOptions_DiscoveredAddressDoesNotGetOperatorToken(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	r.Scheme = testScheme()

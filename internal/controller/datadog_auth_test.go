@@ -127,6 +127,48 @@ func TestResolveDatadogCollector_ClusterKeyIgnoresPolicyCopyWhenOperatorSecretMi
 	assert.Zero(t, collectorCount(r), "a policy-namespace copy must not satisfy a configured operator Datadog secret")
 }
 
+func TestResolveDatadogCollector_WhitespaceAPIKey(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "dd-keys", Namespace: "default"},
+		Data:       map[string][]byte{"api-key": []byte(" \n")},
+	}
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Datadog: &attunev1alpha1.DatadogConfig{
+					Site: "datadoghq.com",
+					APIKeySecretRef: &attunev1alpha1.SecretKeyRef{
+						Name: "dd-keys",
+						Key:  "api-key",
+					},
+				},
+			},
+		},
+	}
+	r := newReconcilerWithClient(secret)
+	_, _, err := r.resolveDatadogCollector(context.Background(), policy, datadogAuthContext{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "api-key")
+	assert.Zero(t, collectorCount(r))
+}
+
+func TestResolveDatadogCollector_NilAPIKeySecretRef(t *testing.T) {
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Datadog: &attunev1alpha1.DatadogConfig{},
+			},
+		},
+	}
+	r := newReconcilerWithClient()
+	_, _, err := r.resolveDatadogCollector(context.Background(), policy, datadogAuthContext{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "apiKeySecretRef is required")
+	assert.Zero(t, collectorCount(r))
+}
+
 func TestFetchDefaultsForAuth_DatadogFlagUsesSelectedNamespaceObject(t *testing.T) {
 	selectedQuiet := &attunev1alpha1.AttuneNamespaceDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "aaa-overrides", Namespace: "vpa-test"},
