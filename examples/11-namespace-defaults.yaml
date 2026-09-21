@@ -6,6 +6,11 @@
 #
 # Precedence: policy spec > namespace defaults > cluster defaults
 #
+# production sets metricsSource.prometheus, so it replaces the cluster
+# Prometheus block. With operator auth enabled, that namespace does not
+# receive the operator token. staging does not set prometheus, so it
+# keeps the cluster address and the operator token.
+#
 # Apply:
 #   kubectl apply -f examples/11-namespace-defaults.yaml
 ---

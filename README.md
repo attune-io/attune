@@ -333,7 +333,8 @@ The dashboard includes:
 ### Compatibility
 
 - Multi-data-source: Thanos, VictoriaMetrics, Grafana Mimir, managed
-  Prometheus. Bearer token auth, custom headers, TLS.
+  Prometheus. No auth, a Secret per namespace, or one operator identity
+  for the cluster, with a per-namespace exception. Custom headers and TLS.
 - Prometheus auto-discovery: finds Prometheus via the Operator CRD or
   well-known service names when no address is configured.
 - Batch workloads: CronJobs and Jobs for recommend-only right-sizing.
@@ -369,7 +370,7 @@ Full docs site: [attune-io.github.io/attune](https://attune-io.github.io/attune/
 | [Installation](docs/getting-started/installation.md) | Helm, OLM, and raw manifests |
 | [Quickstart](docs/getting-started/quickstart.md) | Get running in 5 minutes |
 | [First 30 Days](docs/getting-started/first-30-days.md) | Day-by-day guide from install to production Auto mode |
-| [Prometheus Setup](docs/guides/prometheus-setup.md) | Metrics source, ServiceMonitor, dashboards, alerts |
+| [Prometheus Setup](docs/guides/prometheus-setup.md#choose-how-attune-authenticates) | No auth, per-namespace token, or one operator identity |
 | [Migrating from VPA](docs/guides/migrating-from-vpa.md) | Step-by-step VPA replacement |
 | [HPA Coexistence](docs/guides/hpa-coexistence.md) | Running alongside HPA |
 | [SLO Guardrails](docs/guides/slo-guardrails.md) | PromQL app-health checks after resize |

@@ -68,7 +68,9 @@ spec:
     inherit that address, use a namespaced `AttuneNamespaceDefaults`
     instead. The repo includes `examples/05-cluster-defaults.yaml` for a
     cluster-wide setup and `examples/11-namespace-defaults.yaml` for a
-    namespace-only setup.
+    namespace-only setup. That address has no token. When Prometheus
+    requires one, use the four cases in
+    [Choose how Attune authenticates](../guides/prometheus-setup.md#choose-how-attune-authenticates).
     ```yaml
     apiVersion: attune.io/v1alpha1
     kind: AttuneDefaults

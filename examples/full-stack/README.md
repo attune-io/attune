@@ -14,7 +14,7 @@ kubectl apply -f examples/full-stack/
 | `01-namespace.yaml` | Namespace | Isolated namespace for the workload |
 | `02-deployment.yaml` | Deployment | Sample app with initial resource requests |
 | `03-service-monitor.yaml` | ServiceMonitor | Prometheus scraping for the operator's metrics |
-| `04-defaults.yaml` | AttuneDefaults | Org-wide defaults (Prometheus address, bounds) |
+| `04-defaults.yaml` | AttuneDefaults | Org-wide defaults (Prometheus address, no token, bounds) |
 | `05-policy.yaml` | AttunePolicy | Per-workload policy in Canary mode |
 | `06-grafana-dashboard.yaml` | ConfigMap | Auto-provisioned Grafana dashboard via sidecar |
 

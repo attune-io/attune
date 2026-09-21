@@ -1,3 +1,4 @@
+# Prometheus with no authentication (case 1). Address only.
 apiVersion: attune.io/v1alpha1
 kind: AttuneDefaults
 metadata:

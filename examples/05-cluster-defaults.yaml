@@ -4,6 +4,11 @@
 # defaults inherited by all AttunePolicy resources. Individual
 # policies only need to specify what differs from the defaults.
 #
+# This file is Prometheus with no authentication (case 1). The address
+# is shared. No token is sent. For a token in each namespace, one
+# operator identity, or a namespace exception, see
+# examples/prometheus-auth/README.md.
+#
 # Apply:
 #   kubectl apply -f examples/05-cluster-defaults.yaml
 ---
