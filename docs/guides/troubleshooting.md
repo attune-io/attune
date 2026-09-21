@@ -198,6 +198,23 @@ so this does not look like bootstrap `InsufficientData`.
 2. Check API server health and operator logs for the list error.
 3. Watch `attune_reconcile_errors_total{error_type="list_policies"}`.
 
+### OpenShift Thanos Querier 401 or secret not found
+
+**Symptom**: Ready `MetricsUnavailable` with
+`reading secret <policy-ns>/<token-name>: secrets "..." not found`, or
+HTTP 401/403 against `thanos-querier.openshift-monitoring.svc:9091`.
+
+**Cause**: Cluster `AttuneDefaults.bearerTokenSecret` copies the Secret
+**name** onto each policy and looks it up in the policy namespace. OpenShift
+Thanos Querier on port 9091 wants the **operator** ServiceAccount with
+`cluster-monitoring-view`, not a copied token in every app namespace.
+
+**Fix**: Remove `bearerTokenSecret` from `AttuneDefaults`. Set Helm
+`openshift.bindClusterMonitoringView: true` (or bind the operator SA
+yourself and `--prometheus-use-service-account-token`). Keep the Thanos
+address and TLS on `AttuneDefaults`. See
+[OpenShift: Thanos Querier](openshift.md#thanos-querier).
+
 ### InsufficientData
 
 **Symptom**: Ready condition is `False` with reason `InsufficientData`.
@@ -207,6 +224,10 @@ so this does not look like bootstrap `InsufficientData`.
 and does not prove the operator cannot reach an in-cluster address.
 A 401 or 403 on an address that sets `bearerTokenSecret` or custom
 `headers` is skipped the same way: doctor does not send those credentials.
+Doctor also skips 401/403 for operator auth only when that address comes
+from the selected cluster `AttuneDefaults` and the manager is configured
+to send it. A policy or namespace-defaults address still warns. Doctor
+does not send the token itself.
 
 **Cause**: Not enough Prometheus data points to generate recommendations.
 The default minimum is 48 Prometheus range-query samples. With the default

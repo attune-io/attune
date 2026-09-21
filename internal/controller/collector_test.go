@@ -302,7 +302,7 @@ func TestResolvePrometheusConfig_PolicyHasAddress(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	reconciler := newReconcilerWithClient()
 
-	config, err := reconciler.resolvePrometheusConfig(context.Background(), policy, nil)
+	config, _, err := reconciler.resolvePrometheusConfig(context.Background(), policy, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, "http://prometheus:9090", config.Address)
 }
@@ -325,7 +325,7 @@ func TestResolvePrometheusConfig_FallsBackToDefaults(t *testing.T) {
 	}
 	reconciler := newReconcilerWithClient(defaults)
 
-	config, err := reconciler.resolvePrometheusConfig(context.Background(), policy, defaults)
+	config, _, err := reconciler.resolvePrometheusConfig(context.Background(), policy, defaults)
 	assert.NoError(t, err)
 	assert.Equal(t, "http://defaults-prometheus:9090", config.Address)
 }
@@ -337,7 +337,7 @@ func TestResolvePrometheusConfig_NoAddressAnywhere(t *testing.T) {
 	}
 	reconciler := newReconcilerWithClient()
 
-	_, err := reconciler.resolvePrometheusConfig(context.Background(), policy, nil)
+	_, _, err := reconciler.resolvePrometheusConfig(context.Background(), policy, nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no Prometheus address configured")
 }
@@ -347,7 +347,7 @@ func TestResolvePrometheusConfig_RejectsBlockedPolicyAddress(t *testing.T) {
 	policy.Spec.MetricsSource.Prometheus.Address = "http://127.0.0.1:9090"
 	reconciler := newReconcilerWithClient()
 
-	_, err := reconciler.resolvePrometheusConfig(context.Background(), policy, nil)
+	_, _, err := reconciler.resolvePrometheusConfig(context.Background(), policy, nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "SSRF blocked")
 }
@@ -369,7 +369,7 @@ func TestResolvePrometheusConfig_RejectsBlockedDefaultsAddress(t *testing.T) {
 	}
 	reconciler := newReconcilerWithClient(defaults)
 
-	_, err := reconciler.resolvePrometheusConfig(context.Background(), policy, defaults)
+	_, _, err := reconciler.resolvePrometheusConfig(context.Background(), policy, defaults)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "SSRF blocked")
 }
@@ -773,7 +773,7 @@ func TestCollectorCacheKey_QueryParametersDeterministic(t *testing.T) {
 func TestBuildCollectorOptions_NilWhenNoAuthOrTLS(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	config := &attunev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
-	opts, err := r.buildCollectorOptions(context.Background(), "default", config)
+	opts, err := r.buildCollectorOptions(context.Background(), "default", config, prometheusAuthContext{})
 	assert.NoError(t, err)
 	assert.Nil(t, opts)
 }
@@ -784,7 +784,7 @@ func TestBuildCollectorOptions_WithHeaders(t *testing.T) {
 		Address: "http://prom:9090",
 		Headers: map[string]string{"X-Scope-OrgID": "tenant-1"},
 	}
-	opts, err := r.buildCollectorOptions(context.Background(), "default", config)
+	opts, err := r.buildCollectorOptions(context.Background(), "default", config, prometheusAuthContext{})
 	assert.NoError(t, err)
 	require.NotNil(t, opts)
 	assert.Equal(t, "tenant-1", opts.Headers["X-Scope-OrgID"])
@@ -796,7 +796,7 @@ func TestBuildCollectorOptions_WithQueryParameters(t *testing.T) {
 		Address:         "http://prom:9090",
 		QueryParameters: map[string]string{"dedup": "true"},
 	}
-	opts, err := r.buildCollectorOptions(context.Background(), "default", config)
+	opts, err := r.buildCollectorOptions(context.Background(), "default", config, prometheusAuthContext{})
 	assert.NoError(t, err)
 	require.NotNil(t, opts)
 	assert.Equal(t, "true", opts.QueryParameters["dedup"])
@@ -808,7 +808,7 @@ func TestBuildCollectorOptions_RejectsReservedQueryParameters(t *testing.T) {
 		Address:         "http://prom:9090",
 		QueryParameters: map[string]string{"query": "up"},
 	}
-	opts, err := r.buildCollectorOptions(context.Background(), "default", config)
+	opts, err := r.buildCollectorOptions(context.Background(), "default", config, prometheusAuthContext{})
 	assert.Error(t, err)
 	assert.Nil(t, opts)
 	assert.Contains(t, err.Error(), "reserved")
@@ -820,7 +820,7 @@ func TestBuildCollectorOptions_WithTLS(t *testing.T) {
 		Address: "https://prom:9090",
 		TLS:     &attunev1alpha1.TLSConfig{InsecureSkipVerify: true},
 	}
-	opts, err := r.buildCollectorOptions(context.Background(), "default", config)
+	opts, err := r.buildCollectorOptions(context.Background(), "default", config, prometheusAuthContext{})
 	assert.NoError(t, err)
 	require.NotNil(t, opts)
 	assert.True(t, opts.InsecureSkipVerify)
@@ -844,7 +844,7 @@ func TestBuildCollectorOptions_WithBearerToken(t *testing.T) {
 			Key:  "token",
 		},
 	}
-	opts, err := r.buildCollectorOptions(context.Background(), "default", config)
+	opts, err := r.buildCollectorOptions(context.Background(), "default", config, prometheusAuthContext{})
 	assert.NoError(t, err)
 	require.NotNil(t, opts)
 	assert.Equal(t, "test-bearer", opts.BearerToken)
@@ -864,7 +864,7 @@ func TestBuildCollectorOptions_SecretNotFound(t *testing.T) {
 			Key:  "token",
 		},
 	}
-	opts, err := r.buildCollectorOptions(context.Background(), "default", config)
+	opts, err := r.buildCollectorOptions(context.Background(), "default", config, prometheusAuthContext{})
 	assert.Error(t, err)
 	assert.Nil(t, opts)
 	assert.Contains(t, err.Error(), "missing-secret")
@@ -1000,7 +1000,7 @@ func TestResolvePrometheusAddress_FallsBackToAutoDiscovery(t *testing.T) {
 	}
 	reconciler := newReconcilerWithClient(svc)
 
-	config, err := reconciler.resolvePrometheusConfig(context.Background(), policy, nil)
+	config, _, err := reconciler.resolvePrometheusConfig(context.Background(), policy, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, "http://prometheus-kube-prometheus-prometheus.monitoring:9090", config.Address)
 }

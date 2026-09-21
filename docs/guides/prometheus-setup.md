@@ -63,7 +63,30 @@ spec:
 
 Use this when different namespaces use different Prometheus instances.
 
-If you configure `metricsSource.prometheus.bearerTokenSecret`, the Secret must live in the same namespace as the `AttunePolicy`. Cross-namespace Secret references are rejected.
+If you configure `metricsSource.prometheus.bearerTokenSecret` on an
+`AttunePolicy` or `AttuneNamespaceDefaults`, the Secret must live in that
+namespace. Cross-namespace Secret names (`ns/name`) are rejected.
+
+Do not put `bearerTokenSecret` on cluster `AttuneDefaults` for a shared
+token. That field still copies the **name** onto each policy and reads it
+in the policy namespace (deprecated; admission warns). If the inherited
+Secret is missing and operator auth is configured, the operator falls back
+to its own token. For cluster-wide auth, set the Prometheus address on cluster
+`AttuneDefaults` and use the operator ServiceAccount token or one Secret
+in the operator namespace. Operator credentials are **not** sent to an
+address set on the policy, on `AttuneNamespaceDefaults`, or found by
+auto-discovery, and they are not sent when the resolved config already
+has an `Authorization` header.
+
+The same inherit-name deprecation applies to cluster
+`metricsSource.datadog.apiKeySecretRef` and
+`updateStrategy.export.pullRequest.tokenSecretRef`. Put those Secrets on
+the policy or `AttuneNamespaceDefaults`.
+
+See [OpenShift](openshift.md#thanos-querier) and Helm
+`prometheusAuth` / `openshift.bindClusterMonitoringView`. Prefer
+`prometheusAuth.queryServiceAccount.create` so Thanos gets a query-only
+identity instead of the manager token.
 
 !!! warning "Use an in-cluster address"
     The operator validates `metricsSource.prometheus.address` to block
@@ -115,7 +138,10 @@ spec:
 
 Policies that omit `metricsSource.prometheus.address` inherit from this when
 no `AttuneNamespaceDefaults` exists in the same namespace. This is the
-recommended baseline for most clusters.
+recommended baseline for most clusters. Put address, headers, query
+parameters, and TLS here. Cluster-wide credentials belong on the operator
+(`prometheusAuth` or the manager ServiceAccount), not on
+`bearerTokenSecret` in this CR.
 
 ### 4. Auto-discovery (Prometheus Operator)
 

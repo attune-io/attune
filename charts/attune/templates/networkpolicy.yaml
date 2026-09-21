@@ -45,4 +45,10 @@ spec:
     - ports:
         - port: {{ .Values.networkPolicy.prometheusPort | default 9090 }}
           protocol: TCP
+    {{- if or .Values.openshift.enabled .Values.openshift.bindClusterMonitoringView }}
+    # OpenShift Thanos Querier (cluster-monitoring-view, port 9091)
+    - ports:
+        - port: 9091
+          protocol: TCP
+    {{- end }}
 {{- end }}

@@ -64,6 +64,35 @@ spec:
               EOF
               echo "Correctly rejected negative memoryPerGiBHour"
 
+    - name: deprecated-cluster-bearer-token-warns
+      description: >
+        bearerTokenSecret on cluster AttuneDefaults is accepted with an
+        admission warning. Name zzz-* so this object does not win
+        fetchDefaults (lexicographically smallest name).
+      try:
+        - script:
+            timeout: 30s
+            content: |
+              set -e
+              out=$(
+                cat <<'EOF' | kubectl apply --dry-run=server -f - 2>&1
+              apiVersion: attune.io/v1alpha1
+              kind: AttuneDefaults
+              metadata:
+                name: zzz-e2e-deprecated-bearer
+              spec:
+                metricsSource:
+                  prometheus:
+                    address: http://prometheus-server.monitoring:80
+                    bearerTokenSecret:
+                      name: attune-thanos-token
+                      key: token
+              EOF
+              )
+              echo "$out"
+              echo "$out" | grep -q 'bearerTokenSecret on AttuneDefaults is deprecated'
+              echo "OK: admission warned on cluster AttuneDefaults bearerTokenSecret"
+
     - name: cleanup
       try:
         - script:

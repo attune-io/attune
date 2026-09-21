@@ -8,6 +8,50 @@ Maintainers: before publishing a release after multi-version product changes,
 run the full E2E Nightly matrix on tip of `main` (see
 [Releasing: full E2E matrix](../contributing/releasing.md#1b-full-e2e-matrix-required-before-tagging-a-product-release)).
 
+## v0.1.30 to v0.1.31
+
+v0.1.31 adds operator-level Prometheus authentication and deprecates
+`bearerTokenSecret` on cluster `AttuneDefaults` only. Policy YAML that
+already copies a token Secret into each namespace keeps working.
+
+### Operator Prometheus identity
+
+The manager can authenticate to Prometheus without a Secret in every
+policy namespace:
+
+- Helm `openshift.bindClusterMonitoringView: true` binds OpenShift
+  `cluster-monitoring-view` (to the query ServiceAccount when
+  `prometheusAuth.queryServiceAccount.create` is true, otherwise the
+  manager SA) and sends that token (`--prometheus-use-service-account-token`).
+- Helm `prometheusAuth.queryServiceAccount.create: true` TokenRequests a
+  dedicated query SA instead of the manager token. Helm-only; OLM/kustomize
+  need a manual SA, Role, and RoleBinding (see the OpenShift guide).
+- Helm `prometheusAuth.useServiceAccountToken: true` sends the SA token
+  without that binding (vanilla clusters or a binding you created).
+- Helm `prometheusAuth.existingSecret` reads one Secret in the operator
+  namespace (`--prometheus-bearer-token-secret`).
+- If cluster `AttuneDefaults` still names `bearerTokenSecret` and that
+  Secret is missing in the policy namespace, the operator falls back to
+  the operator identity and logs it.
+
+Operator auth applies only to addresses from cluster `AttuneDefaults`.
+It is not sent to a policy address, a namespace-defaults address, or an
+auto-discovered Prometheus.
+
+A policy (or `AttuneNamespaceDefaults`) `bearerTokenSecret` still wins
+and is still read in that namespace.
+
+See [OpenShift: Thanos Querier](openshift.md#thanos-querier).
+
+### AttuneDefaults bearerTokenSecret is deprecated
+
+Setting `metricsSource.prometheus.bearerTokenSecret` on cluster
+`AttuneDefaults` emits an admission warning. The Secret **name** is still
+copied onto each policy and looked up in the **policy** namespace. A later
+0.1.x will reject that field on `AttuneDefaults` after two tagged minors
+have carried the warning. Move cluster auth to the operator identity
+above. `AttunePolicy` and `AttuneNamespaceDefaults` are unchanged.
+
 ## v0.1.29 to v0.1.30
 
 v0.1.30 changes how `memory.memoryFromCpuRatio` waits for CPU and how

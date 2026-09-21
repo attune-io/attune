@@ -1759,6 +1759,62 @@ func TestE2E_BearerToken_Authenticates(t *testing.T) {
 		"bearer token path must complete Prometheus queries")
 }
 
+func TestE2E_BearerToken_MissingSecretLooksUpPolicyNamespace(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS("bearermiss")
+	createNamespace(t, ns)
+
+	deployName := "bearermiss-app"
+	createDeployment(t, deployName, ns, "250m", "256Mi", 1)
+	waitForDeploymentReady(t, deployName, ns, deployReadyTimeout)
+
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "bearermiss-policy", Namespace: ns},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{
+					Address: promAddr,
+					BearerTokenSecret: &attunev1alpha1.SecretKeyRef{
+						Name: "prom-token",
+						Key:  "token",
+					},
+				},
+				MinimumDataPoints: int32Ptr(1),
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
+			},
+			CPU:    attunev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
+			Memory: attunev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Type:     attunev1alpha1.UpdateTypeRecommend,
+				Cooldown: &metav1.Duration{Duration: time.Minute},
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	var last attunev1alpha1.AttunePolicy
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 3*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "bearermiss-policy", Namespace: ns}, &last); err != nil {
+			return false, nil
+		}
+		return attunev1alpha1.IsMetricsUnavailable(readyReason(last)), nil
+	}), "missing bearer Secret must surface MetricsUnavailable")
+
+	assert.Equal(t, attunev1alpha1.ReasonMetricsUnavailable, readyReason(last))
+	msg := ""
+	for _, c := range last.Status.Conditions {
+		if c.Type == attunev1alpha1.ConditionReady {
+			msg = c.Message
+			break
+		}
+	}
+	assert.Contains(t, msg, ns+"/prom-token",
+		"lookup must be the policy namespace, not the operator namespace")
+}
+
 func TestE2E_EvictionFallback_ResizesWithInPlaceOrRecreate(t *testing.T) {
 	t.Parallel()
 	ns := uniqueNS("evict")

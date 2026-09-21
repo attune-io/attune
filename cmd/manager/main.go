@@ -141,6 +141,18 @@ func main() {
 	flag.DurationVar(&prometheusTimeout, "prometheus-timeout", 5*time.Minute,
 		"Maximum time allowed for workload processing (including Prometheus queries) during a single reconciliation cycle. "+
 			"If exceeded, partial results are used and the status condition indicates the timeout.")
+	var prometheusUseServiceAccountToken bool
+	var prometheusBearerTokenSecretName string
+	var prometheusBearerTokenSecretKey string
+	flag.BoolVar(&prometheusUseServiceAccountToken, "prometheus-use-service-account-token", false,
+		"When true, send operator Prometheus bearer auth for addresses from cluster AttuneDefaults (not policy, namespace defaults, or auto-discovery, and not when Authorization headers are already set).")
+	flag.StringVar(&prometheusBearerTokenSecretName, "prometheus-bearer-token-secret", "",
+		"Name of a Secret in the operator namespace. Sent as Prometheus bearer auth only for an address taken from cluster AttuneDefaults, when resolved headers do not already include Authorization. A policy-set bearerTokenSecret is read in the policy namespace and does not fall back. An inherited cluster name falls back only when that Secret is NotFound.")
+	flag.StringVar(&prometheusBearerTokenSecretKey, "prometheus-bearer-token-key", "token",
+		"Key in --prometheus-bearer-token-secret that holds the bearer token.")
+	var prometheusQueryServiceAccount string
+	flag.StringVar(&prometheusQueryServiceAccount, "prometheus-query-service-account", "",
+		"TokenRequest this ServiceAccount in the operator namespace instead of the manager projected token. Enables operator Prometheus bearer auth with the same address rules as --prometheus-use-service-account-token.")
 	flag.BoolVar(&fleetReportEnabled, "fleet-report-enabled", false,
 		"When true, periodically write a versioned fleet summary ConfigMap for multi-cluster collectors.")
 	flag.StringVar(&fleetReportNamespace, "fleet-report-namespace", "",
@@ -159,6 +171,14 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	if prometheusQueryServiceAccount != "" {
+		prometheusUseServiceAccountToken = true
+	}
+	if (prometheusBearerTokenSecretName != "" || prometheusQueryServiceAccount != "") && os.Getenv("POD_NAMESPACE") == "" {
+		setupLog.Error(fmt.Errorf("POD_NAMESPACE is empty"), "POD_NAMESPACE is required when --prometheus-bearer-token-secret or --prometheus-query-service-account is set")
+		os.Exit(1)
+	}
 
 	if collectorTTL < 0 {
 		setupLog.Error(fmt.Errorf("got %s", collectorTTL), "collector-ttl must be non-negative")
@@ -321,6 +341,13 @@ func main() {
 	reconciler.MinQueryStep = minQueryStep
 	reconciler.BlockerRefreshInterval = blockerRefreshInterval
 	reconciler.PrometheusTimeout = prometheusTimeout
+	reconciler.PrometheusUseServiceAccountToken = prometheusUseServiceAccountToken
+	reconciler.PrometheusBearerTokenSecretName = prometheusBearerTokenSecretName
+	reconciler.PrometheusBearerTokenSecretKey = prometheusBearerTokenSecretKey
+	reconciler.PrometheusQueryServiceAccount = prometheusQueryServiceAccount
+	if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
+		reconciler.OperatorNamespace = ns
+	}
 	reconciler.MetricsFactory = func(address string, opts *metrics.CollectorOptions) (metrics.MetricsCollector, error) {
 		if opts == nil {
 			opts = &metrics.CollectorOptions{}

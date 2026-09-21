@@ -202,8 +202,28 @@ type AttunePolicyReconciler struct {
 	// Capabilities is the process-start cluster feature set. Optional; tests
 	// may leave it nil and set AllowInPlaceMemoryLimitDecrease only.
 	Capabilities *cluster.Capabilities
-	nowFunc      atomic.Pointer[func() time.Time]
-	collectors   sync.Map // map[string]*collectorEntry cache
+	// PrometheusUseServiceAccountToken sends operator bearer auth only for
+	// an address taken from cluster AttuneDefaults, and only when resolved
+	// headers do not already include Authorization.
+	PrometheusUseServiceAccountToken bool
+	// OperatorNamespace is where PrometheusBearerTokenSecretName is read.
+	// Empty uses POD_NAMESPACE. There is no attune-system fallback.
+	OperatorNamespace string
+	// PrometheusBearerTokenSecretName is an operator-namespace Secret for
+	// cluster-wide Prometheus auth. Empty disables this source.
+	PrometheusBearerTokenSecretName string
+	// PrometheusBearerTokenSecretKey is the key in that Secret (default token).
+	PrometheusBearerTokenSecretKey string
+	// PrometheusQueryServiceAccount, when set, is TokenRequested instead of
+	// the manager projected token (dedicated query identity).
+	PrometheusQueryServiceAccount string
+	queryTokenMu                  sync.Mutex
+	queryToken                    string
+	queryTokenExpiry              time.Time
+	// readServiceAccountTokenFn overrides the projected token file in tests.
+	readServiceAccountTokenFn func() (string, error)
+	nowFunc                   atomic.Pointer[func() time.Time]
+	collectors                sync.Map // map[string]*collectorEntry cache
 	// gaugeKeys tracks which Prometheus gauge label combinations each policy
 	// set on its last reconcile. On the next reconcile, only these specific
 	// keys are deleted (not the entire namespace), preventing cross-policy
@@ -348,7 +368,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Merge defaults into the policy. Namespace-scoped defaults take precedence,
 	// and defaults lookup failures fail closed rather than silently falling back
 	// to another scope.
-	defaults, err := r.fetchDefaults(ctx, policy.Namespace)
+	defaults, namespaceSetAddress, err := r.fetchDefaultsForAuth(ctx, policy.Namespace)
 	if err != nil {
 		logger.Error(err, "Failed to fetch defaults")
 		operatormetrics.ReconcileErrorsTotal.WithLabelValues("fetch_defaults").Inc()
@@ -356,6 +376,8 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			fmt.Sprintf("Failed to fetch defaults: %v", err))
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
+	promAuth := prometheusAuthFromUnmerged(&policy)
+	promAuth.namespaceSetAddress = namespaceSetAddress
 	r.mergeDefaults(&policy, defaults)
 	r.applyBuiltInDefaults(&policy)
 	r.warnConfigClamping(&policy)
@@ -376,7 +398,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	// Step 2: Resolve metrics source, create collector, and select query builder.
-	collector, queryBuilder, err := r.resolveMetricsCollector(ctx, &policy, defaults)
+	collector, queryBuilder, err := r.resolveMetricsCollector(ctx, &policy, defaults, promAuth)
 	if err != nil {
 		logger.Error(err, "Failed to resolve metrics source")
 		operatormetrics.ReconcileErrorsTotal.WithLabelValues("metrics_source").Inc()

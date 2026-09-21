@@ -380,6 +380,11 @@ spec:
                       readOnlyRootFilesystem: true
                       seccompProfile:
                         type: RuntimeDefault
+                    env:
+                      - name: POD_NAMESPACE
+                        valueFrom:
+                          fieldRef:
+                            fieldPath: metadata.namespace
 
   customresourcedefinitions:
     owned:

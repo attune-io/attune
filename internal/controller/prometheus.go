@@ -22,6 +22,7 @@ import (
 	"hash/fnv"
 	"io"
 	"math"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -29,7 +30,9 @@ import (
 
 	"github.com/go-logr/logr"
 	"golang.org/x/sync/errgroup"
+	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	k8sresource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -45,6 +48,11 @@ import (
 	"github.com/attune-io/attune/internal/validation"
 	pkgdefaults "github.com/attune-io/attune/pkg/defaults"
 )
+
+const defaultServiceAccountTokenPath = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+
+// prometheusSATokenPath is the projected manager token file. Tests may override.
+var prometheusSATokenPath = defaultServiceAccountTokenPath
 
 // collectorEntry wraps a MetricsCollector with a last-used timestamp
 // for TTL-based eviction.
@@ -776,15 +784,48 @@ func (r *AttunePolicyReconciler) maxProfileSamples() int {
 	return rsmetrics.DefaultMaxProfileSamples
 }
 
+// prometheusAuthContext is captured from the unmerged policy so operator
+// credentials are not attached to a tenant-chosen Prometheus address.
+type prometheusAuthContext struct {
+	policySetAddress    bool
+	policySetBearer     bool
+	namespaceSetAddress bool
+	addressDiscovered   bool
+}
+
+func prometheusAuthFromUnmerged(policy *attunev1alpha1.AttunePolicy) prometheusAuthContext {
+	if policy == nil {
+		return prometheusAuthContext{}
+	}
+	p := policy.Spec.MetricsSource.Prometheus
+	if p == nil {
+		return prometheusAuthContext{}
+	}
+	return prometheusAuthContext{
+		policySetAddress: p.Address != "",
+		policySetBearer:  p.BearerTokenSecret != nil,
+	}
+}
+
+func headersHaveAuthorization(headers map[string]string) bool {
+	for k := range headers {
+		if strings.EqualFold(k, "Authorization") {
+			return true
+		}
+	}
+	return false
+}
+
 // buildCollectorOptions constructs CollectorOptions from the given PrometheusConfig,
 // including headers, query parameters, TLS settings, and Secret-backed bearer token resolution.
-func (r *AttunePolicyReconciler) buildCollectorOptions(ctx context.Context, namespace string, config *attunev1alpha1.PrometheusConfig) (*rsmetrics.CollectorOptions, error) {
+func (r *AttunePolicyReconciler) buildCollectorOptions(ctx context.Context, namespace string, config *attunev1alpha1.PrometheusConfig, auth prometheusAuthContext) (*rsmetrics.CollectorOptions, error) {
 	if err := validation.PrometheusQueryParameters(config.QueryParameters); err != nil {
 		return nil, err
 	}
 	// MaxSeries: 0 on flag = collector default; negative = unlimited.
 	needOpts := config.Headers != nil || config.QueryParameters != nil || config.BearerTokenSecret != nil ||
-		(config.TLS != nil && config.TLS.InsecureSkipVerify) || r.MaxPrometheusSeries != 0
+		(config.TLS != nil && config.TLS.InsecureSkipVerify) || r.MaxPrometheusSeries != 0 ||
+		r.prometheusOperatorAuthConfigured()
 	if !needOpts {
 		return nil, nil
 	}
@@ -797,24 +838,142 @@ func (r *AttunePolicyReconciler) buildCollectorOptions(ctx context.Context, name
 	if config.TLS != nil {
 		opts.InsecureSkipVerify = config.TLS.InsecureSkipVerify
 	}
+	token, err := r.resolvePrometheusBearerToken(ctx, namespace, config, auth)
+	if err != nil {
+		return nil, err
+	}
+	opts.BearerToken = token
+	return opts, nil
+}
+
+func (r *AttunePolicyReconciler) prometheusOperatorAuthConfigured() bool {
+	return r.PrometheusBearerTokenSecretName != "" || r.PrometheusUseServiceAccountToken
+}
+
+func (r *AttunePolicyReconciler) allowOperatorPrometheusAuth(auth prometheusAuthContext, config *attunev1alpha1.PrometheusConfig) bool {
+	if auth.policySetAddress || auth.namespaceSetAddress || auth.addressDiscovered {
+		return false
+	}
+	if config != nil && headersHaveAuthorization(config.Headers) {
+		return false
+	}
+	return r.prometheusOperatorAuthConfigured()
+}
+
+// resolvePrometheusBearerToken prefers a policy-namespace Secret, then an
+// operator-namespace Secret, then the manager or query ServiceAccount token.
+func (r *AttunePolicyReconciler) resolvePrometheusBearerToken(ctx context.Context, namespace string, config *attunev1alpha1.PrometheusConfig, auth prometheusAuthContext) (string, error) {
+	allowOperator := r.allowOperatorPrometheusAuth(auth, config)
 	if config.BearerTokenSecret != nil {
 		secretName := config.BearerTokenSecret.Name
 		secretKey := config.BearerTokenSecret.Key
-		// Security: only read Secrets in the policy's own namespace to prevent
-		// cross-namespace Secret access if the operator is compromised.
 		token, err := r.readSecretKey(ctx, namespace, secretName, secretKey)
-		if err != nil {
-			return nil, fmt.Errorf("cannot read bearer token secret %s/%s: %w", secretName, secretKey, err)
+		if err == nil {
+			return token, nil
 		}
-		opts.BearerToken = token
+		inheritedMiss := !auth.policySetBearer && apierrors.IsNotFound(err)
+		if inheritedMiss && allowOperator {
+			log.FromContext(ctx).V(1).Info("inherited AttuneDefaults bearerTokenSecret not found in the policy namespace; using operator Prometheus auth",
+				"secret", namespace+"/"+secretName)
+		} else {
+			return "", fmt.Errorf("cannot read bearer token secret %s/%s: %w", secretName, secretKey, err)
+		}
 	}
-	return opts, nil
+	if !allowOperator {
+		return "", nil
+	}
+	if r.PrometheusBearerTokenSecretName != "" {
+		key := r.PrometheusBearerTokenSecretKey
+		if key == "" {
+			key = "token"
+		}
+		ns, err := r.requireOperatorNamespace()
+		if err != nil {
+			return "", err
+		}
+		token, err := r.readSecretKey(ctx, ns, r.PrometheusBearerTokenSecretName, key)
+		if err != nil {
+			return "", fmt.Errorf("cannot read operator bearer token secret %s/%s: %w", r.PrometheusBearerTokenSecretName, key, err)
+		}
+		if strings.TrimSpace(token) == "" {
+			return "", fmt.Errorf("operator bearer token secret %s/%s is empty", r.PrometheusBearerTokenSecretName, key)
+		}
+		return token, nil
+	}
+	if r.PrometheusUseServiceAccountToken {
+		return r.readServiceAccountToken(ctx)
+	}
+	return "", nil
+}
+
+func (r *AttunePolicyReconciler) requireOperatorNamespace() (string, error) {
+	if r.OperatorNamespace != "" {
+		return r.OperatorNamespace, nil
+	}
+	if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
+		return ns, nil
+	}
+	return "", fmt.Errorf("operator namespace unknown: set POD_NAMESPACE (required when --prometheus-bearer-token-secret is set)")
+}
+
+func (r *AttunePolicyReconciler) readServiceAccountToken(ctx context.Context) (string, error) {
+	if r.PrometheusQueryServiceAccount != "" {
+		return r.requestQueryServiceAccountToken(ctx)
+	}
+	if r.readServiceAccountTokenFn != nil {
+		return r.readServiceAccountTokenFn()
+	}
+	path := prometheusSATokenPath
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path is the projected SA file or a test override of prometheusSATokenPath
+	if err != nil {
+		return "", fmt.Errorf("reading service account token %s: %w", path, err)
+	}
+	token := strings.TrimSpace(string(data))
+	if token == "" {
+		return "", fmt.Errorf("service account token file %s is empty", path)
+	}
+	return token, nil
+}
+
+func (r *AttunePolicyReconciler) requestQueryServiceAccountToken(ctx context.Context) (string, error) {
+	if r.Clientset == nil {
+		return "", fmt.Errorf("query ServiceAccount token: kubernetes clientset is not configured")
+	}
+	ns, err := r.requireOperatorNamespace()
+	if err != nil {
+		return "", err
+	}
+	const ttl = 3600 * time.Second
+	now := r.now()
+	r.queryTokenMu.Lock()
+	defer r.queryTokenMu.Unlock()
+	if r.queryToken != "" && now.Add(5*time.Minute).Before(r.queryTokenExpiry) {
+		return r.queryToken, nil
+	}
+	exp := int64(ttl / time.Second)
+	tr, err := r.Clientset.CoreV1().ServiceAccounts(ns).CreateToken(ctx, r.PrometheusQueryServiceAccount, &authenticationv1.TokenRequest{
+		Spec: authenticationv1.TokenRequestSpec{ExpirationSeconds: &exp},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		return "", fmt.Errorf("requesting token for query ServiceAccount %s/%s: %w", ns, r.PrometheusQueryServiceAccount, err)
+	}
+	token := strings.TrimSpace(tr.Status.Token)
+	if token == "" {
+		return "", fmt.Errorf("query ServiceAccount %s/%s returned an empty token", ns, r.PrometheusQueryServiceAccount)
+	}
+	r.queryToken = token
+	if !tr.Status.ExpirationTimestamp.IsZero() {
+		r.queryTokenExpiry = tr.Status.ExpirationTimestamp.Time
+	} else {
+		r.queryTokenExpiry = now.Add(ttl)
+	}
+	return token, nil
 }
 
 // resolveMetricsCollector creates the appropriate MetricsCollector and
 // QueryBuilder based on which metricsSource field is configured. Falls back
 // to Prometheus when no explicit source is set.
-func (r *AttunePolicyReconciler) resolveMetricsCollector(ctx context.Context, policy *attunev1alpha1.AttunePolicy, defaults *attunev1alpha1.AttuneDefaults) (rsmetrics.MetricsCollector, rsmetrics.QueryBuilder, error) {
+func (r *AttunePolicyReconciler) resolveMetricsCollector(ctx context.Context, policy *attunev1alpha1.AttunePolicy, defaults *attunev1alpha1.AttuneDefaults, auth prometheusAuthContext) (rsmetrics.MetricsCollector, rsmetrics.QueryBuilder, error) {
 	ms := policy.Spec.MetricsSource
 
 	switch {
@@ -828,11 +987,12 @@ func (r *AttunePolicyReconciler) resolveMetricsCollector(ctx context.Context, po
 		return r.resolveCloudWatchCollector(ctx, policy)
 	default:
 		// Prometheus (existing path, including auto-discovery and defaults).
-		promConfig, err := r.resolvePrometheusConfig(ctx, policy, defaults)
+		promConfig, discovered, err := r.resolvePrometheusConfig(ctx, policy, defaults)
 		if err != nil {
 			return nil, nil, err
 		}
-		opts, err := r.buildCollectorOptions(ctx, policy.Namespace, promConfig)
+		auth.addressDiscovered = discovered
+		opts, err := r.buildCollectorOptions(ctx, policy.Namespace, promConfig, auth)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -969,15 +1129,15 @@ func (r *AttunePolicyReconciler) resolveCloudWatchCollector(ctx context.Context,
 
 // resolvePrometheusAddress returns the Prometheus address from the policy spec,
 // falling back to the cluster-scoped AttuneDefaults if not set.
-func (r *AttunePolicyReconciler) resolvePrometheusConfig(ctx context.Context, policy *attunev1alpha1.AttunePolicy, defaults *attunev1alpha1.AttuneDefaults) (*attunev1alpha1.PrometheusConfig, error) {
+func (r *AttunePolicyReconciler) resolvePrometheusConfig(ctx context.Context, policy *attunev1alpha1.AttunePolicy, defaults *attunev1alpha1.AttuneDefaults) (*attunev1alpha1.PrometheusConfig, bool, error) {
 	// Check policy-level config first.
 	if policy.Spec.MetricsSource.Prometheus != nil &&
 		policy.Spec.MetricsSource.Prometheus.Address != "" {
 		config := policy.Spec.MetricsSource.Prometheus.DeepCopy()
 		if err := validation.PrometheusAddress(config.Address); err != nil {
-			return nil, fmt.Errorf("SSRF blocked: %w", err)
+			return nil, false, fmt.Errorf("SSRF blocked: %w", err)
 		}
-		return config, nil
+		return config, false, nil
 	}
 
 	// Fall back to AttuneDefaults.
@@ -987,9 +1147,9 @@ func (r *AttunePolicyReconciler) resolvePrometheusConfig(ctx context.Context, po
 		defaults.Spec.MetricsSource.Prometheus.Address != "" {
 		config := defaults.Spec.MetricsSource.Prometheus.DeepCopy()
 		if err := validation.PrometheusAddress(config.Address); err != nil {
-			return nil, fmt.Errorf("SSRF blocked: %w", err)
+			return nil, false, fmt.Errorf("SSRF blocked: %w", err)
 		}
-		return config, nil
+		return config, false, nil
 	}
 
 	// Fall back to auto-discovery: look for Prometheus Operator's Prometheus CRD.
@@ -998,10 +1158,10 @@ func (r *AttunePolicyReconciler) resolvePrometheusConfig(ctx context.Context, po
 			log.FromContext(ctx).Error(err, "Auto-discovered Prometheus address failed SSRF validation", "address", discovered)
 		} else {
 			log.FromContext(ctx).Info("Auto-discovered Prometheus address", "address", discovered)
-			return &attunev1alpha1.PrometheusConfig{Address: discovered}, nil
+			return &attunev1alpha1.PrometheusConfig{Address: discovered}, true, nil
 		}
 	}
-	return nil, fmt.Errorf("no Prometheus address configured in policy or cluster defaults, and auto-discovery found no Prometheus instance")
+	return nil, false, fmt.Errorf("no Prometheus address configured in policy or cluster defaults, and auto-discovery found no Prometheus instance")
 }
 
 // readSecretKey reads a single key from a Kubernetes Secret.
