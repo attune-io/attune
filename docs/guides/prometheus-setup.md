@@ -174,8 +174,7 @@ should keep the cluster address and the operator token. Setting only
 `bearerTokenSecret`, with no address, does not attach that Secret to
 the cluster address.
 
-Worked YAML is in
-[examples/prometheus-auth/](https://github.com/attune-io/attune/tree/main/examples/prometheus-auth).
+Worked YAML is in `examples/prometheus-auth/`.
 
 ## Required Prometheus metrics
 
