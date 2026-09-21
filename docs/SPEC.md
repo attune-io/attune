@@ -186,6 +186,8 @@ spec:
       # shared token (deprecated: name is still read in each policy
       # namespace). Cluster-wide auth is the operator SA token or a
       # Secret in the operator namespace (prometheusAuth).
+      # Datadog apiKeySecretRef on cluster AttuneDefaults has the same
+      # shape: use datadogAuth.existingSecret for a cluster-wide API key.
       bearerTokenSecret:
         name: prometheus-token
         key: token

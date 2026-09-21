@@ -28,6 +28,8 @@ spec:
             - --leader-elect
             - --enable-webhooks=false
             - --health-probe-bind-address=:8081
+            - --prometheus-use-service-account-token
+            - --prometheus-query-service-account=attune-prometheus-query
           ports:
             - containerPort: 8080
               name: metrics

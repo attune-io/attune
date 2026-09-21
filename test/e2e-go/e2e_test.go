@@ -4333,7 +4333,7 @@ func TestE2E_DatadogSource_DoesNotUseClusterPrometheus(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, exclusiveProviderPolicy(ns, "ddsrc-policy", name, attunev1alpha1.MetricsSource{
 		Datadog: &attunev1alpha1.DatadogConfig{
 			Site: "datadoghq.com",
-			APIKeySecretRef: attunev1alpha1.SecretKeyRef{
+			APIKeySecretRef: &attunev1alpha1.SecretKeyRef{
 				Name: "dd-api",
 				Key:  "api-key",
 			},

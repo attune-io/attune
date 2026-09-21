@@ -354,7 +354,7 @@ func unstructuredClusterDefaultsDatadog(t *testing.T, name string) *unstructured
 			MetricsSource: &attunev1alpha1.MetricsSource{
 				Datadog: &attunev1alpha1.DatadogConfig{
 					Site: "datadoghq.com",
-					APIKeySecretRef: attunev1alpha1.SecretKeyRef{
+					APIKeySecretRef: &attunev1alpha1.SecretKeyRef{
 						Name: "datadog",
 						Key:  "api-key",
 					},

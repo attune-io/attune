@@ -162,6 +162,19 @@ spec:
   install:
     strategy: deployment
     spec:
+      permissions:
+        - serviceAccountName: attune-controller-manager
+          rules:
+            - apiGroups:
+                - ""
+              resources:
+                - serviceaccounts/token
+              resourceNames:
+                - attune-prometheus-query
+              verbs:
+                - create
+        - serviceAccountName: attune-prometheus-query
+          rules: []
       clusterPermissions:
         - serviceAccountName: attune-controller-manager
           rules:
@@ -346,6 +359,8 @@ spec:
                       - --leader-elect
                       - --enable-webhooks=false
                       - --health-probe-bind-address=:8081
+                      - --prometheus-use-service-account-token
+                      - --prometheus-query-service-account=attune-prometheus-query
                     ports:
                       - containerPort: 8080
                         name: metrics

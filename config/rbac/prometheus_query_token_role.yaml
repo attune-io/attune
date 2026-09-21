@@ -1,0 +1,16 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: prometheus-query-token
+  namespace: system
+rules:
+  # resourceNames is the ServiceAccount name after config/default
+  # namePrefix (attune-). Kustomize does not prefix resourceNames.
+- apiGroups:
+  - ""
+  resources:
+  - serviceaccounts/token
+  resourceNames:
+  - attune-prometheus-query
+  verbs:
+  - create

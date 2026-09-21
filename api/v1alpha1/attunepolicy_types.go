@@ -304,7 +304,12 @@ type DatadogConfig struct {
 
 	// APIKeySecretRef references a Secret containing the Datadog API key.
 	// The Secret must contain an "api-key" key and optionally an "app-key" key.
-	APIKeySecretRef SecretKeyRef `json:"apiKeySecretRef"`
+	// On AttunePolicy and AttuneNamespaceDefaults the Secret is in that namespace.
+	// On cluster AttuneDefaults the name is still copied onto each policy.
+	// When --datadog-api-key-secret is set, a cluster-chosen Datadog block
+	// reads the operator-namespace Secret instead of this name.
+	// +kubebuilder:validation:Required
+	APIKeySecretRef *SecretKeyRef `json:"apiKeySecretRef"`
 }
 
 // CloudWatchConfig configures an Amazon CloudWatch Container Insights metrics source.

@@ -68,6 +68,10 @@ spec:
             {{- if .Values.prometheusAuth.queryServiceAccount.create }}
             - --prometheus-query-service-account={{ include "attune.queryServiceAccountName" . }}
             {{- end }}
+            {{- if and .Values.datadogAuth .Values.datadogAuth.existingSecret .Values.datadogAuth.existingSecret.name }}
+            - --datadog-api-key-secret={{ .Values.datadogAuth.existingSecret.name }}
+            - --datadog-api-key-secret-key={{ .Values.datadogAuth.existingSecret.key | default "api-key" }}
+            {{- end }}
             {{- $mcr := include "attune.maxConcurrentReconciles" . | trim }}
             {{- if $mcr }}
             - --max-concurrent-reconciles={{ $mcr }}

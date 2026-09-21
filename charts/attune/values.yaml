@@ -306,6 +306,18 @@ prometheusAuth:
     # when create is true.
     name: ""
 
+# -- Cluster-wide Datadog API key from a Secret in the operator namespace.
+# Used only when cluster AttuneDefaults chose the Datadog block. Policy and
+# AttuneNamespaceDefaults apiKeySecretRef values stay in that namespace.
+datadogAuth:
+  existingSecret:
+    # -- Secret name in the operator namespace. Empty keeps the
+    # policy-namespace lookup of an inherited apiKeySecretRef.
+    name: ""
+    # -- Key within the Secret that holds the API key. An optional app-key
+    # in the same Secret is still read.
+    key: api-key
+
 # -- Prometheus query rate limit (queries per second). Higher values reduce reconcile latency but increase Prometheus load.
 prometheusQPS: 10
 

@@ -793,6 +793,20 @@ type prometheusAuthContext struct {
 	addressDiscovered   bool
 }
 
+// datadogAuthContext is captured from the unmerged policy so an operator
+// Datadog API key is not sent for a policy or namespace-defaults block.
+type datadogAuthContext struct {
+	policySetDatadog    bool
+	namespaceSetDatadog bool
+}
+
+func datadogAuthFromUnmerged(policy *attunev1alpha1.AttunePolicy) datadogAuthContext {
+	if policy == nil {
+		return datadogAuthContext{}
+	}
+	return datadogAuthContext{policySetDatadog: policy.Spec.MetricsSource.Datadog != nil}
+}
+
 func prometheusAuthFromUnmerged(policy *attunev1alpha1.AttunePolicy) prometheusAuthContext {
 	if policy == nil {
 		return prometheusAuthContext{}
@@ -973,7 +987,7 @@ func (r *AttunePolicyReconciler) requestQueryServiceAccountToken(ctx context.Con
 // resolveMetricsCollector creates the appropriate MetricsCollector and
 // QueryBuilder based on which metricsSource field is configured. Falls back
 // to Prometheus when no explicit source is set.
-func (r *AttunePolicyReconciler) resolveMetricsCollector(ctx context.Context, policy *attunev1alpha1.AttunePolicy, defaults *attunev1alpha1.AttuneDefaults, auth prometheusAuthContext) (rsmetrics.MetricsCollector, rsmetrics.QueryBuilder, error) {
+func (r *AttunePolicyReconciler) resolveMetricsCollector(ctx context.Context, policy *attunev1alpha1.AttunePolicy, defaults *attunev1alpha1.AttuneDefaults, auth prometheusAuthContext, ddAuth datadogAuthContext) (rsmetrics.MetricsCollector, rsmetrics.QueryBuilder, error) {
 	ms := policy.Spec.MetricsSource
 
 	switch {
@@ -982,7 +996,7 @@ func (r *AttunePolicyReconciler) resolveMetricsCollector(ctx context.Context, po
 		// Return nil collector/queryBuilder; processWorkloads handles the VPA path.
 		return nil, nil, nil
 	case ms.Datadog != nil:
-		return r.resolveDatadogCollector(ctx, policy)
+		return r.resolveDatadogCollector(ctx, policy, ddAuth)
 	case ms.CloudWatch != nil:
 		return r.resolveCloudWatchCollector(ctx, policy)
 	default:
@@ -1056,8 +1070,10 @@ func (r *AttunePolicyReconciler) promQLBuilder(policy *attunev1alpha1.AttunePoli
 }
 
 // resolveDatadogCollector creates a DatadogCollector from the policy's
-// Datadog config, reading API/app keys from the referenced Secret.
-func (r *AttunePolicyReconciler) resolveDatadogCollector(ctx context.Context, policy *attunev1alpha1.AttunePolicy) (rsmetrics.MetricsCollector, rsmetrics.QueryBuilder, error) {
+// Datadog config. A cluster-chosen block with --datadog-api-key-secret
+// reads that operator-namespace Secret. Policy and AttuneNamespaceDefaults
+// blocks keep reading apiKeySecretRef in the policy namespace.
+func (r *AttunePolicyReconciler) resolveDatadogCollector(ctx context.Context, policy *attunev1alpha1.AttunePolicy, auth datadogAuthContext) (rsmetrics.MetricsCollector, rsmetrics.QueryBuilder, error) {
 	dd := policy.Spec.MetricsSource.Datadog
 
 	site := dd.Site
@@ -1068,22 +1084,9 @@ func (r *AttunePolicyReconciler) resolveDatadogCollector(ctx context.Context, po
 		return nil, nil, fmt.Errorf("datadog site: %w", err)
 	}
 
-	// One Get for the API-key Secret. API key is required; app-key is optional
-	// (absent key is empty). Other Get errors already fail the required key.
-	var secret corev1.Secret
-	secretNS := policy.Namespace
-	secretName := dd.APIKeySecretRef.Name
-	if err := r.Get(ctx, types.NamespacedName{Namespace: secretNS, Name: secretName}, &secret); err != nil {
-		return nil, nil, fmt.Errorf("cannot read Datadog API key: %w", fmt.Errorf("reading secret %s/%s: %w", secretNS, secretName, err))
-	}
-	apiKeyData, ok := secret.Data[dd.APIKeySecretRef.Key]
-	if !ok {
-		return nil, nil, fmt.Errorf("cannot read Datadog API key: %w", fmt.Errorf("key %q not found in secret %s/%s", dd.APIKeySecretRef.Key, secretNS, secretName))
-	}
-	apiKey := string(apiKeyData)
-	var appKey string
-	if appKeyData, ok := secret.Data["app-key"]; ok {
-		appKey = string(appKeyData)
+	apiKey, appKey, err := r.resolveDatadogAPIKey(ctx, policy, auth)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	// Cache keyed by site + API key + app key (non-crypto identifiers) so
@@ -1102,6 +1105,47 @@ func (r *AttunePolicyReconciler) resolveDatadogCollector(ctx context.Context, po
 		return nil, nil, fmt.Errorf("creating Datadog collector: %w", err)
 	}
 	return collector, &rsmetrics.DatadogQueryBuilder{}, nil
+}
+
+func (r *AttunePolicyReconciler) datadogOperatorSecretConfigured() bool {
+	return r.DatadogAPIKeySecretName != ""
+}
+
+// resolveDatadogAPIKey reads the API key and optional app-key. Operator
+// credentials apply only when cluster AttuneDefaults chose Datadog.
+func (r *AttunePolicyReconciler) resolveDatadogAPIKey(ctx context.Context, policy *attunev1alpha1.AttunePolicy, auth datadogAuthContext) (string, string, error) {
+	dd := policy.Spec.MetricsSource.Datadog
+	if r.datadogOperatorSecretConfigured() && !auth.policySetDatadog && !auth.namespaceSetDatadog {
+		ns, err := r.requireOperatorNamespace()
+		if err != nil {
+			return "", "", fmt.Errorf("cannot read Datadog API key: %w", err)
+		}
+		key := r.DatadogAPIKeySecretKey
+		if key == "" {
+			key = "api-key"
+		}
+		return r.readDatadogSecretKeys(ctx, ns, r.DatadogAPIKeySecretName, key)
+	}
+	if dd.APIKeySecretRef == nil || dd.APIKeySecretRef.Name == "" || dd.APIKeySecretRef.Key == "" {
+		return "", "", fmt.Errorf("cannot read Datadog API key: apiKeySecretRef is required unless --datadog-api-key-secret is set for a cluster AttuneDefaults Datadog block")
+	}
+	return r.readDatadogSecretKeys(ctx, policy.Namespace, dd.APIKeySecretRef.Name, dd.APIKeySecretRef.Key)
+}
+
+func (r *AttunePolicyReconciler) readDatadogSecretKeys(ctx context.Context, namespace, name, apiKeyKey string) (string, string, error) {
+	var secret corev1.Secret
+	if err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &secret); err != nil {
+		return "", "", fmt.Errorf("cannot read Datadog API key: %w", fmt.Errorf("reading secret %s/%s: %w", namespace, name, err))
+	}
+	apiKeyData, ok := secret.Data[apiKeyKey]
+	if !ok || strings.TrimSpace(string(apiKeyData)) == "" {
+		return "", "", fmt.Errorf("cannot read Datadog API key: %w", fmt.Errorf("key %q not found in secret %s/%s", apiKeyKey, namespace, name))
+	}
+	var appKey string
+	if appKeyData, ok := secret.Data["app-key"]; ok {
+		appKey = string(appKeyData)
+	}
+	return string(apiKeyData), appKey, nil
 }
 
 // resolveCloudWatchCollector creates a CloudWatchCollector from the policy's

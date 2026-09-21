@@ -389,14 +389,14 @@ func TestResolveDatadogCollector_HappyPath(t *testing.T) {
 			MetricsSource: attunev1alpha1.MetricsSource{
 				Datadog: &attunev1alpha1.DatadogConfig{
 					Site:            "datadoghq.eu",
-					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
+					APIKeySecretRef: &attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
 				},
 			},
 		},
 	}
 	reconciler := newReconcilerWithClient(secret)
 
-	collector, qb, err := reconciler.resolveDatadogCollector(context.Background(), policy)
+	collector, qb, err := reconciler.resolveDatadogCollector(context.Background(), policy, datadogAuthContext{})
 	require.NoError(t, err)
 	assert.NotNil(t, collector, "collector should be non-nil")
 	assert.IsType(t, &rsmetrics.DatadogQueryBuilder{}, qb, "should return DatadogQueryBuilder")
@@ -415,14 +415,14 @@ func TestResolveDatadogCollector_DefaultSite(t *testing.T) {
 			MetricsSource: attunev1alpha1.MetricsSource{
 				Datadog: &attunev1alpha1.DatadogConfig{
 					Site:            "", // empty = default
-					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
+					APIKeySecretRef: &attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
 				},
 			},
 		},
 	}
 	reconciler := newReconcilerWithClient(secret)
 
-	collector, _, err := reconciler.resolveDatadogCollector(context.Background(), policy)
+	collector, _, err := reconciler.resolveDatadogCollector(context.Background(), policy, datadogAuthContext{})
 	require.NoError(t, err)
 	assert.NotNil(t, collector, "collector should be created with default site")
 }
@@ -441,14 +441,14 @@ func TestResolveDatadogCollector_WithAppKey(t *testing.T) {
 			MetricsSource: attunev1alpha1.MetricsSource{
 				Datadog: &attunev1alpha1.DatadogConfig{
 					Site:            "us5.datadoghq.com",
-					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
+					APIKeySecretRef: &attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
 				},
 			},
 		},
 	}
 	reconciler := newReconcilerWithClient(secret)
 
-	collector, _, err := reconciler.resolveDatadogCollector(context.Background(), policy)
+	collector, _, err := reconciler.resolveDatadogCollector(context.Background(), policy, datadogAuthContext{})
 	require.NoError(t, err)
 	assert.NotNil(t, collector, "collector should succeed when app-key is present")
 }
@@ -466,14 +466,14 @@ func TestResolveDatadogCollector_RejectsInvalidSite(t *testing.T) {
 			MetricsSource: attunev1alpha1.MetricsSource{
 				Datadog: &attunev1alpha1.DatadogConfig{
 					Site:            "evil.example",
-					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
+					APIKeySecretRef: &attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
 				},
 			},
 		},
 	}
 	reconciler := newReconcilerWithClient(secret)
 
-	collector, _, err := reconciler.resolveDatadogCollector(context.Background(), policy)
+	collector, _, err := reconciler.resolveDatadogCollector(context.Background(), policy, datadogAuthContext{})
 	require.Error(t, err)
 	assert.Nil(t, collector)
 	assert.Contains(t, err.Error(), "not a recognized Datadog site")
@@ -485,14 +485,14 @@ func TestResolveDatadogCollector_MissingSecret(t *testing.T) {
 		Spec: attunev1alpha1.AttunePolicySpec{
 			MetricsSource: attunev1alpha1.MetricsSource{
 				Datadog: &attunev1alpha1.DatadogConfig{
-					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "nonexistent-secret", Key: "api-key"},
+					APIKeySecretRef: &attunev1alpha1.SecretKeyRef{Name: "nonexistent-secret", Key: "api-key"},
 				},
 			},
 		},
 	}
 	reconciler := newReconcilerWithClient() // no secret
 
-	_, _, err := reconciler.resolveDatadogCollector(context.Background(), policy)
+	_, _, err := reconciler.resolveDatadogCollector(context.Background(), policy, datadogAuthContext{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Datadog API key")
 }
@@ -509,14 +509,14 @@ func TestResolveDatadogCollector_MissingKeyInSecret(t *testing.T) {
 		Spec: attunev1alpha1.AttunePolicySpec{
 			MetricsSource: attunev1alpha1.MetricsSource{
 				Datadog: &attunev1alpha1.DatadogConfig{
-					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
+					APIKeySecretRef: &attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
 				},
 			},
 		},
 	}
 	reconciler := newReconcilerWithClient(secret)
 
-	_, _, err := reconciler.resolveDatadogCollector(context.Background(), policy)
+	_, _, err := reconciler.resolveDatadogCollector(context.Background(), policy, datadogAuthContext{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Datadog API key")
 }
@@ -534,16 +534,16 @@ func TestResolveDatadogCollector_CachesCollector(t *testing.T) {
 			MetricsSource: attunev1alpha1.MetricsSource{
 				Datadog: &attunev1alpha1.DatadogConfig{
 					Site:            "datadoghq.com",
-					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
+					APIKeySecretRef: &attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
 				},
 			},
 		},
 	}
 	reconciler := newReconcilerWithClient(secret)
 
-	c1, _, err1 := reconciler.resolveDatadogCollector(context.Background(), policy)
+	c1, _, err1 := reconciler.resolveDatadogCollector(context.Background(), policy, datadogAuthContext{})
 	require.NoError(t, err1)
-	c2, _, err2 := reconciler.resolveDatadogCollector(context.Background(), policy)
+	c2, _, err2 := reconciler.resolveDatadogCollector(context.Background(), policy, datadogAuthContext{})
 	require.NoError(t, err2)
 	assert.Same(t, c1, c2, "second call should return cached collector")
 }
@@ -561,14 +561,14 @@ func TestResolveDatadogCollector_AddingAppKeyRecreatesCollector(t *testing.T) {
 			MetricsSource: attunev1alpha1.MetricsSource{
 				Datadog: &attunev1alpha1.DatadogConfig{
 					Site:            "datadoghq.com",
-					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
+					APIKeySecretRef: &attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
 				},
 			},
 		},
 	}
 	reconciler := newReconcilerWithClient(secret)
 
-	c1, _, err1 := reconciler.resolveDatadogCollector(context.Background(), policy)
+	c1, _, err1 := reconciler.resolveDatadogCollector(context.Background(), policy, datadogAuthContext{})
 	require.NoError(t, err1)
 
 	var current corev1.Secret
@@ -576,7 +576,7 @@ func TestResolveDatadogCollector_AddingAppKeyRecreatesCollector(t *testing.T) {
 	current.Data["app-key"] = []byte("test-app-key")
 	require.NoError(t, reconciler.Update(context.Background(), &current))
 
-	c2, _, err2 := reconciler.resolveDatadogCollector(context.Background(), policy)
+	c2, _, err2 := reconciler.resolveDatadogCollector(context.Background(), policy, datadogAuthContext{})
 	require.NoError(t, err2)
 	assert.NotSame(t, c1, c2, "inserting app-key must create a new collector")
 }

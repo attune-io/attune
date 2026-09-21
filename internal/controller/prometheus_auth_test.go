@@ -492,10 +492,10 @@ func TestFetchDefaultsForAuth_UsesSelectedNamespaceObject(t *testing.T) {
 		},
 	}
 	r := newReconcilerWithClient(selectedQuiet, unselected)
-	_, set, err := r.fetchDefaultsForAuth(context.Background(), "vpa-test")
+	_, set, _, err := r.fetchDefaultsForAuth(context.Background(), "vpa-test")
 	require.NoError(t, err)
 	assert.False(t, set)
-	_, set, err = r.fetchDefaultsForAuth(context.Background(), "other")
+	_, set, _, err = r.fetchDefaultsForAuth(context.Background(), "other")
 	require.NoError(t, err)
 	assert.False(t, set)
 
@@ -504,7 +504,7 @@ func TestFetchDefaultsForAuth_UsesSelectedNamespaceObject(t *testing.T) {
 		Prometheus: &attunev1alpha1.PrometheusConfig{Address: "http://team-prom:9090"},
 	}
 	r = newReconcilerWithClient(selectedAddr, unselected)
-	_, set, err = r.fetchDefaultsForAuth(context.Background(), "vpa-test")
+	_, set, _, err = r.fetchDefaultsForAuth(context.Background(), "vpa-test")
 	require.NoError(t, err)
 	assert.True(t, set)
 }

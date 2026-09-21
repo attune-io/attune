@@ -61,7 +61,7 @@ func (v *AttuneDefaultsValidator) ValidateDelete(_ context.Context, _ *attunev1a
 }
 
 func (v *AttuneDefaultsValidator) validate(defaults *attunev1alpha1.AttuneDefaults) (admission.Warnings, error) {
-	w, err := validateDefaultsSpec(defaults.Spec)
+	w, err := validateDefaultsSpec(defaults.Spec, false)
 	if err != nil {
 		return w, err
 	}
@@ -72,6 +72,7 @@ func (v *AttuneDefaultsValidator) validate(defaults *attunev1alpha1.AttuneDefaul
 	}
 	if defaults.Spec.MetricsSource != nil &&
 		defaults.Spec.MetricsSource.Datadog != nil &&
+		defaults.Spec.MetricsSource.Datadog.APIKeySecretRef != nil &&
 		defaults.Spec.MetricsSource.Datadog.APIKeySecretRef.Name != "" {
 		w = append(w, DeprecatedClusterDatadogAPIKeyWarning)
 	}
@@ -92,7 +93,7 @@ const DeprecatedClusterBearerTokenSecretWarning = "metricsSource.prometheus.bear
 
 // DeprecatedClusterDatadogAPIKeyWarning is the admission warning for
 // apiKeySecretRef on cluster AttuneDefaults.
-const DeprecatedClusterDatadogAPIKeyWarning = "metricsSource.datadog.apiKeySecretRef on AttuneDefaults is deprecated; the Secret name is still read from each AttunePolicy namespace. Put the Datadog API key Secret on the policy or AttuneNamespaceDefaults."
+const DeprecatedClusterDatadogAPIKeyWarning = "metricsSource.datadog.apiKeySecretRef on AttuneDefaults is deprecated; the Secret name is still copied onto each policy. Without --datadog-api-key-secret it is read in the policy namespace. With that flag, a cluster-chosen Datadog config reads the operator-namespace Secret instead. Policy and AttuneNamespaceDefaults refs stay in their namespace."
 
 // DeprecatedClusterGitOpsTokenWarning is the admission warning for
 // export.pullRequest.tokenSecretRef on cluster AttuneDefaults.
@@ -102,7 +103,7 @@ const DeprecatedClusterGitOpsTokenWarning = "updateStrategy.export.pullRequest.t
 func (v *AttuneNamespaceDefaultsValidator) ValidateCreate(_ context.Context, defaults *attunev1alpha1.AttuneNamespaceDefaults) (admission.Warnings, error) {
 	timer := operatormetrics.NewWebhookTimer("namespace_defaults_validate_create")
 	defer timer.Observe()
-	w, err := validateDefaultsSpec(defaults.Spec)
+	w, err := validateDefaultsSpec(defaults.Spec, true)
 	timer.RecordResult(err)
 	return w, err
 }
@@ -111,7 +112,7 @@ func (v *AttuneNamespaceDefaultsValidator) ValidateCreate(_ context.Context, def
 func (v *AttuneNamespaceDefaultsValidator) ValidateUpdate(_ context.Context, _, defaults *attunev1alpha1.AttuneNamespaceDefaults) (admission.Warnings, error) {
 	timer := operatormetrics.NewWebhookTimer("namespace_defaults_validate_update")
 	defer timer.Observe()
-	w, err := validateDefaultsSpec(defaults.Spec)
+	w, err := validateDefaultsSpec(defaults.Spec, true)
 	timer.RecordResult(err)
 	return w, err
 }
@@ -121,11 +122,11 @@ func (v *AttuneNamespaceDefaultsValidator) ValidateDelete(_ context.Context, _ *
 	return nil, nil
 }
 
-func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec) (admission.Warnings, error) {
+func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec, requireDatadogSecret bool) (admission.Warnings, error) {
 	if err := exclusiveMetricsProviderError(spec.MetricsSource); err != nil {
 		return nil, err
 	}
-	if err := validateMetricsSourceProviderFields(spec.MetricsSource); err != nil {
+	if err := validateMetricsSourceProviderFields(spec.MetricsSource, requireDatadogSecret); err != nil {
 		return nil, err
 	}
 

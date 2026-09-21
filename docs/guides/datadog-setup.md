@@ -151,6 +151,21 @@ Instead of configuring Datadog on every policy, set it in
 
 === "Cluster-wide"
 
+    Put the API key in one Secret in the operator namespace and point
+    the manager at it. Helm:
+
+    ```yaml
+    datadogAuth:
+      existingSecret:
+        name: datadog-keys
+        key: api-key
+    ```
+
+    That Secret must contain `api-key` and may contain `app-key`. Keep
+    the site on cluster `AttuneDefaults`. The schema still requires
+    `apiKeySecretRef`; with the operator Secret set, that name is not
+    read:
+
     ```yaml
     apiVersion: attune.io/v1alpha1
     kind: AttuneDefaults
@@ -165,11 +180,15 @@ Instead of configuring Datadog on every policy, set it in
             key: api-key
     ```
 
-    !!! warning
-        The Secret referenced in `AttuneDefaults` must exist in **every
-        namespace** that has an AttunePolicy, since Secret access is
-        namespace-scoped. Consider using a namespace defaults object
-        per namespace instead.
+    `apiKeySecretRef` on cluster `AttuneDefaults` is deprecated. Without
+    `--datadog-api-key-secret`, that name is still read in each policy
+    namespace. With the flag, a cluster-chosen Datadog block reads the
+    operator Secret and ignores a copy of the same name next to the policy.
+    Admission warns when the field is set.
+
+    OperatorHub and the kustomize install set the Prometheus query
+    ServiceAccount flags. Datadog still needs `--datadog-api-key-secret`
+    on the manager container, plus the Secret in the operator namespace.
 
 === "Per-namespace"
 
