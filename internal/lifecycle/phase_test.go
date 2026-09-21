@@ -69,6 +69,28 @@ func TestClassify(t *testing.T) {
 			want: Observing,
 		},
 		{
+			name: "exactly at observation period is evaluating",
+			in: Input{
+				Tracked:           true,
+				HasResizedAt:      true,
+				ResizedAt:         now.Add(-period),
+				Now:               now,
+				ObservationPeriod: period,
+			},
+			want: Evaluating,
+		},
+		{
+			name: "one nanosecond inside observation period is observing",
+			in: Input{
+				Tracked:           true,
+				HasResizedAt:      true,
+				ResizedAt:         now.Add(-period + time.Nanosecond),
+				Now:               now,
+				ObservationPeriod: period,
+			},
+			want: Observing,
+		},
+		{
 			name: "period elapsed is evaluating",
 			in: Input{
 				Tracked:           true,

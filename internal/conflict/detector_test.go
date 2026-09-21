@@ -462,6 +462,36 @@ func TestCheckHPAConflict_ResourceMetricsOnlyNoScaleToZeroType(t *testing.T) {
 		assert.Equal(t, "sidecar-hpa", conflict.Name)
 	})
 
+	t.Run("container resource memory metric is ConflictHPA", func(t *testing.T) {
+		hpa := autoscalingv2.HorizontalPodAutoscaler{
+			ObjectMeta: metav1.ObjectMeta{Name: "mem-sidecar-hpa"},
+			Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+				ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+					Kind: "Deployment",
+					Name: "my-app",
+				},
+				Metrics: []autoscalingv2.MetricSpec{{
+					Type: autoscalingv2.ContainerResourceMetricSourceType,
+					ContainerResource: &autoscalingv2.ContainerResourceMetricSource{
+						Name:      corev1.ResourceMemory,
+						Container: "app",
+					},
+				}},
+			},
+		}
+		conflict := detector.CheckHPAConflict([]autoscalingv2.HorizontalPodAutoscaler{hpa}, "my-app", "Deployment")
+		assert.NotNil(t, conflict)
+		assert.Equal(t, ConflictHPA, conflict.Type)
+		assert.Equal(t, "mem-sidecar-hpa", conflict.Name)
+	})
+
+	t.Run("ephemeral-storage resource metric is not a conflict", func(t *testing.T) {
+		hpa := cpuResourceHPA("disk-hpa", "Deployment", "my-app")
+		hpa.Spec.Metrics[0].Resource.Name = corev1.ResourceEphemeralStorage
+		conflict := detector.CheckHPAConflict([]autoscalingv2.HorizontalPodAutoscaler{hpa}, "my-app", "Deployment")
+		assert.Nil(t, conflict)
+	})
+
 	t.Run("custom metric only is not a conflict", func(t *testing.T) {
 		hpa := autoscalingv2.HorizontalPodAutoscaler{
 			ObjectMeta: metav1.ObjectMeta{Name: "custom-hpa"},
@@ -852,6 +882,22 @@ func newSelectorPolicy(name string, targetKind string, matchLabels map[string]st
 	}
 	_ = unstructured.SetNestedField(p.Object, ml, "spec", "targetRef", "selector", "matchLabels")
 	return p
+}
+
+func TestCheckPolicyConflictInMemory_EmptySelectorObjectDoesNotMatch(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	p := unstructured.Unstructured{}
+	p.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "attune.io", Version: "v1alpha1", Kind: "AttunePolicy",
+	})
+	p.SetName("empty-sel")
+	require.NoError(t, unstructured.SetNestedField(p.Object, "Deployment", "spec", "targetRef", "kind"))
+	require.NoError(t, unstructured.SetNestedField(p.Object, int64(200), "spec", "weight"))
+	require.NoError(t, unstructured.SetNestedField(p.Object, map[string]interface{}{}, "spec", "targetRef", "selector"))
+	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{p}}
+
+	result := detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", map[string]string{"app": "web"}, "current", 100)
+	assert.Nil(t, result)
 }
 
 func TestCheckPolicyConflictInMemory_SelectorMatchesWorkload(t *testing.T) {
