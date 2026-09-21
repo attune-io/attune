@@ -64,6 +64,41 @@ spec:
               EOF
               echo "Correctly rejected negative memoryPerGiBHour"
 
+    - name: deprecated-cluster-bearer-token-warns
+      description: >
+        bearerTokenSecret on cluster AttuneDefaults is accepted with an
+        admission warning. Name zzz-* so this object does not win
+        fetchDefaults (lexicographically smallest name).
+      try:
+        - script:
+            timeout: 30s
+            content: |
+              set -e
+              cat > /tmp/zzz-e2e-deprecated-bearer.yaml <<'YAML'
+              apiVersion: attune.io/v1alpha1
+              kind: AttuneDefaults
+              metadata:
+                name: zzz-e2e-deprecated-bearer
+              spec:
+                metricsSource:
+                  prometheus:
+                    address: http://prometheus-server.monitoring:80
+                    bearerTokenSecret:
+                      name: attune-thanos-token
+                      key: token
+              YAML
+              set +e
+              out=$(kubectl apply -f /tmp/zzz-e2e-deprecated-bearer.yaml 2>&1)
+              rc=$?
+              set -e
+              if [ "$rc" -ne 0 ]; then
+                echo "FAIL: deprecated AttuneDefaults bearerTokenSecret was rejected"
+                echo "$out"
+                exit 1
+              fi
+              echo "$out" | grep -q 'bearerTokenSecret on AttuneDefaults is deprecated'
+              echo "OK: admission warned on cluster AttuneDefaults bearerTokenSecret"
+
     - name: cleanup
       try:
         - script:
@@ -71,3 +106,4 @@ spec:
               kubectl delete attunedefaults e2e-valid --ignore-not-found
               kubectl delete attunedefaults e2e-invalid-cpu --ignore-not-found
               kubectl delete attunedefaults e2e-invalid-mem --ignore-not-found
+              kubectl delete attunedefaults zzz-e2e-deprecated-bearer --ignore-not-found

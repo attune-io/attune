@@ -24,9 +24,12 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	rsmetrics "github.com/attune-io/attune/internal/metrics"
 )
 
 func TestBuildCollectorOptions_PolicySecretWinsOverOperatorAuth(t *testing.T) {
@@ -125,4 +128,133 @@ func TestBuildCollectorOptions_InheritedNameStillReadsPolicyNamespace(t *testing
 	_, err := r.buildCollectorOptions(context.Background(), "vpa-test", cfg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "vpa-test/attune-thanos-token")
+}
+
+func TestBuildCollectorOptions_OperatorSecretWinsOverSAToken(t *testing.T) {
+	scheme := testScheme()
+	opSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "attune-thanos-token", Namespace: "attune-system"},
+		Data:       map[string][]byte{"token": []byte("operator-token")},
+	}
+	r := NewAttunePolicyReconciler()
+	r.Scheme = scheme
+	r.Client = fake.NewClientBuilder().WithScheme(scheme).WithObjects(opSecret).Build()
+	r.PrometheusUseServiceAccountToken = true
+	r.PrometheusBearerTokenSecretName = "attune-thanos-token"
+	r.OperatorNamespace = "attune-system"
+	r.readServiceAccountTokenFn = func() (string, error) {
+		t.Fatal("SA token must not be read when operator Secret is set")
+		return "", nil
+	}
+
+	cfg := &attunev1alpha1.PrometheusConfig{Address: "https://thanos-querier.openshift-monitoring.svc:9091"}
+	opts, err := r.buildCollectorOptions(context.Background(), "vpa-test", cfg)
+	require.NoError(t, err)
+	require.NotNil(t, opts)
+	assert.Equal(t, "operator-token", opts.BearerToken)
+}
+
+func clusterDefaultsWithBearerToken() *attunev1alpha1.AttuneDefaults {
+	return &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{
+					Address: "http://prometheus:9090",
+					BearerTokenSecret: &attunev1alpha1.SecretKeyRef{
+						Name: "attune-thanos-token",
+						Key:  "token",
+					},
+				},
+			},
+		},
+	}
+}
+
+func TestResolvePrometheusConfig_AttuneDefaultsCopiesBearerTokenSecret(t *testing.T) {
+	defaults := clusterDefaultsWithBearerToken()
+	r := newReconcilerWithClient(defaults)
+	policy := newTestPolicy("app-policy", "vpa-test")
+	policy.Spec.MetricsSource.Prometheus = nil
+
+	fetched, err := r.fetchDefaults(context.Background(), "vpa-test")
+	require.NoError(t, err)
+	cfg, err := r.resolvePrometheusConfig(context.Background(), policy, fetched)
+	require.NoError(t, err)
+	require.NotNil(t, cfg.BearerTokenSecret)
+	assert.Equal(t, "attune-thanos-token", cfg.BearerTokenSecret.Name)
+	assert.Equal(t, "token", cfg.BearerTokenSecret.Key)
+
+	r.mergeDefaults(policy, fetched)
+	require.NotNil(t, policy.Spec.MetricsSource.Prometheus)
+	require.NotNil(t, policy.Spec.MetricsSource.Prometheus.BearerTokenSecret)
+	assert.Equal(t, "attune-thanos-token", policy.Spec.MetricsSource.Prometheus.BearerTokenSecret.Name)
+}
+
+func TestReconcile_AttuneDefaultsBearerTokenLooksUpPolicyNamespace(t *testing.T) {
+	policy := newTestPolicy("app-policy", "vpa-test")
+	policy.Spec.MetricsSource.Prometheus = nil
+	defaults := clusterDefaultsWithBearerToken()
+	opSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "attune-thanos-token", Namespace: "attune-system"},
+		Data:       map[string][]byte{"token": []byte("operator-token")},
+	}
+
+	reconciler, fakeClient := newReconcilerForReconcile(&mockCollector{}, policy, defaults, opSecret)
+	reconciler.PrometheusUseServiceAccountToken = true
+	reconciler.OperatorNamespace = "attune-system"
+	reconciler.readServiceAccountTokenFn = func() (string, error) {
+		return "sa-token", nil
+	}
+	reconciler.MetricsFactory = func(_ string, _ *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
+		t.Fatal("collector must not be created when the inherited Secret is missing in the policy namespace")
+		return nil, nil
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "app-policy", Namespace: "vpa-test"},
+	})
+	require.NoError(t, err)
+
+	var updated attunev1alpha1.AttunePolicy
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "app-policy", Namespace: "vpa-test",
+	}, &updated))
+	require.NotEmpty(t, updated.Status.Conditions)
+	assert.Equal(t, attunev1alpha1.ReasonMetricsUnavailable, updated.Status.Conditions[0].Reason)
+	assert.Contains(t, updated.Status.Conditions[0].Message, "vpa-test/attune-thanos-token")
+}
+
+func TestReconcile_OperatorSATokenWhenDefaultsHaveAddressOnly(t *testing.T) {
+	policy := newTestPolicy("app-policy", "vpa-test")
+	policy.Spec.MetricsSource.Prometheus = nil
+	defaults := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{
+					Address: "http://prometheus:9090",
+				},
+			},
+		},
+	}
+	mc := &mockCollector{}
+	var gotToken string
+	reconciler, _ := newReconcilerForReconcile(mc, policy, defaults)
+	reconciler.PrometheusUseServiceAccountToken = true
+	reconciler.readServiceAccountTokenFn = func() (string, error) {
+		return "sa-token", nil
+	}
+	reconciler.MetricsFactory = func(_ string, opts *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
+		if opts != nil {
+			gotToken = opts.BearerToken
+		}
+		return mc, nil
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "app-policy", Namespace: "vpa-test"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "sa-token", gotToken)
 }

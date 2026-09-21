@@ -30,6 +30,19 @@ tests:
               - port: 9091
                 protocol: TCP
 
+  - it: should allow egress to thanos-querier 9091 when only bindClusterMonitoringView is set
+    set:
+      openshift:
+        enabled: false
+        bindClusterMonitoringView: true
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            ports:
+              - port: 9091
+                protocol: TCP
+
   - it: should not render NetworkPolicy when disabled
     set:
       networkPolicy:
