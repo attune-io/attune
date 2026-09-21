@@ -214,6 +214,12 @@ type AttunePolicyReconciler struct {
 	PrometheusBearerTokenSecretName string
 	// PrometheusBearerTokenSecretKey is the key in that Secret (default token).
 	PrometheusBearerTokenSecretKey string
+	// PrometheusQueryServiceAccount, when set, is TokenRequested instead of
+	// the manager projected token (dedicated query identity).
+	PrometheusQueryServiceAccount string
+	queryTokenMu                  sync.Mutex
+	queryToken                    string
+	queryTokenExpiry              time.Time
 	// readServiceAccountTokenFn overrides the projected token file in tests.
 	readServiceAccountTokenFn func() (string, error)
 	nowFunc                   atomic.Pointer[func() time.Time]
@@ -370,6 +376,8 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			fmt.Sprintf("Failed to fetch defaults: %v", err))
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
+	promAuth := prometheusAuthFromUnmerged(&policy)
+	promAuth.namespaceSetAddress = r.namespaceHasPrometheusAddress(ctx, policy.Namespace)
 	r.mergeDefaults(&policy, defaults)
 	r.applyBuiltInDefaults(&policy)
 	r.warnConfigClamping(&policy)
@@ -390,7 +398,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	// Step 2: Resolve metrics source, create collector, and select query builder.
-	collector, queryBuilder, err := r.resolveMetricsCollector(ctx, &policy, defaults)
+	collector, queryBuilder, err := r.resolveMetricsCollector(ctx, &policy, defaults, promAuth)
 	if err != nil {
 		logger.Error(err, "Failed to resolve metrics source")
 		operatormetrics.ReconcileErrorsTotal.WithLabelValues("metrics_source").Inc()

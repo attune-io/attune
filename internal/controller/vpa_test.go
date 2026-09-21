@@ -718,7 +718,7 @@ func TestResolveMetricsCollector_VPA(t *testing.T) {
 	reconciler.Scheme = scheme
 
 	collector, qb, err := reconciler.resolveMetricsCollector(
-		context.Background(), policy, nil,
+		context.Background(), policy, nil, prometheusAuthContext{},
 	)
 	assert.NoError(t, err)
 	assert.Nil(t, collector, "VPA source should return nil collector")
@@ -768,7 +768,7 @@ func TestResolveMetricsCollector_Datadog(t *testing.T) {
 		reconciler.Scheme = scheme
 
 		collector, qb, err := reconciler.resolveMetricsCollector(
-			context.Background(), policy, defaults,
+			context.Background(), policy, defaults, prometheusAuthContext{},
 		)
 		require.NoError(t, err)
 		assert.NotNil(t, collector)
@@ -796,7 +796,7 @@ func TestResolveMetricsCollector_Datadog(t *testing.T) {
 		reconciler.Scheme = scheme
 
 		collector, qb, err := reconciler.resolveMetricsCollector(
-			context.Background(), policy, defaults,
+			context.Background(), policy, defaults, prometheusAuthContext{},
 		)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "Datadog API key")
@@ -827,7 +827,7 @@ func TestResolveMetricsCollector_CloudWatch(t *testing.T) {
 	reconciler.Scheme = scheme
 
 	collector, qb, err := reconciler.resolveMetricsCollector(
-		context.Background(), policy, defaults,
+		context.Background(), policy, defaults, prometheusAuthContext{},
 	)
 	require.NoError(t, err)
 	assert.NotNil(t, collector)

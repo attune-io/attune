@@ -58,12 +58,15 @@ spec:
             {{- if .Values.prometheusTimeout }}
             - --prometheus-timeout={{ .Values.prometheusTimeout }}
             {{- end }}
-            {{- if or .Values.prometheusAuth.useServiceAccountToken .Values.openshift.bindClusterMonitoringView }}
+            {{- if or .Values.prometheusAuth.useServiceAccountToken .Values.openshift.bindClusterMonitoringView .Values.prometheusAuth.queryServiceAccount.create }}
             - --prometheus-use-service-account-token
             {{- end }}
             {{- if and .Values.prometheusAuth .Values.prometheusAuth.existingSecret .Values.prometheusAuth.existingSecret.name }}
             - --prometheus-bearer-token-secret={{ .Values.prometheusAuth.existingSecret.name }}
             - --prometheus-bearer-token-key={{ .Values.prometheusAuth.existingSecret.key | default "token" }}
+            {{- end }}
+            {{- if .Values.prometheusAuth.queryServiceAccount.create }}
+            - --prometheus-query-service-account={{ .Values.prometheusAuth.queryServiceAccount.name | default (printf "%s-prometheus-query" (include "attune.fullname" .)) }}
             {{- end }}
             {{- $mcr := include "attune.maxConcurrentReconciles" . | trim }}
             {{- if $mcr }}

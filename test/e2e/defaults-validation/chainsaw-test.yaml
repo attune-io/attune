@@ -74,7 +74,9 @@ spec:
             timeout: 30s
             content: |
               set -e
-              cat > /tmp/zzz-e2e-deprecated-bearer.yaml <<'YAML'
+              trap 'kubectl delete attunedefaults zzz-e2e-deprecated-bearer --ignore-not-found' EXIT
+              set +e
+              out=$(kubectl apply -f - <<'YAML' 2>&1)
               apiVersion: attune.io/v1alpha1
               kind: AttuneDefaults
               metadata:
@@ -87,8 +89,6 @@ spec:
                       name: attune-thanos-token
                       key: token
               YAML
-              set +e
-              out=$(kubectl apply -f /tmp/zzz-e2e-deprecated-bearer.yaml 2>&1)
               rc=$?
               set -e
               if [ "$rc" -ne 0 ]; then

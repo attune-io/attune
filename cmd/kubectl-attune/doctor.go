@@ -270,6 +270,10 @@ type doctorResult struct {
 }
 
 func runDoctorChecks(ctx context.Context, disc discovery.DiscoveryInterface, nodes cluster.NodeLister, objects []unstructured.Unstructured, listErr error, ping prometheusPinger) []doctorResult {
+	return runDoctorChecksFull(ctx, disc, nodes, objects, listErr, ping, false)
+}
+
+func runDoctorChecksFull(ctx context.Context, disc discovery.DiscoveryInterface, nodes cluster.NodeLister, objects []unstructured.Unstructured, listErr error, ping prometheusPinger, operatorAuth bool) []doctorResult {
 	if ping == nil {
 		ping = pingPrometheusHealthy
 	}
@@ -308,7 +312,7 @@ func runDoctorChecks(ctx context.Context, disc discovery.DiscoveryInterface, nod
 			continue
 		}
 		if err := ping(ctx, addr); err != nil {
-			if tgt.hasAuth && pingAuthFailure(err) {
+			if (tgt.hasAuth || operatorAuth) && pingAuthFailure(err) {
 				skippedAuth = append(skippedAuth, addr)
 				continue
 			}
@@ -331,7 +335,7 @@ func runDoctorChecks(ctx context.Context, disc discovery.DiscoveryInterface, nod
 	case len(reachable) == 0 && len(skippedLocal) > 0:
 		detail = "skipped (in-cluster address; ping is from this host, not the operator pod)"
 	case len(reachable) == 0 && len(skippedAuth) > 0:
-		detail = "skipped (HTTP 401/403; address uses bearer token or headers the operator would send)"
+		detail = "skipped (HTTP 401/403; address uses bearer token, headers, or operator Prometheus auth the operator would send)"
 	default:
 		if len(skippedLocal) > 0 {
 			detail += "; skipped in-cluster " + strings.Join(skippedLocal, ", ")
@@ -513,12 +517,47 @@ func printDoctorResults(w io.Writer, results []doctorResult) {
 	}
 }
 
-func runDoctor(ctx context.Context, stdout, stderr io.Writer, disc discovery.DiscoveryInterface, nodes cluster.NodeLister, dynClient dynamic.Interface, namespace string, ping prometheusPinger) int {
+func detectManagerPrometheusOperatorAuth(ctx context.Context, kubeconfigPath string) bool {
+	cfg, err := loadRESTConfig(kubeconfigPath, "")
+	if err != nil {
+		return false
+	}
+	cs, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return false
+	}
+	list, err := cs.AppsV1().Deployments("").List(ctx, metav1.ListOptions{
+		LabelSelector: "app.kubernetes.io/name=attune",
+	})
+	if err != nil {
+		return false
+	}
+	for i := range list.Items {
+		for _, c := range list.Items[i].Spec.Template.Spec.Containers {
+			if argsHavePrometheusOperatorAuth(c.Args) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func argsHavePrometheusOperatorAuth(args []string) bool {
+	for _, a := range args {
+		if a == "--prometheus-use-service-account-token" ||
+			strings.HasPrefix(a, "--prometheus-bearer-token-secret=") {
+			return true
+		}
+	}
+	return false
+}
+
+func runDoctor(ctx context.Context, stdout, stderr io.Writer, disc discovery.DiscoveryInterface, nodes cluster.NodeLister, dynClient dynamic.Interface, namespace string, ping prometheusPinger, operatorAuth bool) int {
 	objects, err := listDoctorObjects(ctx, dynClient, namespace)
 	if err != nil {
 		fmt.Fprintf(stderr, "Warning: %v\n", err)
 	}
-	results := runDoctorChecks(ctx, disc, nodes, objects, err, ping)
+	results := runDoctorChecksFull(ctx, disc, nodes, objects, err, ping, operatorAuth)
 	printDoctorResults(stdout, results)
 	fmt.Fprintln(stdout, "Namespace freeze: annotate the namespace attune.io/freeze=true to skip apply. Pending safety revert still runs.")
 	if doctorFailed(results) {

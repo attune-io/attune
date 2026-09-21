@@ -1001,6 +1001,22 @@
               "description": "Key within the Secret"
             }
           }
+        },
+        "queryServiceAccount": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "create": {
+              "type": "boolean",
+              "default": false,
+              "description": "Create a dedicated ServiceAccount for Prometheus TokenRequest queries"
+            },
+            "name": {
+              "type": "string",
+              "default": "",
+              "description": "Query ServiceAccount name. Empty uses <release>-prometheus-query when create is true"
+            }
+          }
         }
       }
     },

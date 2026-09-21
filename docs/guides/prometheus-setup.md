@@ -69,10 +69,21 @@ namespace. Cross-namespace Secret names (`ns/name`) are rejected.
 
 Do not put `bearerTokenSecret` on cluster `AttuneDefaults` for a shared
 token. That field still copies the **name** onto each policy and reads it
-in the policy namespace (deprecated; admission warns). For cluster-wide
-auth, use the operator ServiceAccount token or one Secret in the operator
-namespace. See [OpenShift](openshift.md#thanos-querier) and Helm
-`prometheusAuth` / `openshift.bindClusterMonitoringView`.
+in the policy namespace (deprecated; admission warns). If the inherited
+Secret is missing and operator auth is configured, the operator falls back
+to its own token. For cluster-wide auth, use the operator ServiceAccount
+token or one Secret in the operator namespace. Operator credentials are
+**not** sent to a Prometheus address set on the policy itself.
+
+The same inherit-name deprecation applies to cluster
+`metricsSource.datadog.apiKeySecretRef` and
+`updateStrategy.export.pullRequest.tokenSecretRef`. Put those Secrets on
+the policy or `AttuneNamespaceDefaults`.
+
+See [OpenShift](openshift.md#thanos-querier) and Helm
+`prometheusAuth` / `openshift.bindClusterMonitoringView`. Prefer
+`prometheusAuth.queryServiceAccount.create` so Thanos gets a query-only
+identity instead of the manager token.
 
 !!! warning "Use an in-cluster address"
     The operator validates `metricsSource.prometheus.address` to block

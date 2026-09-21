@@ -98,6 +98,49 @@ func TestNamespaceDefaultsValidator_BearerTokenSecretNoDeprecatedWarning(t *test
 	assert.NotContains(t, warnings, DeprecatedClusterBearerTokenSecretWarning)
 }
 
+func TestDefaultsValidator_DatadogAPIKeyDeprecatedWarning(t *testing.T) {
+	v := &AttuneDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				Datadog: &attunev1alpha1.DatadogConfig{
+					Site:            "datadoghq.com",
+					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
+				},
+			},
+		},
+	}
+	warnings, err := v.ValidateCreate(context.Background(), defaults)
+	require.NoError(t, err)
+	require.Contains(t, warnings, DeprecatedClusterDatadogAPIKeyWarning)
+}
+
+func TestDefaultsValidator_GitOpsTokenDeprecatedWarning(t *testing.T) {
+	v := &AttuneDefaultsValidator{}
+	enabled := true
+	defaults := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Export: &attunev1alpha1.ExportConfig{
+					PullRequest: &attunev1alpha1.GitOpsPullRequestConfig{
+						Enabled:    &enabled,
+						Repository: "org/repo",
+						TokenSecretRef: &attunev1alpha1.SecretKeyRef{
+							Name: "git-token",
+							Key:  "token",
+						},
+					},
+				},
+			},
+		},
+	}
+	warnings, err := v.ValidateCreate(context.Background(), defaults)
+	require.NoError(t, err)
+	require.Contains(t, warnings, DeprecatedClusterGitOpsTokenWarning)
+}
+
 func TestDefaultsValidator_MemoryStartupBoostWarning(t *testing.T) {
 	v := &AttuneDefaultsValidator{}
 	defaults := &attunev1alpha1.AttuneDefaults{

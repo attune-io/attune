@@ -23,3 +23,19 @@ tests:
       - equal:
           path: subjects[0].kind
           value: ServiceAccount
+      - equal:
+          path: subjects[0].name
+          value: RELEASE-NAME-attune
+
+  - it: should bind the query ServiceAccount when created
+    set:
+      openshift:
+        bindClusterMonitoringView: true
+      prometheusAuth:
+        queryServiceAccount:
+          create: true
+          name: attune-prometheus-query
+    asserts:
+      - equal:
+          path: subjects[0].name
+          value: attune-prometheus-query

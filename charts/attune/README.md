@@ -101,10 +101,12 @@ helm install attune oci://ghcr.io/attune-io/charts/attune \
 | podLabelSelector | string | `""` | Optional static pod label selector kept fully in the informer cache (OR'd with dynamic selectors from active AttunePolicy targets). Example: "attune.io/managed=true". Empty relies on dynamic policy selectors only. |
 | podSecurityContext | object | `{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod security context |
 | priorityClassName | string | `""` | Priority class name for the operator pod (recommended: system-cluster-critical for production) |
-| prometheusAuth | object | `{"existingSecret":{"key":"token","name":""},"useServiceAccountToken":false}` | Cluster-wide Prometheus query auth from the operator process. Policy bearerTokenSecret still wins and is read in the policy namespace. |
+| prometheusAuth | object | `{"existingSecret":{"key":"token","name":""},"queryServiceAccount":{"create":false,"name":""},"useServiceAccountToken":false}` | Cluster-wide Prometheus query auth from the operator process. Policy bearerTokenSecret still wins and is read in the policy namespace. |
 | prometheusAuth.existingSecret | object | `{"key":"token","name":""}` | Secret in the operator namespace for a cluster-wide Prometheus token. |
 | prometheusAuth.existingSecret.key | string | `"token"` | Key within the Secret. |
 | prometheusAuth.existingSecret.name | string | `""` | Secret name in the operator namespace. Empty disables this source. |
+| prometheusAuth.queryServiceAccount.create | bool | `false` | Create a dedicated ServiceAccount for Prometheus queries (TokenRequest from the manager). Bind cluster-monitoring-view to this SA, not the manager. |
+| prometheusAuth.queryServiceAccount.name | string | `""` | Name of the query ServiceAccount. Empty uses <release>-prometheus-query when create is true. |
 | prometheusAuth.useServiceAccountToken | bool | `false` | Send the manager ServiceAccount token as Authorization Bearer when a policy does not set bearerTokenSecret. Use with OpenShift Thanos Querier after binding cluster-monitoring-view. |
 | prometheusBurst | int | `20` | Prometheus query burst allowance. |
 | prometheusQPS | int | `10` | Prometheus query rate limit (queries per second). Higher values reduce reconcile latency but increase Prometheus load. |

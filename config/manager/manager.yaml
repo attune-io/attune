@@ -59,3 +59,8 @@ spec:
             runAsGroup: 65532
             seccompProfile:
               type: RuntimeDefault
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace

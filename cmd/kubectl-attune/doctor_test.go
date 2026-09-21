@@ -384,6 +384,33 @@ func TestRunDoctorChecks_PrometheusOptional(t *testing.T) {
 	})
 }
 
+func TestArgsHavePrometheusOperatorAuth(t *testing.T) {
+	t.Parallel()
+	assert.True(t, argsHavePrometheusOperatorAuth([]string{"--leader-elect", "--prometheus-use-service-account-token"}))
+	assert.True(t, argsHavePrometheusOperatorAuth([]string{"--prometheus-bearer-token-secret=attune-thanos-token"}))
+	assert.False(t, argsHavePrometheusOperatorAuth([]string{"--leader-elect"}))
+}
+
+func TestRunDoctorChecks_OperatorAuth401Skip(t *testing.T) {
+	t.Parallel()
+	disc := resizeDiscovery("1", "32", true)
+	obj := unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{
+			"metricsSource": map[string]interface{}{
+				"prometheus": map[string]interface{}{"address": "https://thanos.example:9091"},
+			},
+		},
+	}}
+	results := runDoctorChecksFull(context.Background(), disc, nil, []unstructured.Unstructured{obj}, nil, func(context.Context, string) error {
+		return &httpStatusError{status: 401, url: "https://thanos.example:9091/-/healthy"}
+	}, true)
+	prom := doctorNamed(results, "Prometheus")
+	require.False(t, prom.ok)
+	assert.Contains(t, prom.detail, "401")
+	assert.Contains(t, prom.detail, "operator Prometheus auth")
+	assert.False(t, doctorFailed(results))
+}
+
 func TestPingAuthFailure(t *testing.T) {
 	t.Parallel()
 	assert.True(t, pingAuthFailure(&httpStatusError{status: 401, url: "http://x"}))
@@ -552,7 +579,7 @@ func TestRunDoctor_ExitCodes(t *testing.T) {
 			namespaceDefaultsGVR: "AttuneNamespaceDefaultsList",
 		})
 	var stdout, stderr bytes.Buffer
-	code := runDoctor(context.Background(), &stdout, &stderr, resizeDiscovery("1", "32", true), nil, dyn, "default", nil)
+	code := runDoctor(context.Background(), &stdout, &stderr, resizeDiscovery("1", "32", true), nil, dyn, "default", nil, false)
 	assert.Equal(t, 0, code)
 	assert.Contains(t, stdout.String(), "pods/resize            ok   [required] discovered")
 	assert.Contains(t, stdout.String(), "Kubernetes version     ok   [required]")
@@ -565,7 +592,7 @@ func TestRunDoctor_ExitCodes(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	code = runDoctor(context.Background(), &stdout, &stderr, resizeDiscovery("1", "31", true), nil, dyn, "default", nil)
+	code = runDoctor(context.Background(), &stdout, &stderr, resizeDiscovery("1", "31", true), nil, dyn, "default", nil, false)
 	assert.Equal(t, 1, code)
 	assert.Contains(t, stderr.String(), "one or more checks failed")
 	assert.Contains(t, stdout.String(), "FAIL")

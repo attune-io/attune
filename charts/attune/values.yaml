@@ -298,6 +298,13 @@ prometheusAuth:
     name: ""
     # -- Key within the Secret.
     key: token
+  queryServiceAccount:
+    # -- Create a dedicated ServiceAccount for Prometheus queries (TokenRequest
+    # from the manager). Bind cluster-monitoring-view to this SA, not the manager.
+    create: false
+    # -- Name of the query ServiceAccount. Empty uses <release>-prometheus-query
+    # when create is true.
+    name: ""
 
 # -- Prometheus query rate limit (queries per second). Higher values reduce reconcile latency but increase Prometheus load.
 prometheusQPS: 10

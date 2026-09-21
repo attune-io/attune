@@ -11,6 +11,10 @@ roleRef:
   name: cluster-monitoring-view
 subjects:
   - kind: ServiceAccount
+    {{- if .Values.prometheusAuth.queryServiceAccount.create }}
+    name: {{ .Values.prometheusAuth.queryServiceAccount.name | default (printf "%s-prometheus-query" (include "attune.fullname" .)) }}
+    {{- else }}
     name: {{ include "attune.serviceAccountName" . }}
+    {{- end }}
     namespace: {{ .Release.Namespace }}
 {{- end }}

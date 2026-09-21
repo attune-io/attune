@@ -312,7 +312,8 @@ func run(args []string, buildClient dynamicClientFactory) int {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			return 1
 		}
-		return runDoctor(ctx, os.Stdout, os.Stderr, disc, nodes, dynClient, *namespace, pingPrometheusHealthy)
+		opAuth := detectManagerPrometheusOperatorAuth(ctx, *kubeconfig)
+		return runDoctor(ctx, os.Stdout, os.Stderr, disc, nodes, dynClient, *namespace, pingPrometheusHealthy, opAuth)
 	}
 	return 0
 }

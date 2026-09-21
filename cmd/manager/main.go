@@ -150,6 +150,9 @@ func main() {
 		"Name of a Secret in the operator namespace for cluster-wide Prometheus bearer auth. Used only when the policy did not set bearerTokenSecret.")
 	flag.StringVar(&prometheusBearerTokenSecretKey, "prometheus-bearer-token-key", "token",
 		"Key in --prometheus-bearer-token-secret that holds the bearer token.")
+	var prometheusQueryServiceAccount string
+	flag.StringVar(&prometheusQueryServiceAccount, "prometheus-query-service-account", "",
+		"When set with --prometheus-use-service-account-token, TokenRequest this ServiceAccount in the operator namespace instead of the manager projected token.")
 	flag.BoolVar(&fleetReportEnabled, "fleet-report-enabled", false,
 		"When true, periodically write a versioned fleet summary ConfigMap for multi-cluster collectors.")
 	flag.StringVar(&fleetReportNamespace, "fleet-report-namespace", "",
@@ -168,6 +171,11 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	if prometheusBearerTokenSecretName != "" && os.Getenv("POD_NAMESPACE") == "" {
+		setupLog.Error(fmt.Errorf("POD_NAMESPACE is empty"), "POD_NAMESPACE is required when --prometheus-bearer-token-secret is set")
+		os.Exit(1)
+	}
 
 	if collectorTTL < 0 {
 		setupLog.Error(fmt.Errorf("got %s", collectorTTL), "collector-ttl must be non-negative")
@@ -333,6 +341,7 @@ func main() {
 	reconciler.PrometheusUseServiceAccountToken = prometheusUseServiceAccountToken
 	reconciler.PrometheusBearerTokenSecretName = prometheusBearerTokenSecretName
 	reconciler.PrometheusBearerTokenSecretKey = prometheusBearerTokenSecretKey
+	reconciler.PrometheusQueryServiceAccount = prometheusQueryServiceAccount
 	if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
 		reconciler.OperatorNamespace = ns
 	}

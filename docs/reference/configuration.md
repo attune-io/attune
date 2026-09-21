@@ -199,6 +199,8 @@ Cluster-wide credentials belong on the operator. A policy
 | `prometheusAuth.useServiceAccountToken` | bool | `false` | Send the manager ServiceAccount token as Prometheus bearer auth when the policy does not set `bearerTokenSecret` (`--prometheus-use-service-account-token`). |
 | `prometheusAuth.existingSecret.name` | string | `""` | Secret in the **operator** namespace (`--prometheus-bearer-token-secret`). Empty disables. |
 | `prometheusAuth.existingSecret.key` | string | `token` | Key in that Secret (`--prometheus-bearer-token-key`). |
+| `prometheusAuth.queryServiceAccount.create` | bool | `false` | Create a dedicated query ServiceAccount and TokenRequest it instead of the manager token (`--prometheus-query-service-account`). |
+| `prometheusAuth.queryServiceAccount.name` | string | `""` | Query SA name. Empty uses `<release>-prometheus-query` when create is true. |
 
 ## OpenShift
 
