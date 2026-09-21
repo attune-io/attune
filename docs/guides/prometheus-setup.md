@@ -4,6 +4,179 @@ Attune relies on Prometheus for historical CPU and memory usage data.
 This guide covers which metrics are required, how to configure the Prometheus
 address, and how to verify the integration is working.
 
+The operator process queries Prometheus. A token is not stored on each
+`AttunePolicy` unless that policy, or its namespace, brings its own.
+
+## Choose how Attune authenticates
+
+| | Prometheus auth | Where the credential lives | Operator token |
+|---|---|---|---|
+| 1 | None | Nowhere | Not sent |
+| 2 | Per namespace | Secret in that namespace | Not sent |
+| 3 | One identity for the cluster | Operator namespace | Sent for the cluster address |
+| 4 | Cluster identity, plus a namespace exception | Operator namespace, and a Secret in the exception namespace | Sent only where the address is still inherited from cluster `AttuneDefaults` |
+
+### 1. No authentication
+
+Set the address and leave credentials unset. This is the in-cluster
+Prometheus that the chart examples use, usually
+`http://prometheus-server.monitoring:80`.
+
+```yaml
+apiVersion: attune.io/v1alpha1
+kind: AttuneDefaults
+metadata:
+  name: cluster-defaults
+spec:
+  metricsSource:
+    prometheus:
+      address: http://prometheus-server.monitoring:80
+```
+
+Policies that omit `metricsSource` inherit that address. See
+[examples/05-cluster-defaults.yaml](https://github.com/attune-io/attune/blob/main/examples/05-cluster-defaults.yaml).
+
+Helm does not send a token unless you set `prometheusAuth` or
+`openshift.bindClusterMonitoringView`. A default `helm install` is this
+case.
+
+### 2. A token in each namespace
+
+Put `bearerTokenSecret` on the `AttunePolicy` or on
+`AttuneNamespaceDefaults`, and create that Secret in the same namespace.
+Also set `prometheus.address` on that same object. A Secret name by
+itself is not attached to an address inherited from cluster
+`AttuneDefaults`.
+
+One `AttuneNamespaceDefaults` can serve every policy in the namespace.
+Those policies omit `metricsSource`.
+
+```yaml
+apiVersion: attune.io/v1alpha1
+kind: AttuneNamespaceDefaults
+metadata:
+  name: production-prometheus
+  namespace: production
+spec:
+  metricsSource:
+    prometheus:
+      address: https://prometheus.example.com
+      bearerTokenSecret:
+        name: prom-token
+        key: token
+```
+
+```bash
+kubectl -n production create secret generic prom-token \
+  --from-file=token=./prom-token
+```
+
+The operator reads `production/prom-token`. It does not send its own
+ServiceAccount token to this address. Cross-namespace names such as
+`attune-system/prom-token` are rejected.
+
+The same shape on a single `AttunePolicy` is in
+[examples/13-multi-datasource.yaml](https://github.com/attune-io/attune/blob/main/examples/13-multi-datasource.yaml).
+
+### 3. One identity for the whole cluster
+
+Put only the address on cluster `AttuneDefaults`. Do not set
+`bearerTokenSecret` there. That field still copies the Secret **name**
+into each policy namespace (deprecated; admission warns).
+
+```yaml
+apiVersion: attune.io/v1alpha1
+kind: AttuneDefaults
+metadata:
+  name: cluster-defaults
+spec:
+  metricsSource:
+    prometheus:
+      address: https://thanos-querier.openshift-monitoring.svc:9091
+      tls:
+        insecureSkipVerify: true
+```
+
+Prefer the cluster CA over `insecureSkipVerify` when you have the bundle.
+Then turn on operator auth once.
+
+Helm on OpenShift:
+
+```yaml
+openshift:
+  bindClusterMonitoringView: true
+prometheusAuth:
+  queryServiceAccount:
+    create: true
+```
+
+That binds `cluster-monitoring-view` to a query ServiceAccount and sends
+that token for every policy whose address came from cluster
+`AttuneDefaults`.
+
+Helm elsewhere, when you already bound the query account yourself:
+
+```yaml
+prometheusAuth:
+  useServiceAccountToken: true
+  queryServiceAccount:
+    create: true
+```
+
+A long-lived token in the operator namespace, for Mimir or Grafana
+Cloud, is `prometheusAuth.existingSecret` instead of the ServiceAccount
+token. See [OpenShift: Thanos Querier](openshift.md#thanos-querier).
+
+OperatorHub and the kustomize install already pass
+`--prometheus-use-service-account-token` and
+`--prometheus-query-service-account=attune-prometheus-query`. Bind
+`cluster-monitoring-view` to `attune-prometheus-query` once:
+
+```bash
+oc adm policy add-cluster-role-to-user cluster-monitoring-view \
+  -z attune-prometheus-query -n <operator-namespace>
+```
+
+The operator token is not sent to an address set on a policy, an address
+set on `AttuneNamespaceDefaults`, or an auto-discovered Prometheus. It
+is also skipped when the resolved config already has an `Authorization`
+header.
+
+### 4. Cluster identity, with a namespace exception
+
+Use case 3 for the cluster. In the namespace that needs a different
+token, or a different Prometheus, set **both** the address and
+`bearerTokenSecret` on `AttuneNamespaceDefaults` (or on that
+`AttunePolicy`).
+
+```yaml
+apiVersion: attune.io/v1alpha1
+kind: AttuneNamespaceDefaults
+metadata:
+  name: payments-prometheus
+  namespace: payments
+spec:
+  metricsSource:
+    prometheus:
+      address: https://prometheus.example.com
+      bearerTokenSecret:
+        name: prom-token
+        key: token
+```
+
+`payments` uses `payments/prom-token`. Every other namespace that still
+inherits the cluster address keeps the operator token.
+
+Repeating `prometheus.address` on `AttuneNamespaceDefaults` selects this
+exception, even when the URL string matches the cluster address. Omit
+the `prometheus` block on `AttuneNamespaceDefaults` when that namespace
+should keep the cluster address and the operator token. Setting only
+`bearerTokenSecret`, with no address, does not attach that Secret to
+the cluster address.
+
+Worked YAML is in
+[examples/prometheus-auth/](https://github.com/attune-io/attune/tree/main/examples/prometheus-auth).
+
 ## Required Prometheus metrics
 
 The operator queries these metrics, all scraped automatically by cadvisor
@@ -65,28 +238,16 @@ Use this when different namespaces use different Prometheus instances.
 
 If you configure `metricsSource.prometheus.bearerTokenSecret` on an
 `AttunePolicy` or `AttuneNamespaceDefaults`, the Secret must live in that
-namespace. Cross-namespace Secret names (`ns/name`) are rejected.
+namespace. Cross-namespace Secret names (`ns/name`) are rejected. See
+[Choose how Attune authenticates](#choose-how-attune-authenticates).
 
-Do not put `bearerTokenSecret` on cluster `AttuneDefaults` for a shared
-token. That field still copies the **name** onto each policy and reads it
-in the policy namespace (deprecated; admission warns). If the inherited
-Secret is missing and operator auth is configured, the operator falls back
-to its own token. For cluster-wide auth, set the Prometheus address on cluster
-`AttuneDefaults` and use the operator ServiceAccount token or one Secret
-in the operator namespace. Operator credentials are **not** sent to an
-address set on the policy, on `AttuneNamespaceDefaults`, or found by
-auto-discovery, and they are not sent when the resolved config already
-has an `Authorization` header.
+On cluster `AttuneDefaults`, `metricsSource.datadog.apiKeySecretRef` and
+`updateStrategy.export.pullRequest.tokenSecretRef` have the same
+inherit-name behavior. Put those Secrets on the policy or
+`AttuneNamespaceDefaults`, or use the operator-namespace Datadog Secret
+described in [Datadog setup](datadog-setup.md).
 
-The same inherit-name deprecation applies to cluster
-`metricsSource.datadog.apiKeySecretRef` and
-`updateStrategy.export.pullRequest.tokenSecretRef`. Put those Secrets on
-the policy or `AttuneNamespaceDefaults`.
-
-See [OpenShift](openshift.md#thanos-querier) and Helm
-`prometheusAuth` / `openshift.bindClusterMonitoringView`. Prefer
-`prometheusAuth.queryServiceAccount.create` so Thanos gets a query-only
-identity instead of the manager token.
+OpenShift Thanos steps are in [Thanos Querier](openshift.md#thanos-querier).
 
 !!! warning "Use an in-cluster address"
     The operator validates `metricsSource.prometheus.address` to block
@@ -118,10 +279,14 @@ Policies that omit `metricsSource.prometheus.address` inherit from this first.
 Use namespace defaults when different teams or environments need different
 Prometheus backends.
 
-Because the controller resolves a single defaults source per namespace, a
-`AttuneNamespaceDefaults` object overrides set fields on cluster defaults for Prometheus
-config too. If it exists but omits `metricsSource.prometheus.address`, the
-controller falls through to auto-discovery, not to `AttuneDefaults`.
+An `AttuneNamespaceDefaults` that leaves `metricsSource.prometheus`
+unset, and does not select Datadog, CloudWatch, or VPA, still inherits
+the cluster address and, when operator auth is on, the operator token.
+An `AttuneNamespaceDefaults` that sets `metricsSource.prometheus`
+replaces the cluster Prometheus block. Put the address on that object.
+That address does not receive the operator token. A Prometheus block
+with no address does not fall through to the cluster address; the
+controller then tries auto-discovery.
 
 ### 3. Cluster-wide defaults
 
@@ -136,12 +301,9 @@ spec:
       address: http://prometheus-server.monitoring:80
 ```
 
-Policies that omit `metricsSource.prometheus.address` inherit from this when
-no `AttuneNamespaceDefaults` exists in the same namespace. This is the
-recommended baseline for most clusters. Put address, headers, query
-parameters, and TLS here. Cluster-wide credentials belong on the operator
-(`prometheusAuth` or the manager ServiceAccount), not on
-`bearerTokenSecret` in this CR.
+Policies that omit `metricsSource.prometheus` inherit this address.
+Put address, headers, query parameters, and TLS here. For a shared
+token, use case 3 above. Do not put `bearerTokenSecret` on this object.
 
 ### 4. Auto-discovery (Prometheus Operator)
 
@@ -194,7 +356,7 @@ helm install prometheus prometheus-community/prometheus \
 The Service is `prometheus-server.monitoring` on **port 80** (not 9090):
 
 ```yaml
-# AttuneDefaults
+# AttuneDefaults. No token: this is case 1 above.
 spec:
   metricsSource:
     prometheus:

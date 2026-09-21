@@ -1,0 +1,44 @@
+# Case 4: cluster identity, plus one namespace that brings its own token.
+#
+# Requires case 3 (operator auth on). Other namespaces that inherit the
+# cluster address keep the operator token. payments sets its own address,
+# so it does not. The Secret "prom-token" must exist in payments.
+#
+#   kubectl -n payments create secret generic prom-token \
+#     --from-file=token=./prom-token
+#   kubectl apply -f examples/prometheus-auth/04-namespace-override.yaml
+apiVersion: attune.io/v1alpha1
+kind: AttuneDefaults
+metadata:
+  name: cluster-defaults
+spec:
+  metricsSource:
+    prometheus:
+      address: https://thanos-querier.openshift-monitoring.svc:9091
+      tls:
+        insecureSkipVerify: true
+---
+apiVersion: attune.io/v1alpha1
+kind: AttuneNamespaceDefaults
+metadata:
+  name: payments-prometheus
+  namespace: payments
+spec:
+  metricsSource:
+    prometheus:
+      address: https://prometheus.example.com
+      bearerTokenSecret:
+        name: prom-token
+        key: token
+---
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
+metadata:
+  name: api-services
+  namespace: payments
+spec:
+  targetRef:
+    kind: Deployment
+    name: api-server
+  updateStrategy:
+    type: Recommend

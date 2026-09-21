@@ -2,6 +2,8 @@
 # Example: Cluster-scoped defaults
 # Sets global defaults so individual AttunePolicy resources
 # can be simpler (only override what differs).
+# Prometheus address only, no token (case 1). See
+# examples/prometheus-auth/ for authenticated Prometheus.
 apiVersion: attune.io/v1alpha1
 kind: AttuneDefaults
 metadata:

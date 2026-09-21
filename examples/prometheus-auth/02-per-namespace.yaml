@@ -1,0 +1,33 @@
+# Case 2: one token per namespace.
+#
+# The Secret "prom-token" must exist in production. The address is on
+# this object. A Secret name alone is not attached to an address
+# inherited from cluster AttuneDefaults.
+#
+#   kubectl -n production create secret generic prom-token \
+#     --from-file=token=./prom-token
+#   kubectl apply -f examples/prometheus-auth/02-per-namespace.yaml
+apiVersion: attune.io/v1alpha1
+kind: AttuneNamespaceDefaults
+metadata:
+  name: production-prometheus
+  namespace: production
+spec:
+  metricsSource:
+    prometheus:
+      address: https://prometheus.example.com
+      bearerTokenSecret:
+        name: prom-token
+        key: token
+---
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
+metadata:
+  name: api-services
+  namespace: production
+spec:
+  targetRef:
+    kind: Deployment
+    name: api-server
+  updateStrategy:
+    type: Recommend

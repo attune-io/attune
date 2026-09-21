@@ -1,0 +1,21 @@
+# Case 3: one operator identity for every policy that inherits this address.
+#
+# Do not set bearerTokenSecret here. That name would be looked up in
+# each policy namespace. Turn on operator auth in Helm, or bind
+# cluster-monitoring-view to attune-prometheus-query for OperatorHub.
+# Values are in examples/prometheus-auth/README.md.
+#
+# The address below is OpenShift Thanos Querier. Replace it with your
+# in-cluster Prometheus URL when this cluster is not OpenShift.
+#
+#   kubectl apply -f examples/prometheus-auth/03-cluster-wide.yaml
+apiVersion: attune.io/v1alpha1
+kind: AttuneDefaults
+metadata:
+  name: cluster-defaults
+spec:
+  metricsSource:
+    prometheus:
+      address: https://thanos-querier.openshift-monitoring.svc:9091
+      tls:
+        insecureSkipVerify: true

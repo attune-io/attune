@@ -81,6 +81,9 @@ helm install attune \
     for the Prometheus Operator CRD, then well-known service names
     (`prometheus-server`, `prometheus-kube-prometheus-prometheus`) in
     common namespaces.
+    A default install does not send a Prometheus token. The four auth
+    cases are in
+    [Choose how Attune authenticates](../guides/prometheus-setup.md#choose-how-attune-authenticates).
 
 !!! info "Also available on Docker Hub"
     The container image is also published to Docker Hub at
@@ -156,6 +159,8 @@ kubectl apply -f \
     `AttuneNamespaceDefaults`, or globally via the `AttuneDefaults` CRD.
     Auto-discovery is also available
     if neither is set (see the Helm installation tip above).
+    A default install does not send a Prometheus token. See
+    [Choose how Attune authenticates](../guides/prometheus-setup.md#choose-how-attune-authenticates).
 
 ## Verify the installation
 

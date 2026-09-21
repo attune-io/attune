@@ -3,7 +3,10 @@
 # attune works with Prometheus (plus Thanos/Mimir), Datadog, and
 # CloudWatch Container Insights. Only one metrics source can be set per
 # policy. Use headers for multi-tenant Prometheus backends and
-# bearerTokenSecret for authenticated endpoints.
+# bearerTokenSecret for authenticated endpoints. The bearer example
+# below is case 2: the address and the Secret are both on one policy,
+# and the Secret must exist in that policy's namespace. Cluster-wide
+# operator auth is examples/prometheus-auth/.
 #
 # Apply:
 #   kubectl apply -f examples/13-multi-datasource.yaml
