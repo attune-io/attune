@@ -88,7 +88,7 @@ func policySecretNames(policy *attunev1alpha1.AttunePolicy) []string {
 	if ms.Prometheus != nil && ms.Prometheus.BearerTokenSecret != nil {
 		add(ms.Prometheus.BearerTokenSecret.Name)
 	}
-	if ms.Datadog != nil {
+	if ms.Datadog != nil && ms.Datadog.APIKeySecretRef != nil {
 		add(ms.Datadog.APIKeySecretRef.Name)
 	}
 	if us := policy.Spec.UpdateStrategy; us != nil && us.Export != nil &&

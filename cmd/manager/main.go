@@ -153,6 +153,12 @@ func main() {
 	var prometheusQueryServiceAccount string
 	flag.StringVar(&prometheusQueryServiceAccount, "prometheus-query-service-account", "",
 		"TokenRequest this ServiceAccount in the operator namespace instead of the manager projected token. Enables operator Prometheus bearer auth with the same address rules as --prometheus-use-service-account-token.")
+	var datadogAPIKeySecretName string
+	var datadogAPIKeySecretKey string
+	flag.StringVar(&datadogAPIKeySecretName, "datadog-api-key-secret", "",
+		"Name of a Secret in the operator namespace holding the Datadog API key. Used only when cluster AttuneDefaults chose the Datadog block, not a policy or AttuneNamespaceDefaults block. Empty keeps the policy-namespace lookup of apiKeySecretRef. An optional app-key in the same Secret is still read.")
+	flag.StringVar(&datadogAPIKeySecretKey, "datadog-api-key-secret-key", "api-key",
+		"Key in --datadog-api-key-secret that holds the Datadog API key.")
 	flag.BoolVar(&fleetReportEnabled, "fleet-report-enabled", false,
 		"When true, periodically write a versioned fleet summary ConfigMap for multi-cluster collectors.")
 	flag.StringVar(&fleetReportNamespace, "fleet-report-namespace", "",
@@ -175,8 +181,8 @@ func main() {
 	if prometheusQueryServiceAccount != "" {
 		prometheusUseServiceAccountToken = true
 	}
-	if (prometheusBearerTokenSecretName != "" || prometheusQueryServiceAccount != "") && os.Getenv("POD_NAMESPACE") == "" {
-		setupLog.Error(fmt.Errorf("POD_NAMESPACE is empty"), "POD_NAMESPACE is required when --prometheus-bearer-token-secret or --prometheus-query-service-account is set")
+	if (prometheusBearerTokenSecretName != "" || prometheusQueryServiceAccount != "" || datadogAPIKeySecretName != "") && os.Getenv("POD_NAMESPACE") == "" {
+		setupLog.Error(fmt.Errorf("POD_NAMESPACE is empty"), "POD_NAMESPACE is required when --prometheus-bearer-token-secret, --prometheus-query-service-account, or --datadog-api-key-secret is set")
 		os.Exit(1)
 	}
 
@@ -345,6 +351,8 @@ func main() {
 	reconciler.PrometheusBearerTokenSecretName = prometheusBearerTokenSecretName
 	reconciler.PrometheusBearerTokenSecretKey = prometheusBearerTokenSecretKey
 	reconciler.PrometheusQueryServiceAccount = prometheusQueryServiceAccount
+	reconciler.DatadogAPIKeySecretName = datadogAPIKeySecretName
+	reconciler.DatadogAPIKeySecretKey = datadogAPIKeySecretKey
 	if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
 		reconciler.OperatorNamespace = ns
 	}

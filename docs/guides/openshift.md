@@ -170,8 +170,11 @@ Kubernetes bearer token with `cluster-monitoring-view` (or
 `cluster-monitoring-metrics-api`).
 
 The Prometheus HTTP client is the Attune manager, not each `AttunePolicy`.
-Bind the operator ServiceAccount and send its projected token. Do not copy
-a token Secret into every application namespace, and do not set
+OperatorHub and the kustomize install send the `attune-prometheus-query`
+ServiceAccount token. Bind `cluster-monitoring-view` to that account.
+Helm binds the manager ServiceAccount unless
+`prometheusAuth.queryServiceAccount.create` is true. Do not copy a token
+Secret into every application namespace, and do not set
 `bearerTokenSecret` on cluster `AttuneDefaults` (that name is still looked
 up next to the policy).
 
@@ -214,17 +217,20 @@ Prefer a proper CA over `insecureSkipVerify` when you have the service CA
 bundle. NetworkPolicy egress includes port 9091 when OpenShift integration
 or `bindClusterMonitoringView` is on.
 
-OperatorHub / OLM: the query ServiceAccount, `serviceaccounts/token`
-Role, and `bindClusterMonitoringView` templates are Helm-only today.
-Bind `cluster-monitoring-view` to a dedicated query SA if you can, or to
-the operator ServiceAccount, then set `--prometheus-use-service-account-token`
-on the operator Deployment. If you use the manager SA, Thanos receives
-the manager token (the Helm query-SA path avoids that):
+OperatorHub and the kustomize install create a query ServiceAccount
+named `attune-prometheus-query`, a Role that lets the manager
+TokenRequest that account, and they pass
+`--prometheus-query-service-account=attune-prometheus-query` and
+`--prometheus-use-service-account-token`. Bind `cluster-monitoring-view`
+to the query account:
 
 ```bash
 oc adm policy add-cluster-role-to-user cluster-monitoring-view \
-  -z attune-controller-manager -n <operator-namespace>
+  -z attune-prometheus-query -n <operator-namespace>
 ```
+
+Thanos then receives the query account token. The manager token stays
+on the controller.
 
 A long-lived token Secret in the operator namespace is Helm
 `prometheusAuth.existingSecret` (`--prometheus-bearer-token-secret`). Use

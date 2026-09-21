@@ -432,6 +432,10 @@ spec:
                         description: |-
                           APIKeySecretRef references a Secret containing the Datadog API key.
                           The Secret must contain an "api-key" key and optionally an "app-key" key.
+                          On AttunePolicy and AttuneNamespaceDefaults the Secret is in that namespace.
+                          On cluster AttuneDefaults the name is still copied onto each policy.
+                          When --datadog-api-key-secret is set, a cluster-chosen Datadog block
+                          reads the operator-namespace Secret instead of this name.
                         properties:
                           key:
                             description: Key within the Secret.

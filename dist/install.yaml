@@ -422,6 +422,10 @@ spec:
                         description: |-
                           APIKeySecretRef references a Secret containing the Datadog API key.
                           The Secret must contain an "api-key" key and optionally an "app-key" key.
+                          On AttunePolicy and AttuneNamespaceDefaults the Secret is in that namespace.
+                          On cluster AttuneDefaults the name is still copied onto each policy.
+                          When --datadog-api-key-secret is set, a cluster-chosen Datadog block
+                          reads the operator-namespace Secret instead of this name.
                         properties:
                           key:
                             description: Key within the Secret.
@@ -1366,6 +1370,10 @@ spec:
                         description: |-
                           APIKeySecretRef references a Secret containing the Datadog API key.
                           The Secret must contain an "api-key" key and optionally an "app-key" key.
+                          On AttunePolicy and AttuneNamespaceDefaults the Secret is in that namespace.
+                          On cluster AttuneDefaults the name is still copied onto each policy.
+                          When --datadog-api-key-secret is set, a cluster-chosen Datadog block
+                          reads the operator-namespace Secret instead of this name.
                         properties:
                           key:
                             description: Key within the Secret.
@@ -2318,6 +2326,10 @@ spec:
                         description: |-
                           APIKeySecretRef references a Secret containing the Datadog API key.
                           The Secret must contain an "api-key" key and optionally an "app-key" key.
+                          On AttunePolicy and AttuneNamespaceDefaults the Secret is in that namespace.
+                          On cluster AttuneDefaults the name is still copied onto each policy.
+                          When --datadog-api-key-secret is set, a cluster-chosen Datadog block
+                          reads the operator-namespace Secret instead of this name.
                         properties:
                           key:
                             description: Key within the Secret.
@@ -3725,6 +3737,12 @@ metadata:
   name: attune-controller-manager
   namespace: attune-system
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: attune-prometheus-query
+  namespace: attune-system
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -3754,6 +3772,21 @@ rules:
   verbs:
   - create
   - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: attune-prometheus-query-token
+  namespace: attune-system
+rules:
+- apiGroups:
+  - ""
+  resourceNames:
+  - attune-prometheus-query
+  resources:
+  - serviceaccounts/token
+  verbs:
+  - create
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -3939,6 +3972,20 @@ subjects:
   namespace: attune-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: attune-prometheus-query-token
+  namespace: attune-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: attune-prometheus-query-token
+subjects:
+- kind: ServiceAccount
+  name: attune-controller-manager
+  namespace: attune-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: attune-manager-rolebinding
@@ -3973,6 +4020,8 @@ spec:
         - --leader-elect
         - --enable-webhooks=false
         - --health-probe-bind-address=:8081
+        - --prometheus-use-service-account-token
+        - --prometheus-query-service-account=attune-prometheus-query
         env:
         - name: POD_NAMESPACE
           valueFrom:

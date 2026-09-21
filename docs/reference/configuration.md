@@ -202,12 +202,22 @@ Cluster-wide credentials belong on the operator. A policy
 | `prometheusAuth.queryServiceAccount.create` | bool | `false` | Create a dedicated query ServiceAccount and TokenRequest it instead of the manager token (`--prometheus-query-service-account`). |
 | `prometheusAuth.queryServiceAccount.name` | string | `""` | Query SA name. Empty uses `<release>-prometheus-query` when create is true. |
 
+## Datadog query auth
+
+Cluster-wide Datadog credentials belong on the operator. A policy or
+`AttuneNamespaceDefaults` `apiKeySecretRef` is still read in that namespace.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `datadogAuth.existingSecret.name` | string | `""` | Secret in the **operator** namespace (`--datadog-api-key-secret`). Used only when cluster `AttuneDefaults` chose the Datadog block. Empty keeps the policy-namespace lookup of an inherited name. |
+| `datadogAuth.existingSecret.key` | string | `api-key` | API key field in that Secret (`--datadog-api-key-secret-key`). An optional `app-key` in the same Secret is still read. |
+
 ## OpenShift
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `openshift.enabled` | bool | `false` | Enable OpenShift-specific features. Adds RBAC for `config.openshift.io/apiservers` (read-only) to auto-detect the cluster TLS security profile and apply it to outbound Prometheus connections. See the [OpenShift guide](../guides/openshift.md). |
-| `openshift.bindClusterMonitoringView` | bool | `false` | Bind the manager ServiceAccount to OpenShift `cluster-monitoring-view` and send the SA token to Prometheus. See [Thanos Querier](../guides/openshift.md#thanos-querier). |
+| `openshift.bindClusterMonitoringView` | bool | `false` | Bind OpenShift `cluster-monitoring-view` to the query ServiceAccount when `prometheusAuth.queryServiceAccount.create` is true, otherwise the manager ServiceAccount, and send that token to Prometheus. See [Thanos Querier](../guides/openshift.md#thanos-querier). |
 
 ## FIPS 140-3
 
@@ -445,8 +455,8 @@ operator queries. The wizard inherit option uses that omit shape.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `metricsSource.datadog.site` | string | `datadoghq.com` | Datadog site (e.g., `datadoghq.eu`, `us5.datadoghq.com`, `ddog-gov.com`) |
-| `metricsSource.datadog.apiKeySecretRef.name` | string | (required) | Name of the Secret containing the Datadog API key. The creating user must be allowed to get that Secret. |
-| `metricsSource.datadog.apiKeySecretRef.key` | string | (required) | Key within the Secret that holds the API key |
+| `metricsSource.datadog.apiKeySecretRef.name` | string | (required) | Secret name for the Datadog API key. On `AttunePolicy` or `AttuneNamespaceDefaults` the Secret is in that namespace. On cluster `AttuneDefaults` the name is still copied onto each policy; set `datadogAuth.existingSecret` so a cluster-chosen block reads the operator namespace instead. |
+| `metricsSource.datadog.apiKeySecretRef.key` | string | (required) | Key within the Secret that holds the API key. When `datadogAuth.existingSecret` is set for a cluster-chosen Datadog block, the data key is `datadogAuth.existingSecret.key` (`--datadog-api-key-secret-key`), not this inherited key. |
 
 ### CloudWatch Container Insights
 

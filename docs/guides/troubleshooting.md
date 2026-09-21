@@ -210,10 +210,31 @@ Thanos Querier on port 9091 wants the **operator** ServiceAccount with
 `cluster-monitoring-view`, not a copied token in every app namespace.
 
 **Fix**: Remove `bearerTokenSecret` from `AttuneDefaults`. Set Helm
-`openshift.bindClusterMonitoringView: true` (or bind the operator SA
-yourself and `--prometheus-use-service-account-token`). Keep the Thanos
-address and TLS on `AttuneDefaults`. See
+`openshift.bindClusterMonitoringView: true` and
+`prometheusAuth.queryServiceAccount.create: true`. OperatorHub and the
+kustomize install already pass `--prometheus-use-service-account-token`
+and `--prometheus-query-service-account=attune-prometheus-query`. Bind
+`cluster-monitoring-view` to `attune-prometheus-query`, not the manager
+ServiceAccount. Keep the Thanos address and TLS on `AttuneDefaults`. See
 [OpenShift: Thanos Querier](openshift.md#thanos-querier).
+
+### Datadog API key secret not found
+
+**Symptom**: Ready `MetricsUnavailable` with
+`reading secret <policy-ns>/<key-name>: secrets "..." not found` while
+cluster `AttuneDefaults` sets `metricsSource.datadog.apiKeySecretRef`.
+
+**Cause**: That name is copied onto each policy and read in the policy
+namespace, unless the manager is given an operator-namespace Secret.
+
+**Fix**: Create the Secret in the operator namespace (keys `api-key` and
+optional `app-key`). Set Helm `datadogAuth.existingSecret.name` and, if
+the key is not `api-key`, `datadogAuth.existingSecret.key` (or
+`--datadog-api-key-secret` and `--datadog-api-key-secret-key`). Leave
+`apiKeySecretRef` on cluster `AttuneDefaults`: the schema requires it,
+and with the operator Secret set that name is not read. A policy or
+`AttuneNamespaceDefaults` ref stays in that namespace. See
+[Datadog setup](datadog-setup.md#using-datadog-as-the-cluster-default).
 
 ### InsufficientData
 

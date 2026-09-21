@@ -212,7 +212,7 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 	if err := exclusiveMetricsProviderError(&policy.Spec.MetricsSource); err != nil {
 		return warnings, err
 	}
-	if err := validateMetricsSourceProviderFields(&policy.Spec.MetricsSource); err != nil {
+	if err := validateMetricsSourceProviderFields(&policy.Spec.MetricsSource, true); err != nil {
 		return warnings, err
 	}
 
@@ -597,7 +597,7 @@ func exclusiveMetricsProviderError(ms *attunev1alpha1.MetricsSource) error {
 	return nil
 }
 
-func validateMetricsSourceProviderFields(ms *attunev1alpha1.MetricsSource) error {
+func validateMetricsSourceProviderFields(ms *attunev1alpha1.MetricsSource, requireDatadogSecret bool) error {
 	if ms == nil {
 		return nil
 	}
@@ -615,14 +615,20 @@ func validateMetricsSourceProviderFields(ms *attunev1alpha1.MetricsSource) error
 		if err := validation.DatadogSite(dd.Site); err != nil {
 			return fmt.Errorf("metricsSource.datadog.site: %w", err)
 		}
-		if dd.APIKeySecretRef.Name == "" {
-			return fmt.Errorf("metricsSource.datadog.apiKeySecretRef.name is required")
-		}
-		if dd.APIKeySecretRef.Key == "" {
-			return fmt.Errorf("metricsSource.datadog.apiKeySecretRef.key is required")
-		}
-		if strings.Contains(dd.APIKeySecretRef.Name, "/") {
-			return fmt.Errorf("metricsSource.datadog.apiKeySecretRef.name must not contain '/'; secrets are read from the policy's namespace")
+		if dd.APIKeySecretRef == nil {
+			if requireDatadogSecret {
+				return fmt.Errorf("metricsSource.datadog.apiKeySecretRef.name is required")
+			}
+		} else {
+			if dd.APIKeySecretRef.Name == "" {
+				return fmt.Errorf("metricsSource.datadog.apiKeySecretRef.name is required")
+			}
+			if dd.APIKeySecretRef.Key == "" {
+				return fmt.Errorf("metricsSource.datadog.apiKeySecretRef.key is required")
+			}
+			if strings.Contains(dd.APIKeySecretRef.Name, "/") {
+				return fmt.Errorf("metricsSource.datadog.apiKeySecretRef.name must not contain '/'; secrets are read from the policy's namespace")
+			}
 		}
 	}
 	if cw := ms.CloudWatch; cw != nil {

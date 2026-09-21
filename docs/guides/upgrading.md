@@ -24,8 +24,12 @@ policy namespace:
   `prometheusAuth.queryServiceAccount.create` is true, otherwise the
   manager SA) and sends that token (`--prometheus-use-service-account-token`).
 - Helm `prometheusAuth.queryServiceAccount.create: true` TokenRequests a
-  dedicated query SA instead of the manager token. Helm-only; OLM/kustomize
-  need a manual SA, Role, and RoleBinding (see the OpenShift guide).
+  dedicated query SA instead of the manager token. The OLM bundle and
+  `config/rbac` also create `attune-prometheus-query`, a Role for
+  `serviceaccounts/token` on that account, and pass
+  `--prometheus-query-service-account=attune-prometheus-query` plus
+  `--prometheus-use-service-account-token`. Bind OpenShift
+  `cluster-monitoring-view` to `attune-prometheus-query`.
 - Helm `prometheusAuth.useServiceAccountToken: true` sends the SA token
   without that binding (vanilla clusters or a binding you created).
 - Helm `prometheusAuth.existingSecret` reads one Secret in the operator
@@ -42,6 +46,15 @@ A policy (or `AttuneNamespaceDefaults`) `bearerTokenSecret` still wins
 and is still read in that namespace.
 
 See [OpenShift: Thanos Querier](openshift.md#thanos-querier).
+
+### Operator Datadog API key
+
+Helm `datadogAuth.existingSecret` (`--datadog-api-key-secret`) reads one
+Secret in the operator namespace when cluster `AttuneDefaults` chose
+Datadog. A policy or `AttuneNamespaceDefaults` `apiKeySecretRef` stays
+in that namespace. Without the flag, an `apiKeySecretRef` name on
+cluster `AttuneDefaults` is still read in each policy namespace.
+Admission warns on that field. See [Datadog setup](datadog-setup.md).
 
 ### AttuneDefaults bearerTokenSecret is deprecated
 

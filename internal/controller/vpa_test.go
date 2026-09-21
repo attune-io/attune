@@ -718,7 +718,7 @@ func TestResolveMetricsCollector_VPA(t *testing.T) {
 	reconciler.Scheme = scheme
 
 	collector, qb, err := reconciler.resolveMetricsCollector(
-		context.Background(), policy, nil, prometheusAuthContext{},
+		context.Background(), policy, nil, prometheusAuthContext{}, datadogAuthContext{},
 	)
 	assert.NoError(t, err)
 	assert.Nil(t, collector, "VPA source should return nil collector")
@@ -754,7 +754,7 @@ func TestResolveMetricsCollector_Datadog(t *testing.T) {
 				MetricsSource: attunev1alpha1.MetricsSource{
 					Datadog: &attunev1alpha1.DatadogConfig{
 						Site:            "datadoghq.com",
-						APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
+						APIKeySecretRef: &attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
 					},
 				},
 			},
@@ -768,7 +768,7 @@ func TestResolveMetricsCollector_Datadog(t *testing.T) {
 		reconciler.Scheme = scheme
 
 		collector, qb, err := reconciler.resolveMetricsCollector(
-			context.Background(), policy, defaults, prometheusAuthContext{},
+			context.Background(), policy, defaults, prometheusAuthContext{}, datadogAuthContext{},
 		)
 		require.NoError(t, err)
 		assert.NotNil(t, collector)
@@ -782,7 +782,7 @@ func TestResolveMetricsCollector_Datadog(t *testing.T) {
 				MetricsSource: attunev1alpha1.MetricsSource{
 					Datadog: &attunev1alpha1.DatadogConfig{
 						Site:            "datadoghq.com",
-						APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "missing-keys", Key: "api-key"},
+						APIKeySecretRef: &attunev1alpha1.SecretKeyRef{Name: "missing-keys", Key: "api-key"},
 					},
 				},
 			},
@@ -796,7 +796,7 @@ func TestResolveMetricsCollector_Datadog(t *testing.T) {
 		reconciler.Scheme = scheme
 
 		collector, qb, err := reconciler.resolveMetricsCollector(
-			context.Background(), policy, defaults, prometheusAuthContext{},
+			context.Background(), policy, defaults, prometheusAuthContext{}, datadogAuthContext{},
 		)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "Datadog API key")
@@ -827,7 +827,7 @@ func TestResolveMetricsCollector_CloudWatch(t *testing.T) {
 	reconciler.Scheme = scheme
 
 	collector, qb, err := reconciler.resolveMetricsCollector(
-		context.Background(), policy, defaults, prometheusAuthContext{},
+		context.Background(), policy, defaults, prometheusAuthContext{}, datadogAuthContext{},
 	)
 	require.NoError(t, err)
 	assert.NotNil(t, collector)

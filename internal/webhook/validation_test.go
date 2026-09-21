@@ -1255,7 +1255,7 @@ func TestValidate_MultipleMetricsSources(t *testing.T) {
 		Address: "http://prometheus:9090",
 	}
 	policy.Spec.MetricsSource.Datadog = &attunev1alpha1.DatadogConfig{
-		APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-secret", Key: "api-key"},
+		APIKeySecretRef: &attunev1alpha1.SecretKeyRef{Name: "dd-secret", Key: "api-key"},
 	}
 
 	_, err := validator.ValidateCreate(context.Background(), policy)
@@ -1268,7 +1268,7 @@ func TestValidate_DatadogValid(t *testing.T) {
 	policy := validPolicy()
 	policy.Spec.MetricsSource.Datadog = &attunev1alpha1.DatadogConfig{
 		Site:            "datadoghq.eu",
-		APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-secret", Key: "api-key"},
+		APIKeySecretRef: &attunev1alpha1.SecretKeyRef{Name: "dd-secret", Key: "api-key"},
 	}
 
 	_, err := validator.ValidateCreate(context.Background(), policy)
@@ -1280,7 +1280,7 @@ func TestValidate_DatadogInvalidSite(t *testing.T) {
 	policy := validPolicy()
 	policy.Spec.MetricsSource.Datadog = &attunev1alpha1.DatadogConfig{
 		Site:            "evil.example.com",
-		APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-secret", Key: "api-key"},
+		APIKeySecretRef: &attunev1alpha1.SecretKeyRef{Name: "dd-secret", Key: "api-key"},
 	}
 
 	_, err := validator.ValidateCreate(context.Background(), policy)
@@ -1305,7 +1305,7 @@ func TestValidate_DatadogSecretCrossNamespace(t *testing.T) {
 	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	policy.Spec.MetricsSource.Datadog = &attunev1alpha1.DatadogConfig{
-		APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "other-ns/dd-secret", Key: "api-key"},
+		APIKeySecretRef: &attunev1alpha1.SecretKeyRef{Name: "other-ns/dd-secret", Key: "api-key"},
 	}
 
 	_, err := validator.ValidateCreate(context.Background(), policy)
@@ -1394,7 +1394,7 @@ func TestValidate_AllThreeSourcesSet(t *testing.T) {
 	policy := validPolicy()
 	policy.Spec.MetricsSource.Prometheus = &attunev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
 	policy.Spec.MetricsSource.Datadog = &attunev1alpha1.DatadogConfig{
-		APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "s", Key: "k"},
+		APIKeySecretRef: &attunev1alpha1.SecretKeyRef{Name: "s", Key: "k"},
 	}
 	policy.Spec.MetricsSource.CloudWatch = &attunev1alpha1.CloudWatchConfig{
 		Region: "us-east-1", ClusterName: "c",
@@ -1672,7 +1672,7 @@ func TestValidate_VPAWithDatadogMutuallyExclusive(t *testing.T) {
 		Name: "my-vpa",
 	}
 	policy.Spec.MetricsSource.Datadog = &attunev1alpha1.DatadogConfig{
-		APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-secret", Key: "api-key"},
+		APIKeySecretRef: &attunev1alpha1.SecretKeyRef{Name: "dd-secret", Key: "api-key"},
 	}
 
 	_, err := validator.ValidateCreate(context.Background(), policy)

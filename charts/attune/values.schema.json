@@ -1020,6 +1020,29 @@
         }
       }
     },
+    "datadogAuth": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Cluster-wide Datadog API key from a Secret in the operator namespace",
+      "properties": {
+        "existingSecret": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "default": "",
+              "description": "Secret name in the operator namespace. Empty keeps the policy-namespace lookup"
+            },
+            "key": {
+              "type": "string",
+              "default": "api-key",
+              "description": "Key within the Secret that holds the Datadog API key"
+            }
+          }
+        }
+      }
+    },
     "prometheusQPS": {
       "type": "number",
       "exclusiveMinimum": 0,

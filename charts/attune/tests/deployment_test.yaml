@@ -167,6 +167,26 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --prometheus-use-service-account-token
 
+  - it: should pass operator-namespace datadog api key flags
+    set:
+      datadogAuth:
+        existingSecret:
+          name: datadog-keys
+          key: api-key
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --datadog-api-key-secret=datadog-keys
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --datadog-api-key-secret-key=api-key
+
+  - it: should not pass datadog api key flags by default
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --datadog-api-key-secret
+
   - it: should pass operator-namespace bearer secret flags
     set:
       prometheusAuth:

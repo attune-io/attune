@@ -106,7 +106,7 @@ func TestDefaultsValidator_DatadogAPIKeyDeprecatedWarning(t *testing.T) {
 			MetricsSource: &attunev1alpha1.MetricsSource{
 				Datadog: &attunev1alpha1.DatadogConfig{
 					Site:            "datadoghq.com",
-					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
+					APIKeySecretRef: &attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
 				},
 			},
 		},
@@ -114,6 +114,36 @@ func TestDefaultsValidator_DatadogAPIKeyDeprecatedWarning(t *testing.T) {
 	warnings, err := v.ValidateCreate(context.Background(), defaults)
 	require.NoError(t, err)
 	require.Contains(t, warnings, DeprecatedClusterDatadogAPIKeyWarning)
+}
+
+func TestDefaultsValidator_DatadogWithoutAPIKeyRef(t *testing.T) {
+	v := &AttuneDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				Datadog: &attunev1alpha1.DatadogConfig{Site: "datadoghq.com"},
+			},
+		},
+	}
+	warnings, err := v.ValidateCreate(context.Background(), defaults)
+	require.NoError(t, err)
+	assert.NotContains(t, warnings, DeprecatedClusterDatadogAPIKeyWarning)
+}
+
+func TestNamespaceDefaultsValidator_DatadogRequiresAPIKeyRef(t *testing.T) {
+	v := &AttuneNamespaceDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneNamespaceDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "team", Namespace: "prod"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				Datadog: &attunev1alpha1.DatadogConfig{Site: "datadoghq.com"},
+			},
+		},
+	}
+	_, err := v.ValidateCreate(context.Background(), defaults)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "apiKeySecretRef.name is required")
 }
 
 func TestDefaultsValidator_GitOpsTokenDeprecatedWarning(t *testing.T) {
@@ -1153,7 +1183,7 @@ func TestDefaultsValidator_ProviderFieldConstraints(t *testing.T) {
 			ms: &attunev1alpha1.MetricsSource{
 				Datadog: &attunev1alpha1.DatadogConfig{
 					Site:            "datadoghq.com",
-					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Key: "api-key"},
+					APIKeySecretRef: &attunev1alpha1.SecretKeyRef{Key: "api-key"},
 				},
 			},
 			wantErr: "metricsSource.datadog.apiKeySecretRef.name is required",
@@ -1163,7 +1193,7 @@ func TestDefaultsValidator_ProviderFieldConstraints(t *testing.T) {
 			ms: &attunev1alpha1.MetricsSource{
 				Datadog: &attunev1alpha1.DatadogConfig{
 					Site:            "datadoghq.com",
-					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-key"},
+					APIKeySecretRef: &attunev1alpha1.SecretKeyRef{Name: "dd-key"},
 				},
 			},
 			wantErr: "metricsSource.datadog.apiKeySecretRef.key is required",
@@ -1173,7 +1203,7 @@ func TestDefaultsValidator_ProviderFieldConstraints(t *testing.T) {
 			ms: &attunev1alpha1.MetricsSource{
 				Datadog: &attunev1alpha1.DatadogConfig{
 					Site:            "not-a-datadog-site.example",
-					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-key", Key: "api-key"},
+					APIKeySecretRef: &attunev1alpha1.SecretKeyRef{Name: "dd-key", Key: "api-key"},
 				},
 			},
 			wantErr: "metricsSource.datadog.site:",
@@ -1265,7 +1295,7 @@ func TestDefaultsValidator_ValidSingleProviders(t *testing.T) {
 			ms: &attunev1alpha1.MetricsSource{
 				Datadog: &attunev1alpha1.DatadogConfig{
 					Site:            "datadoghq.eu",
-					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-key", Key: "api-key"},
+					APIKeySecretRef: &attunev1alpha1.SecretKeyRef{Name: "dd-key", Key: "api-key"},
 				},
 			},
 		},

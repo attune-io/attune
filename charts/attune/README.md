@@ -26,6 +26,9 @@ helm install attune oci://ghcr.io/attune-io/charts/attune \
 | blockerRefreshInterval | string | `"0s"` | Minimum interval between Deferred/Infeasible blocker recomputes when not resizing. Zero (default) recomputes every cycle. Set "5m" on large Recommend fleets to cut List work. |
 | clusterSize | string | `""` | Cluster size preset: sets resources, rate limits, and replica count. Valid values: small, medium, large, xlarge, or "" (no preset). Any explicitly set value overrides the preset. See docs/guides/scaling.md for details. |
 | collectorTTL | string | `"10m"` | Collector cache TTL for unused Prometheus connections (Go duration, e.g. "10m", "1h") |
+| datadogAuth | object | `{"existingSecret":{"key":"api-key","name":""}}` | Cluster-wide Datadog API key from a Secret in the operator namespace. Used only when cluster AttuneDefaults chose the Datadog block. Policy and AttuneNamespaceDefaults apiKeySecretRef values stay in that namespace. |
+| datadogAuth.existingSecret.key | string | `"api-key"` | Key within the Secret that holds the API key. An optional app-key in the same Secret is still read. |
+| datadogAuth.existingSecret.name | string | `""` | Secret name in the operator namespace. Empty keeps the policy-namespace lookup of an inherited apiKeySecretRef. |
 | defaults | object | `{"enabled":false,"updateStrategy":{"autoRevert":true,"cooldown":"1h","maxConcurrentResizes":1,"resizeMethod":"InPlaceOnly","type":"Recommend"}}` | Cluster-wide defaults (creates an AttuneDefaults CR) |
 | defaults.enabled | bool | `false` | Create an AttuneDefaults resource with the values below |
 | defaults.updateStrategy | object | `{"autoRevert":true,"cooldown":"1h","maxConcurrentResizes":1,"resizeMethod":"InPlaceOnly","type":"Recommend"}` | Default update strategy applied to all policies that don't override it |

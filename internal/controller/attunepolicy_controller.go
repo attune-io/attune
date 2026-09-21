@@ -217,9 +217,14 @@ type AttunePolicyReconciler struct {
 	// PrometheusQueryServiceAccount, when set, is TokenRequested instead of
 	// the manager projected token (dedicated query identity).
 	PrometheusQueryServiceAccount string
-	queryTokenMu                  sync.Mutex
-	queryToken                    string
-	queryTokenExpiry              time.Time
+	// DatadogAPIKeySecretName is an operator-namespace Secret used only when
+	// the Datadog block is chosen by cluster AttuneDefaults.
+	DatadogAPIKeySecretName string
+	// DatadogAPIKeySecretKey is the API key field in that Secret (default api-key).
+	DatadogAPIKeySecretKey string
+	queryTokenMu           sync.Mutex
+	queryToken             string
+	queryTokenExpiry       time.Time
 	// readServiceAccountTokenFn overrides the projected token file in tests.
 	readServiceAccountTokenFn func() (string, error)
 	nowFunc                   atomic.Pointer[func() time.Time]
@@ -368,7 +373,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Merge defaults into the policy. Namespace-scoped defaults take precedence,
 	// and defaults lookup failures fail closed rather than silently falling back
 	// to another scope.
-	defaults, namespaceSetAddress, err := r.fetchDefaultsForAuth(ctx, policy.Namespace)
+	defaults, namespaceSetAddress, namespaceSetDatadog, err := r.fetchDefaultsForAuth(ctx, policy.Namespace)
 	if err != nil {
 		logger.Error(err, "Failed to fetch defaults")
 		operatormetrics.ReconcileErrorsTotal.WithLabelValues("fetch_defaults").Inc()
@@ -378,6 +383,8 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 	promAuth := prometheusAuthFromUnmerged(&policy)
 	promAuth.namespaceSetAddress = namespaceSetAddress
+	ddAuth := datadogAuthFromUnmerged(&policy)
+	ddAuth.namespaceSetDatadog = namespaceSetDatadog
 	r.mergeDefaults(&policy, defaults)
 	r.applyBuiltInDefaults(&policy)
 	r.warnConfigClamping(&policy)
@@ -398,7 +405,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	// Step 2: Resolve metrics source, create collector, and select query builder.
-	collector, queryBuilder, err := r.resolveMetricsCollector(ctx, &policy, defaults, promAuth)
+	collector, queryBuilder, err := r.resolveMetricsCollector(ctx, &policy, defaults, promAuth, ddAuth)
 	if err != nil {
 		logger.Error(err, "Failed to resolve metrics source")
 		operatormetrics.ReconcileErrorsTotal.WithLabelValues("metrics_source").Inc()
