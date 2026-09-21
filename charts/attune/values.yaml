@@ -285,6 +285,20 @@ defaults:
 # Any explicitly set value overrides the preset. See docs/guides/scaling.md for details.
 clusterSize: ""
 
+# -- Cluster-wide Prometheus query auth from the operator process.
+# Policy bearerTokenSecret still wins and is read in the policy namespace.
+prometheusAuth:
+  # -- Send the manager ServiceAccount token as Authorization Bearer when a
+  # policy does not set bearerTokenSecret. Use with OpenShift Thanos Querier
+  # after binding cluster-monitoring-view.
+  useServiceAccountToken: false
+  # -- Secret in the operator namespace for a cluster-wide Prometheus token.
+  existingSecret:
+    # -- Secret name in the operator namespace. Empty disables this source.
+    name: ""
+    # -- Key within the Secret.
+    key: token
+
 # -- Prometheus query rate limit (queries per second). Higher values reduce reconcile latency but increase Prometheus load.
 prometheusQPS: 10
 
@@ -369,6 +383,11 @@ openshift:
   # When enabled, the ClusterRole includes read access to
   # config.openshift.io/apiservers for TLS security profile detection.
   enabled: false
+  # -- Bind the manager ServiceAccount to cluster-monitoring-view so the
+  # operator can query thanos-querier on port 9091. Also enables
+  # prometheusAuth.useServiceAccountToken. The ClusterRole is provided by
+  # OpenShift; this flag only creates the binding.
+  bindClusterMonitoringView: false
 
 # -- Logging configuration
 logging:

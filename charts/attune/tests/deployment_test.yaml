@@ -149,6 +149,38 @@ tests:
 
   # --- Prometheus rate limit args ---
 
+  - it: should pass prometheus-use-service-account-token when prometheusAuth is set
+    set:
+      prometheusAuth:
+        useServiceAccountToken: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --prometheus-use-service-account-token
+
+  - it: should pass prometheus-use-service-account-token when bindClusterMonitoringView is set
+    set:
+      openshift:
+        bindClusterMonitoringView: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --prometheus-use-service-account-token
+
+  - it: should pass operator-namespace bearer secret flags
+    set:
+      prometheusAuth:
+        existingSecret:
+          name: attune-thanos-token
+          key: token
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --prometheus-bearer-token-secret=attune-thanos-token
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --prometheus-bearer-token-key=token
+
   - it: should pass default prometheus-qps and prometheus-burst args
     asserts:
       - contains:

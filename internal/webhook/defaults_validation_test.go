@@ -56,6 +56,48 @@ func TestDefaultsValidator_ValidPricing(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestDefaultsValidator_BearerTokenSecretDeprecatedWarning(t *testing.T) {
+	v := &AttuneDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{
+					Address: "https://thanos-querier.openshift-monitoring.svc:9091",
+					BearerTokenSecret: &attunev1alpha1.SecretKeyRef{
+						Name: "attune-thanos-token",
+						Key:  "token",
+					},
+				},
+			},
+		},
+	}
+	warnings, err := v.ValidateCreate(context.Background(), defaults)
+	require.NoError(t, err)
+	require.Contains(t, warnings, DeprecatedClusterBearerTokenSecretWarning)
+}
+
+func TestNamespaceDefaultsValidator_BearerTokenSecretNoDeprecatedWarning(t *testing.T) {
+	v := &AttuneNamespaceDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneNamespaceDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "team-defaults", Namespace: "production"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{
+					Address: "http://prometheus-server.monitoring:80",
+					BearerTokenSecret: &attunev1alpha1.SecretKeyRef{
+						Name: "prom-token",
+						Key:  "token",
+					},
+				},
+			},
+		},
+	}
+	warnings, err := v.ValidateCreate(context.Background(), defaults)
+	require.NoError(t, err)
+	assert.NotContains(t, warnings, DeprecatedClusterBearerTokenSecretWarning)
+}
+
 func TestDefaultsValidator_MemoryStartupBoostWarning(t *testing.T) {
 	v := &AttuneDefaultsValidator{}
 	defaults := &attunev1alpha1.AttuneDefaults{

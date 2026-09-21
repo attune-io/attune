@@ -202,8 +202,23 @@ type AttunePolicyReconciler struct {
 	// Capabilities is the process-start cluster feature set. Optional; tests
 	// may leave it nil and set AllowInPlaceMemoryLimitDecrease only.
 	Capabilities *cluster.Capabilities
-	nowFunc      atomic.Pointer[func() time.Time]
-	collectors   sync.Map // map[string]*collectorEntry cache
+	// PrometheusUseServiceAccountToken sends the manager ServiceAccount
+	// token as Prometheus bearer auth when the resolved config has no
+	// bearerTokenSecret.
+	PrometheusUseServiceAccountToken bool
+	// PrometheusTokenFile is the ServiceAccount token path. Empty uses
+	// /var/run/secrets/kubernetes.io/serviceaccount/token. Tests override.
+	PrometheusTokenFile string
+	// OperatorNamespace is where PrometheusBearerTokenSecretName is read.
+	// Empty uses POD_NAMESPACE, then attune-system.
+	OperatorNamespace string
+	// PrometheusBearerTokenSecretName is an operator-namespace Secret for
+	// cluster-wide Prometheus auth. Empty disables this source.
+	PrometheusBearerTokenSecretName string
+	// PrometheusBearerTokenSecretKey is the key in that Secret (default token).
+	PrometheusBearerTokenSecretKey string
+	nowFunc                        atomic.Pointer[func() time.Time]
+	collectors                     sync.Map // map[string]*collectorEntry cache
 	// gaugeKeys tracks which Prometheus gauge label combinations each policy
 	// set on its last reconcile. On the next reconcile, only these specific
 	// keys are deleted (not the entire namespace), preventing cross-policy

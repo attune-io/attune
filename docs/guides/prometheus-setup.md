@@ -63,7 +63,16 @@ spec:
 
 Use this when different namespaces use different Prometheus instances.
 
-If you configure `metricsSource.prometheus.bearerTokenSecret`, the Secret must live in the same namespace as the `AttunePolicy`. Cross-namespace Secret references are rejected.
+If you configure `metricsSource.prometheus.bearerTokenSecret` on an
+`AttunePolicy` or `AttuneNamespaceDefaults`, the Secret must live in that
+namespace. Cross-namespace Secret names (`ns/name`) are rejected.
+
+Do not put `bearerTokenSecret` on cluster `AttuneDefaults` for a shared
+token. That field still copies the **name** onto each policy and reads it
+in the policy namespace (deprecated; admission warns). For cluster-wide
+auth, use the operator ServiceAccount token or one Secret in the operator
+namespace. See [OpenShift](openshift.md#thanos-querier) and Helm
+`prometheusAuth` / `openshift.bindClusterMonitoringView`.
 
 !!! warning "Use an in-cluster address"
     The operator validates `metricsSource.prometheus.address` to block
@@ -115,7 +124,10 @@ spec:
 
 Policies that omit `metricsSource.prometheus.address` inherit from this when
 no `AttuneNamespaceDefaults` exists in the same namespace. This is the
-recommended baseline for most clusters.
+recommended baseline for most clusters. Put address, headers, query
+parameters, and TLS here. Cluster-wide credentials belong on the operator
+(`prometheusAuth` or the manager ServiceAccount), not on
+`bearerTokenSecret` in this CR.
 
 ### 4. Auto-discovery (Prometheus Operator)
 

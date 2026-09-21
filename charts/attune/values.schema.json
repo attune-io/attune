@@ -976,6 +976,34 @@
       "default": "",
       "description": "Cluster size preset: sets resources, rate limits, and replica count. Empty means no preset."
     },
+    "prometheusAuth": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Cluster-wide Prometheus query auth from the operator process",
+      "properties": {
+        "useServiceAccountToken": {
+          "type": "boolean",
+          "default": false,
+          "description": "Send the manager ServiceAccount token as Prometheus bearer auth when a policy does not set bearerTokenSecret"
+        },
+        "existingSecret": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "default": "",
+              "description": "Secret name in the operator namespace. Empty disables this source"
+            },
+            "key": {
+              "type": "string",
+              "default": "token",
+              "description": "Key within the Secret"
+            }
+          }
+        }
+      }
+    },
     "prometheusQPS": {
       "type": "number",
       "exclusiveMinimum": 0,
@@ -1104,6 +1132,11 @@
           "type": "boolean",
           "default": false,
           "description": "Enable OpenShift-specific features (TLS profile auto-detection RBAC)"
+        },
+        "bindClusterMonitoringView": {
+          "type": "boolean",
+          "default": false,
+          "description": "Bind the manager ServiceAccount to OpenShift cluster-monitoring-view and send the SA token to Prometheus"
         }
       }
     },

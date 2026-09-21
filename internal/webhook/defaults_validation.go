@@ -61,8 +61,22 @@ func (v *AttuneDefaultsValidator) ValidateDelete(_ context.Context, _ *attunev1a
 }
 
 func (v *AttuneDefaultsValidator) validate(defaults *attunev1alpha1.AttuneDefaults) (admission.Warnings, error) {
-	return validateDefaultsSpec(defaults.Spec)
+	w, err := validateDefaultsSpec(defaults.Spec)
+	if err != nil {
+		return w, err
+	}
+	if defaults.Spec.MetricsSource != nil &&
+		defaults.Spec.MetricsSource.Prometheus != nil &&
+		defaults.Spec.MetricsSource.Prometheus.BearerTokenSecret != nil {
+		w = append(w, DeprecatedClusterBearerTokenSecretWarning)
+	}
+	return w, nil
 }
+
+// DeprecatedClusterBearerTokenSecretWarning is the admission warning for
+// bearerTokenSecret on cluster AttuneDefaults. Lookup is unchanged (policy
+// namespace) until a later release rejects the field on this kind.
+const DeprecatedClusterBearerTokenSecretWarning = "metricsSource.prometheus.bearerTokenSecret on AttuneDefaults is deprecated; the Secret name is still read from each AttunePolicy namespace. Prefer operator ServiceAccount token or an operator-namespace Secret for cluster-wide Prometheus auth."
 
 // ValidateCreate validates a new AttuneNamespaceDefaults.
 func (v *AttuneNamespaceDefaultsValidator) ValidateCreate(_ context.Context, defaults *attunev1alpha1.AttuneNamespaceDefaults) (admission.Warnings, error) {

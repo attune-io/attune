@@ -94,12 +94,18 @@ helm install attune oci://ghcr.io/attune-io/charts/attune \
 | networkPolicy.enabled | bool | `true` | Enable NetworkPolicy for the operator pod |
 | networkPolicy.prometheusPort | int | `9090` | TCP port allowed by NetworkPolicy for Prometheus backend pods |
 | nodeSelector | object | `{}` | Node selector |
-| openshift | object | `{"enabled":false}` | OpenShift integration |
+| openshift | object | `{"bindClusterMonitoringView":false,"enabled":false}` | OpenShift integration |
+| openshift.bindClusterMonitoringView | bool | `false` | Bind the manager ServiceAccount to cluster-monitoring-view so the operator can query thanos-querier on port 9091. Also enables prometheusAuth.useServiceAccountToken. The ClusterRole is provided by OpenShift; this flag only creates the binding. |
 | openshift.enabled | bool | `false` | Enable OpenShift-specific features (TLS profile auto-detection). When enabled, the ClusterRole includes read access to config.openshift.io/apiservers for TLS security profile detection. |
 | podAnnotations | object | `{}` | Pod annotations |
 | podLabelSelector | string | `""` | Optional static pod label selector kept fully in the informer cache (OR'd with dynamic selectors from active AttunePolicy targets). Example: "attune.io/managed=true". Empty relies on dynamic policy selectors only. |
 | podSecurityContext | object | `{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod security context |
 | priorityClassName | string | `""` | Priority class name for the operator pod (recommended: system-cluster-critical for production) |
+| prometheusAuth | object | `{"existingSecret":{"key":"token","name":""},"useServiceAccountToken":false}` | Cluster-wide Prometheus query auth from the operator process. Policy bearerTokenSecret still wins and is read in the policy namespace. |
+| prometheusAuth.existingSecret | object | `{"key":"token","name":""}` | Secret in the operator namespace for a cluster-wide Prometheus token. |
+| prometheusAuth.existingSecret.key | string | `"token"` | Key within the Secret. |
+| prometheusAuth.existingSecret.name | string | `""` | Secret name in the operator namespace. Empty disables this source. |
+| prometheusAuth.useServiceAccountToken | bool | `false` | Send the manager ServiceAccount token as Authorization Bearer when a policy does not set bearerTokenSecret. Use with OpenShift Thanos Querier after binding cluster-monitoring-view. |
 | prometheusBurst | int | `20` | Prometheus query burst allowance. |
 | prometheusQPS | int | `10` | Prometheus query rate limit (queries per second). Higher values reduce reconcile latency but increase Prometheus load. |
 | prometheusTimeout | string | `"5m"` | Maximum time for workload processing (including Prometheus queries) per reconciliation cycle (Go duration). If exceeded, partial results are used and the status condition indicates the timeout. |

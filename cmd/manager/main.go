@@ -141,6 +141,15 @@ func main() {
 	flag.DurationVar(&prometheusTimeout, "prometheus-timeout", 5*time.Minute,
 		"Maximum time allowed for workload processing (including Prometheus queries) during a single reconciliation cycle. "+
 			"If exceeded, partial results are used and the status condition indicates the timeout.")
+	var prometheusUseServiceAccountToken bool
+	var prometheusBearerTokenSecretName string
+	var prometheusBearerTokenSecretKey string
+	flag.BoolVar(&prometheusUseServiceAccountToken, "prometheus-use-service-account-token", false,
+		"When true, send the manager ServiceAccount token as Prometheus bearer auth if the policy (or inherited defaults) did not set bearerTokenSecret.")
+	flag.StringVar(&prometheusBearerTokenSecretName, "prometheus-bearer-token-secret", "",
+		"Name of a Secret in the operator namespace for cluster-wide Prometheus bearer auth. Used only when the policy did not set bearerTokenSecret.")
+	flag.StringVar(&prometheusBearerTokenSecretKey, "prometheus-bearer-token-key", "token",
+		"Key in --prometheus-bearer-token-secret that holds the bearer token.")
 	flag.BoolVar(&fleetReportEnabled, "fleet-report-enabled", false,
 		"When true, periodically write a versioned fleet summary ConfigMap for multi-cluster collectors.")
 	flag.StringVar(&fleetReportNamespace, "fleet-report-namespace", "",
@@ -321,6 +330,12 @@ func main() {
 	reconciler.MinQueryStep = minQueryStep
 	reconciler.BlockerRefreshInterval = blockerRefreshInterval
 	reconciler.PrometheusTimeout = prometheusTimeout
+	reconciler.PrometheusUseServiceAccountToken = prometheusUseServiceAccountToken
+	reconciler.PrometheusBearerTokenSecretName = prometheusBearerTokenSecretName
+	reconciler.PrometheusBearerTokenSecretKey = prometheusBearerTokenSecretKey
+	if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
+		reconciler.OperatorNamespace = ns
+	}
 	reconciler.MetricsFactory = func(address string, opts *metrics.CollectorOptions) (metrics.MetricsCollector, error) {
 		if opts == nil {
 			opts = &metrics.CollectorOptions{}

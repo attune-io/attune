@@ -162,6 +162,61 @@ never writes to OpenShift API resources.
     bundle always includes the OpenShift RBAC rule. OLM manages the RBAC
     lifecycle automatically.
 
+## Thanos Querier
+
+OpenShift Cluster Monitoring exposes Thanos Querier at
+`https://thanos-querier.openshift-monitoring.svc:9091`. That port expects a
+Kubernetes bearer token with `cluster-monitoring-view` (or
+`cluster-monitoring-metrics-api`).
+
+The Prometheus HTTP client is the Attune manager, not each `AttunePolicy`.
+Bind the operator ServiceAccount and send its projected token. Do not copy
+a token Secret into every application namespace, and do not set
+`bearerTokenSecret` on cluster `AttuneDefaults` (that name is still looked
+up next to the policy).
+
+Helm:
+
+```yaml
+openshift:
+  enabled: true
+  bindClusterMonitoringView: true
+```
+
+That creates a ClusterRoleBinding to `cluster-monitoring-view` and passes
+`--prometheus-use-service-account-token`. Keep address and TLS on
+`AttuneDefaults`:
+
+```yaml
+apiVersion: attune.io/v1alpha1
+kind: AttuneDefaults
+metadata:
+  name: cluster-defaults
+spec:
+  metricsSource:
+    prometheus:
+      address: https://thanos-querier.openshift-monitoring.svc:9091
+      tls:
+        insecureSkipVerify: true
+```
+
+Prefer a proper CA over `insecureSkipVerify` when you have the service CA
+bundle. NetworkPolicy egress includes port 9091 when OpenShift integration
+or `bindClusterMonitoringView` is on.
+
+OperatorHub / OLM: bind the operator ServiceAccount after install, then
+set the same flag on the operator Deployment (or wait for a CSV that
+defaults it):
+
+```bash
+oc adm policy add-cluster-role-to-user cluster-monitoring-view \
+  -z attune-controller-manager -n <operator-namespace>
+```
+
+A long-lived token Secret in the operator namespace is Helm
+`prometheusAuth.existingSecret` (`--prometheus-bearer-token-secret`). Use
+that for Mimir or Grafana Cloud, not for Thanos Querier.
+
 ## Combining with other features
 
 OpenShift integration works alongside all other Attune features:
@@ -173,8 +228,9 @@ OpenShift integration works alongside all other Attune features:
   Prometheus Operator. Enable `metrics.serviceMonitor.enabled=true` for
   automatic scrape target registration.
 - **NetworkPolicy**: The default NetworkPolicy allows egress to
-  Prometheus and the Kubernetes API. No OpenShift-specific changes are
-  needed.
+  Prometheus (9090) and the Kubernetes API. OpenShift Thanos Querier
+  adds egress to port 9091 when `openshift.enabled` or
+  `bindClusterMonitoringView` is true.
 - **GitOps (OpenShift GitOps / Argo CD)**: Default in-place resize does
   **not** update Git or Deployment templates. After a rollout, new pods
   start from Git resources until Attune re-resizes. For durable sizes

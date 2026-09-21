@@ -180,7 +180,12 @@ spec:
         X-Scope-OrgID: tenant-a
       queryParameters:
         dedup: "true"
-      # Optional: auth and TLS settings
+      # Optional: auth and TLS settings. On AttunePolicy /
+      # AttuneNamespaceDefaults the Secret is in that namespace.
+      # Do not use bearerTokenSecret on cluster AttuneDefaults for a
+      # shared token (deprecated: name is still read in each policy
+      # namespace). Cluster-wide auth is the operator SA token or a
+      # Secret in the operator namespace (prometheusAuth).
       bearerTokenSecret:
         name: prometheus-token
         key: token

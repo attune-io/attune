@@ -22,6 +22,7 @@ import (
 	"hash/fnv"
 	"io"
 	"math"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -45,6 +46,8 @@ import (
 	"github.com/attune-io/attune/internal/validation"
 	pkgdefaults "github.com/attune-io/attune/pkg/defaults"
 )
+
+const defaultServiceAccountTokenPath = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 
 // collectorEntry wraps a MetricsCollector with a last-used timestamp
 // for TTL-based eviction.
@@ -784,7 +787,8 @@ func (r *AttunePolicyReconciler) buildCollectorOptions(ctx context.Context, name
 	}
 	// MaxSeries: 0 on flag = collector default; negative = unlimited.
 	needOpts := config.Headers != nil || config.QueryParameters != nil || config.BearerTokenSecret != nil ||
-		(config.TLS != nil && config.TLS.InsecureSkipVerify) || r.MaxPrometheusSeries != 0
+		(config.TLS != nil && config.TLS.InsecureSkipVerify) || r.MaxPrometheusSeries != 0 ||
+		r.prometheusOperatorAuthConfigured()
 	if !needOpts {
 		return nil, nil
 	}
@@ -797,18 +801,73 @@ func (r *AttunePolicyReconciler) buildCollectorOptions(ctx context.Context, name
 	if config.TLS != nil {
 		opts.InsecureSkipVerify = config.TLS.InsecureSkipVerify
 	}
+	token, err := r.resolvePrometheusBearerToken(ctx, namespace, config)
+	if err != nil {
+		return nil, err
+	}
+	opts.BearerToken = token
+	return opts, nil
+}
+
+func (r *AttunePolicyReconciler) prometheusOperatorAuthConfigured() bool {
+	return r.PrometheusBearerTokenSecretName != "" || r.PrometheusUseServiceAccountToken
+}
+
+// resolvePrometheusBearerToken prefers a policy-namespace Secret, then an
+// operator-namespace Secret, then the manager ServiceAccount token file.
+func (r *AttunePolicyReconciler) resolvePrometheusBearerToken(ctx context.Context, namespace string, config *attunev1alpha1.PrometheusConfig) (string, error) {
 	if config.BearerTokenSecret != nil {
 		secretName := config.BearerTokenSecret.Name
 		secretKey := config.BearerTokenSecret.Key
-		// Security: only read Secrets in the policy's own namespace to prevent
-		// cross-namespace Secret access if the operator is compromised.
+		// Namespaced CRs cannot name a Secret in another namespace.
 		token, err := r.readSecretKey(ctx, namespace, secretName, secretKey)
 		if err != nil {
-			return nil, fmt.Errorf("cannot read bearer token secret %s/%s: %w", secretName, secretKey, err)
+			return "", fmt.Errorf("cannot read bearer token secret %s/%s: %w", secretName, secretKey, err)
 		}
-		opts.BearerToken = token
+		return token, nil
 	}
-	return opts, nil
+	if r.PrometheusBearerTokenSecretName != "" {
+		key := r.PrometheusBearerTokenSecretKey
+		if key == "" {
+			key = "token"
+		}
+		ns := r.operatorNamespace()
+		token, err := r.readSecretKey(ctx, ns, r.PrometheusBearerTokenSecretName, key)
+		if err != nil {
+			return "", fmt.Errorf("cannot read operator bearer token secret %s/%s: %w", r.PrometheusBearerTokenSecretName, key, err)
+		}
+		return token, nil
+	}
+	if r.PrometheusUseServiceAccountToken {
+		return r.readServiceAccountToken()
+	}
+	return "", nil
+}
+
+func (r *AttunePolicyReconciler) operatorNamespace() string {
+	if r.OperatorNamespace != "" {
+		return r.OperatorNamespace
+	}
+	if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
+		return ns
+	}
+	return "attune-system"
+}
+
+func (r *AttunePolicyReconciler) readServiceAccountToken() (string, error) {
+	path := r.PrometheusTokenFile
+	if path == "" {
+		path = defaultServiceAccountTokenPath
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("reading service account token %s: %w", path, err)
+	}
+	token := strings.TrimSpace(string(data))
+	if token == "" {
+		return "", fmt.Errorf("service account token file %s is empty", path)
+	}
+	return token, nil
 }
 
 // resolveMetricsCollector creates the appropriate MetricsCollector and

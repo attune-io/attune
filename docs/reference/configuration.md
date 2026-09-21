@@ -189,11 +189,23 @@ watchNamespaces:
 | `blockerRefreshInterval` | string | `"0s"` | Min interval between Deferred/Infeasible blocker recomputes when not resizing (`--blocker-refresh-interval`). Zero recomputes every cycle; use `5m` for large Recommend fleets. |
 | `podLabelSelector` | string | `""` | Optional static pod label selector (`--pod-label-selector`), OR'd with dynamic selectors derived from active AttunePolicy targets for informer cache keep rules. |
 
+## Prometheus query auth
+
+Cluster-wide credentials belong on the operator. A policy
+`bearerTokenSecret` still wins and is read in the policy namespace.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `prometheusAuth.useServiceAccountToken` | bool | `false` | Send the manager ServiceAccount token as Prometheus bearer auth when the policy does not set `bearerTokenSecret` (`--prometheus-use-service-account-token`). |
+| `prometheusAuth.existingSecret.name` | string | `""` | Secret in the **operator** namespace (`--prometheus-bearer-token-secret`). Empty disables. |
+| `prometheusAuth.existingSecret.key` | string | `token` | Key in that Secret (`--prometheus-bearer-token-key`). |
+
 ## OpenShift
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `openshift.enabled` | bool | `false` | Enable OpenShift-specific features. Adds RBAC for `config.openshift.io/apiservers` (read-only) to auto-detect the cluster TLS security profile and apply it to outbound Prometheus connections. See the [OpenShift guide](../guides/openshift.md). |
+| `openshift.bindClusterMonitoringView` | bool | `false` | Bind the manager ServiceAccount to OpenShift `cluster-monitoring-view` and send the SA token to Prometheus. See [Thanos Querier](../guides/openshift.md#thanos-querier). |
 
 ## FIPS 140-3
 
@@ -424,7 +436,7 @@ operator queries. The wizard inherit option uses that omit shape.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `metricsSource.prometheus.bearerTokenSecret` | object | (optional) | Secret `name` + `key` for a bearer token. The creating user must be allowed to get that Secret. |
+| `metricsSource.prometheus.bearerTokenSecret` | object | (optional) | Secret `name` + `key` for a bearer token in the **policy** namespace (`AttunePolicy` or `AttuneNamespaceDefaults`). Deprecated on cluster `AttuneDefaults`: the name is still inherited and read in each policy namespace; use `prometheusAuth` or `openshift.bindClusterMonitoringView` instead. |
 
 ### Datadog
 

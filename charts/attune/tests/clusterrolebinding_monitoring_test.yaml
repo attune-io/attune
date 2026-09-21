@@ -1,0 +1,25 @@
+suite: cluster-monitoring-view binding
+templates:
+  - templates/clusterrolebinding-monitoring.yaml
+tests:
+  - it: should not render when bindClusterMonitoringView is false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should bind the manager ServiceAccount to cluster-monitoring-view
+    set:
+      openshift:
+        bindClusterMonitoringView: true
+    asserts:
+      - isKind:
+          of: ClusterRoleBinding
+      - equal:
+          path: roleRef.name
+          value: cluster-monitoring-view
+      - equal:
+          path: roleRef.kind
+          value: ClusterRole
+      - equal:
+          path: subjects[0].kind
+          value: ServiceAccount
