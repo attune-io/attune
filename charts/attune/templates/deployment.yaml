@@ -66,7 +66,7 @@ spec:
             - --prometheus-bearer-token-key={{ .Values.prometheusAuth.existingSecret.key | default "token" }}
             {{- end }}
             {{- if .Values.prometheusAuth.queryServiceAccount.create }}
-            - --prometheus-query-service-account={{ .Values.prometheusAuth.queryServiceAccount.name | default (printf "%s-prometheus-query" (include "attune.fullname" .)) }}
+            - --prometheus-query-service-account={{ include "attune.queryServiceAccountName" . }}
             {{- end }}
             {{- $mcr := include "attune.maxConcurrentReconciles" . | trim }}
             {{- if $mcr }}

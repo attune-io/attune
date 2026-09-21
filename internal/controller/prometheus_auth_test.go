@@ -18,9 +18,11 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,7 +34,9 @@ import (
 	kubefake "k8s.io/client-go/kubernetes/fake"
 	clienttesting "k8s.io/client-go/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	rsmetrics "github.com/attune-io/attune/internal/metrics"
@@ -185,8 +189,9 @@ func TestResolvePrometheusConfig_AttuneDefaultsCopiesBearerTokenSecret(t *testin
 
 	fetched, err := r.fetchDefaults(context.Background(), "vpa-test")
 	require.NoError(t, err)
-	cfg, err := r.resolvePrometheusConfig(context.Background(), policy, fetched)
+	cfg, discovered, err := r.resolvePrometheusConfig(context.Background(), policy, fetched)
 	require.NoError(t, err)
+	assert.False(t, discovered)
 	require.NotNil(t, cfg.BearerTokenSecret)
 	assert.Equal(t, "attune-thanos-token", cfg.BearerTokenSecret.Name)
 	assert.Equal(t, "token", cfg.BearerTokenSecret.Key)
@@ -424,6 +429,114 @@ func TestReadServiceAccountToken_QueryServiceAccount(t *testing.T) {
 	token, err := r.readServiceAccountToken(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, "query-sa-token", token)
+}
+
+func TestReadServiceAccountToken_QueryServiceAccountCached(t *testing.T) {
+	creates := 0
+	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+	cs := kubefake.NewSimpleClientset()
+	cs.PrependReactor("create", "serviceaccounts/token", func(action clienttesting.Action) (bool, runtime.Object, error) {
+		creates++
+		return true, &authenticationv1.TokenRequest{
+			Status: authenticationv1.TokenRequestStatus{
+				Token:               fmt.Sprintf("tok-%d", creates),
+				ExpirationTimestamp: metav1.NewTime(now.Add(time.Hour)),
+			},
+		}, nil
+	})
+	r := NewAttunePolicyReconciler()
+	r.Clientset = cs
+	r.OperatorNamespace = "attune-system"
+	r.PrometheusQueryServiceAccount = "attune-prometheus-query"
+	r.SetNowFunc(func() time.Time { return now })
+
+	tok1, err := r.readServiceAccountToken(context.Background())
+	require.NoError(t, err)
+	tok2, err := r.readServiceAccountToken(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, tok1, tok2)
+	assert.Equal(t, 1, creates)
+
+	now = now.Add(56 * time.Minute)
+	tok3, err := r.readServiceAccountToken(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 2, creates)
+	assert.NotEqual(t, tok1, tok3)
+}
+
+func TestBuildCollectorOptions_DiscoveredAddressDoesNotGetOperatorToken(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+	r.Scheme = testScheme()
+	r.Client = fake.NewClientBuilder().WithScheme(r.Scheme).Build()
+	r.PrometheusUseServiceAccountToken = true
+	r.readServiceAccountTokenFn = func() (string, error) {
+		t.Fatal("operator token must not be sent to an auto-discovered Prometheus address")
+		return "", nil
+	}
+	cfg := &attunev1alpha1.PrometheusConfig{Address: "http://prometheus-k8s.openshift-monitoring:9090"}
+	opts, err := r.buildCollectorOptions(context.Background(), "vpa-test", cfg, prometheusAuthContext{addressDiscovered: true})
+	require.NoError(t, err)
+	if opts != nil {
+		assert.Empty(t, opts.BearerToken)
+	}
+}
+
+func TestNamespaceHasPrometheusAddress(t *testing.T) {
+	nsDef := &attunev1alpha1.AttuneNamespaceDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "team", Namespace: "vpa-test"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{Address: "http://team-prom:9090"},
+			},
+		},
+	}
+	r := newReconcilerWithClient(nsDef)
+	assert.True(t, r.namespaceHasPrometheusAddress(context.Background(), "vpa-test"))
+	assert.False(t, r.namespaceHasPrometheusAddress(context.Background(), "other"))
+}
+
+func TestNamespaceHasPrometheusAddress_ListErrorFailsClosed(t *testing.T) {
+	scheme := testScheme()
+	r := NewAttunePolicyReconciler()
+	r.Scheme = scheme
+	r.Client = fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(interceptor.Funcs{
+		List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
+			return fmt.Errorf("list failed")
+		},
+	}).Build()
+	assert.True(t, r.namespaceHasPrometheusAddress(context.Background(), "vpa-test"))
+}
+
+func TestReconcile_NamespaceDefaultsAddressDoesNotGetOperatorToken(t *testing.T) {
+	policy := newTestPolicy("app-policy", "vpa-test")
+	policy.Spec.MetricsSource.Prometheus = nil
+	nsDef := &attunev1alpha1.AttuneNamespaceDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "team", Namespace: "vpa-test"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{Address: "http://team-prom:9090"},
+			},
+		},
+	}
+	mc := &mockCollector{}
+	var gotToken string
+	reconciler, _ := newReconcilerForReconcile(mc, policy, nsDef)
+	reconciler.PrometheusUseServiceAccountToken = true
+	reconciler.readServiceAccountTokenFn = func() (string, error) {
+		t.Fatal("operator token must not be sent to a namespace-defaults Prometheus address")
+		return "sa-token", nil
+	}
+	reconciler.MetricsFactory = func(_ string, opts *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
+		if opts != nil {
+			gotToken = opts.BearerToken
+		}
+		return mc, nil
+	}
+	_, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "app-policy", Namespace: "vpa-test"},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, gotToken)
 }
 
 func TestReconcile_PolicyBearerMissingDoesNotFallBack(t *testing.T) {

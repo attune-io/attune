@@ -145,7 +145,7 @@ func main() {
 	var prometheusBearerTokenSecretName string
 	var prometheusBearerTokenSecretKey string
 	flag.BoolVar(&prometheusUseServiceAccountToken, "prometheus-use-service-account-token", false,
-		"When true, send the manager ServiceAccount token as Prometheus bearer auth if the policy (or inherited defaults) did not set bearerTokenSecret.")
+		"When true, send operator Prometheus bearer auth for addresses from cluster AttuneDefaults (not policy, namespace defaults, or auto-discovery, and not when Authorization headers are already set).")
 	flag.StringVar(&prometheusBearerTokenSecretName, "prometheus-bearer-token-secret", "",
 		"Name of a Secret in the operator namespace for cluster-wide Prometheus bearer auth. Used only when the policy did not set bearerTokenSecret.")
 	flag.StringVar(&prometheusBearerTokenSecretKey, "prometheus-bearer-token-key", "token",
@@ -172,8 +172,11 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
-	if prometheusBearerTokenSecretName != "" && os.Getenv("POD_NAMESPACE") == "" {
-		setupLog.Error(fmt.Errorf("POD_NAMESPACE is empty"), "POD_NAMESPACE is required when --prometheus-bearer-token-secret is set")
+	if prometheusQueryServiceAccount != "" {
+		prometheusUseServiceAccountToken = true
+	}
+	if (prometheusBearerTokenSecretName != "" || prometheusQueryServiceAccount != "") && os.Getenv("POD_NAMESPACE") == "" {
+		setupLog.Error(fmt.Errorf("POD_NAMESPACE is empty"), "POD_NAMESPACE is required when --prometheus-bearer-token-secret or --prometheus-query-service-account is set")
 		os.Exit(1)
 	}
 

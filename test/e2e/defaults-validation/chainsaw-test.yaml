@@ -74,9 +74,8 @@ spec:
             timeout: 30s
             content: |
               set -e
-              trap 'kubectl delete attunedefaults zzz-e2e-deprecated-bearer --ignore-not-found' EXIT
               out=$(
-                cat <<'EOF' | kubectl apply -f - 2>&1
+                cat <<'EOF' | kubectl apply --dry-run=server -f - 2>&1
               apiVersion: attune.io/v1alpha1
               kind: AttuneDefaults
               metadata:
@@ -101,4 +100,3 @@ spec:
               kubectl delete attunedefaults e2e-valid --ignore-not-found
               kubectl delete attunedefaults e2e-invalid-cpu --ignore-not-found
               kubectl delete attunedefaults e2e-invalid-mem --ignore-not-found
-              kubectl delete attunedefaults zzz-e2e-deprecated-bearer --ignore-not-found

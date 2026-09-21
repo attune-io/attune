@@ -12,7 +12,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     {{- if .Values.prometheusAuth.queryServiceAccount.create }}
-    name: {{ .Values.prometheusAuth.queryServiceAccount.name | default (printf "%s-prometheus-query" (include "attune.fullname" .)) }}
+    name: {{ include "attune.queryServiceAccountName" . }}
     {{- else }}
     name: {{ include "attune.serviceAccountName" . }}
     {{- end }}

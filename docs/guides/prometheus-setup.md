@@ -71,9 +71,12 @@ Do not put `bearerTokenSecret` on cluster `AttuneDefaults` for a shared
 token. That field still copies the **name** onto each policy and reads it
 in the policy namespace (deprecated; admission warns). If the inherited
 Secret is missing and operator auth is configured, the operator falls back
-to its own token. For cluster-wide auth, use the operator ServiceAccount
-token or one Secret in the operator namespace. Operator credentials are
-**not** sent to a Prometheus address set on the policy itself.
+to its own token. For cluster-wide auth, set the Prometheus address on cluster
+`AttuneDefaults` and use the operator ServiceAccount token or one Secret
+in the operator namespace. Operator credentials are **not** sent to an
+address set on the policy, on `AttuneNamespaceDefaults`, or found by
+auto-discovery, and they are not sent when the resolved config already
+has an `Authorization` header.
 
 The same inherit-name deprecation applies to cluster
 `metricsSource.datadog.apiKeySecretRef` and

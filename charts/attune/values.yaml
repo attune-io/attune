@@ -288,9 +288,9 @@ clusterSize: ""
 # -- Cluster-wide Prometheus query auth from the operator process.
 # Policy bearerTokenSecret still wins and is read in the policy namespace.
 prometheusAuth:
-  # -- Send the manager ServiceAccount token as Authorization Bearer when a
-  # policy does not set bearerTokenSecret. Use with OpenShift Thanos Querier
-  # after binding cluster-monitoring-view.
+  # -- Send operator Prometheus bearer auth for addresses from cluster
+  # AttuneDefaults. Not used for policy or namespace-defaults addresses,
+  # auto-discovery, or when Authorization headers are already set.
   useServiceAccountToken: false
   # -- Secret in the operator namespace for a cluster-wide Prometheus token.
   existingSecret:
@@ -390,10 +390,11 @@ openshift:
   # When enabled, the ClusterRole includes read access to
   # config.openshift.io/apiservers for TLS security profile detection.
   enabled: false
-  # -- Bind the manager ServiceAccount to cluster-monitoring-view so the
-  # operator can query thanos-querier on port 9091. Also enables
-  # prometheusAuth.useServiceAccountToken. The ClusterRole is provided by
-  # OpenShift; this flag only creates the binding.
+  # -- Bind cluster-monitoring-view for thanos-querier on port 9091.
+  # The subject is the query ServiceAccount when
+  # prometheusAuth.queryServiceAccount.create is true, otherwise the manager
+  # ServiceAccount. Also enables prometheusAuth.useServiceAccountToken.
+  # The ClusterRole is provided by OpenShift; this flag only creates the binding.
   bindClusterMonitoringView: false
 
 # -- Logging configuration

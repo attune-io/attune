@@ -207,7 +207,7 @@ type AttunePolicyReconciler struct {
 	// bearerTokenSecret.
 	PrometheusUseServiceAccountToken bool
 	// OperatorNamespace is where PrometheusBearerTokenSecretName is read.
-	// Empty uses POD_NAMESPACE, then attune-system.
+	// Empty uses POD_NAMESPACE. There is no attune-system fallback.
 	OperatorNamespace string
 	// PrometheusBearerTokenSecretName is an operator-namespace Secret for
 	// cluster-wide Prometheus auth. Empty disables this source.

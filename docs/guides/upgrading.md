@@ -19,13 +19,24 @@ already copies a token Secret into each namespace keeps working.
 The manager can authenticate to Prometheus without a Secret in every
 policy namespace:
 
-- Helm `openshift.bindClusterMonitoringView: true` binds the operator
-  ServiceAccount to OpenShift `cluster-monitoring-view` and sends the
-  projected SA token (`--prometheus-use-service-account-token`).
+- Helm `openshift.bindClusterMonitoringView: true` binds OpenShift
+  `cluster-monitoring-view` (to the query ServiceAccount when
+  `prometheusAuth.queryServiceAccount.create` is true, otherwise the
+  manager SA) and sends that token (`--prometheus-use-service-account-token`).
+- Helm `prometheusAuth.queryServiceAccount.create: true` TokenRequests a
+  dedicated query SA instead of the manager token. Helm-only; OLM/kustomize
+  need a manual SA, Role, and RoleBinding (see the OpenShift guide).
 - Helm `prometheusAuth.useServiceAccountToken: true` sends the SA token
   without that binding (vanilla clusters or a binding you created).
 - Helm `prometheusAuth.existingSecret` reads one Secret in the operator
   namespace (`--prometheus-bearer-token-secret`).
+- If cluster `AttuneDefaults` still names `bearerTokenSecret` and that
+  Secret is missing in the policy namespace, the operator falls back to
+  the operator identity and logs it.
+
+Operator auth applies only to addresses from cluster `AttuneDefaults`.
+It is not sent to a policy address, a namespace-defaults address, or an
+auto-discovered Prometheus.
 
 A policy (or `AttuneNamespaceDefaults`) `bearerTokenSecret` still wins
 and is still read in that namespace.

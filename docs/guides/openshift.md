@@ -184,8 +184,18 @@ openshift:
 ```
 
 That creates a ClusterRoleBinding to `cluster-monitoring-view` and passes
-`--prometheus-use-service-account-token`. Keep address and TLS on
-`AttuneDefaults`:
+`--prometheus-use-service-account-token`. Set the Thanos address on
+`AttuneDefaults` (operator auth is not attached to auto-discovered
+Prometheus). Prefer also:
+
+```yaml
+prometheusAuth:
+  queryServiceAccount:
+    create: true
+```
+
+so Thanos gets a query-only identity instead of the manager token. Keep
+address and TLS on `AttuneDefaults`:
 
 ```yaml
 apiVersion: attune.io/v1alpha1
@@ -204,9 +214,12 @@ Prefer a proper CA over `insecureSkipVerify` when you have the service CA
 bundle. NetworkPolicy egress includes port 9091 when OpenShift integration
 or `bindClusterMonitoringView` is on.
 
-OperatorHub / OLM: bind the operator ServiceAccount after install, then
-set the same flag on the operator Deployment (or wait for a CSV that
-defaults it):
+OperatorHub / OLM: the query ServiceAccount, `serviceaccounts/token`
+Role, and `bindClusterMonitoringView` templates are Helm-only today.
+Bind `cluster-monitoring-view` to a dedicated query SA if you can, or to
+the operator ServiceAccount, then set `--prometheus-use-service-account-token`
+on the operator Deployment. If you use the manager SA, Thanos receives
+the manager token (the Helm query-SA path avoids that):
 
 ```bash
 oc adm policy add-cluster-role-to-user cluster-monitoring-view \
