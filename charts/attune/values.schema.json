@@ -984,7 +984,7 @@
         "useServiceAccountToken": {
           "type": "boolean",
           "default": false,
-          "description": "Send the manager ServiceAccount token as Prometheus bearer auth when a policy does not set bearerTokenSecret"
+          "description": "Send operator Prometheus bearer auth for addresses from cluster AttuneDefaults. Not used for policy or namespace-defaults addresses, auto-discovery, or when Authorization headers are already set."
         },
         "existingSecret": {
           "type": "object",

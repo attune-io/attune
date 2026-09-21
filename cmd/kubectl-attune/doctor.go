@@ -23,6 +23,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -312,7 +313,7 @@ func runDoctorChecksFull(ctx context.Context, disc discovery.DiscoveryInterface,
 			continue
 		}
 		if err := ping(ctx, addr); err != nil {
-			if (tgt.hasAuth || operatorAuth) && pingAuthFailure(err) {
+			if (tgt.hasAuth || (operatorAuth && operatorAuthAddress(objects, addr))) && pingAuthFailure(err) {
 				skippedAuth = append(skippedAuth, addr)
 				continue
 			}
@@ -543,13 +544,115 @@ func detectManagerPrometheusOperatorAuth(ctx context.Context, kubeconfigPath str
 }
 
 func argsHavePrometheusOperatorAuth(args []string) bool {
-	for _, a := range args {
-		if a == "--prometheus-use-service-account-token" ||
-			strings.HasPrefix(a, "--prometheus-bearer-token-secret=") {
-			return true
+	for i := 0; i < len(args); i++ {
+		if enabled, next, ok := serviceAccountTokenArg(args, i); ok {
+			if enabled {
+				return true
+			}
+			i = next
+			continue
+		}
+		if value, next, ok := stringFlagValue(args, i, "--prometheus-bearer-token-secret"); ok {
+			if strings.TrimSpace(value) != "" {
+				return true
+			}
+			i = next
+			continue
+		}
+		if value, next, ok := stringFlagValue(args, i, "--prometheus-query-service-account"); ok {
+			if strings.TrimSpace(value) != "" {
+				return true
+			}
+			i = next
 		}
 	}
 	return false
+}
+
+func serviceAccountTokenArg(args []string, i int) (enabled bool, next int, ok bool) {
+	const name = "--prometheus-use-service-account-token"
+	a := args[i]
+	if a == name {
+		if i+1 < len(args) {
+			if v, err := strconv.ParseBool(args[i+1]); err == nil {
+				return v, i + 1, true
+			}
+		}
+		return true, i, true
+	}
+	if !strings.HasPrefix(a, name+"=") {
+		return false, i, false
+	}
+	v, err := strconv.ParseBool(strings.TrimPrefix(a, name+"="))
+	if err != nil {
+		return false, i, true
+	}
+	return v, i, true
+}
+
+func stringFlagValue(args []string, i int, name string) (string, int, bool) {
+	a := args[i]
+	if strings.HasPrefix(a, name+"=") {
+		return strings.TrimPrefix(a, name+"="), i, true
+	}
+	if a != name {
+		return "", i, false
+	}
+	if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+		return args[i+1], i + 1, true
+	}
+	return "", i, true
+}
+
+// operatorAuthAddress reports whether the operator would attach its own
+// Prometheus credentials to addr. The pick matches fetchDefaults: the
+// lexicographically smallest cluster AttuneDefaults, and the smallest
+// AttuneNamespaceDefaults in each namespace. An address on a policy or on
+// that selected namespace object does not get operator auth.
+func operatorAuthAddress(objects []unstructured.Unstructured, addr string) bool {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return false
+	}
+	type namedAddr struct {
+		name string
+		addr string
+	}
+	policyAddrs := map[string]struct{}{}
+	nsPick := map[string]namedAddr{}
+	var cluster *namedAddr
+	for i := range objects {
+		obj := objects[i]
+		objAddr := strings.TrimSpace(getNestedString(obj, "spec", "metricsSource", "prometheus", "address"))
+		switch obj.GetKind() {
+		case "AttunePolicy":
+			if objAddr != "" {
+				policyAddrs[objAddr] = struct{}{}
+			}
+		case "AttuneNamespaceDefaults":
+			cur, ok := nsPick[obj.GetNamespace()]
+			if !ok || obj.GetName() < cur.name {
+				nsPick[obj.GetNamespace()] = namedAddr{name: obj.GetName(), addr: objAddr}
+			}
+		case "AttuneDefaults":
+			if cluster == nil || obj.GetName() < cluster.name {
+				picked := namedAddr{name: obj.GetName(), addr: objAddr}
+				cluster = &picked
+			}
+		}
+	}
+	if cluster == nil || cluster.addr != addr {
+		return false
+	}
+	if _, blocked := policyAddrs[addr]; blocked {
+		return false
+	}
+	for _, picked := range nsPick {
+		if picked.addr == addr {
+			return false
+		}
+	}
+	return true
 }
 
 func runDoctor(ctx context.Context, stdout, stderr io.Writer, disc discovery.DiscoveryInterface, nodes cluster.NodeLister, dynClient dynamic.Interface, namespace string, ping prometheusPinger, operatorAuth bool) int {

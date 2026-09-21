@@ -202,9 +202,9 @@ type AttunePolicyReconciler struct {
 	// Capabilities is the process-start cluster feature set. Optional; tests
 	// may leave it nil and set AllowInPlaceMemoryLimitDecrease only.
 	Capabilities *cluster.Capabilities
-	// PrometheusUseServiceAccountToken sends the manager ServiceAccount
-	// token as Prometheus bearer auth when the resolved config has no
-	// bearerTokenSecret.
+	// PrometheusUseServiceAccountToken sends operator bearer auth only for
+	// an address taken from cluster AttuneDefaults, and only when resolved
+	// headers do not already include Authorization.
 	PrometheusUseServiceAccountToken bool
 	// OperatorNamespace is where PrometheusBearerTokenSecretName is read.
 	// Empty uses POD_NAMESPACE. There is no attune-system fallback.
@@ -368,7 +368,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Merge defaults into the policy. Namespace-scoped defaults take precedence,
 	// and defaults lookup failures fail closed rather than silently falling back
 	// to another scope.
-	defaults, err := r.fetchDefaults(ctx, policy.Namespace)
+	defaults, namespaceSetAddress, err := r.fetchDefaultsForAuth(ctx, policy.Namespace)
 	if err != nil {
 		logger.Error(err, "Failed to fetch defaults")
 		operatormetrics.ReconcileErrorsTotal.WithLabelValues("fetch_defaults").Inc()
@@ -377,7 +377,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
 	promAuth := prometheusAuthFromUnmerged(&policy)
-	promAuth.namespaceSetAddress = r.namespaceHasPrometheusAddress(ctx, policy.Namespace)
+	promAuth.namespaceSetAddress = namespaceSetAddress
 	r.mergeDefaults(&policy, defaults)
 	r.applyBuiltInDefaults(&policy)
 	r.warnConfigClamping(&policy)

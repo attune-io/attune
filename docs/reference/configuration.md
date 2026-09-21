@@ -196,8 +196,8 @@ Cluster-wide credentials belong on the operator. A policy
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `prometheusAuth.useServiceAccountToken` | bool | `false` | Send the manager ServiceAccount token as Prometheus bearer auth when the policy does not set `bearerTokenSecret` (`--prometheus-use-service-account-token`). |
-| `prometheusAuth.existingSecret.name` | string | `""` | Secret in the **operator** namespace (`--prometheus-bearer-token-secret`). Empty disables. |
+| `prometheusAuth.useServiceAccountToken` | bool | `false` | Send operator Prometheus bearer auth for addresses from cluster `AttuneDefaults`. Not used for policy or namespace-defaults addresses, auto-discovery, or when `Authorization` headers are already set (`--prometheus-use-service-account-token`). |
+| `prometheusAuth.existingSecret.name` | string | `""` | Secret in the **operator** namespace (`--prometheus-bearer-token-secret`). Same address rules as `useServiceAccountToken`. Empty disables. A policy-set `bearerTokenSecret` is read in the policy namespace and does not fall back. An inherited cluster name falls back only on NotFound. |
 | `prometheusAuth.existingSecret.key` | string | `token` | Key in that Secret (`--prometheus-bearer-token-key`). |
 | `prometheusAuth.queryServiceAccount.create` | bool | `false` | Create a dedicated query ServiceAccount and TokenRequest it instead of the manager token (`--prometheus-query-service-account`). |
 | `prometheusAuth.queryServiceAccount.name` | string | `""` | Query SA name. Empty uses `<release>-prometheus-query` when create is true. |

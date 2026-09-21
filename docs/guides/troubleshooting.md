@@ -224,8 +224,10 @@ address and TLS on `AttuneDefaults`. See
 and does not prove the operator cannot reach an in-cluster address.
 A 401 or 403 on an address that sets `bearerTokenSecret` or custom
 `headers` is skipped the same way: doctor does not send those credentials.
-Doctor also does not send the operator ServiceAccount token or
-`prometheusAuth.existingSecret`.
+Doctor also skips 401/403 for operator auth only when that address comes
+from the selected cluster `AttuneDefaults` and the manager is configured
+to send it. A policy or namespace-defaults address still warns. Doctor
+does not send the token itself.
 
 **Cause**: Not enough Prometheus data points to generate recommendations.
 The default minimum is 48 Prometheus range-query samples. With the default

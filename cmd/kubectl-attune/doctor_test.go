@@ -387,20 +387,40 @@ func TestRunDoctorChecks_PrometheusOptional(t *testing.T) {
 func TestArgsHavePrometheusOperatorAuth(t *testing.T) {
 	t.Parallel()
 	assert.True(t, argsHavePrometheusOperatorAuth([]string{"--leader-elect", "--prometheus-use-service-account-token"}))
+	assert.True(t, argsHavePrometheusOperatorAuth([]string{"--prometheus-use-service-account-token=true"}))
+	assert.False(t, argsHavePrometheusOperatorAuth([]string{"--prometheus-use-service-account-token=false"}))
 	assert.True(t, argsHavePrometheusOperatorAuth([]string{"--prometheus-bearer-token-secret=attune-thanos-token"}))
+	assert.True(t, argsHavePrometheusOperatorAuth([]string{"--prometheus-bearer-token-secret", "attune-thanos-token"}))
+	assert.False(t, argsHavePrometheusOperatorAuth([]string{"--prometheus-bearer-token-secret="}))
+	assert.True(t, argsHavePrometheusOperatorAuth([]string{"--prometheus-query-service-account=attune-prometheus-query"}))
+	assert.True(t, argsHavePrometheusOperatorAuth([]string{"--prometheus-query-service-account", "attune-prometheus-query"}))
 	assert.False(t, argsHavePrometheusOperatorAuth([]string{"--leader-elect"}))
+}
+
+func doctorObject(kind, name, namespace, address string) unstructured.Unstructured {
+	meta := map[string]interface{}{"name": name}
+	if namespace != "" {
+		meta["namespace"] = namespace
+	}
+	obj := map[string]interface{}{
+		"apiVersion": "attune.io/v1alpha1",
+		"kind":       kind,
+		"metadata":   meta,
+	}
+	if address != "" {
+		obj["spec"] = map[string]interface{}{
+			"metricsSource": map[string]interface{}{
+				"prometheus": map[string]interface{}{"address": address},
+			},
+		}
+	}
+	return unstructured.Unstructured{Object: obj}
 }
 
 func TestRunDoctorChecks_OperatorAuth401Skip(t *testing.T) {
 	t.Parallel()
 	disc := resizeDiscovery("1", "32", true)
-	obj := unstructured.Unstructured{Object: map[string]interface{}{
-		"spec": map[string]interface{}{
-			"metricsSource": map[string]interface{}{
-				"prometheus": map[string]interface{}{"address": "https://thanos.example:9091"},
-			},
-		},
-	}}
+	obj := doctorObject("AttuneDefaults", "cluster", "", "https://thanos.example:9091")
 	results := runDoctorChecksFull(context.Background(), disc, nil, []unstructured.Unstructured{obj}, nil, func(context.Context, string) error {
 		return &httpStatusError{status: 401, url: "https://thanos.example:9091/-/healthy"}
 	}, true)
@@ -408,6 +428,39 @@ func TestRunDoctorChecks_OperatorAuth401Skip(t *testing.T) {
 	require.False(t, prom.ok)
 	assert.Contains(t, prom.detail, "401")
 	assert.Contains(t, prom.detail, "operator Prometheus auth")
+	assert.False(t, doctorFailed(results))
+}
+
+func TestRunDoctorChecks_OperatorAuthDoesNotSkipPolicyAddress(t *testing.T) {
+	t.Parallel()
+	disc := resizeDiscovery("1", "32", true)
+	policy := doctorObject("AttunePolicy", "app", "vpa-test", "https://thanos.example:9091")
+	cluster := doctorObject("AttuneDefaults", "cluster", "", "https://thanos.example:9091")
+	results := runDoctorChecksFull(context.Background(), disc, nil, []unstructured.Unstructured{policy, cluster}, nil, func(context.Context, string) error {
+		return &httpStatusError{status: 401, url: "https://thanos.example:9091/-/healthy"}
+	}, true)
+	prom := doctorNamed(results, "Prometheus")
+	require.False(t, prom.ok)
+	assert.Contains(t, prom.detail, "GET ")
+	assert.NotContains(t, prom.detail, "operator Prometheus auth")
+	assert.False(t, doctorFailed(results))
+}
+
+func TestRunDoctorChecks_OperatorAuthDoesNotSkipUnselectedAddress(t *testing.T) {
+	t.Parallel()
+	disc := resizeDiscovery("1", "32", true)
+	selected := doctorObject("AttuneDefaults", "aaa", "", "https://thanos.example:9091")
+	unselected := doctorObject("AttuneDefaults", "zzz", "", "https://unused.example:9090")
+	nsSelected := doctorObject("AttuneNamespaceDefaults", "aaa-overrides", "vpa-test", "")
+	nsUnused := doctorObject("AttuneNamespaceDefaults", "zzz-unused", "vpa-test", "https://unused.example:9090")
+	results := runDoctorChecksFull(context.Background(), disc, nil, []unstructured.Unstructured{selected, unselected, nsSelected, nsUnused}, nil, func(_ context.Context, addr string) error {
+		return &httpStatusError{status: 401, url: addr + "/-/healthy"}
+	}, true)
+	prom := doctorNamed(results, "Prometheus")
+	require.False(t, prom.ok)
+	assert.Contains(t, prom.detail, "https://unused.example:9090")
+	assert.Contains(t, prom.detail, "GET ")
+	assert.NotContains(t, prom.detail, "operator Prometheus auth")
 	assert.False(t, doctorFailed(results))
 }
 

@@ -793,20 +793,6 @@ type prometheusAuthContext struct {
 	addressDiscovered   bool
 }
 
-func (r *AttunePolicyReconciler) namespaceHasPrometheusAddress(ctx context.Context, namespace string) bool {
-	var nsList attunev1alpha1.AttuneNamespaceDefaultsList
-	if err := r.List(ctx, &nsList, client.InNamespace(namespace)); err != nil {
-		return true
-	}
-	for i := range nsList.Items {
-		ms := nsList.Items[i].Spec.MetricsSource
-		if ms != nil && ms.Prometheus != nil && ms.Prometheus.Address != "" {
-			return true
-		}
-	}
-	return false
-}
-
 func prometheusAuthFromUnmerged(policy *attunev1alpha1.AttunePolicy) prometheusAuthContext {
 	if policy == nil {
 		return prometheusAuthContext{}

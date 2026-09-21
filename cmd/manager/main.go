@@ -147,12 +147,12 @@ func main() {
 	flag.BoolVar(&prometheusUseServiceAccountToken, "prometheus-use-service-account-token", false,
 		"When true, send operator Prometheus bearer auth for addresses from cluster AttuneDefaults (not policy, namespace defaults, or auto-discovery, and not when Authorization headers are already set).")
 	flag.StringVar(&prometheusBearerTokenSecretName, "prometheus-bearer-token-secret", "",
-		"Name of a Secret in the operator namespace for cluster-wide Prometheus bearer auth. Used only when the policy did not set bearerTokenSecret.")
+		"Name of a Secret in the operator namespace. Sent as Prometheus bearer auth only for an address taken from cluster AttuneDefaults, when resolved headers do not already include Authorization. A policy-set bearerTokenSecret is read in the policy namespace and does not fall back. An inherited cluster name falls back only when that Secret is NotFound.")
 	flag.StringVar(&prometheusBearerTokenSecretKey, "prometheus-bearer-token-key", "token",
 		"Key in --prometheus-bearer-token-secret that holds the bearer token.")
 	var prometheusQueryServiceAccount string
 	flag.StringVar(&prometheusQueryServiceAccount, "prometheus-query-service-account", "",
-		"When set with --prometheus-use-service-account-token, TokenRequest this ServiceAccount in the operator namespace instead of the manager projected token.")
+		"TokenRequest this ServiceAccount in the operator namespace instead of the manager projected token. Enables operator Prometheus bearer auth with the same address rules as --prometheus-use-service-account-token.")
 	flag.BoolVar(&fleetReportEnabled, "fleet-report-enabled", false,
 		"When true, periodically write a versioned fleet summary ConfigMap for multi-cluster collectors.")
 	flag.StringVar(&fleetReportNamespace, "fleet-report-namespace", "",

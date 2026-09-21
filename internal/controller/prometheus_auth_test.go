@@ -34,9 +34,7 @@ import (
 	kubefake "k8s.io/client-go/kubernetes/fake"
 	clienttesting "k8s.io/client-go/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	rsmetrics "github.com/attune-io/attune/internal/metrics"
@@ -481,30 +479,119 @@ func TestBuildCollectorOptions_DiscoveredAddressDoesNotGetOperatorToken(t *testi
 	}
 }
 
-func TestNamespaceHasPrometheusAddress(t *testing.T) {
-	nsDef := &attunev1alpha1.AttuneNamespaceDefaults{
-		ObjectMeta: metav1.ObjectMeta{Name: "team", Namespace: "vpa-test"},
+func TestFetchDefaultsForAuth_UsesSelectedNamespaceObject(t *testing.T) {
+	selectedQuiet := &attunev1alpha1.AttuneNamespaceDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "aaa-overrides", Namespace: "vpa-test"},
+	}
+	unselected := &attunev1alpha1.AttuneNamespaceDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "zzz-unused", Namespace: "vpa-test"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{Address: "http://unused-prom:9090"},
+			},
+		},
+	}
+	r := newReconcilerWithClient(selectedQuiet, unselected)
+	_, set, err := r.fetchDefaultsForAuth(context.Background(), "vpa-test")
+	require.NoError(t, err)
+	assert.False(t, set)
+	_, set, err = r.fetchDefaultsForAuth(context.Background(), "other")
+	require.NoError(t, err)
+	assert.False(t, set)
+
+	selectedAddr := selectedQuiet.DeepCopy()
+	selectedAddr.Spec.MetricsSource = &attunev1alpha1.MetricsSource{
+		Prometheus: &attunev1alpha1.PrometheusConfig{Address: "http://team-prom:9090"},
+	}
+	r = newReconcilerWithClient(selectedAddr, unselected)
+	_, set, err = r.fetchDefaultsForAuth(context.Background(), "vpa-test")
+	require.NoError(t, err)
+	assert.True(t, set)
+}
+
+func TestReconcile_UnselectedNamespaceDefaultsDoesNotBlockOperatorToken(t *testing.T) {
+	policy := newTestPolicy("app-policy", "vpa-test")
+	policy.Spec.MetricsSource.Prometheus = nil
+	cluster := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{Address: "http://prometheus:9090"},
+			},
+		},
+	}
+	selected := &attunev1alpha1.AttuneNamespaceDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "aaa-overrides", Namespace: "vpa-test"},
+	}
+	unselected := &attunev1alpha1.AttuneNamespaceDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "zzz-unused", Namespace: "vpa-test"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{Address: "http://unused-prom:9090"},
+			},
+		},
+	}
+	mc := &mockCollector{}
+	var gotToken string
+	reconciler, _ := newReconcilerForReconcile(mc, policy, cluster, selected, unselected)
+	reconciler.PrometheusUseServiceAccountToken = true
+	reconciler.readServiceAccountTokenFn = func() (string, error) {
+		return "sa-token", nil
+	}
+	reconciler.MetricsFactory = func(_ string, opts *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
+		if opts != nil {
+			gotToken = opts.BearerToken
+		}
+		return mc, nil
+	}
+	_, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "app-policy", Namespace: "vpa-test"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "sa-token", gotToken)
+}
+
+func TestReconcile_SelectedNamespaceDefaultsAddressDoesNotGetOperatorToken(t *testing.T) {
+	policy := newTestPolicy("app-policy", "vpa-test")
+	policy.Spec.MetricsSource.Prometheus = nil
+	cluster := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{Address: "http://prometheus:9090"},
+			},
+		},
+	}
+	selected := &attunev1alpha1.AttuneNamespaceDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "aaa-overrides", Namespace: "vpa-test"},
 		Spec: attunev1alpha1.AttuneDefaultsSpec{
 			MetricsSource: &attunev1alpha1.MetricsSource{
 				Prometheus: &attunev1alpha1.PrometheusConfig{Address: "http://team-prom:9090"},
 			},
 		},
 	}
-	r := newReconcilerWithClient(nsDef)
-	assert.True(t, r.namespaceHasPrometheusAddress(context.Background(), "vpa-test"))
-	assert.False(t, r.namespaceHasPrometheusAddress(context.Background(), "other"))
-}
-
-func TestNamespaceHasPrometheusAddress_ListErrorFailsClosed(t *testing.T) {
-	scheme := testScheme()
-	r := NewAttunePolicyReconciler()
-	r.Scheme = scheme
-	r.Client = fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(interceptor.Funcs{
-		List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
-			return fmt.Errorf("list failed")
-		},
-	}).Build()
-	assert.True(t, r.namespaceHasPrometheusAddress(context.Background(), "vpa-test"))
+	unselected := &attunev1alpha1.AttuneNamespaceDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "zzz-unused", Namespace: "vpa-test"},
+	}
+	mc := &mockCollector{}
+	var gotToken string
+	reconciler, _ := newReconcilerForReconcile(mc, policy, cluster, selected, unselected)
+	reconciler.PrometheusUseServiceAccountToken = true
+	reconciler.readServiceAccountTokenFn = func() (string, error) {
+		t.Fatal("operator token must not be sent to the selected namespace-defaults address")
+		return "sa-token", nil
+	}
+	reconciler.MetricsFactory = func(_ string, opts *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
+		if opts != nil {
+			gotToken = opts.BearerToken
+		}
+		return mc, nil
+	}
+	_, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "app-policy", Namespace: "vpa-test"},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, gotToken)
 }
 
 func TestReconcile_NamespaceDefaultsAddressDoesNotGetOperatorToken(t *testing.T) {

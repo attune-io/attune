@@ -41,11 +41,20 @@ import (
 // If multiple defaults objects exist at the same scope, selection is
 // deterministic: the lexicographically smallest metadata.name wins.
 func (r *AttunePolicyReconciler) fetchDefaults(ctx context.Context, namespace string) (*attunev1alpha1.AttuneDefaults, error) {
+	effective, _, err := r.fetchDefaultsForAuth(ctx, namespace)
+	return effective, err
+}
+
+// fetchDefaultsForAuth returns effective defaults and whether the selected
+// AttuneNamespaceDefaults set a Prometheus address. Both come from this
+// list so operator auth follows the address that was merged.
+func (r *AttunePolicyReconciler) fetchDefaultsForAuth(ctx context.Context, namespace string) (*attunev1alpha1.AttuneDefaults, bool, error) {
 	var nsList attunev1alpha1.AttuneNamespaceDefaultsList
 	if err := r.List(ctx, &nsList, client.InNamespace(namespace)); err != nil {
-		return nil, fmt.Errorf("listing AttuneNamespaceDefaults in %s: %w", namespace, err)
+		return nil, false, fmt.Errorf("listing AttuneNamespaceDefaults in %s: %w", namespace, err)
 	}
 	var nsDefaults *attunev1alpha1.AttuneDefaults
+	namespaceSetAddress := false
 	if len(nsList.Items) > 0 {
 		picked := nsList.Items[0]
 		for i := 1; i < len(nsList.Items); i++ {
@@ -53,6 +62,7 @@ func (r *AttunePolicyReconciler) fetchDefaults(ctx context.Context, namespace st
 				picked = nsList.Items[i]
 			}
 		}
+		namespaceSetAddress = metricsSourceHasPrometheusAddress(picked.Spec.MetricsSource)
 		nsDefaults = &attunev1alpha1.AttuneDefaults{
 			ObjectMeta: picked.ObjectMeta,
 			Spec:       picked.Spec,
@@ -61,7 +71,7 @@ func (r *AttunePolicyReconciler) fetchDefaults(ctx context.Context, namespace st
 
 	var clusterList attunev1alpha1.AttuneDefaultsList
 	if err := r.List(ctx, &clusterList); err != nil {
-		return nil, fmt.Errorf("listing AttuneDefaults: %w", err)
+		return nil, false, fmt.Errorf("listing AttuneDefaults: %w", err)
 	}
 	var clusterDefaults *attunev1alpha1.AttuneDefaults
 	if len(clusterList.Items) > 0 {
@@ -73,7 +83,11 @@ func (r *AttunePolicyReconciler) fetchDefaults(ctx context.Context, namespace st
 		}
 	}
 
-	return pkgdefaults.CombineDefaultsLayers(clusterDefaults, nsDefaults), nil
+	return pkgdefaults.CombineDefaultsLayers(clusterDefaults, nsDefaults), namespaceSetAddress, nil
+}
+
+func metricsSourceHasPrometheusAddress(ms *attunev1alpha1.MetricsSource) bool {
+	return ms != nil && ms.Prometheus != nil && ms.Prometheus.Address != ""
 }
 
 // applyBuiltInDefaults fills strategy and metrics fields still unset after
