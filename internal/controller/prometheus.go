@@ -1134,7 +1134,7 @@ func (r *AttunePolicyReconciler) resolveDatadogAPIKey(ctx context.Context, polic
 		return r.readDatadogSecretKeys(ctx, ns, r.DatadogAPIKeySecretName, key)
 	}
 	if dd.APIKeySecretRef == nil || dd.APIKeySecretRef.Name == "" || dd.APIKeySecretRef.Key == "" {
-		return "", "", fmt.Errorf("cannot read Datadog API key: apiKeySecretRef is required unless --datadog-api-key-secret is set for a cluster AttuneDefaults Datadog block")
+		return "", "", fmt.Errorf("cannot read Datadog API key: apiKeySecretRef name and key are required")
 	}
 	return r.readDatadogSecretKeys(ctx, policy.Namespace, dd.APIKeySecretRef.Name, dd.APIKeySecretRef.Key)
 }

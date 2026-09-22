@@ -126,9 +126,9 @@ func TestDefaultsValidator_DatadogWithoutAPIKeyRef(t *testing.T) {
 			},
 		},
 	}
-	warnings, err := v.ValidateCreate(context.Background(), defaults)
-	require.NoError(t, err)
-	assert.NotContains(t, warnings, DeprecatedClusterDatadogAPIKeyWarning)
+	_, err := v.ValidateCreate(context.Background(), defaults)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "apiKeySecretRef.name is required")
 }
 
 func TestNamespaceDefaultsValidator_DatadogRequiresAPIKeyRef(t *testing.T) {

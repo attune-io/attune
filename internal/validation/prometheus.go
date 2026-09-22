@@ -38,8 +38,9 @@ var reservedPrometheusQueryParameters = map[string]struct{}{
 // metadata targets. Cluster-private addresses stay allowed.
 //
 // DNS names are not resolved here. The operator dialer checks the
-// resolved address. localhost stays allowed so kubectl attune doctor
-// can reach a port-forward.
+// resolved address with GitOpsAlwaysBlockedIP, the shared dial
+// blocklist. localhost stays allowed so kubectl attune doctor can
+// reach a port-forward.
 func PrometheusAddress(address string) error {
 	parsed, err := url.Parse(address)
 	if err != nil {
@@ -61,26 +62,15 @@ func PrometheusAddress(address string) error {
 
 	hostname := strings.TrimSuffix(parsed.Hostname(), ".")
 
-	// Block cloud metadata endpoints (hostnames and IPs).
-	blockedHosts := []string{
-		"metadata.google.internal",
-		"metadata.goog",
-		"metadata.internal",
-		"instance-data.ec2.internal",
-		"169.254.169.254",
-		"100.100.100.200",
-	}
-	lowerHost := strings.ToLower(hostname)
-	for _, blocked := range blockedHosts {
-		if lowerHost == blocked {
-			return fmt.Errorf("address must not target cloud metadata endpoint %q", hostname)
-		}
+	// Metadata hostnames come from GitOpsBlockedHost. localhost stays
+	// allowed so kubectl attune doctor can reach a port-forward.
+	// Literal and resolved IPs use GitOpsAlwaysBlockedIP, which the
+	// Prometheus dialer calls after DNS. Private ranges stay allowed.
+	if !strings.EqualFold(hostname, "localhost") && GitOpsBlockedHost(hostname) {
+		return fmt.Errorf("address must not target cloud metadata endpoint %q", hostname)
 	}
 
-	// Block loopback and link-local IPs (cloud metadata lives at 169.254.169.254).
-	// Private IPs (10.x, 172.16.x, 192.168.x) are NOT blocked because Prometheus
-	// typically runs on a ClusterIP service inside the cluster.
-	// hostIP also accepts inet_aton literals that net.ParseIP misses.
+	// hostIP accepts inet_aton forms that net.ParseIP misses.
 	if ip := hostIP(hostname); ip != nil && GitOpsAlwaysBlockedIP(ip) {
 		return fmt.Errorf("address must not target loopback/metadata IP %q", hostname)
 	}

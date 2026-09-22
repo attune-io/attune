@@ -57,6 +57,11 @@ func parseIPv4Literal(host string) net.IP {
 	var acc uint64
 	switch len(nums) {
 	case 1:
+		// inet_aton rejects a single value that does not fit in 32 bits.
+		// Masking first would turn 2^32+127.0.0.1 into 127.0.0.1.
+		if nums[0] > 0xffffffff {
+			return nil
+		}
 		acc = nums[0]
 	case 2:
 		if nums[0] > 0xff || nums[1] > 0xffffff {
@@ -74,7 +79,10 @@ func parseIPv4Literal(host string) net.IP {
 		}
 		acc = nums[0]<<24 | nums[1]<<16 | nums[2]<<8 | nums[3]
 	}
-	b0, ok0 := fitByte((acc >> 24) & 0xff)
+	if acc > 0xffffffff {
+		return nil
+	}
+	b0, ok0 := fitByte(acc >> 24)
 	b1, ok1 := fitByte((acc >> 16) & 0xff)
 	b2, ok2 := fitByte((acc >> 8) & 0xff)
 	b3, ok3 := fitByte(acc & 0xff)
@@ -84,6 +92,7 @@ func parseIPv4Literal(host string) net.IP {
 	return net.IPv4(b0, b1, b2, b3).To4()
 }
 
+// fitByte converts n to a byte. Values above 255 are rejected.
 func fitByte(n uint64) (byte, bool) {
 	if n > 0xff {
 		return 0, false

@@ -162,9 +162,15 @@ func TestGitOpsAlwaysBlockedIP(t *testing.T) {
 	assert.True(t, GitOpsAlwaysBlockedIP(net.ParseIP("127.0.0.1")))
 	assert.True(t, GitOpsAlwaysBlockedIP(net.ParseIP("169.254.169.254")))
 	assert.True(t, GitOpsAlwaysBlockedIP(net.ParseIP("::1")))
+	assert.True(t, GitOpsAlwaysBlockedIP(net.ParseIP("fe80::1")))
+	assert.True(t, GitOpsAlwaysBlockedIP(net.ParseIP("0.0.0.0")))
 	assert.True(t, GitOpsAlwaysBlockedIP(net.ParseIP("fd00:ec2::254")), "AWS IPv6 IMDS")
+	assert.True(t, GitOpsAlwaysBlockedIP(net.ParseIP("100.100.100.200")), "Alibaba IMDS")
+	assert.True(t, GitOpsAlwaysBlockedIP(net.ParseIP("::ffff:100.100.100.200")), "Alibaba IMDS v4-mapped")
 	assert.False(t, GitOpsAlwaysBlockedIP(net.ParseIP("10.0.0.1")))
+	assert.False(t, GitOpsAlwaysBlockedIP(net.ParseIP("172.16.0.1")))
 	assert.False(t, GitOpsAlwaysBlockedIP(net.ParseIP("8.8.8.8")))
+	assert.False(t, GitOpsAlwaysBlockedIP(net.ParseIP("fd00::1")), "other ULA stays allowed for Prometheus")
 }
 
 func TestPrometheusAddress_StillAllowsPrivate(t *testing.T) {

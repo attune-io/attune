@@ -61,7 +61,7 @@ func (v *AttuneDefaultsValidator) ValidateDelete(_ context.Context, _ *attunev1a
 }
 
 func (v *AttuneDefaultsValidator) validate(defaults *attunev1alpha1.AttuneDefaults) (admission.Warnings, error) {
-	w, err := validateDefaultsSpec(defaults.Spec, false)
+	w, err := validateDefaultsSpec(defaults.Spec)
 	if err != nil {
 		return w, err
 	}
@@ -103,7 +103,7 @@ const DeprecatedClusterGitOpsTokenWarning = "updateStrategy.export.pullRequest.t
 func (v *AttuneNamespaceDefaultsValidator) ValidateCreate(_ context.Context, defaults *attunev1alpha1.AttuneNamespaceDefaults) (admission.Warnings, error) {
 	timer := operatormetrics.NewWebhookTimer("namespace_defaults_validate_create")
 	defer timer.Observe()
-	w, err := validateDefaultsSpec(defaults.Spec, true)
+	w, err := validateDefaultsSpec(defaults.Spec)
 	timer.RecordResult(err)
 	return w, err
 }
@@ -112,7 +112,7 @@ func (v *AttuneNamespaceDefaultsValidator) ValidateCreate(_ context.Context, def
 func (v *AttuneNamespaceDefaultsValidator) ValidateUpdate(_ context.Context, _, defaults *attunev1alpha1.AttuneNamespaceDefaults) (admission.Warnings, error) {
 	timer := operatormetrics.NewWebhookTimer("namespace_defaults_validate_update")
 	defer timer.Observe()
-	w, err := validateDefaultsSpec(defaults.Spec, true)
+	w, err := validateDefaultsSpec(defaults.Spec)
 	timer.RecordResult(err)
 	return w, err
 }
@@ -122,11 +122,11 @@ func (v *AttuneNamespaceDefaultsValidator) ValidateDelete(_ context.Context, _ *
 	return nil, nil
 }
 
-func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec, requireDatadogSecret bool) (admission.Warnings, error) {
+func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec) (admission.Warnings, error) {
 	if err := exclusiveMetricsProviderError(spec.MetricsSource); err != nil {
 		return nil, err
 	}
-	if err := validateMetricsSourceProviderFields(spec.MetricsSource, requireDatadogSecret); err != nil {
+	if err := validateMetricsSourceProviderFields(spec.MetricsSource); err != nil {
 		return nil, err
 	}
 
