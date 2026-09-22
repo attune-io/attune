@@ -6,6 +6,22 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.31](https://github.com/attune-io/attune/compare/v0.1.30...v0.1.31) (2026-09-22)
+
+
+### Features
+
+* operator datadog key and olm query serviceaccount ([#841](https://github.com/attune-io/attune/issues/841)) ([8e55483](https://github.com/attune-io/attune/commit/8e55483a4bc9d142a650883e94d2dec5ceff4a98)), closes [#836](https://github.com/attune-io/attune/issues/836) [#839](https://github.com/attune-io/attune/issues/839)
+* operator prometheus identity for cluster-wide auth ([#828](https://github.com/attune-io/attune/issues/828)) ([8beea77](https://github.com/attune-io/attune/commit/8beea7759d09196d4a390127f7544db1bd077c6a))
+
+
+### Bug Fixes
+
+* block rebinding onto the alibaba metadata address ([#848](https://github.com/attune-io/attune/issues/848)) ([7fb4119](https://github.com/attune-io/attune/commit/7fb41191c733041ae69a014ca8b8873a4c9e1063))
+* keep a cached query token when refresh fails ([#843](https://github.com/attune-io/attune/issues/843)) ([6d20d1f](https://github.com/attune-io/attune/commit/6d20d1fb5d8417c9c0ef1024dcdb65b4a90c6ecb))
+* publish the clamped recommendation confidence ([#846](https://github.com/attune-io/attune/issues/846)) ([7f1bd46](https://github.com/attune-io/attune/commit/7f1bd4671022c94d00c6b4c086f3a9392887087a))
+* reject non-canonical loopback and metadata addresses ([#845](https://github.com/attune-io/attune/issues/845)) ([4acf81b](https://github.com/attune-io/attune/commit/4acf81bc99319a2377a76a5ffa85b4e890dc45f3))
+
 ## [0.1.30](https://github.com/attune-io/attune/compare/v0.1.29...v0.1.30) (2026-09-20)
 
 
