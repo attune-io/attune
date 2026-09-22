@@ -20,7 +20,6 @@ package validation
 
 import (
 	"fmt"
-	"net"
 	"net/url"
 	"strings"
 )
@@ -35,7 +34,12 @@ var reservedPrometheusQueryParameters = map[string]struct{}{
 }
 
 // PrometheusAddress validates that the Prometheus address is a valid URL
-// with an allowed scheme and blocks SSRF against private/metadata endpoints.
+// with an allowed scheme and blocks loopback, link-local, and cloud
+// metadata targets. Cluster-private addresses stay allowed.
+//
+// DNS names are not resolved here. The operator dialer checks the
+// resolved address. localhost stays allowed so kubectl attune doctor
+// can reach a port-forward.
 func PrometheusAddress(address string) error {
 	parsed, err := url.Parse(address)
 	if err != nil {
@@ -55,14 +59,16 @@ func PrometheusAddress(address string) error {
 		return fmt.Errorf("must not include userinfo")
 	}
 
-	hostname := parsed.Hostname()
+	hostname := strings.TrimSuffix(parsed.Hostname(), ".")
 
 	// Block cloud metadata endpoints (hostnames and IPs).
 	blockedHosts := []string{
 		"metadata.google.internal",
+		"metadata.goog",
 		"metadata.internal",
 		"instance-data.ec2.internal",
 		"169.254.169.254",
+		"100.100.100.200",
 	}
 	lowerHost := strings.ToLower(hostname)
 	for _, blocked := range blockedHosts {
@@ -74,11 +80,9 @@ func PrometheusAddress(address string) error {
 	// Block loopback and link-local IPs (cloud metadata lives at 169.254.169.254).
 	// Private IPs (10.x, 172.16.x, 192.168.x) are NOT blocked because Prometheus
 	// typically runs on a ClusterIP service inside the cluster.
-	if ip := net.ParseIP(hostname); ip != nil {
-		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() ||
-			ip.IsLinkLocalMulticast() || ip.Equal(net.ParseIP("fd00:ec2::254")) {
-			return fmt.Errorf("address must not target loopback/metadata IP %q", hostname)
-		}
+	// hostIP also accepts inet_aton literals that net.ParseIP misses.
+	if ip := hostIP(hostname); ip != nil && GitOpsAlwaysBlockedIP(ip) {
+		return fmt.Errorf("address must not target loopback/metadata IP %q", hostname)
 	}
 
 	return nil
