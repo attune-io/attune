@@ -147,7 +147,7 @@ func (e *RecommendationEngine) RecommendWithExplanation(profile metrics.UsagePro
 		AfterOverhead:       afterOverhead.DeepCopy(),
 		BurstFactor:         burstFactor,
 		AfterBurst:          afterBurst.DeepCopy(),
-		Confidence:          profile.Confidence,
+		Confidence:          confidence,
 		ConfidenceFactor:    confidenceFactor,
 		AfterConfidence:     afterConfidence.DeepCopy(),
 		MinBound:            e.minBound.DeepCopy(),
