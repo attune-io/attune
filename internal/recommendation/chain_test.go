@@ -445,6 +445,26 @@ func TestRecommendationEngine_ZeroConfidenceGivesMaxBuffer(t *testing.T) {
 		"zero confidence should produce factor 2.0 (100% buffer)")
 }
 
+func TestRecommendationEngine_ConfidenceClampedToUnitInterval(t *testing.T) {
+	engine := NewEngine(
+		95, 20.0,
+		resource.MustParse("50m"), resource.MustParse("4000m"),
+		200, 200,
+		EngineOpts{IsCPU: true},
+	)
+	current := resource.MustParse("500m")
+
+	_, high, _ := engine.RecommendWithExplanation(buildRealisticCPUProfile(0.200, 1e9), current)
+	_, one, _ := engine.RecommendWithExplanation(buildRealisticCPUProfile(0.200, 1), current)
+	assert.InDelta(t, 1.0, high.ConfidenceFactor, 0.0001)
+	assert.InDelta(t, one.ConfidenceFactor, high.ConfidenceFactor, 0.0001)
+	assert.InDelta(t, 1.0, high.Confidence, 0.0001, "explanation must publish the clamped confidence")
+
+	_, neg, _ := engine.RecommendWithExplanation(buildRealisticCPUProfile(0.200, -4), current)
+	assert.InDelta(t, 0.0, neg.Confidence, 0.0001)
+	assert.InDelta(t, 2.0, neg.ConfidenceFactor, 0.0001)
+}
+
 func TestRecommendationEngine_ZeroCurrentBypassesChangeFilter(t *testing.T) {
 	// When the current allocation is 0m (container with no explicit resource
 	// requests), the change filter cannot compute a percentage change and is
