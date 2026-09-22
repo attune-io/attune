@@ -114,7 +114,10 @@ CIEOF
     git add "${OPERATOR_DIR}/"
     git commit -s -m "operator attune (${VERSION})"
 
-    # Force-push (creates or updates the branch)
+    # Force-push (creates or updates the branch).
+    # GH_TOKEN must include workflows permission. The branch is based on
+    # current upstream main, so the push includes upstream CI commits
+    # that edit .github/workflows.
     git push --force origin "${BRANCH}"
     echo "Pushed branch ${BRANCH} to ${fork_repo}"
 
