@@ -569,30 +569,58 @@ func TestEscapePromQLRegex(t *testing.T) {
 	}
 }
 
-func TestIsBlockedIP(t *testing.T) {
-	tests := []struct {
-		name    string
-		ip      string
-		blocked bool
-	}{
-		{"loopback v4", "127.0.0.1", true},
-		{"loopback v6", "::1", true},
-		{"link-local v4", "169.254.169.254", true},
-		{"link-local v6", "fe80::1", true},
-		{"unspecified", "0.0.0.0", true},
-		{"private 10.x", "10.0.0.1", false},
-		{"private 172.x", "172.16.0.1", false},
-		{"public IP", "8.8.8.8", false},
-		{"cluster IP", "10.96.0.1", false},
-		{"AWS IMDSv2 IPv6", "fd00:ec2::254", true},
-		{"other ULA", "fd00::1", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ip := net.ParseIP(tt.ip)
-			assert.Equal(t, tt.blocked, isBlockedIP(ip))
+func TestSSRFSafeTransport_BlocksResolvedMetadata(t *testing.T) {
+	orig := prometheusLookupIP
+	t.Cleanup(func() { prometheusLookupIP = orig })
+
+	rt := ssrfSafeTransport()
+	tr, ok := rt.(*http.Transport)
+	require.True(t, ok)
+	require.NotNil(t, tr.DialContext)
+
+	for _, ip := range []string{"100.100.100.200", "::ffff:100.100.100.200", "fd00:ec2::254"} {
+		t.Run(ip, func(t *testing.T) {
+			prometheusLookupIP = func(context.Context, string) ([]net.IPAddr, error) {
+				return []net.IPAddr{{IP: net.ParseIP(ip)}}, nil
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+			defer cancel()
+			_, err := tr.DialContext(ctx, "tcp", "prometheus.example:9090")
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "SSRF blocked")
 		})
 	}
+}
+
+func TestSSRFSafeTransport_EmptyResolution(t *testing.T) {
+	orig := prometheusLookupIP
+	t.Cleanup(func() { prometheusLookupIP = orig })
+	prometheusLookupIP = func(context.Context, string) ([]net.IPAddr, error) {
+		return nil, nil
+	}
+	rt := ssrfSafeTransport()
+	tr, ok := rt.(*http.Transport)
+	require.True(t, ok)
+	_, err := tr.DialContext(context.Background(), "tcp", "prometheus.example:9090")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "DNS resolution failed")
+}
+
+func TestSSRFSafeTransport_AllowsResolvedClusterIP(t *testing.T) {
+	orig := prometheusLookupIP
+	t.Cleanup(func() { prometheusLookupIP = orig })
+	prometheusLookupIP = func(context.Context, string) ([]net.IPAddr, error) {
+		return []net.IPAddr{{IP: net.ParseIP("192.0.2.1")}}, nil
+	}
+
+	rt := ssrfSafeTransport()
+	tr, ok := rt.(*http.Transport)
+	require.True(t, ok)
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	_, err := tr.DialContext(ctx, "tcp", "prometheus.example:9090")
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "SSRF blocked")
 }
 
 func TestHeaderTransport_InjectsHeadersAndBearer(t *testing.T) {

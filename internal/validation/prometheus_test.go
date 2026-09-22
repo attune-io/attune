@@ -82,6 +82,12 @@ func TestPrometheusAddress_AllowsClusterAndLocalhost(t *testing.T) {
 	assert.NoError(t, PrometheusAddress("http://prometheus.monitoring.svc:9090"))
 }
 
+func TestPrometheusAddress_InetAtonOverflowIsNotAnAddress(t *testing.T) {
+	// 6425673729 is 2^32 + 127.0.0.1. Masking to 32 bits yields loopback.
+	assert.NoError(t, PrometheusAddress("http://6425673729:9090"))
+	assert.NoError(t, PrometheusAddress("http://0x100000001:9090"))
+}
+
 func TestPrometheusAddress_BlockedLinkLocal(t *testing.T) {
 	assert.Error(t, PrometheusAddress("http://[fe80::1]:9090"))
 }

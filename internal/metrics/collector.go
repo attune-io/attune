@@ -37,6 +37,7 @@ import (
 	"github.com/prometheus/common/model"
 
 	"github.com/attune-io/attune/internal/throttle"
+	"github.com/attune-io/attune/internal/validation"
 )
 
 // Sample represents a single metric data point with a timestamp and value.
@@ -84,9 +85,11 @@ func (c *PrometheusCollector) Close() error {
 }
 
 // ssrfSafeTransport returns an http.RoundTripper that resolves hostnames
-// and validates the resolved IP against SSRF blocklists before connecting.
-// This defeats DNS rebinding attacks where a hostname initially resolves
-// to a legitimate IP but switches to a metadata endpoint during the TTL gap.
+// and rejects any address validation.GitOpsAlwaysBlockedIP blocks before
+// connecting. That predicate is the shared dial blocklist (loopback,
+// link-local, unspecified, AWS IPv6 IMDS, and Alibaba IMDS). Private
+// ranges stay allowed. Checking the resolved address stops a DNS name
+// from rebinding onto a metadata IP after admission.
 func ssrfSafeTransport() http.RoundTripper {
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	return &http.Transport{
@@ -96,12 +99,15 @@ func ssrfSafeTransport() http.RoundTripper {
 			if err != nil {
 				return nil, fmt.Errorf("SSRF dial: invalid address %q: %w", addr, err)
 			}
-			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+			ips, err := prometheusLookupIP(ctx, host)
 			if err != nil {
 				return nil, fmt.Errorf("SSRF dial: DNS resolution failed for %q: %w", host, err)
 			}
+			if len(ips) == 0 {
+				return nil, fmt.Errorf("SSRF dial: DNS resolution failed for %q", host)
+			}
 			for _, ip := range ips {
-				if isBlockedIP(ip.IP) {
+				if validation.GitOpsAlwaysBlockedIP(ip.IP) {
 					return nil, fmt.Errorf("SSRF blocked: %s resolved to blocked address %s", host, ip.IP)
 				}
 			}
@@ -113,17 +119,10 @@ func ssrfSafeTransport() http.RoundTripper {
 	}
 }
 
-// awsIMDSv6 is the AWS EC2 Instance Metadata Service v2 IPv6 endpoint.
-// It lives in fd00::/8 (Unique Local Address), which is NOT link-local.
-var awsIMDSv6 = net.ParseIP("fd00:ec2::254")
-
-// isBlockedIP returns true for IPs that should never be contacted by the
-// operator: loopback, link-local, unspecified, and the AWS IMDSv2 IPv6 endpoint.
-// Private IPs (10.x, 172.16.x, 192.168.x) are intentionally allowed because
-// Prometheus typically runs on a ClusterIP service inside the cluster.
-func isBlockedIP(ip net.IP) bool {
-	return ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsUnspecified() || ip.Equal(awsIMDSv6)
+// prometheusLookupIP is the DNS hook used by the Prometheus SSRF dialer.
+// Tests replace it to simulate a resolved metadata address.
+var prometheusLookupIP = func(ctx context.Context, host string) ([]net.IPAddr, error) {
+	return net.DefaultResolver.LookupIPAddr(ctx, host)
 }
 
 var (

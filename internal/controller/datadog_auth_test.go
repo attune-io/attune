@@ -165,7 +165,7 @@ func TestResolveDatadogCollector_NilAPIKeySecretRef(t *testing.T) {
 	r := newReconcilerWithClient()
 	_, _, err := r.resolveDatadogCollector(context.Background(), policy, datadogAuthContext{})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "apiKeySecretRef is required")
+	assert.Contains(t, err.Error(), "apiKeySecretRef name and key are required")
 	assert.Zero(t, collectorCount(r))
 }
 

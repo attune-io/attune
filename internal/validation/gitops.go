@@ -94,8 +94,10 @@ func GitOpsBlockedHost(host string) bool {
 var awsIMDSv6 = net.ParseIP("fd00:ec2::254")
 
 // GitOpsAlwaysBlockedIP reports addresses that stay blocked even when
-// allowPrivateEndpoints is set: loopback, link-local (IMDS), unspecified,
-// and AWS IPv6 IMDS.
+// private ranges are allowed. Prometheus admission and the Prometheus
+// dialer use this same predicate. It covers loopback, link-local
+// (including 169.254.169.254), unspecified, AWS IPv6 IMDS, and the
+// Alibaba metadata address.
 func GitOpsAlwaysBlockedIP(ip net.IP) bool {
 	if ip == nil {
 		return true
