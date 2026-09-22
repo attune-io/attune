@@ -563,6 +563,11 @@ jobs:
           repositories: community-operators,community-operators-prod
           permission-contents: write
           permission-pull-requests: write
+          # The fork push is a branch cut from current upstream main.
+          # Upstream CI commits edit .github/workflows. The app already
+          # has Workflows permission; the minted token must request it
+          # or GitHub rejects the push.
+          permission-workflows: write
 
       - name: Generate OLM bundle and create PRs
         id: create-pr
