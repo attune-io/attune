@@ -58,7 +58,7 @@ func GitOpsAPIURLAllowingPrivate(address string, allowPrivate bool) error {
 		return fmt.Errorf("address must not target cloud metadata endpoint %q", hostname)
 	}
 
-	if ip := net.ParseIP(hostname); ip != nil {
+	if ip := hostIP(hostname); ip != nil {
 		if allowPrivate {
 			if GitOpsAlwaysBlockedIP(ip) {
 				return fmt.Errorf("address must not target loopback, link-local, or metadata IP %q", hostname)
@@ -75,9 +75,11 @@ func GitOpsAPIURLAllowingPrivate(address string, allowPrivate bool) error {
 func GitOpsBlockedHost(host string) bool {
 	switch strings.ToLower(strings.TrimSuffix(host, ".")) {
 	case "metadata.google.internal",
+		"metadata.goog",
 		"metadata.internal",
 		"instance-data.ec2.internal",
 		"169.254.169.254",
+		"100.100.100.200",
 		"fd00:ec2::254",
 		"localhost":
 		return true
@@ -102,7 +104,7 @@ func GitOpsAlwaysBlockedIP(ip net.IP) bool {
 		ip = v4
 	}
 	return ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsUnspecified() || ip.Equal(awsIMDSv6)
+		ip.IsUnspecified() || ip.Equal(awsIMDSv6) || ip.Equal(alibabaIMDS)
 }
 
 // GitOpsBlockedIP reports whether an IP must not be dialed for GitOps HTTP.

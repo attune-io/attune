@@ -135,7 +135,14 @@ func TestGitOpsAPIURL_AllowPrivateRFC1918(t *testing.T) {
 	assert.Error(t, GitOpsAPIURLAllowingPrivate("https://169.254.169.254/", true))
 	assert.Error(t, GitOpsAPIURLAllowingPrivate("https://[fd00:ec2::254]/", true), "IPv6 IMDS stays blocked")
 	assert.Error(t, GitOpsAPIURLAllowingPrivate("https://localhost/", true))
+	assert.Error(t, GitOpsAPIURLAllowingPrivate("https://127.1/", true))
+	assert.Error(t, GitOpsAPIURLAllowingPrivate("https://2130706433/", true))
 	assert.Error(t, GitOpsAPIURL("https://10.96.0.1/"), "default still blocks RFC1918")
+	assert.Error(t, GitOpsAPIURL("https://174063617/"), "decimal ClusterIP stays blocked")
+	assert.NoError(t, GitOpsAPIURLAllowingPrivate("https://174063617/", true))
+	assert.Error(t, GitOpsAPIURL("https://metadata.google.internal./"))
+	assert.Error(t, GitOpsAPIURL("https://metadata.goog/"))
+	assert.Error(t, GitOpsAPIURL("https://100.100.100.200/"))
 }
 
 func TestGitOpsBlockedHost(t *testing.T) {

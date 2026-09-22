@@ -252,7 +252,8 @@ OpenShift Thanos steps are in [Thanos Querier](openshift.md#thanos-querier).
     The operator validates `metricsSource.prometheus.address` to block
     loopback and cloud metadata endpoints. `http://127.0.0.1:9090`,
     `http://[::1]:9090`, `http://169.254.169.254/...`, and metadata
-    hostnames are rejected. Addresses with URL userinfo
+    hostnames are rejected, including a trailing dot on those names and
+    other spellings of the same addresses. Addresses with URL userinfo
     (`http://user:password@host`) are also rejected; use
     `bearerTokenSecret` or `headers`. Do not point a policy at a local
     port-forward or a workstation URL. Use a Service DNS name or

@@ -51,6 +51,35 @@ func TestPrometheusAddress_BlockedMetadata(t *testing.T) {
 func TestPrometheusAddress_BlockedLoopback(t *testing.T) {
 	assert.Error(t, PrometheusAddress("http://127.0.0.1:9090"))
 	assert.Error(t, PrometheusAddress("http://[::1]:9090"))
+	assert.Error(t, PrometheusAddress("http://[::ffff:127.0.0.1]:9090"))
+	for _, addr := range []string{
+		"http://127.1:9090",
+		"http://127.0.1:9090",
+		"http://2130706433:9090",
+		"http://0x7f.0.0.1:9090",
+		"http://0177.0.0.1:9090",
+		"http://127.0.0.1.:9090",
+	} {
+		assert.Error(t, PrometheusAddress(addr), addr)
+	}
+}
+
+func TestPrometheusAddress_BlockedMetadataTrailingDot(t *testing.T) {
+	for _, addr := range []string{
+		"http://metadata.google.internal.:9090",
+		"http://metadata.goog/computeMetadata/v1/",
+		"http://169.254.169.254.:9090",
+		"http://100.100.100.200/latest/meta-data/",
+	} {
+		assert.Error(t, PrometheusAddress(addr), addr)
+	}
+}
+
+func TestPrometheusAddress_AllowsClusterAndLocalhost(t *testing.T) {
+	assert.NoError(t, PrometheusAddress("http://10.96.0.1:9090"))
+	assert.NoError(t, PrometheusAddress("http://174063617:9090"))
+	assert.NoError(t, PrometheusAddress("http://localhost:9090"))
+	assert.NoError(t, PrometheusAddress("http://prometheus.monitoring.svc:9090"))
 }
 
 func TestPrometheusAddress_BlockedLinkLocal(t *testing.T) {
