@@ -79,7 +79,25 @@ func parseIPv4Literal(host string) net.IP {
 		}
 		acc = nums[0]<<24 | nums[1]<<16 | nums[2]<<8 | nums[3]
 	}
-	return net.IPv4(byte(acc>>24), byte(acc>>16), byte(acc>>8), byte(acc)).To4()
+	if acc > 0xffffffff {
+		return nil
+	}
+	b0, ok0 := fitByte(acc >> 24)
+	b1, ok1 := fitByte((acc >> 16) & 0xff)
+	b2, ok2 := fitByte((acc >> 8) & 0xff)
+	b3, ok3 := fitByte(acc & 0xff)
+	if !ok0 || !ok1 || !ok2 || !ok3 {
+		return nil
+	}
+	return net.IPv4(b0, b1, b2, b3).To4()
+}
+
+// fitByte converts n to a byte. Values above 255 are rejected.
+func fitByte(n uint64) (byte, bool) {
+	if n > 0xff {
+		return 0, false
+	}
+	return byte(n), true
 }
 
 func parseIPv4Part(part string) (uint64, bool) {
