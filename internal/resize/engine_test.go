@@ -244,6 +244,18 @@ func TestIsEligibleForResize(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "false PodResizeInProgress does not block eligibility",
+			pod: &corev1.Pod{
+				Status: corev1.PodStatus{
+					Phase: corev1.PodRunning,
+					Conditions: []corev1.PodCondition{
+						{Type: "PodResizeInProgress", Status: corev1.ConditionFalse},
+					},
+				},
+			},
+			want: true,
+		},
+		{
 			name: "stale InProgress older than one hour is eligible",
 			pod: &corev1.Pod{
 				Status: corev1.PodStatus{
@@ -1238,6 +1250,31 @@ func TestClampMemoryLimitForPolicy(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestClampMemoryLimitForPolicy_CPUOnlyLimitsAreUnchanged(t *testing.T) {
+	pod := &corev1.Pod{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "app",
+				ResizePolicy: []corev1.ContainerResizePolicy{
+					{ResourceName: corev1.ResourceMemory, RestartPolicy: corev1.NotRequired},
+				},
+				Resources: corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")},
+				},
+			}},
+		},
+	}
+	target := corev1.ResourceRequirements{
+		Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("200m")},
+	}
+
+	result := ClampMemoryLimitForPolicy(pod, "app", target, false)
+
+	assert.Equal(t, target.Limits, result.Limits)
+	_, hasMem := result.Limits[corev1.ResourceMemory]
+	assert.False(t, hasMem, "a CPU-only target must not gain a memory limit")
 }
 
 func TestClampMemoryLimitForPolicy_AllowInPlaceDecrease(t *testing.T) {
