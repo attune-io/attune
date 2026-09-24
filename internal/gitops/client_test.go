@@ -754,6 +754,10 @@ func TestGitHubClient_Create_Labels403ReturnsStatusNotToken(t *testing.T) {
 			switch {
 			case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/pulls"):
 				return jsonResp(200, "[]"), nil
+			case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/compare/"):
+				return jsonResp(200, map[string]interface{}{
+					"status": "ahead", "ahead_by": 1,
+				}), nil
 			case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/git/ref/heads/"):
 				return jsonResp(200, map[string]interface{}{
 					"object": map[string]string{"sha": "abc"},
@@ -944,6 +948,11 @@ func TestGitHubClient_CreatePRErrorOmitsResponseBody(t *testing.T) {
 		HTTP: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 			if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/pulls") {
 				return jsonResp(200, "[]"), nil
+			}
+			if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/compare/") {
+				return jsonResp(200, map[string]interface{}{
+					"status": "ahead", "ahead_by": 1,
+				}), nil
 			}
 			if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/git/ref/heads/") {
 				return jsonResp(200, map[string]interface{}{
