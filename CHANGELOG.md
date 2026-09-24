@@ -6,6 +6,19 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.32](https://github.com/attune-io/attune/compare/v0.1.31...v0.1.32) (2026-09-24)
+
+
+### Bug Fixes
+
+* do not grow a request when the usage percentile is missing ([#858](https://github.com/attune-io/attune/issues/858)) ([73615f4](https://github.com/attune-io/attune/commit/73615f432e87fa64f81429c9dfcd0fecb159de7c))
+* honor bounds, budget caps, selectors, and metric pod filters ([#852](https://github.com/attune-io/attune/issues/852)) ([5784e6e](https://github.com/attune-io/attune/commit/5784e6e95dd36afcc69e3ca3b6e84be41bead1bf))
+* keep CloudWatch owner matches off sibling names ([#860](https://github.com/attune-io/attune/issues/860)) ([5ac960a](https://github.com/attune-io/attune/commit/5ac960a23ce91afd75d02f8139f824679cce6f12))
+* keep gitops drift on the right workload after a merged branch ([#857](https://github.com/attune-io/attune/issues/857)) ([0f862b0](https://github.com/attune-io/attune/commit/0f862b026ba48a57a5877f14fdf610a7010fbbd8))
+* keep increase budget when the clock steps back or revert fails ([#856](https://github.com/attune-io/attune/issues/856)) ([b198a6d](https://github.com/attune-io/attune/commit/b198a6d55abc0df0069baa88a1917e9bc9e52c6c))
+* match CloudWatch controller names and keep percentile samples ([#859](https://github.com/attune-io/attune/issues/859)) ([a595b54](https://github.com/attune-io/attune/commit/a595b544700d066e23f830dcf218a7158a1f4c4e))
+* request workflows permission for operatorhub fork pushes ([#850](https://github.com/attune-io/attune/issues/850)) ([5d9e04b](https://github.com/attune-io/attune/commit/5d9e04baec4d43bf514445dcc1f3602228e6765e))
+
 ## [0.1.31](https://github.com/attune-io/attune/compare/v0.1.30...v0.1.31) (2026-09-22)
 
 
