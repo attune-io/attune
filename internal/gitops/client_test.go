@@ -49,8 +49,12 @@ func TestGitHubClient_Create_HeadExists(t *testing.T) {
 			switch {
 			case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/pulls"):
 				return jsonResp(200, "[]"), nil
+			case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/compare/"):
+				return jsonResp(200, map[string]interface{}{
+					"status": "ahead", "ahead_by": 1,
+				}), nil
 			case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/git/ref/heads/"):
-				// head already exists
+				// head already exists and is ahead of base
 				return jsonResp(200, map[string]interface{}{
 					"object": map[string]string{"sha": "abc"},
 				}), nil
@@ -71,11 +75,62 @@ func TestGitHubClient_Create_HeadExists(t *testing.T) {
 	assert.Contains(t, res.URL, "pull/7")
 	assert.Equal(t, "Bearer secret-token-xyz", sawAuth)
 	assert.Equal(t, "[redacted]", redactToken("secret-token-xyz", "secret-token-xyz"))
-	// Must not have attempted bootstrap commit when head exists.
+	// Must not have attempted bootstrap commit when head is already ahead.
 	for _, p := range paths {
 		assert.NotContains(t, p, "/git/commits")
-		assert.NotContains(t, p, "/git/refs")
+		assert.NotContains(t, p, "PATCH ")
 	}
+}
+
+func TestGitHubClient_Create_HeadExistsNotAhead(t *testing.T) {
+	t.Parallel()
+	var paths []string
+	client := &GitHubClient{
+		Token:      "tok",
+		Repository: "org/repo",
+		HTTP: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			paths = append(paths, r.Method+" "+r.URL.Path)
+			path := r.URL.Path
+			switch {
+			case r.Method == http.MethodGet && strings.Contains(path, "/pulls"):
+				return jsonResp(200, "[]"), nil
+			case r.Method == http.MethodGet && strings.Contains(path, "/compare/"):
+				return jsonResp(200, map[string]interface{}{
+					"status": "identical", "ahead_by": 0,
+				}), nil
+			case r.Method == http.MethodGet && strings.Contains(path, "/git/ref/heads/main"):
+				return jsonResp(200, map[string]interface{}{
+					"object": map[string]string{"sha": "base-sha"},
+				}), nil
+			case r.Method == http.MethodGet && strings.Contains(path, "/git/ref/heads/"):
+				return jsonResp(200, map[string]interface{}{
+					"object": map[string]string{"sha": "old-head"},
+				}), nil
+			case r.Method == http.MethodGet && strings.Contains(path, "/git/commits/base-sha"):
+				return jsonResp(200, map[string]interface{}{
+					"tree": map[string]string{"sha": "tree-sha"},
+				}), nil
+			case r.Method == http.MethodPost && strings.HasSuffix(path, "/git/commits"):
+				return jsonResp(201, map[string]string{"sha": "new-commit-sha"}), nil
+			case r.Method == http.MethodPatch && strings.Contains(path, "/git/refs/heads/"):
+				return jsonResp(200, map[string]interface{}{}), nil
+			case r.Method == http.MethodPost && strings.HasSuffix(path, "/pulls"):
+				return jsonResp(201, map[string]interface{}{
+					"number": 8, "html_url": "https://github.com/org/repo/pull/8",
+				}), nil
+			default:
+				return jsonResp(500, `{"message":"unexpected `+r.Method+` `+path+`"}`), nil
+			}
+		}),
+	}
+	res, err := client.CreateOrUpdate(context.Background(), PRRequest{
+		Title: "t", Body: "b", Head: "attune/x", Base: "main",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 8, res.Number)
+	joined := strings.Join(paths, "\n")
+	assert.Contains(t, joined, "POST /repos/org/repo/git/commits")
+	assert.Contains(t, joined, "PATCH /repos/org/repo/git/refs/heads/")
 }
 
 func TestGitHubClient_Create_BootstrapsMissingHead(t *testing.T) {
