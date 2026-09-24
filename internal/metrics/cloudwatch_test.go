@@ -181,8 +181,9 @@ func TestCloudWatchCollector_PodRegexExcludesSiblingPrefix(t *testing.T) {
 		getMetricDataFn: func(_ context.Context, _ *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
 			return &cloudwatch.GetMetricDataOutput{
 				MetricDataResults: []cwtypes.MetricDataResult{
-					{Label: aws.String("metric web-abcde-fghij main"), Timestamps: []time.Time{ts}, Values: []float64{10}},
-					{Label: aws.String("metric web-abcde main"), Timestamps: []time.Time{ts}, Values: []float64{12}},
+					{Label: aws.String("metric web-7d8f9c6b-fghij main"), Timestamps: []time.Time{ts}, Values: []float64{10}},
+					{Label: aws.String("metric web-7d8f9c6b main"), Timestamps: []time.Time{ts}, Values: []float64{12}},
+					{Label: aws.String("metric web-worker main"), Timestamps: []time.Time{ts}, Values: []float64{77}},
 					{Label: aws.String("metric web-api-abcde-fghij main"), Timestamps: []time.Time{ts}, Values: []float64{99}},
 					{Label: aws.String("metric web-api-abcde12 main"), Timestamps: []time.Time{ts}, Values: []float64{98}},
 				},
