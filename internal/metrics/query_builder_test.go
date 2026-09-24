@@ -231,8 +231,10 @@ func TestDownsampleSamples(t *testing.T) {
 	}
 	out := DownsampleSamples(samples, 10)
 	assert.Len(t, out, 10)
-	// Each window keeps its maximum, which for a rising series is the last point.
-	assert.Equal(t, samples[9].Value, out[0].Value)
+	// Each window keeps its midpoint. A rising series no longer reports the window max.
+	assert.Equal(t, samples[5].Value, out[0].Value)
+	assert.Equal(t, samples[15].Value, out[1].Value)
+	// The last window holds the global max, so that one point stays the spike.
 	assert.Equal(t, samples[99].Value, out[9].Value)
 	// No-op when under cap
 	assert.Equal(t, samples, DownsampleSamples(samples, 200))
@@ -254,6 +256,53 @@ func TestDownsampleSamples_KeepsSpike(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1000.0, max, "a short spike must survive downsampling")
+}
+
+func TestDownsampleSamples_PercentileStaysNearRaw(t *testing.T) {
+	samples := make([]Sample, 30000)
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := range samples {
+		samples[i] = Sample{Timestamp: base.Add(time.Duration(i) * time.Second), Value: float64(i)}
+	}
+	raw := BuildProfile(samples)
+	down := BuildProfile(DownsampleSamples(samples, DefaultMaxProfileSamples))
+	// Window maxima would lift P95 from ~0.95 to ~0.98 of the span.
+	assert.InDelta(t, raw.OverallPercentiles.P95, down.OverallPercentiles.P95, raw.OverallPercentiles.P95*0.02)
+	assert.Equal(t, raw.OverallPercentiles.Max, down.OverallPercentiles.Max)
+}
+
+func TestCloudWatchPodNameMatchesController(t *testing.T) {
+	tests := []struct {
+		name    string
+		regex   string
+		pod     string
+		matches bool
+	}{
+		{"deployment full pod", `api-[a-z0-9]+-[a-z0-9]{5}`, "api-7d8f9c6b5-xk2pq", true},
+		{"deployment replicaset", `api-[a-z0-9]+-[a-z0-9]{5}`, "api-7d8f9c6b5", true},
+		{"deployment short name", `api-[a-z0-9]+-[a-z0-9]{5}`, "api", false},
+		{"deployment sibling replicaset", `api-[a-z0-9]+-[a-z0-9]{5}`, "api-v2-7d8f9c6b", false},
+		{"daemonset controller", `web-[a-z0-9]{5}`, "web", true},
+		{"daemonset full pod", `web-[a-z0-9]{5}`, "web-fghij", true},
+		{"daemonset sibling", `web-[a-z0-9]{5}`, "web-api", false},
+		{"statefulset controller", `db-[0-9]+`, "db", true},
+		{"statefulset pod", `db-[0-9]+`, "db-0", true},
+		{"job controller", `migrate-[a-z0-9]{5}`, "migrate", true},
+		{"indexed job controller", `batch-[0-9]+-[a-z0-9]{5}`, "batch", true},
+		{"indexed job pod", `batch-[0-9]+-[a-z0-9]{5}`, "batch-3-fghij", true},
+		{"cronjob job name", `nightly-[0-9]{10}-[a-z0-9]{5}`, "nightly-1700000000", true},
+		{"cronjob full pod", `nightly-[0-9]{10}-[a-z0-9]{5}`, "nightly-1700000000-fghij", true},
+		{"indexed cron job name", `nightly-[0-9]{10}-[0-9]+-[a-z0-9]{5}`, "nightly-1700000000", true},
+		{"indexed cron index", `nightly-[0-9]{10}-[0-9]+-[a-z0-9]{5}`, "nightly-1700000000-3", false},
+		{"cronjob workload only", `nightly-[0-9]{10}-[a-z0-9]{5}`, "nightly", false},
+		{"sampled deployment pod", `api-7d8f9c6b5-xk2pq`, "api-7d8f9c6b5", true},
+		{"sampled statefulset pod", `db-0`, "db", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.matches, cloudWatchPodNameMatches(tt.regex, tt.pod))
+		})
+	}
 }
 
 func TestApplyPodAggregation(t *testing.T) {

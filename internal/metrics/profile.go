@@ -49,9 +49,11 @@ type UsageProfile struct {
 }
 
 // DownsampleSamples returns at most maxN samples. Each output point is the
-// maximum value in one time-ordered window, so a short spike is not dropped
-// the way an even index stride drops it. When maxN <= 0 or len(samples) <= maxN,
-// the original slice is returned unchanged. Already-sorted input is not copied.
+// midpoint of one time-ordered window, so percentiles stay near the original
+// distribution. The global maximum replaces the midpoint of its own window,
+// so a short spike still reaches burst detection. When maxN <= 0 or
+// len(samples) <= maxN, the original slice is returned unchanged.
+// Already-sorted input is not copied.
 func DownsampleSamples(samples []Sample, maxN int) []Sample {
 	if maxN <= 0 || len(samples) <= maxN {
 		return samples
@@ -67,8 +69,15 @@ func DownsampleSamples(samples []Sample, maxN int) []Sample {
 	if maxN == 1 {
 		return []Sample{maxSample(sorted)}
 	}
-	out := make([]Sample, 0, maxN)
 	n := len(sorted)
+	maxIdx := 0
+	for i := 1; i < n; i++ {
+		if sorted[i].Value > sorted[maxIdx].Value {
+			maxIdx = i
+		}
+	}
+	out := make([]Sample, 0, maxN)
+	maxWindow := -1
 	for i := 0; i < maxN; i++ {
 		start := i * n / maxN
 		end := (i + 1) * n / maxN
@@ -78,7 +87,14 @@ func DownsampleSamples(samples []Sample, maxN int) []Sample {
 		if end > n {
 			end = n
 		}
-		out = append(out, maxSample(sorted[start:end]))
+		mid := start + (end-start)/2
+		out = append(out, sorted[mid])
+		if maxIdx >= start && maxIdx < end {
+			maxWindow = len(out) - 1
+		}
+	}
+	if maxWindow >= 0 {
+		out[maxWindow] = sorted[maxIdx]
 	}
 	return out
 }

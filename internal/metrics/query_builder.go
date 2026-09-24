@@ -379,6 +379,114 @@ func podNameMatches(podRegex, name string) bool {
 	return re.MatchString(name)
 }
 
+// cloudWatchPodNameMatches accepts a real pod name or the controller name
+// Container Insights writes to the PodName dimension. The default receiver
+// sets PodName from the owner (ReplicaSet, DaemonSet, StatefulSet, or Job)
+// and leaves FullPodName off. prefer_full_pod_name publishes the pod name,
+// which the workload regex already matches.
+func cloudWatchPodNameMatches(podRegex, name string) bool {
+	if podNameMatches(podRegex, name) {
+		return true
+	}
+	ctrl := cloudWatchControllerRegex(podRegex)
+	if ctrl == "" {
+		return false
+	}
+	return podNameMatches(ctrl, name)
+}
+
+// cloudWatchControllerRegex strips the pod-name suffix from each alternative
+// so the result matches the owner name Container Insights publishes.
+func cloudWatchControllerRegex(podRegex string) string {
+	parts := splitTopLevelAlt(podRegex)
+	out := make([]string, 0, len(parts))
+	for _, alt := range parts {
+		if c := cloudWatchControllerAlt(alt); c != "" {
+			out = append(out, c)
+		}
+	}
+	if len(out) == 0 {
+		return ""
+	}
+	return strings.Join(out, "|")
+}
+
+func cloudWatchControllerAlt(alt string) string {
+	const (
+		podHash = `-[a-z0-9]{5}`
+		index   = `-[0-9]+`
+		stamp   = `-[0-9]{10}`
+		rsHash  = `-[a-z0-9]+`
+	)
+	switch {
+	case strings.HasSuffix(alt, stamp+index+podHash):
+		return strings.TrimSuffix(alt, index+podHash)
+	case strings.HasSuffix(alt, stamp+podHash):
+		return strings.TrimSuffix(alt, podHash)
+	case strings.HasSuffix(alt, index+podHash):
+		return strings.TrimSuffix(alt, index+podHash)
+	case strings.HasSuffix(alt, rsHash+podHash):
+		return strings.TrimSuffix(alt, podHash)
+	case strings.HasSuffix(alt, podHash):
+		return strings.TrimSuffix(alt, podHash)
+	case strings.HasSuffix(alt, index):
+		return strings.TrimSuffix(alt, index)
+	default:
+		return cloudWatchLiteralController(alt)
+	}
+}
+
+// cloudWatchLiteralController reduces one escaped pod name to its owner.
+// A 5-character pod hash is dropped. A following short index is dropped for
+// indexed Jobs. A 10-digit CronJob stamp is kept, because that Job name is
+// the PodName Container Insights publishes. A trailing ordinal is the
+// StatefulSet case.
+func cloudWatchLiteralController(alt string) string {
+	lit, ok := unescapeLiteralRegex(alt)
+	if !ok || lit == "" {
+		return ""
+	}
+	name := lit
+	if i := strings.LastIndex(name, "-"); i > 0 && podHashToken(name[i+1:]) {
+		name = name[:i]
+		if j := strings.LastIndex(name, "-"); j > 0 && shortIndex(name[j+1:]) {
+			name = name[:j]
+		}
+	} else if i := strings.LastIndex(name, "-"); i > 0 && shortIndex(name[i+1:]) {
+		name = name[:i]
+	} else {
+		return ""
+	}
+	if name == "" || name == lit {
+		return ""
+	}
+	return regexp.QuoteMeta(name)
+}
+
+func podHashToken(s string) bool {
+	if len(s) != 5 {
+		return false
+	}
+	for _, c := range s {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') {
+			return false
+		}
+	}
+	return true
+}
+
+func shortIndex(s string) bool {
+	if s == "" || len(s) >= 10 {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // extractLiteralPrefix returns the leading literal portion of a regex before
 // the first metacharacter. Used by CloudWatch when only a prefix is available.
 func extractLiteralPrefix(regex string) string {
