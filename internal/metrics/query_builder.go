@@ -426,7 +426,15 @@ func cloudWatchControllerAlt(alt string) string {
 	case strings.HasSuffix(alt, index+podHash):
 		return strings.TrimSuffix(alt, index+podHash)
 	case strings.HasSuffix(alt, rsHash+podHash):
-		return strings.TrimSuffix(alt, podHash)
+		// Pod-template-hash is SafeEncodeString of a uint32 decimal.
+		// The alphabet omits vowels and 0, 1, and 3, and the length is
+		// the decimal width (almost always 5-10). That rejects a sibling
+		// owner such as api-v2, api-worker, or a CronJob stamp.
+		base := strings.TrimSuffix(alt, podHash)
+		if strings.HasSuffix(base, rsHash) {
+			return strings.TrimSuffix(base, rsHash) + "-[" + podTemplateHashAlphabet + "]{5,10}"
+		}
+		return base
 	case strings.HasSuffix(alt, podHash):
 		return strings.TrimSuffix(alt, podHash)
 	case strings.HasSuffix(alt, index):
@@ -436,11 +444,14 @@ func cloudWatchControllerAlt(alt string) string {
 	}
 }
 
+// podTemplateHashAlphabet is kubernetes rand.SafeEncodeString's alphabet.
+// ReplicaSet names use it for pod-template-hash.
+const podTemplateHashAlphabet = "bcdfghjklmnpqrstvwxz2456789"
+
 // cloudWatchLiteralController reduces one escaped pod name to its owner.
-// A 5-character pod hash is dropped. A following short index is dropped for
-// indexed Jobs. A 10-digit CronJob stamp is kept, because that Job name is
-// the PodName Container Insights publishes. A trailing ordinal is the
-// StatefulSet case.
+// A 5-character pod hash is dropped, and the preceding token is kept, so a
+// Job named migrate-2 stays migrate-2. A trailing ordinal with no pod hash
+// is the StatefulSet case.
 func cloudWatchLiteralController(alt string) string {
 	lit, ok := unescapeLiteralRegex(alt)
 	if !ok || lit == "" {
@@ -449,9 +460,6 @@ func cloudWatchLiteralController(alt string) string {
 	name := lit
 	if i := strings.LastIndex(name, "-"); i > 0 && podHashToken(name[i+1:]) {
 		name = name[:i]
-		if j := strings.LastIndex(name, "-"); j > 0 && shortIndex(name[j+1:]) {
-			name = name[:j]
-		}
 	} else if i := strings.LastIndex(name, "-"); i > 0 && shortIndex(name[i+1:]) {
 		name = name[:i]
 	} else {

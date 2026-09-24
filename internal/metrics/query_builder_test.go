@@ -281,6 +281,9 @@ func TestCloudWatchPodNameMatchesController(t *testing.T) {
 		{"deployment full pod", `api-[a-z0-9]+-[a-z0-9]{5}`, "api-7d8f9c6b5-xk2pq", true},
 		{"deployment replicaset", `api-[a-z0-9]+-[a-z0-9]{5}`, "api-7d8f9c6b5", true},
 		{"deployment short name", `api-[a-z0-9]+-[a-z0-9]{5}`, "api", false},
+		{"deployment sibling word", `api-[a-z0-9]+-[a-z0-9]{5}`, "api-v2", false},
+		{"deployment sibling worker", `api-[a-z0-9]+-[a-z0-9]{5}`, "api-worker", false},
+		{"deployment cron stamp", `api-[a-z0-9]+-[a-z0-9]{5}`, "api-1700000000", false},
 		{"deployment sibling replicaset", `api-[a-z0-9]+-[a-z0-9]{5}`, "api-v2-7d8f9c6b", false},
 		{"daemonset controller", `web-[a-z0-9]{5}`, "web", true},
 		{"daemonset full pod", `web-[a-z0-9]{5}`, "web-fghij", true},
@@ -296,6 +299,8 @@ func TestCloudWatchPodNameMatchesController(t *testing.T) {
 		{"indexed cron index", `nightly-[0-9]{10}-[0-9]+-[a-z0-9]{5}`, "nightly-1700000000-3", false},
 		{"cronjob workload only", `nightly-[0-9]{10}-[a-z0-9]{5}`, "nightly", false},
 		{"sampled deployment pod", `api-7d8f9c6b5-xk2pq`, "api-7d8f9c6b5", true},
+		{"sampled numbered job", `migrate-2-fghij`, "migrate-2", true},
+		{"sampled numbered job parent", `migrate-2-fghij`, "migrate", false},
 		{"sampled statefulset pod", `db-0`, "db", true},
 	}
 	for _, tt := range tests {
