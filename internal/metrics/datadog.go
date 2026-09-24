@@ -98,10 +98,11 @@ func (c *DatadogCollector) QueryRange(ctx context.Context, query string, start, 
 // QueryRangeGrouped queries the Datadog /api/v1/query endpoint and groups
 // results by the kube_container_name tag.
 func (c *DatadogCollector) QueryRangeGrouped(ctx context.Context, query string, start, end time.Time, _ time.Duration) (map[string][]Sample, error) {
+	ddQuery, podRegex := splitDatadogQuery(query)
 	params := url.Values{
 		"from":  {fmt.Sprintf("%d", start.Unix())},
 		"to":    {fmt.Sprintf("%d", end.Unix())},
-		"query": {query},
+		"query": {ddQuery},
 	}
 
 	reqURL := fmt.Sprintf("%s/api/v1/query?%s", c.baseURL, params.Encode())
@@ -140,10 +141,14 @@ func (c *DatadogCollector) QueryRangeGrouped(ctx context.Context, query string, 
 		return nil, fmt.Errorf("datadog query error: %s", ddResp.Error)
 	}
 
-	isCPU := strings.Contains(query, c.cpuMetricName)
+	isCPU := strings.Contains(ddQuery, c.cpuMetricName)
 
 	grouped := make(map[string][]Sample, len(ddResp.Series))
 	for _, series := range ddResp.Series {
+		podName := extractDatadogTag(series.TagSet, "pod_name")
+		if podRegex != "" && !podNameMatches(podRegex, podName) {
+			continue
+		}
 		container := extractDatadogTag(series.TagSet, "kube_container_name")
 		grouped[container] = appendDatadogSamples(ctx, grouped[container], series.Pointlist, isCPU)
 	}

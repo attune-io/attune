@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -108,20 +109,31 @@ func (r *AttunePolicyReconciler) listWorkloadsBySelector(ctx context.Context, na
 // getPodsForWorkload returns the pods managed by a workload by matching
 // the workload's pod template selector labels.
 func (r *AttunePolicyReconciler) getPodsForWorkload(ctx context.Context, workload client.Object) ([]corev1.Pod, error) {
-	selectorLabels := r.getPodSelectorLabels(workload)
-	if len(selectorLabels) == 0 {
+	sel, err := r.podSelector(workload)
+	if err != nil {
+		return nil, fmt.Errorf("parsing pod selector for workload %s: %w", workload.GetName(), err)
+	}
+	if sel == nil {
 		return nil, fmt.Errorf("workload %s/%s has no pod selector labels", workload.GetNamespace(), workload.GetName())
 	}
 
 	var podList corev1.PodList
 	if err := r.List(ctx, &podList,
 		client.InNamespace(workload.GetNamespace()),
-		client.MatchingLabels(selectorLabels),
+		client.MatchingLabelsSelector{Selector: sel},
 	); err != nil {
 		return nil, fmt.Errorf("listing pods for workload %s: %w", workload.GetName(), err)
 	}
 
 	return podList.Items, nil
+}
+
+// podSelector returns the workload pod selector, including MatchExpressions.
+func (r *AttunePolicyReconciler) podSelector(workload client.Object) (labels.Selector, error) {
+	if a := newWorkloadAdapter(workload); a != nil {
+		return a.PodSelector()
+	}
+	return nil, nil
 }
 
 // getPodSelectorLabels extracts the pod selector labels from a workload.

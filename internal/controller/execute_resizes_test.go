@@ -1133,7 +1133,7 @@ func TestExecuteResizes_BudgetCapsDefersExcessiveIncrease(t *testing.T) {
 	for {
 		select {
 		case event := <-recorder.Events:
-			if strings.Contains(event, "BudgetExhausted") {
+			if strings.Contains(event, "IncreaseExceedsBudget") {
 				found = true
 			}
 		default:
@@ -1141,7 +1141,45 @@ func TestExecuteResizes_BudgetCapsDefersExcessiveIncrease(t *testing.T) {
 		}
 	}
 doneEvents:
-	assert.True(t, found, "BudgetExhausted event must fire when increase exceeds budget")
+	assert.True(t, found, "IncreaseExceedsBudget event must fire when one increase is larger than the cap")
+}
+
+func TestExecuteResizes_OversizedIncreaseIsPermanentlyBlocked(t *testing.T) {
+	pod := newResizePod("api-server", "200m", "256Mi", "800m", "256Mi")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	reconciler, _ := newResizeReconciler(pod, deploy)
+	recorder := events.NewFakeRecorder(10)
+	reconciler.Recorder = recorder
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	cpuBudget := resource.MustParse("500m")
+	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpuBudget
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "200m", "256Mi", "0", "0", "800m", "256Mi", "0", "0"),
+	}
+
+	count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+		recommendations, podMap("api-server", pod), nil, nil)
+	assert.Equal(t, 0, count)
+	count, _ = reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+		recommendations, podMap("api-server", pod), nil, nil)
+	assert.Equal(t, 0, count, "a later cycle must not apply an increase larger than the cap")
+
+	var eventsSeen []string
+	for {
+		select {
+		case event := <-recorder.Events:
+			eventsSeen = append(eventsSeen, event)
+		default:
+			goto done
+		}
+	}
+done:
+	joined := strings.Join(eventsSeen, "\n")
+	assert.Contains(t, joined, "IncreaseExceedsBudget")
+	assert.NotContains(t, joined, "deferring resize to next cycle")
+	assert.NotContains(t, joined, "per-cycle budget exhausted")
 }
 
 func TestExecuteResizes_BudgetCapsAllowsWithinBudget(t *testing.T) {

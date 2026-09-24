@@ -574,8 +574,8 @@ func TestSSRFSafeTransport_BlocksResolvedMetadata(t *testing.T) {
 	t.Cleanup(func() { prometheusLookupIP = orig })
 
 	rt := ssrfSafeTransport()
-	tr, ok := rt.(*http.Transport)
-	require.True(t, ok)
+	tr := ssrfBaseTransport(rt)
+	require.NotNil(t, tr)
 	require.NotNil(t, tr.DialContext)
 
 	for _, ip := range []string{"100.100.100.200", "::ffff:100.100.100.200", "fd00:ec2::254"} {
@@ -599,8 +599,8 @@ func TestSSRFSafeTransport_EmptyResolution(t *testing.T) {
 		return nil, nil
 	}
 	rt := ssrfSafeTransport()
-	tr, ok := rt.(*http.Transport)
-	require.True(t, ok)
+	tr := ssrfBaseTransport(rt)
+	require.NotNil(t, tr)
 	_, err := tr.DialContext(context.Background(), "tcp", "prometheus.example:9090")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "DNS resolution failed")
@@ -614,8 +614,8 @@ func TestSSRFSafeTransport_AllowsResolvedClusterIP(t *testing.T) {
 	}
 
 	rt := ssrfSafeTransport()
-	tr, ok := rt.(*http.Transport)
-	require.True(t, ok)
+	tr := ssrfBaseTransport(rt)
+	require.NotNil(t, tr)
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	_, err := tr.DialContext(ctx, "tcp", "prometheus.example:9090")
@@ -807,9 +807,46 @@ func TestNewPrometheusCollectorWithOptions_NilOpts(t *testing.T) {
 
 func TestSSRFSafeTransport_HasProxyFromEnvironment(t *testing.T) {
 	rt := ssrfSafeTransport()
-	tr, ok := rt.(*http.Transport)
-	require.True(t, ok, "ssrfSafeTransport must return *http.Transport")
+	tr := ssrfBaseTransport(rt)
+	require.NotNil(t, tr, "ssrfSafeTransport must expose the inner *http.Transport")
 	assert.NotNil(t, tr.Proxy, "transport must have Proxy set for proxy-aware support")
+}
+
+func TestSSRFSafeTransport_ProxyChecksTargetNotProxy(t *testing.T) {
+	orig := prometheusLookupIP
+	t.Cleanup(func() { prometheusLookupIP = orig })
+	prometheusLookupIP = func(_ context.Context, host string) ([]net.IPAddr, error) {
+		switch host {
+		case "prometheus.example":
+			return []net.IPAddr{{IP: net.ParseIP("169.254.169.254")}}, nil
+		case "127.0.0.1":
+			return []net.IPAddr{{IP: net.ParseIP("127.0.0.1")}}, nil
+		default:
+			return []net.IPAddr{{IP: net.ParseIP("192.0.2.10")}}, nil
+		}
+	}
+	tr := ssrfBaseTransport(ssrfSafeTransport())
+	require.NotNil(t, tr.Proxy)
+	t.Setenv("HTTPS_PROXY", "http://192.0.2.10:8888")
+	req, err := http.NewRequest(http.MethodGet, "https://prometheus.example/api/v1/query", nil)
+	require.NoError(t, err)
+	_, err = tr.Proxy(req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "SSRF blocked")
+
+	// A loopback proxy is an explicit operator choice. The dial of that
+	// proxy is allowed; a direct dial of loopback is still blocked.
+	ctx := context.WithValue(context.Background(), allowedProxyDialKey{}, "127.0.0.1")
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+	conn, err := tr.DialContext(ctx, "tcp", ln.Addr().String())
+	require.NoError(t, err)
+	conn.Close()
+
+	_, err = tr.DialContext(context.Background(), "tcp", ln.Addr().String())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "SSRF blocked")
 }
 
 func TestNewPrometheusCollectorWithOptions_AppliesTLSMinVersion(t *testing.T) {

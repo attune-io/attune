@@ -91,6 +91,27 @@ func (b *increaseRateBucket) refillLocked(now time.Time) {
 	b.mem, b.memLast = refillResource(b.mem, b.memRate, b.memCap, b.memLast, now)
 }
 
+// exceedsCapacity reports a single increase that is larger than one
+// minute of rate. The bucket never holds more than that, so tryDraw
+// would reject it on every call.
+func (b *increaseRateBucket) exceedsCapacity(cpuMilli, memBytes int64) bool {
+	if b == nil {
+		return false
+	}
+	return (b.cpuRate >= 0 && cpuMilli > b.cpuCap) || (b.memRate >= 0 && memBytes > b.memCap)
+}
+
+// budgetBlockPermanent is true when one resize increase is larger than
+// the configured per-cycle cap or the per-minute bucket capacity.
+// Refilling or waiting for the next reconcile cannot make it fit.
+// A negative cap means that resource is unlimited.
+func budgetBlockPermanent(cpuInc, memInc, cpuCap, memCap int64, bucket *increaseRateBucket) bool {
+	if (cpuCap >= 0 && cpuInc > cpuCap) || (memCap >= 0 && memInc > memCap) {
+		return true
+	}
+	return bucket != nil && bucket.exceedsCapacity(cpuInc, memInc)
+}
+
 func (b *increaseRateBucket) tryDraw(cpuMilli, memBytes int64, now time.Time) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()

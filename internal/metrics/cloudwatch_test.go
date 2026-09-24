@@ -175,6 +175,33 @@ func TestCloudWatchCollector_PodPrefixFiltering(t *testing.T) {
 	assert.InDelta(t, 100, grouped["main"][0].Value, 0.001)
 }
 
+func TestCloudWatchCollector_PodRegexExcludesSiblingPrefix(t *testing.T) {
+	ts := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	mock := &mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, _ *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			return &cloudwatch.GetMetricDataOutput{
+				MetricDataResults: []cwtypes.MetricDataResult{
+					{Label: aws.String("metric web-abcde-fghij main"), Timestamps: []time.Time{ts}, Values: []float64{10}},
+					{Label: aws.String("metric web-api-abcde-fghij main"), Timestamps: []time.Time{ts}, Values: []float64{99}},
+					{Label: aws.String("metric web-worker main"), Timestamps: []time.Time{ts}, Values: []float64{77}},
+				},
+			}, nil
+		},
+	}
+	c := NewCloudWatchCollectorWithClient(mock, "c", logr.Discard())
+	spec := CloudWatchQuerySpec{
+		Metric: "container_memory_working_set", ClusterName: "c", Namespace: "default",
+		PodRegex: `web-[a-z0-9]+-[a-z0-9]{5}`, Period: 300, Stat: "Average",
+	}
+	query, err := json.Marshal(spec)
+	require.NoError(t, err)
+	grouped, err := c.QueryRangeGrouped(context.Background(), string(query), ts.Add(-time.Hour), ts, 5*time.Minute)
+	require.NoError(t, err)
+	require.Contains(t, grouped, "main")
+	require.Len(t, grouped["main"], 1)
+	assert.InDelta(t, 10, grouped["main"][0].Value, 0.001)
+}
+
 func TestCloudWatchCollector_APIError(t *testing.T) {
 	mock := &mockCloudWatchClient{
 		getMetricDataFn: func(_ context.Context, _ *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {

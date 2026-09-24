@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -73,6 +74,62 @@ func patchedPod(t *testing.T, original []byte, resp admission.Response) *corev1.
 
 func boolPtr(b bool) *bool    { return &b }
 func strPtr(s string) *string { return &s }
+
+// admissionClientBuilder is the fake client used by CREATE tests.
+// A ReplicaSet that was not seeded is returned as owned by a Deployment
+// whose name is the ReplicaSet name without the last dash segment. That
+// matches the names these tests already used. Production code reads
+// ownerReferences; it does not strip the name itself. Seed a ReplicaSet
+// to test a standalone ReplicaSet or a lookup error (use a client without
+// this fallback for the error case).
+func admissionClientBuilder() *fake.ClientBuilder {
+	return fake.NewClientBuilder().WithScheme(testScheme()).WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			err := c.Get(ctx, key, obj, opts...)
+			if err == nil || !apierrors.IsNotFound(err) {
+				return err
+			}
+			rs, ok := obj.(*appsv1.ReplicaSet)
+			if !ok {
+				return err
+			}
+			deploy, ok := deploymentNameFromReplicaSet(key.Name)
+			if !ok {
+				return err
+			}
+			rs.Namespace = key.Namespace
+			rs.Name = key.Name
+			rs.OwnerReferences = []metav1.OwnerReference{{
+				APIVersion: "apps/v1",
+				Kind:       "Deployment",
+				Name:       deploy,
+			}}
+			return nil
+		},
+	})
+}
+
+func deploymentReplicaSet(ns, rsName, deployName string) *appsv1.ReplicaSet {
+	return &appsv1.ReplicaSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      rsName,
+			Namespace: ns,
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: "apps/v1",
+				Kind:       "Deployment",
+				Name:       deployName,
+			}},
+		},
+	}
+}
+
+func deploymentNameFromReplicaSet(rsName string) (string, bool) {
+	i := strings.LastIndex(rsName, "-")
+	if i <= 0 {
+		return "", false
+	}
+	return rsName[:i], true
+}
 
 func testScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
@@ -199,7 +256,7 @@ func TestGetWorkloadObject(t *testing.T) {
 				Labels: map[string]string{"app": "agent"},
 			},
 		}
-		cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(ds).Build()
+		cl := admissionClientBuilder().WithObjects(ds).Build()
 		obj, err := getWorkloadObject(ctx, cl, "default", "DaemonSet", "my-ds")
 		require.NoError(t, err)
 		assert.Equal(t, "my-ds", obj.GetName())
@@ -208,7 +265,7 @@ func TestGetWorkloadObject(t *testing.T) {
 
 	t.Run("unsupported kind", func(t *testing.T) {
 		t.Parallel()
-		cl := fake.NewClientBuilder().WithScheme(testScheme()).Build()
+		cl := admissionClientBuilder().Build()
 		_, err := getWorkloadObject(ctx, cl, "default", "ReplicaSet", "my-rs")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), `unsupported workload kind "ReplicaSet"`)
@@ -216,7 +273,7 @@ func TestGetWorkloadObject(t *testing.T) {
 
 	t.Run("missing object", func(t *testing.T) {
 		t.Parallel()
-		cl := fake.NewClientBuilder().WithScheme(testScheme()).Build()
+		cl := admissionClientBuilder().Build()
 		_, err := getWorkloadObject(ctx, cl, "default", "Deployment", "missing")
 		require.Error(t, err)
 	})
@@ -226,7 +283,7 @@ func TestPodMutatingHandler_HappyPath(t *testing.T) {
 	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	cl := admissionClientBuilder().WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	req := makeAdmissionRequest(t, pod, "default")
@@ -247,7 +304,7 @@ func TestPodMutatingHandler_SkipAnnotation(t *testing.T) {
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 	pod.Annotations = map[string]string{AnnotationSkipKey: "true"}
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	cl := admissionClientBuilder().WithObjects(policy).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
@@ -295,7 +352,7 @@ func TestPodMutatingHandler_NamespaceFreeze(t *testing.T) {
 			policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
 			pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
-			builder := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy)
+			builder := admissionClientBuilder().WithObjects(policy, deploymentReplicaSet("default", "my-app-abc", "my-app"))
 			if tt.ns != nil {
 				builder = builder.WithObjects(tt.ns)
 			}
@@ -328,7 +385,7 @@ func TestPodMutatingHandler_NamespaceFreeze(t *testing.T) {
 
 func TestPodMutatingHandler_KubeSystem(t *testing.T) {
 	handler := &PodMutatingHandler{
-		Client: fake.NewClientBuilder().WithScheme(testScheme()).Build(),
+		Client: admissionClientBuilder().Build(),
 		Logger: logr.Discard(),
 	}
 	pod := testPod("coredns-abc", "ReplicaSet", "coredns-abc")
@@ -339,7 +396,7 @@ func TestPodMutatingHandler_KubeSystem(t *testing.T) {
 
 func TestPodMutatingHandler_NotCreate(t *testing.T) {
 	handler := &PodMutatingHandler{
-		Client: fake.NewClientBuilder().WithScheme(testScheme()).Build(),
+		Client: admissionClientBuilder().Build(),
 		Logger: logr.Discard(),
 	}
 	req := admission.Request{
@@ -354,7 +411,7 @@ func TestPodMutatingHandler_NotCreate(t *testing.T) {
 
 func TestPodMutatingHandler_ListErrorFailOpen(t *testing.T) {
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithInterceptorFuncs(interceptor.Funcs{
+	cl := admissionClientBuilder().WithObjects(deploymentReplicaSet("default", "my-app-abc", "my-app")).WithInterceptorFuncs(interceptor.Funcs{
 		List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
 			return fmt.Errorf("simulated list error")
 		},
@@ -377,7 +434,7 @@ func TestPodMutatingHandler_NoOwner(t *testing.T) {
 		},
 	}
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	cl := admissionClientBuilder().WithObjects(policy).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
@@ -389,7 +446,7 @@ func TestPodMutatingHandler_InitialSizingDisabled(t *testing.T) {
 	policy := testPolicy("my-policy", "default", "Deployment", "my-app", false, attunev1alpha1.UpdateTypeAuto)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	cl := admissionClientBuilder().WithObjects(policy).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
@@ -401,7 +458,7 @@ func TestPodMutatingHandler_ObserveMode(t *testing.T) {
 	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeObserve)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	cl := admissionClientBuilder().WithObjects(policy).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
@@ -418,7 +475,7 @@ func TestPodMutatingHandler_VPAListUnavailableSkipsCreateSizing(t *testing.T) {
 	}}
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	cl := admissionClientBuilder().WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
@@ -435,7 +492,7 @@ func TestPodMutatingHandler_CreateSkipsWhenHPAListUnavailable(t *testing.T) {
 	}}
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	cl := admissionClientBuilder().WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
@@ -447,7 +504,7 @@ func TestPodMutatingHandler_RecommendMode(t *testing.T) {
 	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeRecommend)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	cl := admissionClientBuilder().WithObjects(policy).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
@@ -471,7 +528,7 @@ func TestPodMutatingHandler_ConflictCheckFailedDoesNotOverrideHealthyPolicy(t *t
 	policyA := testPolicy("policy-a", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
 	policyA.Spec.Weight = 1000
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policyA, policyB, testNamespace("default", nil)).Build()
+	cl := admissionClientBuilder().WithObjects(policyA, policyB, testNamespace("default", nil)).Build()
 	var logged string
 	handler := &PodMutatingHandler{
 		Client: cl,
@@ -512,7 +569,7 @@ func TestPodMutatingHandler_OverlappingHealthyPoliciesPicksHighestWeight(t *test
 		policyA := testPolicy("policy-a", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
 		policyA.Spec.Weight = 1000
 
-		cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policyA, policyB, testNamespace("default", nil)).Build()
+		cl := admissionClientBuilder().WithObjects(policyA, policyB, testNamespace("default", nil)).Build()
 		handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 		picked, rec := handler.findMatchingPolicy(context.Background(), "default",
@@ -544,7 +601,7 @@ func TestPodMutatingHandler_OverlappingHealthyPoliciesPicksHighestWeight(t *test
 		policyA := testPolicy("policy-a", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
 		policyA.Spec.Weight = 100
 
-		cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policyA, policyZ, testNamespace("default", nil)).Build()
+		cl := admissionClientBuilder().WithObjects(policyA, policyZ, testNamespace("default", nil)).Build()
 		handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 		picked, rec := handler.findMatchingPolicy(context.Background(), "default",
@@ -572,7 +629,7 @@ func TestPodMutatingHandler_StaleRecommendation(t *testing.T) {
 	policy.Status.Recommendations[0].Stale = true
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	cl := admissionClientBuilder().WithObjects(policy).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
@@ -585,7 +642,7 @@ func TestPodMutatingHandler_LowConfidence(t *testing.T) {
 	policy.Status.Recommendations[0].Containers[0].Confidence = 0.3
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	cl := admissionClientBuilder().WithObjects(policy).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
@@ -609,7 +666,7 @@ func TestPodMutatingHandler_LowConfidence_SuccessfulHistoryApplies(t *testing.T)
 	}
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	cl := admissionClientBuilder().WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
@@ -628,7 +685,7 @@ func TestPodMutatingHandler_LowConfidence_WrongWorkloadHistorySkips(t *testing.T
 		},
 	}
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	cl := admissionClientBuilder().WithObjects(policy).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
@@ -647,7 +704,7 @@ func TestPodMutatingHandler_LowConfidence_RevertedHistorySkips(t *testing.T) {
 		},
 	}
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	cl := admissionClientBuilder().WithObjects(policy).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
@@ -665,7 +722,7 @@ func TestPodMutatingHandler_HighConfidence_LatestRevertedSkips(t *testing.T) {
 		},
 	}
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+	cl := admissionClientBuilder().
 		WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
@@ -690,7 +747,7 @@ func TestPodMutatingHandler_CronJobStartupBoostDoesNotRaise(t *testing.T) {
 		},
 	}
 	pod := testPod("nightly-etl-29184000-abc", "Job", "nightly-etl-29184000")
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+	cl := admissionClientBuilder().
 		WithObjects(policy, job, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
@@ -717,7 +774,7 @@ func TestPodMutatingHandler_JobCacheMissUsesAPIReader(t *testing.T) {
 		},
 	}
 	pod := testPod("nightly-etl-29184000-abc", "Job", "nightly-etl-29184000")
-	cache := fake.NewClientBuilder().WithScheme(testScheme()).
+	cache := admissionClientBuilder().
 		WithObjects(policy, testNamespace("default", nil)).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
@@ -727,7 +784,7 @@ func TestPodMutatingHandler_JobCacheMissUsesAPIReader(t *testing.T) {
 				return c.Get(ctx, key, obj, opts...)
 			},
 		}).Build()
-	live := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(job).Build()
+	live := admissionClientBuilder().WithObjects(job).Build()
 	handler := &PodMutatingHandler{Client: cache, APIReader: live, Logger: logr.Discard()}
 
 	req := makeAdmissionRequest(t, pod, "default")
@@ -746,7 +803,7 @@ func TestPodMutatingHandler_LowConfidence_EmptyMethodHistoryApplies(t *testing.T
 		},
 	}
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	cl := admissionClientBuilder().WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
@@ -758,7 +815,7 @@ func TestPodMutatingHandler_StatefulSet(t *testing.T) {
 	policy := testPolicy("sts-policy", "default", "StatefulSet", "my-sts", true, attunev1alpha1.UpdateTypeAuto)
 	pod := testPod("my-sts-0", "StatefulSet", "my-sts")
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	cl := admissionClientBuilder().WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	req := makeAdmissionRequest(t, pod, "default")
@@ -783,7 +840,7 @@ func TestPodMutatingHandler_DefaultsInitialSizingEnablesCreate(t *testing.T) {
 	}
 
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+	cl := admissionClientBuilder().
 		WithObjects(policy, defaults, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
@@ -806,7 +863,7 @@ func TestPodMutatingHandler_DefaultsTypeAutoEnablesCreate(t *testing.T) {
 	}
 
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+	cl := admissionClientBuilder().
 		WithObjects(policy, defaults, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
@@ -824,7 +881,7 @@ func TestPodMutatingHandler_PausedSkipsCreate(t *testing.T) {
 	paused := true
 	policy.Spec.Paused = &paused
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+	cl := admissionClientBuilder().
 		WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
@@ -847,7 +904,7 @@ func TestPodMutatingHandler_CronJobRecommendCreates(t *testing.T) {
 		},
 	}
 	pod := testPod("nightly-etl-29184000-abc", "Job", "nightly-etl-29184000")
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+	cl := admissionClientBuilder().
 		WithObjects(policy, job, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
@@ -872,7 +929,7 @@ func TestPodMutatingHandler_CronJobOwnerMatchesPolicy(t *testing.T) {
 		},
 	}
 	pod := testPod("nightly-etl-29184000-abc", "Job", "nightly-etl-29184000")
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+	cl := admissionClientBuilder().
 		WithObjects(policy, job, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
@@ -895,7 +952,7 @@ func TestPodMutatingHandler_StandaloneJobOwnerMatchesPolicy(t *testing.T) {
 		},
 	}
 	pod := testPod("standalone-job-abc", "Job", "standalone-job")
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+	cl := admissionClientBuilder().
 		WithObjects(policy, job, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
@@ -914,7 +971,7 @@ func TestPodMutatingHandler_StandaloneJobOwnerMatchesPolicy(t *testing.T) {
 func TestPodMutatingHandler_JobGetErrorSkipsCreate(t *testing.T) {
 	policy := testPolicy("job-policy", "default", "Job", "standalone-job", true, attunev1alpha1.UpdateTypeAuto)
 	pod := testPod("standalone-job-abc", "Job", "standalone-job")
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+	cl := admissionClientBuilder().
 		WithObjects(policy, testNamespace("default", nil)).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
@@ -945,7 +1002,7 @@ func TestPodMutatingHandler_JobKindPolicyDoesNotMatchGeneratedJobName(t *testing
 		},
 	}
 	pod := testPod("nightly-etl-29184000-abc", "Job", "nightly-etl-29184000")
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+	cl := admissionClientBuilder().
 		WithObjects(policy, job, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
@@ -962,7 +1019,7 @@ func TestPodMutatingHandler_StartupBoostRaisesCREATECPU(t *testing.T) {
 	}
 
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+	cl := admissionClientBuilder().
 		WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
@@ -1065,7 +1122,7 @@ func TestPodMutatingHandler_StartupBoostDestClamp(t *testing.T) {
 				corev1.ResourceCPU: leftover,
 			}
 
-			cl := fake.NewClientBuilder().WithScheme(testScheme()).
+			cl := admissionClientBuilder().
 				WithObjects(policy, testNamespace("default", nil)).Build()
 			handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
@@ -1105,7 +1162,7 @@ func TestPodMutatingHandler_StartupBoostRALZeroRecDestDoesNotInventDest(t *testi
 	}
 
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+	cl := admissionClientBuilder().
 		WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
@@ -1135,7 +1192,7 @@ func TestPodMutatingHandler_ClusterDefaultsRequestsAndLimitsWritesCPULimit(t *te
 	}
 
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+	cl := admissionClientBuilder().
 		WithObjects(policy, defaults, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
@@ -1163,7 +1220,7 @@ func TestPodMutatingHandler_NamespaceDefaultsRequestsAndLimitsWritesCPULimit(t *
 	}
 
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+	cl := admissionClientBuilder().
 		WithObjects(policy, nsDefaults, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
@@ -1193,7 +1250,7 @@ func TestPodMutatingHandler_PolicyControlledValuesWinsOverDefaults(t *testing.T)
 	}
 
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+	cl := admissionClientBuilder().
 		WithObjects(policy, defaults, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
@@ -1212,10 +1269,10 @@ func TestPodMutatingHandler_DefaultsListErrorSkipsCreate(t *testing.T) {
 	policy.Status.Recommendations[0].Containers[0].Recommended.CPULimit = resource.MustParse("1")
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
-	base := fake.NewClientBuilder().WithScheme(testScheme()).
-		WithObjects(policy, testNamespace("default", nil)).Build()
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).
-		WithObjects(policy, testNamespace("default", nil)).
+	base := admissionClientBuilder().
+		WithObjects(policy, deploymentReplicaSet("default", "my-app-abc", "my-app"), testNamespace("default", nil)).Build()
+	cl := admissionClientBuilder().
+		WithObjects(policy, deploymentReplicaSet("default", "my-app-abc", "my-app"), testNamespace("default", nil)).
 		WithInterceptorFuncs(interceptor.Funcs{
 			List: func(ctx context.Context, _ client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
 				switch list.(type) {
@@ -1244,7 +1301,7 @@ func TestPodMutatingHandler_RequestsAndLimits(t *testing.T) {
 	policy.Status.Recommendations[0].Containers[0].Recommended.MemoryLimit = resource.MustParse("512Mi")
 
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	cl := admissionClientBuilder().WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	req := makeAdmissionRequest(t, pod, "default")
@@ -1268,7 +1325,7 @@ func TestPodMutatingHandler_LimitsOnlyCPUProducesPatch(t *testing.T) {
 	cr.Recommended.MemoryLimit = resource.Quantity{}
 
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	cl := admissionClientBuilder().WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	req := makeAdmissionRequest(t, pod, "default")
@@ -1304,7 +1361,7 @@ func TestPodMutatingHandler_LimitsOnlyMemoryFloorProducesPatch(t *testing.T) {
 	pod.Spec.Containers[0].Resources.Limits = corev1.ResourceList{
 		corev1.ResourceMemory: resource.MustParse("1Gi"),
 	}
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	cl := admissionClientBuilder().WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	req := makeAdmissionRequest(t, pod, "default")
@@ -1343,7 +1400,7 @@ func TestPodMutatingHandler_RequestsAndLimits_UsageFloorGuaranteed(t *testing.T)
 	}
 
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	cl := admissionClientBuilder().WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	req := makeAdmissionRequest(t, pod, "default")
@@ -1369,7 +1426,7 @@ func TestPodMutatingHandler_ClampsRequestToLeftoverLimit(t *testing.T) {
 		corev1.ResourceCPU: resource.MustParse("200m"),
 	}
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	cl := admissionClientBuilder().WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	beforeCPU := promtestutil.ToFloat64(operatormetrics.RequestClampedTotal.WithLabelValues(
@@ -1442,7 +1499,7 @@ func TestPodMutatingHandler_NativeSidecarInitialSizing(t *testing.T) {
 		},
 	}
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	cl := admissionClientBuilder().WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	req := makeAdmissionRequest(t, pod, "default")
@@ -1473,7 +1530,7 @@ func TestPodMutatingHandler_WrongNamespace(t *testing.T) {
 	policy := testPolicy("my-policy", "production", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	cl := admissionClientBuilder().WithObjects(policy).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	// Pod is in "default" but policy is in "production".
@@ -1486,7 +1543,7 @@ func TestPodMutatingHandler_WrongTargetName(t *testing.T) {
 	policy := testPolicy("my-policy", "default", "Deployment", "other-app", true, attunev1alpha1.UpdateTypeAuto)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	cl := admissionClientBuilder().WithObjects(policy).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
@@ -1496,7 +1553,7 @@ func TestPodMutatingHandler_WrongTargetName(t *testing.T) {
 
 func TestPodMutatingHandler_InvalidPodJSON(t *testing.T) {
 	handler := &PodMutatingHandler{
-		Client: fake.NewClientBuilder().WithScheme(testScheme()).Build(),
+		Client: admissionClientBuilder().Build(),
 		Logger: logr.Discard(),
 	}
 	req := admission.Request{
@@ -1515,7 +1572,7 @@ func TestPodMutatingHandler_OneShotMode(t *testing.T) {
 	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeOneShot)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	cl := admissionClientBuilder().WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
@@ -1530,7 +1587,7 @@ func TestPodMutatingHandler_CreateSizesWhenOwnerReplicasZero(t *testing.T) {
 	deploy.Spec.Replicas = &zero
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, deploy, testNamespace("default", nil)).Build()
+	cl := admissionClientBuilder().WithObjects(policy, deploy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
@@ -1560,7 +1617,7 @@ func TestPodMutatingHandler_CreateSizesWhenHPAScaledToZero(t *testing.T) {
 	}
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, deploy, hpa, testNamespace("default", nil)).Build()
+	cl := admissionClientBuilder().WithObjects(policy, deploy, hpa, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
@@ -1601,7 +1658,7 @@ func TestPodMutatingHandler_CreateRaisesEnvelopeToCoverSum(t *testing.T) {
 	pod := withCreateEnvelope(t, testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc"),
 		"200m", "128Mi", "", "")
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	cl := admissionClientBuilder().WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	req := makeAdmissionRequest(t, pod, "default")
@@ -1623,7 +1680,7 @@ func TestPodMutatingHandler_CreateNilEnvelopeStaysNil(t *testing.T) {
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 	require.Nil(t, pod.Spec.Resources)
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	cl := admissionClientBuilder().WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	req := makeAdmissionRequest(t, pod, "default")
@@ -1644,7 +1701,7 @@ func TestPodMutatingHandler_CreateRequestsOnlyBurstableDoesNotLiftLimit(t *testi
 		"200m", "128Mi", "300m", "256Mi")
 	pod.Status.QOSClass = corev1.PodQOSBurstable
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	cl := admissionClientBuilder().WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	req := makeAdmissionRequest(t, pod, "default")
@@ -1673,7 +1730,7 @@ func TestPodMutatingHandler_CreateRaisesEnvelopeWhenOwnerReplicasZero(t *testing
 	pod := withCreateEnvelope(t, testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc"),
 		"200m", "128Mi", "", "")
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, deploy, testNamespace("default", nil)).Build()
+	cl := admissionClientBuilder().WithObjects(policy, deploy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	req := makeAdmissionRequest(t, pod, "default")
@@ -1691,7 +1748,7 @@ func TestPodMutatingHandler_CanaryMode_SkipsUntilPromoted(t *testing.T) {
 	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeCanary)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	cl := admissionClientBuilder().WithObjects(policy).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
@@ -1714,7 +1771,7 @@ func TestPodMutatingHandler_CanaryMode_EmptyNameSkips(t *testing.T) {
 	pod := testPod("", "ReplicaSet", "my-app-abc")
 	pod.GenerateName = "my-app-abc-"
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	cl := admissionClientBuilder().WithObjects(policy).Build()
 	var logged string
 	handler := &PodMutatingHandler{
 		Client: cl,
@@ -1739,7 +1796,7 @@ func TestPodMutatingHandler_CanaryMode_MutatesCanarySlice(t *testing.T) {
 	}
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	cl := admissionClientBuilder().WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
@@ -1774,7 +1831,7 @@ func TestPodMutatingHandler_CanaryMode_PromotedAppOnly(t *testing.T) {
 		},
 	}
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	cl := admissionClientBuilder().WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	aNew := testPod("app-a-new", "ReplicaSet", "app-a-abc")
@@ -1826,7 +1883,7 @@ func TestPodMutatingHandler_SelectorPolicy_CanaryIsolation(t *testing.T) {
 	deployB := testDeployment("app-b", "default", map[string]string{"tier": "api"})
 	deployOther := testDeployment("other", "default", map[string]string{"tier": "batch"})
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+	cl := admissionClientBuilder().
 		WithObjects(policy, deployA, deployB, deployOther, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
@@ -1856,7 +1913,7 @@ func TestPodMutatingHandler_SelectorPolicy_EmptySelectorFailsClosed(t *testing.T
 	policy.Spec.TargetRef.Name = nil
 	policy.Spec.TargetRef.Selector = &metav1.LabelSelector{}
 	deployA := testDeployment("app-a", "default", map[string]string{"tier": "api"})
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, deployA).Build()
+	cl := admissionClientBuilder().WithObjects(policy, deployA).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t,
@@ -1871,7 +1928,7 @@ func TestPodMutatingHandler_SelectorPolicy_MissingWorkloadFailsClosed(t *testing
 	policy.Spec.TargetRef.Selector = &metav1.LabelSelector{
 		MatchLabels: map[string]string{"tier": "api"},
 	}
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	cl := admissionClientBuilder().WithObjects(policy).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t,
@@ -1890,7 +1947,7 @@ func TestPodMutatingHandler_CanaryMode_MutatesAfterPromote(t *testing.T) {
 	}
 	pod := testPod("my-app-new-xyz", "ReplicaSet", "my-app-abc")
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	cl := admissionClientBuilder().WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
@@ -1906,16 +1963,16 @@ func TestResolveOwner(t *testing.T) {
 		expectedName string
 	}{
 		{
-			name:         "ReplicaSet resolves to Deployment",
+			name:         "ReplicaSet stays ReplicaSet until lookup",
 			refs:         []metav1.OwnerReference{{Kind: "ReplicaSet", Name: "my-app-6f8d4c5b7d"}},
-			expectedKind: "Deployment",
-			expectedName: "my-app",
+			expectedKind: "ReplicaSet",
+			expectedName: "my-app-6f8d4c5b7d",
 		},
 		{
-			name:         "ReplicaSet with multi-dash name",
-			refs:         []metav1.OwnerReference{{Kind: "ReplicaSet", Name: "my-cool-app-6f8d4c5b7d"}},
-			expectedKind: "Deployment",
-			expectedName: "my-cool-app",
+			name:         "standalone ReplicaSet name is not stripped",
+			refs:         []metav1.OwnerReference{{Kind: "ReplicaSet", Name: "api-rs"}},
+			expectedKind: "ReplicaSet",
+			expectedName: "api-rs",
 		},
 		{
 			name:         "StatefulSet",
@@ -1957,22 +2014,65 @@ func TestResolveOwner(t *testing.T) {
 	}
 }
 
-func TestExtractDeploymentName(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"my-app-6f8d4c5b7d", "my-app"},
-		{"simple-abc123", "simple"},
-		{"no-dash-at-end", "no-dash-at"},
-		{"nodash", ""},
-		{"-leadingdash", ""},
+func TestResolveReplicaSetOwner(t *testing.T) {
+	owned := &appsv1.ReplicaSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "web-6f8d4c5b7d",
+			Namespace: "default",
+			OwnerReferences: []metav1.OwnerReference{{
+				Kind: "Deployment", Name: "web",
+			}},
+		},
 	}
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			assert.Equal(t, tt.expected, extractDeploymentName(tt.input))
-		})
+	standalone := &appsv1.ReplicaSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "api-rs", Namespace: "default"},
 	}
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(owned, standalone).Build()
+
+	kind, name, err := resolveReplicaSetOwner(context.Background(), cl, "default", "web-6f8d4c5b7d")
+	require.NoError(t, err)
+	assert.Equal(t, "Deployment", kind)
+	assert.Equal(t, "web", name)
+
+	kind, name, err = resolveReplicaSetOwner(context.Background(), cl, "default", "api-rs")
+	require.NoError(t, err)
+	assert.Equal(t, "ReplicaSet", kind)
+	assert.Equal(t, "api-rs", name)
+
+	_, _, err = resolveReplicaSetOwner(context.Background(), cl, "default", "missing")
+	require.Error(t, err)
+}
+
+func TestPodMutatingHandler_StandaloneReplicaSetNotStripped(t *testing.T) {
+	rs := &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{Name: "api-rs", Namespace: "default"}}
+	rsPolicy := testPolicy("rs-policy", "default", "ReplicaSet", "api-rs", true, attunev1alpha1.UpdateTypeAuto)
+	deployPolicy := testPolicy("deploy-policy", "default", "Deployment", "api", true, attunev1alpha1.UpdateTypeAuto)
+	pod := testPod("api-rs-pod", "ReplicaSet", "api-rs")
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(rs, rsPolicy, deployPolicy, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
+	require.True(t, resp.Allowed)
+	require.NotEmpty(t, resp.Patches, "policy targeting the ReplicaSet must CREATE-size")
+
+	cl = fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(rs, deployPolicy, testNamespace("default", nil)).Build()
+	handler = &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+	resp = handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
+	require.True(t, resp.Allowed)
+	assert.Nil(t, resp.Patches, "Deployment api must not inherit ReplicaSet api-rs")
+}
+
+func TestPodMutatingHandler_ReplicaSetGetErrorSkipsCreate(t *testing.T) {
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
+	require.True(t, resp.Allowed)
+	assert.Nil(t, resp.Patches)
+	require.NotNil(t, resp.Result)
+	assert.Contains(t, resp.Result.Message, "cannot read ReplicaSet")
 }
 
 func TestHasMinConfidence(t *testing.T) {

@@ -20,6 +20,8 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -29,8 +31,13 @@ type WorkloadAdapter interface {
 	// Object returns the underlying Kubernetes object.
 	Object() client.Object
 
-	// PodSelectorLabels returns the labels used to select pods owned by this workload.
+	// PodSelectorLabels returns MatchLabels for callers that only need the map.
+	// Pod selection uses PodSelector so MatchExpressions are honored.
 	PodSelectorLabels() map[string]string
+
+	// PodSelector returns the workload's pod selector, including MatchExpressions.
+	// A nil selector means the workload has nothing to match.
+	PodSelector() (labels.Selector, error)
 
 	// PodSpec returns the pod template spec from the workload.
 	PodSpec() *corev1.PodSpec
@@ -145,6 +152,10 @@ func (a *deploymentAdapter) PodSelectorLabels() map[string]string {
 	return nil
 }
 
+func (a *deploymentAdapter) PodSelector() (labels.Selector, error) {
+	return selectorFrom(a.Spec.Selector, nil)
+}
+
 func (a *deploymentAdapter) PodSpec() *corev1.PodSpec {
 	return &a.Spec.Template.Spec
 }
@@ -176,6 +187,10 @@ func (a *statefulSetAdapter) PodSelectorLabels() map[string]string {
 	return nil
 }
 
+func (a *statefulSetAdapter) PodSelector() (labels.Selector, error) {
+	return selectorFrom(a.Spec.Selector, nil)
+}
+
 func (a *statefulSetAdapter) PodSpec() *corev1.PodSpec {
 	return &a.Spec.Template.Spec
 }
@@ -204,6 +219,10 @@ func (a *daemonSetAdapter) PodSelectorLabels() map[string]string {
 	return nil
 }
 
+func (a *daemonSetAdapter) PodSelector() (labels.Selector, error) {
+	return selectorFrom(a.Spec.Selector, nil)
+}
+
 func (a *daemonSetAdapter) PodSpec() *corev1.PodSpec {
 	return &a.Spec.Template.Spec
 }
@@ -228,6 +247,10 @@ func (a *cronJobAdapter) PodSelectorLabels() map[string]string {
 	}
 	// Fall back to pod template labels for CronJobs without explicit selector.
 	return a.Spec.JobTemplate.Spec.Template.Labels
+}
+
+func (a *cronJobAdapter) PodSelector() (labels.Selector, error) {
+	return selectorFrom(a.Spec.JobTemplate.Spec.Selector, a.Spec.JobTemplate.Spec.Template.Labels)
 }
 
 func (a *cronJobAdapter) PodSpec() *corev1.PodSpec {
@@ -258,6 +281,10 @@ func (a *jobAdapter) PodSelectorLabels() map[string]string {
 	return a.Spec.Template.Labels
 }
 
+func (a *jobAdapter) PodSelector() (labels.Selector, error) {
+	return selectorFrom(a.Spec.Selector, a.Spec.Template.Labels)
+}
+
 func (a *jobAdapter) PodSpec() *corev1.PodSpec {
 	return &a.Spec.Template.Spec
 }
@@ -284,6 +311,30 @@ func (a *replicaSetAdapter) PodSelectorLabels() map[string]string {
 		return a.Spec.Selector.MatchLabels
 	}
 	return nil
+}
+
+func (a *replicaSetAdapter) PodSelector() (labels.Selector, error) {
+	return selectorFrom(a.Spec.Selector, nil)
+}
+
+// selectorFrom parses a LabelSelector, including MatchExpressions.
+// An empty selector falls back to equality on fallback labels (Job and
+// CronJob templates). Nil means there is nothing to match.
+func selectorFrom(sel *metav1.LabelSelector, fallback map[string]string) (labels.Selector, error) {
+	if sel != nil && (len(sel.MatchLabels) > 0 || len(sel.MatchExpressions) > 0) {
+		parsed, err := metav1.LabelSelectorAsSelector(sel)
+		if err != nil {
+			return nil, err
+		}
+		if parsed.Empty() {
+			return nil, nil
+		}
+		return parsed, nil
+	}
+	if len(fallback) == 0 {
+		return nil, nil
+	}
+	return labels.SelectorFromSet(fallback), nil
 }
 
 func (a *replicaSetAdapter) PodSpec() *corev1.PodSpec {

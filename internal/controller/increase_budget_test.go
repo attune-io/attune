@@ -23,6 +23,18 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestIncreaseRateBucket_OversizedRequestNeverFits(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+	b := newIncreaseRateBucket(300, -1, now)
+	assert.True(t, b.exceedsCapacity(301, 0))
+	assert.True(t, budgetBlockPermanent(301, 0, -1, -1, b))
+	assert.False(t, b.tryDraw(301, 0, now))
+	assert.False(t, b.tryDraw(301, 0, now.Add(24*time.Hour)))
+	assert.False(t, budgetBlockPermanent(300, 0, -1, -1, b), "a full bucket can pay exactly one minute")
+	assert.True(t, budgetBlockPermanent(600, 0, 500, -1, nil), "per-cycle cap blocks even without a rate bucket")
+}
+
 func TestIncreaseRateBucket_DrawAndRefill(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)

@@ -132,6 +132,11 @@ if changePct > MaxChangePercent:
     return current +/- (current * MaxChangePercent / 100)  # cap
 ```
 
+The filter runs after bounds. If keeping the current value, or stopping
+at the directional cap, would leave the result outside `[min, max]`, the
+bounds win and the published value is clamped back inside. A pod already
+above `maxAllowed` or below `minAllowed` moves back inside on this cycle.
+
 | Parameter | Default | Purpose |
 |-----------|---------|---------|
 | `MinChangePercent` | 10% | Ignore changes below this threshold |

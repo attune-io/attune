@@ -1059,7 +1059,14 @@ configured `maxTotalCpuIncrease` or `maxTotalMemoryIncrease`.
 
 **Fix**: Either increase the budget or accept that resizes are spread
 across multiple reconcile cycles (this is the intended behavior for
-gradual rollout):
+gradual rollout).
+
+If the event reason is `IncreaseExceedsBudget`, one container's increase
+is larger than the configured cap. The bucket only holds one minute of
+`maxCpuIncreasePerMinute` / `maxMemoryIncreasePerMinute`, and
+`maxTotalCpuIncrease` / `maxTotalMemoryIncrease` reset to the same number
+every cycle, so that resize will not run until the cap is raised or the
+recommendation shrinks. It is not waiting for the next cycle.
 
 ```yaml
 updateStrategy:

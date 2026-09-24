@@ -22,6 +22,14 @@ import (
 	"time"
 )
 
+func BenchmarkDownsampleSamples(b *testing.B) {
+	samples := generateBenchSamples(100_000)
+	b.ResetTimer()
+	for b.Loop() {
+		DownsampleSamples(samples, DefaultMaxProfileSamples)
+	}
+}
+
 func BenchmarkBuildProfile_1000Samples(b *testing.B) {
 	samples := generateBenchSamples(1000)
 	b.ResetTimer()

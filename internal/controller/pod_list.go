@@ -24,6 +24,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -72,24 +73,24 @@ func (r *AttunePolicyReconciler) listPodsForWorkloads(ctx context.Context, workl
 
 		// Precompute selectors once.
 		type matchSpec struct {
-			name   string
-			labels map[string]string
+			name string
+			sel  labels.Selector
 		}
 		specs := make([]matchSpec, 0, len(ws))
 		for _, w := range ws {
-			sel := r.getPodSelectorLabels(w)
-			if len(sel) == 0 {
+			sel, err := r.podSelector(w)
+			if err != nil || sel == nil {
 				logger.Error(fmt.Errorf("no pod selector"), "Skipping workload pod match",
-					"workload", w.GetName(), "namespace", ns)
+					"workload", w.GetName(), "namespace", ns, "error", err)
 				continue
 			}
-			specs = append(specs, matchSpec{name: w.GetName(), labels: sel})
+			specs = append(specs, matchSpec{name: w.GetName(), sel: sel})
 		}
 
 		for i := range podList.Items {
 			pod := &podList.Items[i]
 			for _, s := range specs {
-				if labelsMatch(pod.Labels, s.labels) {
+				if s.sel.Matches(labels.Set(pod.Labels)) {
 					out[s.name] = append(out[s.name], *pod)
 				}
 			}

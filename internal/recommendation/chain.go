@@ -136,6 +136,17 @@ func (e *RecommendationEngine) RecommendWithExplanation(profile metrics.UsagePro
 
 	afterChangeFilter, changeFilterApplied := applyChangeFilter(
 		current, afterBounds, e.minChangePercent, e.maxIncreasePercent, e.maxDecreasePercent)
+	// Bounds are a hard limit. The change filter runs on the clamped
+	// target, so a current value already outside [min, max] can be kept
+	// (step under minChangePercent) or only partly moved (directional
+	// cap stops short). Pull the published value back inside.
+	if reclamped, which := applyBounds(afterChangeFilter, e.minBound, e.maxBound); which != "" {
+		afterChangeFilter = reclamped
+		changeFilterApplied = ""
+		if boundsApplied == "" {
+			boundsApplied = which
+		}
+	}
 	maxPct := e.maxIncreasePercent
 	if current.MilliValue() != 0 && afterBounds.MilliValue() <= current.MilliValue() {
 		maxPct = e.maxDecreasePercent

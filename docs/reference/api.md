@@ -245,7 +245,8 @@ View them with `kubectl describe attunepolicy <name>` or
 | `DecreaseSuppressed` | Normal | A CPU or memory decrease was blocked by `allowDecrease=false` |
 | `ScheduleSkipped` | Normal | Resize was skipped because the current time is outside the configured schedule window |
 | `ResizeFailed` | Warning | An in-place resize API call failed |
-| `BudgetExhausted` | Warning | The per-reconcile resize budget was exhausted before all workloads could be resized |
+| `BudgetExhausted` | Warning | The per-reconcile resize budget was exhausted before all workloads could be resized. The same cap can still admit this pod on a later cycle |
+| `IncreaseExceedsBudget` | Warning | One container's increase is larger than `maxCpuIncreasePerMinute`, `maxMemoryIncreasePerMinute`, `maxTotalCpuIncrease`, or `maxTotalMemoryIncrease`. Waiting does not help; raise the cap or lower the target |
 | `InfeasibleBlocked` | Warning | In-place resize skipped because the kubelet marked the pod Infeasible and `resizeMethod` is `InPlaceOnly` |
 | `EvictionBlocked` | Warning | Eviction fallback skipped (last live Running replica, missing selector, or pod list failure). `spec.replicas` and NotReady pods are not counted |
 | `EvictionDenied` | Warning | Eviction API denied the request (typically a PodDisruptionBudget) |

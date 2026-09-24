@@ -99,6 +99,15 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 	if ownerKind == "" || ownerName == "" {
 		return admission.Allowed("no recognized owner")
 	}
+	if ownerKind == "ReplicaSet" {
+		resolvedKind, resolvedName, err := resolveReplicaSetOwner(ctx, h.jobOwnerReader(), req.Namespace, ownerName)
+		if err != nil {
+			h.Logger.Error(err, "getting ReplicaSet for initial sizing; skipping",
+				"namespace", req.Namespace, "replicaSet", ownerName)
+			return admission.Allowed("cannot read ReplicaSet for initial sizing")
+		}
+		ownerKind, ownerName = resolvedKind, resolvedName
+	}
 	if ownerKind == "Job" {
 		cronKind, cronName, err := resolveCronJobOwner(ctx, h.jobOwnerReader(), req.Namespace, ownerName)
 		if err != nil {
@@ -577,25 +586,40 @@ func applyCreateMemoryUsageFloor(
 	return resize.RaiseMemoryRequestToLimitIfGuaranteed(target, guaranteed)
 }
 
-// resolveOwner walks the ownerReferences to find the top-level workload kind.
-// For pods created by a ReplicaSet (owned by a Deployment), the owner chain is:
-// Pod -> ReplicaSet -> Deployment. We resolve ReplicaSet to Deployment by
-// stripping the pod-template-hash suffix from the ReplicaSet name.
+// resolveOwner returns the pod's immediate controller. A ReplicaSet is not
+// rewritten to a Deployment here: the caller reads the ReplicaSet and uses
+// its ownerReferences. Stripping a trailing dash treats a standalone
+// ReplicaSet named "api-rs" as Deployment "api".
 func resolveOwner(refs []metav1.OwnerReference) (kind, name string) {
 	for _, ref := range refs {
 		switch ref.Kind {
-		case "ReplicaSet":
-			// ReplicaSet names follow <deployment-name>-<pod-template-hash>.
-			deployName := extractDeploymentName(ref.Name)
-			if deployName != "" {
-				return "Deployment", deployName
+		case "ReplicaSet", "StatefulSet", "DaemonSet", "Job":
+			if ref.Name == "" {
+				continue
 			}
-			return "ReplicaSet", ref.Name
-		case "StatefulSet", "DaemonSet", "Job":
 			return ref.Kind, ref.Name
 		}
 	}
 	return "", ""
+}
+
+// resolveReplicaSetOwner returns the Deployment that owns the ReplicaSet,
+// or the ReplicaSet itself when it has no Deployment owner. Get errors
+// fail closed so CREATE does not size from a guessed name.
+func resolveReplicaSetOwner(ctx context.Context, c client.Reader, namespace, rsName string) (kind, name string, err error) {
+	if c == nil {
+		return "", "", fmt.Errorf("no client to resolve ReplicaSet %s/%s", namespace, rsName)
+	}
+	rs := &appsv1.ReplicaSet{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: rsName}, rs); err != nil {
+		return "", "", err
+	}
+	for _, ref := range rs.OwnerReferences {
+		if ref.Kind == "Deployment" && ref.Name != "" {
+			return "Deployment", ref.Name, nil
+		}
+	}
+	return "ReplicaSet", rsName, nil
 }
 
 // resolveCronJobOwner returns the CronJob that owns jobName. Empty name
@@ -625,20 +649,6 @@ func resolveCronJobOwner(ctx context.Context, c client.Reader, namespace, jobNam
 		}
 	}
 	return "", "", nil
-}
-
-// extractDeploymentName extracts the Deployment name from a ReplicaSet name
-// by stripping the last -<hash> suffix.
-func extractDeploymentName(rsName string) string {
-	for i := len(rsName) - 1; i >= 0; i-- {
-		if rsName[i] == '-' {
-			if i > 0 {
-				return rsName[:i]
-			}
-			return ""
-		}
-	}
-	return ""
 }
 
 // recEligibleForCreateSizing is true when every container meets the
