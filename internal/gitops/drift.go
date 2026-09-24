@@ -67,17 +67,7 @@ func ComputeDrift(
 		name := w.GetName()
 		rec, ok := byKey[kind+"/"+name]
 		if !ok {
-			// try match on workload name only
-			for _, r := range recs {
-				if r.Stale {
-					continue
-				}
-				if r.Workload == name {
-					rec = r
-					ok = true
-					break
-				}
-			}
+			ok = driftNameFallback(&rec, recs, kind, name)
 		}
 		if !ok {
 			continue
@@ -231,6 +221,30 @@ func podTemplateSpec(w client.Object) *corev1.PodTemplateSpec {
 	default:
 		return nil
 	}
+}
+
+// driftNameFallback matches a single non-stale recommendation by workload
+// name when Kind is omitted or wrong. A stale recommendation for this
+// kind blocks the fallback so another kind is not applied. Two fresh
+// recommendations that share a name are not cross-applied.
+func driftNameFallback(dst *attunev1alpha1.WorkloadRecommendation, recs []attunev1alpha1.WorkloadRecommendation, kind, name string) bool {
+	for _, r := range recs {
+		if r.Kind == kind && r.Workload == name {
+			return false
+		}
+	}
+	var named []attunev1alpha1.WorkloadRecommendation
+	for _, r := range recs {
+		if r.Stale || r.Workload != name {
+			continue
+		}
+		named = append(named, r)
+	}
+	if len(named) != 1 {
+		return false
+	}
+	*dst = named[0]
+	return true
 }
 
 func workloadKind(w client.Object) string {
