@@ -8,6 +8,71 @@ Maintainers: before publishing a release after multi-version product changes,
 run the full E2E Nightly matrix on tip of `main` (see
 [Releasing: full E2E matrix](../contributing/releasing.md#1b-full-e2e-matrix-required-before-tagging-a-product-release)).
 
+## v0.1.31 to v0.1.32
+
+v0.1.32 restores CloudWatch samples for Deployments and CronJobs, and
+it stops a long history from pushing a configured percentile upward.
+Existing policy YAML keeps working. No CRD change is required.
+
+### CloudWatch matches the owner name
+
+Container Insights stores the owner in `PodName`, not the full pod
+name. v0.1.31 matched only the full pod name, so Deployments and
+CronJobs got no samples.
+
+v0.1.32 accepts that owner name:
+
+- A Deployment matches the ReplicaSet hash. The hash uses Kubernetes
+  `SafeEncodeString` (consonants plus the digits 2, 4, 5, 6, 7, 8,
+  and 9, length 5 to 10). A sibling such as `api-v2` or `api-worker`
+  is not included.
+- A CronJob matches the Job name, including the timestamp.
+- A DaemonSet, StatefulSet, or Job matches the workload name.
+- Clusters that set `prefer_full_pod_name` still match the full pod
+  name.
+
+A DaemonSet, StatefulSet, and Job that share one name still share one
+CloudWatch series. That metric has no kind.
+
+See [CloudWatch Container Insights](../reference/configuration.md#cloudwatch-container-insights).
+
+### Long histories keep the configured percentile
+
+After 10,000 samples, v0.1.31 kept the highest value in each time
+window and computed the percentile from those highs. A configured P95
+could land near the real P98. v0.1.32 keeps the midpoint of each
+window. The highest sample in the series is still kept, so burst
+detection still sees a short spike.
+
+A recommendation can be lower than the one v0.1.31 published for the
+same history.
+
+### An empty usage percentile no longer grows the request
+
+When the usage percentile was missing, v0.1.31 still applied the
+confidence buffer and could raise the request. v0.1.32 leaves that
+request unchanged until a real percentile exists.
+
+### Other corrections
+
+- GitOps drift after a merged branch stays on the workload that owns
+  the branch.
+- A clock step backward, or a revert that fails, no longer drops the
+  increase budget. A failed revert stays recorded as in-place.
+- Configured bounds and the increase budget still apply after the
+  change filter. Label selectors and metric pod filters keep matching
+  the intended pods.
+
+### Upgrade the chart and image
+
+1. Upgrade the chart to 0.1.32, or set `image.tag` to `0.1.32` or
+   `v0.1.32`.
+2. Pull `ghcr.io/attune-io/attune:v0.1.32` or
+   `ghcr.io/attune-io/attune:0.1.32`. Both tags point at the same
+   digest.
+3. CRDs are unchanged for this release. Helm still does not upgrade
+   CRDs on `helm upgrade`.
+
 ## v0.1.30 to v0.1.31
 
 v0.1.31 adds operator-level Prometheus authentication and deprecates
