@@ -100,6 +100,12 @@ func (e *RecommendationEngine) Recommend(profile metrics.UsageProfile, current r
 // estimator-chain intermediate values that led to it.
 func (e *RecommendationEngine) RecommendWithExplanation(profile metrics.UsageProfile, current resource.Quantity) (recommended resource.Quantity, explanation RecommendationExplanation, changed bool) {
 	percentileEstimator := &PercentileEstimator{Percentile: e.percentile, IsCPU: e.isCPU}
+	selected := percentileEstimator.selectedMax(profile)
+	// No samples, or a non-finite percentile, is not a request to grow.
+	// Overhead and the confidence buffer must not scale the current value.
+	if profile.DataPoints == 0 || math.IsNaN(selected) || math.IsInf(selected, 0) {
+		return current.DeepCopy(), holdAtCurrent(e, current), false
+	}
 	rawPercentile := percentileEstimator.Estimate(profile, current)
 
 	// Convert overhead percentage to multiplier: 20% overhead -> 1.2x multiplier.
@@ -174,4 +180,27 @@ func (e *RecommendationEngine) RecommendWithExplanation(profile metrics.UsagePro
 	recommended = afterChangeFilter
 	changed = recommended.Cmp(current) != 0
 	return recommended, explanation, changed
+}
+
+// holdAtCurrent records an unchanged recommendation when the percentile
+// is not a usable sample.
+func holdAtCurrent(e *RecommendationEngine, current resource.Quantity) RecommendationExplanation {
+	q := current.DeepCopy()
+	return RecommendationExplanation{
+		RawPercentile:     q.DeepCopy(),
+		Overhead:          e.overhead,
+		AfterOverhead:     q.DeepCopy(),
+		BurstFactor:       1,
+		AfterBurst:        q.DeepCopy(),
+		Confidence:        0,
+		ConfidenceFactor:  1,
+		AfterConfidence:   q.DeepCopy(),
+		MinBound:          e.minBound.DeepCopy(),
+		MaxBound:          e.maxBound.DeepCopy(),
+		AfterBounds:       q.DeepCopy(),
+		MinChangePercent:  e.minChangePercent,
+		MaxChangePercent:  e.maxIncreasePercent,
+		AfterChangeFilter: q.DeepCopy(),
+		Final:             q.DeepCopy(),
+	}
 }

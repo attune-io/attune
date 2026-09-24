@@ -425,6 +425,36 @@ func TestRecommendationEngine_ExplainChain(t *testing.T) {
 	assert.Equal(t, int64(250), explanation.AfterChangeFilter.MilliValue())
 }
 
+func TestRecommendationEngine_NoSamplesDoNotInflate(t *testing.T) {
+	engine := NewEngine(
+		95, 20.0,
+		resource.MustParse("50m"), resource.MustParse("4000m"),
+		200, 200,
+		EngineOpts{IsCPU: true},
+	)
+	current := resource.MustParse("500m")
+	profile := metrics.UsageProfile{Confidence: 0}
+	got, explanation, changed := engine.RecommendWithExplanation(profile, current)
+	assert.False(t, changed)
+	assert.Equal(t, current.MilliValue(), got.MilliValue())
+	assert.Equal(t, current.MilliValue(), explanation.Final.MilliValue())
+	assert.InDelta(t, 1.0, explanation.ConfidenceFactor, 0.0001)
+}
+
+func TestRecommendationEngine_ObservedZeroMovesTowardMin(t *testing.T) {
+	engine := NewEngine(
+		95, 0,
+		resource.MustParse("50m"), resource.MustParse("4000m"),
+		200, 200,
+		EngineOpts{IsCPU: true},
+	)
+	profile := metrics.UsageProfile{DataPoints: 100, Confidence: 1}
+	current := resource.MustParse("500m")
+	got, _, changed := engine.RecommendWithExplanation(profile, current)
+	assert.True(t, changed)
+	assert.Equal(t, int64(50), got.MilliValue(), "sampled zero usage should land on the minimum, not the current request")
+}
+
 func TestRecommendationEngine_ZeroConfidenceGivesMaxBuffer(t *testing.T) {
 	// With confidence=0.0 (no data), the confidence factor should be 2.0
 	// (100% buffer). The old vestigial floor at 0.1 would cap this at ~1.81.
