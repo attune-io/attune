@@ -240,7 +240,9 @@ func (c *GitHubClient) applyIssueLabels(ctx context.Context, httpClient HTTPDoer
 }
 
 // ensureHeadBranch creates req head from base with an empty bootstrap commit when
-// the head ref is missing. If the head already exists, this is a no-op.
+// the head ref is missing. If the head exists but is not ahead of base (merged
+// branch left in place), it adds another empty commit so the next PR is not
+// rejected with "No commits between".
 func (c *GitHubClient) ensureHeadBranch(ctx context.Context, httpClient HTTPDoer, apiBase, head, baseBranch string) error {
 	headRefURL := fmt.Sprintf("%s/repos/%s/git/ref/%s", apiBase, c.Repository, pathEscapeRef("heads/"+head))
 	_, code, err := c.doJSON(ctx, httpClient, http.MethodGet, headRefURL, nil)
@@ -248,83 +250,22 @@ func (c *GitHubClient) ensureHeadBranch(ctx context.Context, httpClient HTTPDoer
 		return fmt.Errorf("github check head branch: %w", err)
 	}
 	if code >= 200 && code < 300 {
-		return nil
+		return c.advanceHeadIfNotAhead(ctx, httpClient, apiBase, head, baseBranch)
 	}
 	if code != http.StatusNotFound {
 		return fmt.Errorf("github check head branch: status %d", code)
 	}
 
-	// Resolve base SHA.
-	baseRefURL := fmt.Sprintf("%s/repos/%s/git/ref/%s", apiBase, c.Repository, pathEscapeRef("heads/"+baseBranch))
-	baseBody, code, err := c.doJSON(ctx, httpClient, http.MethodGet, baseRefURL, nil)
+	newSHA, err := c.emptyCommitFromBase(ctx, httpClient, apiBase, baseBranch)
 	if err != nil {
-		return fmt.Errorf("github get base branch: %w", err)
-	}
-	if code < 200 || code >= 300 {
-		return fmt.Errorf("github get base branch %q: status %d", baseBranch, code)
-	}
-	var baseRef struct {
-		Object struct {
-			SHA string `json:"sha"`
-		} `json:"object"`
-	}
-	if err := json.Unmarshal(baseBody, &baseRef); err != nil {
-		return fmt.Errorf("github get base branch decode: %w", err)
-	}
-	if baseRef.Object.SHA == "" {
-		return fmt.Errorf("github get base branch: empty sha")
-	}
-
-	// Load commit to get tree SHA for empty commit.
-	commitURL := fmt.Sprintf("%s/repos/%s/git/commits/%s", apiBase, c.Repository, baseRef.Object.SHA)
-	commitBody, code, err := c.doJSON(ctx, httpClient, http.MethodGet, commitURL, nil)
-	if err != nil {
-		return fmt.Errorf("github get base commit: %w", err)
-	}
-	if code < 200 || code >= 300 {
-		return fmt.Errorf("github get base commit: status %d", code)
-	}
-	var baseCommit struct {
-		Tree struct {
-			SHA string `json:"sha"`
-		} `json:"tree"`
-	}
-	if err := json.Unmarshal(commitBody, &baseCommit); err != nil {
-		return fmt.Errorf("github get base commit decode: %w", err)
-	}
-	if baseCommit.Tree.SHA == "" {
-		return fmt.Errorf("github get base commit: empty tree sha")
-	}
-
-	// Empty commit (same tree, parent = base) so head != base for PR creation.
-	newCommitURL := fmt.Sprintf("%s/repos/%s/git/commits", apiBase, c.Repository)
-	newCommitPayload := map[string]interface{}{
-		"message": bootstrapCommitMessage,
-		"tree":    baseCommit.Tree.SHA,
-		"parents": []string{baseRef.Object.SHA},
-	}
-	newCommitBody, code, err := c.doJSON(ctx, httpClient, http.MethodPost, newCommitURL, newCommitPayload)
-	if err != nil {
-		return fmt.Errorf("github create bootstrap commit: %w", err)
-	}
-	if code < 200 || code >= 300 {
-		return fmt.Errorf("github create bootstrap commit: status %d", code)
-	}
-	var newCommit struct {
-		SHA string `json:"sha"`
-	}
-	if err := json.Unmarshal(newCommitBody, &newCommit); err != nil {
-		return fmt.Errorf("github create bootstrap commit decode: %w", err)
-	}
-	if newCommit.SHA == "" {
-		return fmt.Errorf("github create bootstrap commit: empty sha")
+		return err
 	}
 
 	// Create head ref.
 	createRefURL := fmt.Sprintf("%s/repos/%s/git/refs", apiBase, c.Repository)
 	createRefPayload := map[string]string{
 		"ref": "refs/heads/" + head,
-		"sha": newCommit.SHA,
+		"sha": newSHA,
 	}
 	_, code, err = c.doJSON(ctx, httpClient, http.MethodPost, createRefURL, createRefPayload)
 	if err != nil {
@@ -341,6 +282,112 @@ func (c *GitHubClient) ensureHeadBranch(ctx context.Context, httpClient HTTPDoer
 		return fmt.Errorf("github create head branch: status %d", code)
 	}
 	return nil
+}
+
+// advanceHeadIfNotAhead adds an empty commit when an existing head has no
+// commits that base does not already contain.
+func (c *GitHubClient) advanceHeadIfNotAhead(ctx context.Context, httpClient HTTPDoer, apiBase, head, baseBranch string) error {
+	compareURL := fmt.Sprintf("%s/repos/%s/compare/%s...%s",
+		apiBase, c.Repository, url.PathEscape(baseBranch), url.PathEscape(head))
+	body, code, err := c.doJSON(ctx, httpClient, http.MethodGet, compareURL, nil)
+	if err != nil {
+		return fmt.Errorf("github compare head: %w", err)
+	}
+	if code < 200 || code >= 300 {
+		return fmt.Errorf("github compare head: status %d", code)
+	}
+	var cmp struct {
+		AheadBy int `json:"ahead_by"`
+	}
+	if err := json.Unmarshal(body, &cmp); err != nil {
+		return fmt.Errorf("github compare head decode: %w", err)
+	}
+	if cmp.AheadBy > 0 {
+		return nil
+	}
+	newSHA, err := c.emptyCommitFromBase(ctx, httpClient, apiBase, baseBranch)
+	if err != nil {
+		return err
+	}
+	patchURL := fmt.Sprintf("%s/repos/%s/git/refs/%s", apiBase, c.Repository, pathEscapeRef("heads/"+head))
+	_, code, err = c.doJSON(ctx, httpClient, http.MethodPatch, patchURL, map[string]interface{}{
+		"sha":   newSHA,
+		"force": true,
+	})
+	if err != nil {
+		return fmt.Errorf("github update head branch: %w", err)
+	}
+	if code < 200 || code >= 300 {
+		return fmt.Errorf("github update head branch: status %d", code)
+	}
+	return nil
+}
+
+// emptyCommitFromBase creates a commit with base's tree and base as parent.
+func (c *GitHubClient) emptyCommitFromBase(ctx context.Context, httpClient HTTPDoer, apiBase, baseBranch string) (string, error) {
+	baseRefURL := fmt.Sprintf("%s/repos/%s/git/ref/%s", apiBase, c.Repository, pathEscapeRef("heads/"+baseBranch))
+	baseBody, code, err := c.doJSON(ctx, httpClient, http.MethodGet, baseRefURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("github get base branch: %w", err)
+	}
+	if code < 200 || code >= 300 {
+		return "", fmt.Errorf("github get base branch %q: status %d", baseBranch, code)
+	}
+	var baseRef struct {
+		Object struct {
+			SHA string `json:"sha"`
+		} `json:"object"`
+	}
+	if err := json.Unmarshal(baseBody, &baseRef); err != nil {
+		return "", fmt.Errorf("github get base branch decode: %w", err)
+	}
+	if baseRef.Object.SHA == "" {
+		return "", fmt.Errorf("github get base branch: empty sha")
+	}
+
+	commitURL := fmt.Sprintf("%s/repos/%s/git/commits/%s", apiBase, c.Repository, baseRef.Object.SHA)
+	commitBody, code, err := c.doJSON(ctx, httpClient, http.MethodGet, commitURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("github get base commit: %w", err)
+	}
+	if code < 200 || code >= 300 {
+		return "", fmt.Errorf("github get base commit: status %d", code)
+	}
+	var baseCommit struct {
+		Tree struct {
+			SHA string `json:"sha"`
+		} `json:"tree"`
+	}
+	if err := json.Unmarshal(commitBody, &baseCommit); err != nil {
+		return "", fmt.Errorf("github get base commit decode: %w", err)
+	}
+	if baseCommit.Tree.SHA == "" {
+		return "", fmt.Errorf("github get base commit: empty tree sha")
+	}
+
+	newCommitURL := fmt.Sprintf("%s/repos/%s/git/commits", apiBase, c.Repository)
+	newCommitPayload := map[string]interface{}{
+		"message": bootstrapCommitMessage,
+		"tree":    baseCommit.Tree.SHA,
+		"parents": []string{baseRef.Object.SHA},
+	}
+	newCommitBody, code, err := c.doJSON(ctx, httpClient, http.MethodPost, newCommitURL, newCommitPayload)
+	if err != nil {
+		return "", fmt.Errorf("github create bootstrap commit: %w", err)
+	}
+	if code < 200 || code >= 300 {
+		return "", fmt.Errorf("github create bootstrap commit: status %d", code)
+	}
+	var newCommit struct {
+		SHA string `json:"sha"`
+	}
+	if err := json.Unmarshal(newCommitBody, &newCommit); err != nil {
+		return "", fmt.Errorf("github create bootstrap commit decode: %w", err)
+	}
+	if newCommit.SHA == "" {
+		return "", fmt.Errorf("github create bootstrap commit: empty sha")
+	}
+	return newCommit.SHA, nil
 }
 
 func (c *GitHubClient) doJSON(ctx context.Context, httpClient HTTPDoer, method, rawURL string, payload interface{}) ([]byte, int, error) {

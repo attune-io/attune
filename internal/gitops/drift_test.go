@@ -556,3 +556,69 @@ func TestComputeDrift_SkipsStaleRecommendation(t *testing.T) {
 			"stale rec must not produce GitOps drift via name-only match")
 	})
 }
+
+func cpuWorkload(kind, name, cpu string) client.Object {
+	pod := corev1.PodSpec{
+		Containers: []corev1.Container{{
+			Name: "app",
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse(cpu)},
+			},
+		}},
+	}
+	meta := metav1.ObjectMeta{Name: name}
+	switch kind {
+	case "StatefulSet":
+		return &appsv1.StatefulSet{
+			ObjectMeta: meta,
+			Spec:       appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{Spec: pod}},
+		}
+	default:
+		return &appsv1.Deployment{
+			ObjectMeta: meta,
+			Spec:       appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{Spec: pod}},
+		}
+	}
+}
+
+func cpuRec(kind, name, cpu string, stale bool) attunev1alpha1.WorkloadRecommendation {
+	return attunev1alpha1.WorkloadRecommendation{
+		Workload: name,
+		Kind:     kind,
+		Stale:    stale,
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name:        "app",
+			Recommended: attunev1alpha1.ResourceValues{CPURequest: resource.MustParse(cpu)},
+		}},
+	}
+}
+
+func TestComputeDrift_StaleSameKindDoesNotUseOtherKind(t *testing.T) {
+	t.Parallel()
+	workloads := []client.Object{cpuWorkload("Deployment", "web", "1"), cpuWorkload("StatefulSet", "web", "1")}
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		cpuRec("Deployment", "web", "100m", true),
+		cpuRec("StatefulSet", "web", "200m", false),
+	}
+	d := ComputeDrift(workloads, recs, 10)
+	require.Len(t, d, 1)
+	assert.Equal(t, "StatefulSet", d[0].Kind)
+	assert.Equal(t, "200m", d[0].Recommended)
+}
+
+func TestComputeDrift_TwoFreshKindsStayOnTheirOwnRec(t *testing.T) {
+	t.Parallel()
+	workloads := []client.Object{cpuWorkload("Deployment", "web", "1"), cpuWorkload("StatefulSet", "web", "1")}
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		cpuRec("Deployment", "web", "100m", false),
+		cpuRec("StatefulSet", "web", "200m", false),
+	}
+	d := ComputeDrift(workloads, recs, 10)
+	require.Len(t, d, 2)
+	got := map[string]string{}
+	for _, row := range d {
+		got[row.Kind] = row.Recommended
+	}
+	assert.Equal(t, "100m", got["Deployment"])
+	assert.Equal(t, "200m", got["StatefulSet"])
+}

@@ -245,9 +245,12 @@ Use this ordered path when turning on PR automation for the first time.
    `result="created"` or `updated`. Failures set `PullRequestFailed`
    without logging the token.
 
-Cooldown (default 24h) prevents PR thrash. After a merge, if the head branch
-is deleted, the next cycle may bootstrap again **only when the drift table
-changed**. If template vs recommendation is the same set as the last PR,
+Cooldown (default 24h) prevents PR thrash. After a merge, the next cycle
+may bootstrap again **only when the drift table changed**. Deleting the
+head branch is one way that happens. On GitHub, a leftover head branch
+that is not ahead of `baseBranch` is moved forward with another empty
+commit so the next pull request is not rejected for having no commits
+between the refs. A head branch that is already ahead is left as-is. If template vs recommendation is the same set as the last PR,
 the condition is `PullRequestUnchanged` and Attune does not open another
 empty PR. A prior successful PR (`attune.io/gitops-pr-url`) with no stored
 fingerprint (upgrades from 0.1.22/0.1.23) is treated the same way: Attune
@@ -269,19 +272,22 @@ target is `baseBranch`** (default `main`). Changing `baseBranch` or
 retargeting the existing PR/MR can leave the old one open and create a
 new one against the current `baseBranch`.
 
-When no matching open PR/MR exists and that head branch is **missing**
-on the remote, Attune creates it automatically:
+When no matching open PR/MR exists, Attune makes sure the head branch
+can accept a new pull request:
 
-- **GitHub:** empty bootstrap commit on the new branch (same tree as
-  `baseBranch`, so the PR has a single commit delta).
-- **GitLab:** branch created from `baseBranch` with a small marker file at
-  `.attune/RECOMMENDATION_DRIFT.md` (GitLab rejects MRs with no file delta).
+- **GitHub:** if the branch is missing, an empty bootstrap commit is
+  created (same tree as `baseBranch`). If the branch exists but is not
+  ahead of `baseBranch` (typical after merge when the branch was kept),
+  Attune adds another empty commit and moves the branch to it. If the
+  branch is already ahead, it is left unchanged.
+- **GitLab:** if the branch is missing, it is created from `baseBranch`
+  with `.attune/RECOMMENDATION_DRIFT.md`. If the branch exists, Attune
+  updates that marker so the next merge request still has a file delta.
 
 The PR/MR description still carries the full drift table. Template patches
 remain a review step (`kubectl attune diff` or your pipeline). Dry-run never
 creates branches or PRs.
 
-Re-bootstrap after a merge is expected when the head branch was deleted.
 On GitLab, if `.attune/RECOMMENDATION_DRIFT.md` already exists on
 `baseBranch`, Attune retries with an update action so the delta stays
 non-empty.
