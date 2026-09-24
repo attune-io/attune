@@ -162,7 +162,7 @@ func (c *CloudWatchCollector) QueryRangeGrouped(ctx context.Context, query strin
 			// PodRegex is the PromQL expression. PodPrefix remains for
 			// specs that predate it. Regex wins when both are set.
 			if spec.PodRegex != "" {
-				if !podNameMatches(spec.PodRegex, podName) {
+				if !cloudWatchPodNameMatches(spec.PodRegex, podName) {
 					continue
 				}
 			} else if spec.PodPrefix != "" && !strings.HasPrefix(podName, spec.PodPrefix) {

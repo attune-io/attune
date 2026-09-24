@@ -182,8 +182,9 @@ func TestCloudWatchCollector_PodRegexExcludesSiblingPrefix(t *testing.T) {
 			return &cloudwatch.GetMetricDataOutput{
 				MetricDataResults: []cwtypes.MetricDataResult{
 					{Label: aws.String("metric web-abcde-fghij main"), Timestamps: []time.Time{ts}, Values: []float64{10}},
+					{Label: aws.String("metric web-abcde main"), Timestamps: []time.Time{ts}, Values: []float64{12}},
 					{Label: aws.String("metric web-api-abcde-fghij main"), Timestamps: []time.Time{ts}, Values: []float64{99}},
-					{Label: aws.String("metric web-worker main"), Timestamps: []time.Time{ts}, Values: []float64{77}},
+					{Label: aws.String("metric web-api-abcde12 main"), Timestamps: []time.Time{ts}, Values: []float64{98}},
 				},
 			}, nil
 		},
@@ -198,8 +199,9 @@ func TestCloudWatchCollector_PodRegexExcludesSiblingPrefix(t *testing.T) {
 	grouped, err := c.QueryRangeGrouped(context.Background(), string(query), ts.Add(-time.Hour), ts, 5*time.Minute)
 	require.NoError(t, err)
 	require.Contains(t, grouped, "main")
-	require.Len(t, grouped["main"], 1)
+	require.Len(t, grouped["main"], 2)
 	assert.InDelta(t, 10, grouped["main"][0].Value, 0.001)
+	assert.InDelta(t, 12, grouped["main"][1].Value, 0.001)
 }
 
 func TestCloudWatchCollector_APIError(t *testing.T) {
