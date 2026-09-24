@@ -26,6 +26,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
@@ -98,6 +99,49 @@ func TestDiscoverWorkloads_ReturnsEmptyForNonMatchingSelector(t *testing.T) {
 	workloads, err := reconciler.discoverWorkloads(context.Background(), policy)
 	require.NoError(t, err)
 	assert.Empty(t, workloads)
+}
+
+func TestGetPodsForWorkload_MatchExpressionsExcludeCanary(t *testing.T) {
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"app": "web"},
+				MatchExpressions: []metav1.LabelSelectorRequirement{{
+					Key: "track", Operator: metav1.LabelSelectorOpNotIn, Values: []string{"canary"},
+				}},
+			},
+		},
+	}
+	stable := newTestPod("web-stable", "default", map[string]string{"app": "web", "track": "stable"})
+	canary := newTestPod("web-canary", "default", map[string]string{"app": "web", "track": "canary"})
+	exprOnly := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "expr", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{{
+					Key: "tier", Operator: metav1.LabelSelectorOpIn, Values: []string{"api"},
+				}},
+			},
+		},
+	}
+	apiPod := newTestPod("expr-api", "default", map[string]string{"tier": "api"})
+	other := newTestPod("expr-other", "default", map[string]string{"tier": "batch"})
+	reconciler := newReconcilerWithClient(deploy, stable, canary, exprOnly, apiPod, other)
+
+	pods, err := reconciler.getPodsForWorkload(context.Background(), deploy)
+	require.NoError(t, err)
+	require.Len(t, pods, 1)
+	assert.Equal(t, "web-stable", pods[0].Name)
+
+	pods, err = reconciler.getPodsForWorkload(context.Background(), exprOnly)
+	require.NoError(t, err, "matchExpressions-only selector is a pod selector")
+	require.Len(t, pods, 1)
+	assert.Equal(t, "expr-api", pods[0].Name)
+
+	listed := reconciler.listPodsForWorkloads(context.Background(), []client.Object{deploy})
+	require.Len(t, listed["web"], 1)
+	assert.Equal(t, "web-stable", listed["web"][0].Name)
 }
 
 func TestGetPodsForWorkload_ReturnsMatchingPods(t *testing.T) {

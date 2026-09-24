@@ -102,8 +102,8 @@ func (r *AttunePolicyReconciler) tryEvictionFallback(
 	logger := log.FromContext(ctx)
 
 	// Safety: never evict the last replica. Count live Running pods.
-	selectorLabels := r.getPodSelectorLabels(workload)
-	if len(selectorLabels) == 0 {
+	podSel, selErr := r.podSelector(workload)
+	if selErr != nil || podSel == nil {
 		logger.Info("Skipping eviction fallback: workload has no pod selector labels",
 			"pod", pod.Name, "workload", workloadName)
 		operatormetrics.EvictionTotal.WithLabelValues(pod.Namespace, workloadName, "no_selector").Inc()
@@ -128,7 +128,7 @@ func (r *AttunePolicyReconciler) tryEvictionFallback(
 	mu := r.acquireEvictionLock(lockKey)
 	defer r.releaseEvictionLock(lockKey, mu)
 
-	running, err := r.countLiveRunningReplicas(ctx, pod.Namespace, selectorLabels)
+	running, err := r.countLiveRunningReplicas(ctx, pod.Namespace, podSel)
 	if err != nil {
 		logger.Error(err, "Cannot list pods for eviction safety check, skipping eviction")
 		operatormetrics.EvictionTotal.WithLabelValues(pod.Namespace, workloadName, "list_failed").Inc()
@@ -198,14 +198,17 @@ func (r *AttunePolicyReconciler) releaseEvictionLock(key string, mu *sync.Mutex)
 func (r *AttunePolicyReconciler) countLiveRunningReplicas(
 	ctx context.Context,
 	namespace string,
-	selectorLabels map[string]string,
+	selector labels.Selector,
 ) (int, error) {
-	selector := labels.SelectorFromSet(selectorLabels).String()
+	if selector == nil {
+		return 0, fmt.Errorf("missing pod selector")
+	}
+	selectorString := selector.String()
 	continueToken := ""
 	running := 0
 	for {
 		podList, err := r.Clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
-			LabelSelector: selector,
+			LabelSelector: selectorString,
 			Limit:         evictionReplicaPageSize,
 			Continue:      continueToken,
 		})

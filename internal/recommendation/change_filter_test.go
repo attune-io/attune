@@ -106,6 +106,33 @@ func TestChangeFilter_BinarySIMemoryDecreaseCapping(t *testing.T) {
 		"50% decrease from 1Gi should produce 512Mi")
 }
 
+func TestBoundsNotUndoneByChangeFilter(t *testing.T) {
+	// Flat 2-core usage clamps to maxAllowed 1000m. 1100m is only 9.1%
+	// above that, under the 10% minimum-change filter. The published
+	// value must still land inside the bounds.
+	eng := NewEngine(95, 0, resource.MustParse("100m"), resource.MustParse("1000m"),
+		50, 50, EngineOpts{IsCPU: true, BurstSensitivity: ptrFloat(0)})
+	rec, _, changed := eng.RecommendWithExplanation(buildRealisticCPUProfile(2.0, 1.0), resource.MustParse("1100m"))
+	assert.True(t, changed, "current above maxAllowed must move")
+	assert.LessOrEqual(t, rec.MilliValue(), int64(1000), "recommendation must respect maxAllowed")
+	assert.GreaterOrEqual(t, rec.MilliValue(), int64(100), "recommendation must respect minAllowed")
+
+	// 95m -> 100m is a 5.3% step, also under the minimum-change filter.
+	low := NewEngine(95, 0, resource.MustParse("100m"), resource.MustParse("4000m"),
+		50, 50, EngineOpts{IsCPU: true, BurstSensitivity: ptrFloat(0)})
+	recLow, _, changedLow := low.RecommendWithExplanation(buildRealisticCPUProfile(0.001, 1.0), resource.MustParse("95m"))
+	assert.True(t, changedLow, "current below minAllowed must move")
+	assert.GreaterOrEqual(t, recLow.MilliValue(), int64(100), "recommendation must respect minAllowed")
+	assert.LessOrEqual(t, recLow.MilliValue(), int64(4000))
+
+	// A 10% decrease cap from 2000m stops at 1800m, which is still above maxAllowed.
+	capped := NewEngine(95, 0, resource.MustParse("100m"), resource.MustParse("1000m"),
+		50, 10, EngineOpts{IsCPU: true, BurstSensitivity: ptrFloat(0)})
+	recCap, _, changedCap := capped.RecommendWithExplanation(buildRealisticCPUProfile(2.0, 1.0), resource.MustParse("2000m"))
+	assert.True(t, changedCap)
+	assert.LessOrEqual(t, recCap.MilliValue(), int64(1000), "max decrease cap must not leave the value above maxAllowed")
+}
+
 func TestChangeFilter_ZeroCurrent(t *testing.T) {
 	rec, expl := recommendCPUThroughEngine(t, "0", "500m", 50)
 	assert.Empty(t, expl.ChangeFilterApplied)

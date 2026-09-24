@@ -159,8 +159,13 @@ func (c *CloudWatchCollector) QueryRangeGrouped(ctx context.Context, query strin
 		for _, result := range output.MetricDataResults {
 			container, podName := parseCloudWatchLabel(aws.ToString(result.Label))
 
-			// Filter by pod prefix if specified.
-			if spec.PodPrefix != "" && !strings.HasPrefix(podName, spec.PodPrefix) {
+			// PodRegex is the PromQL expression. PodPrefix remains for
+			// specs that predate it. Regex wins when both are set.
+			if spec.PodRegex != "" {
+				if !podNameMatches(spec.PodRegex, podName) {
+					continue
+				}
+			} else if spec.PodPrefix != "" && !strings.HasPrefix(podName, spec.PodPrefix) {
 				continue
 			}
 
@@ -171,6 +176,7 @@ func (c *CloudWatchCollector) QueryRangeGrouped(ctx context.Context, query strin
 
 			hadPoints := false
 			before := len(grouped[container])
+			grouped[container] = growSamples(grouped[container], len(result.Values))
 			for i, ts := range result.Timestamps {
 				if i >= len(result.Values) {
 					break

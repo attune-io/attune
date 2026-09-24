@@ -61,7 +61,8 @@ func TestDatadogQueryBuilder_CPU(t *testing.T) {
 	assert.Contains(t, got, "avg:kubernetes.cpu.usage.total")
 	assert.Contains(t, got, "kube_namespace:production")
 	assert.Contains(t, got, "pod_name:api-server-*")
-	assert.Contains(t, got, "by {kube_container_name}")
+	assert.Contains(t, got, "by {kube_container_name,pod_name}")
+	assert.Contains(t, got, datadogRegexMarker+"api-server-[a-z0-9]+")
 	assert.Contains(t, got, ".rollup(avg,300)")
 }
 
@@ -94,7 +95,8 @@ func TestCloudWatchQueryBuilder_CPU(t *testing.T) {
 	assert.Equal(t, "container_cpu_usage_total", spec.Metric)
 	assert.Equal(t, "my-cluster", spec.ClusterName)
 	assert.Equal(t, "production", spec.Namespace)
-	assert.Equal(t, "api-server-", spec.PodPrefix)
+	assert.Equal(t, "api-server-[a-z0-9]+", spec.PodRegex)
+	assert.Empty(t, spec.PodPrefix)
 	assert.Equal(t, 300, spec.Period)
 	assert.Equal(t, "Average", spec.Stat)
 }
@@ -123,16 +125,29 @@ func TestDatadogPodFilter(t *testing.T) {
 		regex string
 		want  string
 	}{
-		{"api-server-[a-z0-9]+-[a-z0-9]+", "api-server-*"},
-		{"web-.*", "web-*"},
-		{"exact-name", "exact-name*"},
-		{"[starts-with-bracket", "*"},
+		{"api-server-[a-z0-9]+-[a-z0-9]+", "pod_name:api-server-*"},
+		{"web-.*", "pod_name:web-*"},
+		{"exact-name", "pod_name:exact-name"},
+		{"[starts-with-bracket", "pod_name:*"},
+		{"web-[a-z0-9]+-[a-z0-9]{5}", "pod_name:web-*"},
+		{`my\.app-[a-z0-9]+`, "pod_name:my.app-*"},
+		{`my\\.app-[a-z0-9]+-[a-z0-9]{5}`, "pod_name:my.app-*"},
+		{"web-aaa|web-bbb", "(pod_name:web-aaa OR pod_name:web-bbb)"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.regex, func(t *testing.T) {
 			assert.Equal(t, tt.want, datadogPodFilter(tt.regex))
 		})
 	}
+}
+
+func TestPodNameMatchesPromQLEscapedDot(t *testing.T) {
+	re := `my\\.app-[a-z0-9]+-[a-z0-9]{5}`
+	assert.True(t, podNameMatches(re, "my.app-abcde-fghij"))
+	assert.False(t, podNameMatches(re, "my.app-api-abcde-fghij"))
+	assert.False(t, podNameMatches(re, "myXapp-abcde-fghij"))
+	assert.True(t, podNameMatches("web-a|web-b", "web-b"))
+	assert.False(t, podNameMatches("web-a|web-b", "web-api"))
 }
 
 func TestCloudWatchPodPrefix(t *testing.T) {
@@ -216,10 +231,29 @@ func TestDownsampleSamples(t *testing.T) {
 	}
 	out := DownsampleSamples(samples, 10)
 	assert.Len(t, out, 10)
-	assert.Equal(t, samples[0].Value, out[0].Value)
+	// Each window keeps its maximum, which for a rising series is the last point.
+	assert.Equal(t, samples[9].Value, out[0].Value)
 	assert.Equal(t, samples[99].Value, out[9].Value)
 	// No-op when under cap
 	assert.Equal(t, samples, DownsampleSamples(samples, 200))
+}
+
+func TestDownsampleSamples_KeepsSpike(t *testing.T) {
+	samples := make([]Sample, 20)
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := range samples {
+		samples[i] = Sample{Timestamp: base.Add(time.Duration(i) * time.Minute), Value: 1}
+	}
+	// Index 7 sits between even strides of 4 output points (0, 6, 13, 19).
+	samples[7].Value = 1000
+	out := DownsampleSamples(samples, 4)
+	max := 0.0
+	for _, s := range out {
+		if s.Value > max {
+			max = s.Value
+		}
+	}
+	assert.Equal(t, 1000.0, max, "a short spike must survive downsampling")
 }
 
 func TestApplyPodAggregation(t *testing.T) {

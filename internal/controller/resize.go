@@ -25,6 +25,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/go-logr/logr"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -40,6 +41,37 @@ import (
 	"github.com/attune-io/attune/internal/resize"
 	"github.com/attune-io/attune/internal/safety"
 )
+
+// recordBudgetBlock emits the metric and event for a resize the budget
+// gate refused. An increase larger than the configured cap is permanent:
+// the next cycle has the same cap, so the event does not say it was deferred.
+func (r *AttunePolicyReconciler) recordBudgetBlock(
+	logger logr.Logger,
+	policy *attunev1alpha1.AttunePolicy,
+	podName, container string,
+	cpuInc, memInc, cpuCap, memCap int64,
+	bucket *increaseRateBucket,
+) {
+	operatormetrics.BudgetExhaustedTotal.WithLabelValues(policy.Namespace, policy.Name).Inc()
+	if budgetBlockPermanent(cpuInc, memInc, cpuCap, memCap, bucket) {
+		logger.Info("Resize increase exceeds configured budget cap",
+			"pod", podName, "container", container,
+			"cpuIncreaseMilli", cpuInc, "memoryIncreaseBytes", memInc)
+		if r.Recorder != nil {
+			r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "IncreaseExceedsBudget", "resize",
+				"Resize blocked for pod %s container %s: increase is larger than maxCpuIncreasePerMinute, maxMemoryIncreasePerMinute, maxTotalCpuIncrease, or maxTotalMemoryIncrease and will not run until that cap is raised or the recommendation shrinks",
+				podName, container)
+		}
+		return
+	}
+	logger.Info("Budget exhausted, deferring resize to next cycle",
+		"pod", podName, "container", container)
+	if r.Recorder != nil {
+		r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "BudgetExhausted", "resize",
+			"Resize deferred for pod %s container %s: per-cycle budget exhausted",
+			podName, container)
+	}
+}
 
 // selectPodsForResize selects pods eligible for resize based on the update mode.
 func selectPodsForResize(pods []corev1.Pod, mode attunev1alpha1.UpdateType, canaryPercentage int32) []corev1.Pod {
@@ -411,13 +443,17 @@ func (r *AttunePolicyReconciler) executeResizes(
 
 	// Per-cycle budget caps. Protected by budgetMu for concurrent access.
 	var budgetMu sync.Mutex
+	cpuCap := int64(-1)
+	memCap := int64(-1)
 	cpuBudget := int64(-1)
 	memBudget := int64(-1)
 	if policy.Spec.UpdateStrategy.MaxTotalCPUIncrease != nil {
-		cpuBudget = policy.Spec.UpdateStrategy.MaxTotalCPUIncrease.MilliValue()
+		cpuCap = policy.Spec.UpdateStrategy.MaxTotalCPUIncrease.MilliValue()
+		cpuBudget = cpuCap
 	}
 	if policy.Spec.UpdateStrategy.MaxTotalMemoryIncrease != nil {
-		memBudget = policy.Spec.UpdateStrategy.MaxTotalMemoryIncrease.Value()
+		memCap = policy.Spec.UpdateStrategy.MaxTotalMemoryIncrease.Value()
+		memBudget = memCap
 	}
 	var rateBucket *increaseRateBucket
 	cpuRate, memRate := int64(-1), int64(-1)
@@ -614,14 +650,7 @@ func (r *AttunePolicyReconciler) executeResizes(
 		var deferred []resizeAction
 		planned, deferred = filterPlannedByBudget(planned, snapCPU, snapMem)
 		for _, d := range deferred {
-			logger.Info("Budget exhausted, deferring resize to next cycle",
-				"pod", d.PodName, "container", d.Container)
-			operatormetrics.BudgetExhaustedTotal.WithLabelValues(policy.Namespace, policy.Name).Inc()
-			if r.Recorder != nil {
-				r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "BudgetExhausted", "resize",
-					"Resize deferred for pod %s container %s: per-cycle budget exhausted",
-					d.PodName, d.Container)
-			}
+			r.recordBudgetBlock(logger, policy, d.PodName, d.Container, d.CPUIncrease, d.MemIncrease, cpuCap, memCap, rateBucket)
 		}
 
 		for _, item := range planned {
@@ -662,14 +691,7 @@ func (r *AttunePolicyReconciler) executeResizes(
 					// Reserve budget before resizing so concurrent goroutines cannot
 					// overspend the cap. Refund it below if the resize did not stick.
 					if !reserveBudget(cpuIncrease, memIncrease) {
-						logger.Info("Budget exhausted, deferring resize to next cycle",
-							"pod", pod.Name, "container", action.Container)
-						operatormetrics.BudgetExhaustedTotal.WithLabelValues(policy.Namespace, policy.Name).Inc()
-						if r.Recorder != nil {
-							r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "BudgetExhausted", "resize",
-								"Resize deferred for pod %s container %s: per-cycle budget exhausted",
-								pod.Name, action.Container)
-						}
+						r.recordBudgetBlock(logger, policy, pod.Name, action.Container, cpuIncrease, memIncrease, cpuCap, memCap, rateBucket)
 						continue
 					}
 

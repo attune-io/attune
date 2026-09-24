@@ -48,32 +48,58 @@ type UsageProfile struct {
 	Confidence         float64
 }
 
-// DownsampleSamples returns at most maxN samples evenly spaced from the input
-// (by index after sorting by timestamp). When maxN <= 0 or len(samples) <= maxN,
-// the original slice is returned unchanged (same backing array may be sorted).
-// Used before BuildProfile so high-replica / long-window queries do not spend
-// O(N log N) on multi-million sample sorts.
+// DownsampleSamples returns at most maxN samples. Each output point is the
+// maximum value in one time-ordered window, so a short spike is not dropped
+// the way an even index stride drops it. When maxN <= 0 or len(samples) <= maxN,
+// the original slice is returned unchanged. Already-sorted input is not copied.
 func DownsampleSamples(samples []Sample, maxN int) []Sample {
 	if maxN <= 0 || len(samples) <= maxN {
 		return samples
 	}
-	// Sort by time so even strides preserve the full span for confidence/time-of-day.
-	sorted := make([]Sample, len(samples))
-	copy(sorted, samples)
-	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].Timestamp.Before(sorted[j].Timestamp)
-	})
-	out := make([]Sample, maxN)
-	// Inclusive stride so first and last samples are kept when possible.
-	if maxN == 1 {
-		out[0] = sorted[len(sorted)/2]
-		return out
+	sorted := samples
+	if !samplesTimeSorted(samples) {
+		sorted = make([]Sample, len(samples))
+		copy(sorted, samples)
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i].Timestamp.Before(sorted[j].Timestamp)
+		})
 	}
+	if maxN == 1 {
+		return []Sample{maxSample(sorted)}
+	}
+	out := make([]Sample, 0, maxN)
+	n := len(sorted)
 	for i := 0; i < maxN; i++ {
-		idx := i * (len(sorted) - 1) / (maxN - 1)
-		out[i] = sorted[idx]
+		start := i * n / maxN
+		end := (i + 1) * n / maxN
+		if end <= start {
+			end = start + 1
+		}
+		if end > n {
+			end = n
+		}
+		out = append(out, maxSample(sorted[start:end]))
 	}
 	return out
+}
+
+func samplesTimeSorted(samples []Sample) bool {
+	for i := 1; i < len(samples); i++ {
+		if samples[i].Timestamp.Before(samples[i-1].Timestamp) {
+			return false
+		}
+	}
+	return true
+}
+
+func maxSample(samples []Sample) Sample {
+	best := samples[0]
+	for _, s := range samples[1:] {
+		if s.Value > best.Value {
+			best = s
+		}
+	}
+	return best
 }
 
 // BuildProfile constructs a UsageProfile from the provided samples.

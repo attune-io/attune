@@ -90,33 +90,129 @@ func (c *PrometheusCollector) Close() error {
 // link-local, unspecified, AWS IPv6 IMDS, and Alibaba IMDS). Private
 // ranges stay allowed. Checking the resolved address stops a DNS name
 // from rebinding onto a metadata IP after admission.
+// allowedProxyDialKey marks the proxy hostname that DialContext may connect
+// to without applying the target blocklist. The target URL is checked
+// separately, before the proxy dial.
+type allowedProxyDialKey struct{}
+
 func ssrfSafeTransport() http.RoundTripper {
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
-	return &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			host, port, err := net.SplitHostPort(addr)
-			if err != nil {
-				return nil, fmt.Errorf("SSRF dial: invalid address %q: %w", addr, err)
-			}
-			ips, err := prometheusLookupIP(ctx, host)
-			if err != nil {
-				return nil, fmt.Errorf("SSRF dial: DNS resolution failed for %q: %w", host, err)
-			}
-			if len(ips) == 0 {
-				return nil, fmt.Errorf("SSRF dial: DNS resolution failed for %q", host)
-			}
-			for _, ip := range ips {
-				if validation.GitOpsAlwaysBlockedIP(ip.IP) {
-					return nil, fmt.Errorf("SSRF blocked: %s resolved to blocked address %s", host, ip.IP)
-				}
-			}
-			return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
-		},
+	tr := &http.Transport{
 		ResponseHeaderTimeout: 30 * time.Second,
 		IdleConnTimeout:       90 * time.Second,
 		MaxIdleConnsPerHost:   10,
 	}
+	tr.Proxy = func(req *http.Request) (*url.URL, error) {
+		if err := rejectBlockedHost(req.Context(), req.URL.Hostname()); err != nil {
+			return nil, err
+		}
+		proxyURL, err := http.ProxyFromEnvironment(req)
+		if err != nil || proxyURL == nil {
+			return proxyURL, err
+		}
+		if err := rejectProxyHost(req.Context(), proxyURL.Hostname()); err != nil {
+			return nil, err
+		}
+		return proxyURL, nil
+	}
+	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, fmt.Errorf("SSRF dial: invalid address %q: %w", addr, err)
+		}
+		if allowed, _ := ctx.Value(allowedProxyDialKey{}).(string); allowed != "" && host == allowed {
+			return dialer.DialContext(ctx, network, addr)
+		}
+		ips, err := prometheusLookupIP(ctx, host)
+		if err != nil {
+			return nil, fmt.Errorf("SSRF dial: DNS resolution failed for %q: %w", host, err)
+		}
+		if len(ips) == 0 {
+			return nil, fmt.Errorf("SSRF dial: DNS resolution failed for %q", host)
+		}
+		for _, ip := range ips {
+			if validation.GitOpsAlwaysBlockedIP(ip.IP) {
+				return nil, fmt.Errorf("SSRF blocked: %s resolved to blocked address %s", host, ip.IP)
+			}
+		}
+		return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+	}
+	return &proxyContextTransport{base: tr}
+}
+
+// proxyContextTransport tells DialContext which hostname is the configured
+// proxy. The target is still checked in Transport.Proxy, so a proxy cannot
+// be used to reach a blocked address. A loopback proxy is allowed; a direct
+// dial to loopback is not.
+type proxyContextTransport struct {
+	base *http.Transport
+}
+
+func (t *proxyContextTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	proxyURL, err := http.ProxyFromEnvironment(req)
+	if err != nil {
+		return nil, err
+	}
+	if proxyURL != nil {
+		req = req.Clone(context.WithValue(req.Context(), allowedProxyDialKey{}, proxyURL.Hostname()))
+	}
+	return t.base.RoundTrip(req)
+}
+
+func ssrfBaseTransport(rt http.RoundTripper) *http.Transport {
+	switch t := rt.(type) {
+	case *http.Transport:
+		return t
+	case *proxyContextTransport:
+		return t.base
+	default:
+		return nil
+	}
+}
+
+func (t *proxyContextTransport) CloseIdleConnections() {
+	if t != nil && t.base != nil {
+		t.base.CloseIdleConnections()
+	}
+}
+
+func rejectBlockedHost(ctx context.Context, host string) error {
+	return rejectHost(ctx, host, false)
+}
+
+func rejectProxyHost(ctx context.Context, host string) error {
+	return rejectHost(ctx, host, true)
+}
+
+func rejectHost(ctx context.Context, host string, allowLoopback bool) error {
+	if host == "" {
+		return fmt.Errorf("SSRF blocked: empty host")
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if allowLoopback && ip.IsLoopback() {
+			return nil
+		}
+		if validation.GitOpsAlwaysBlockedIP(ip) {
+			return fmt.Errorf("SSRF blocked: %s is a blocked address", host)
+		}
+		return nil
+	}
+	ips, err := prometheusLookupIP(ctx, host)
+	if err != nil {
+		return fmt.Errorf("SSRF dial: DNS resolution failed for %q: %w", host, err)
+	}
+	if len(ips) == 0 {
+		return fmt.Errorf("SSRF dial: DNS resolution failed for %q", host)
+	}
+	for _, ip := range ips {
+		if allowLoopback && ip.IP.IsLoopback() {
+			continue
+		}
+		if validation.GitOpsAlwaysBlockedIP(ip.IP) {
+			return fmt.Errorf("SSRF blocked: %s resolved to blocked address %s", host, ip.IP)
+		}
+	}
+	return nil
 }
 
 // prometheusLookupIP is the DNS hook used by the Prometheus SSRF dialer.
@@ -229,7 +325,7 @@ func NewPrometheusCollectorWithOptions(address string, logger logr.Logger, opts 
 		httpTransport, _ = rt.(*http.Transport)
 	} else {
 		base := ssrfSafeTransport()
-		httpTransport, _ = base.(*http.Transport)
+		httpTransport = ssrfBaseTransport(base)
 		if opts != nil && httpTransport != nil {
 			if opts.InsecureSkipVerify || opts.TLSMinVersion != 0 {
 				if httpTransport.TLSClientConfig == nil {
@@ -341,6 +437,7 @@ func (c *PrometheusCollector) QueryRangeGrouped(ctx context.Context, query strin
 	for _, series := range matrix {
 		container := string(series.Metric[model.LabelName("container")])
 		before := len(grouped[container])
+		grouped[container] = growSamples(grouped[container], len(series.Values))
 		for _, sp := range series.Values {
 			v := float64(sp.Value)
 			if math.IsNaN(v) || math.IsInf(v, 0) {
@@ -360,6 +457,17 @@ func (c *PrometheusCollector) QueryRangeGrouped(ctx context.Context, query strin
 		return grouped, fmt.Errorf("%w: kept %d series", ErrSeriesCapped, limit)
 	}
 	return grouped, nil
+}
+
+// growSamples reserves room for extra samples so a series does not grow
+// one append at a time.
+func growSamples(dst []Sample, extra int) []Sample {
+	if extra <= 0 || cap(dst)-len(dst) >= extra {
+		return dst
+	}
+	next := make([]Sample, len(dst), len(dst)+extra)
+	copy(next, dst)
+	return next
 }
 
 // capMatrixByContainer keeps at most limit series, preferring first-seen series

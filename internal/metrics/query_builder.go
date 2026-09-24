@@ -138,7 +138,8 @@ func applyPodAggregation(inner string, mode PodAggregationMode) string {
 type DatadogQueryBuilder struct{}
 
 // BuildQuery produces a Datadog metric query for CPU or memory usage.
-// The query uses by {kube_container_name} to group results per container.
+// Series are grouped by container and pod name so the collector can drop
+// pods the tag glob over-matched.
 func (b *DatadogQueryBuilder) BuildQuery(namespace, podRegex, container, metric string, rateWindow time.Duration) string {
 	podFilter := datadogPodFilter(podRegex)
 
@@ -155,27 +156,62 @@ func (b *DatadogQueryBuilder) BuildQuery(namespace, podRegex, container, metric 
 	switch metric {
 	case "cpu":
 		return fmt.Sprintf(
-			`avg:kubernetes.cpu.usage.total{kube_namespace:%s,pod_name:%s%s} by {kube_container_name}.rollup(avg,%d)`,
-			namespace, podFilter, containerFilter, rollup,
+			`avg:kubernetes.cpu.usage.total{kube_namespace:%s,%s%s} by {kube_container_name,pod_name}.rollup(avg,%d)%s%s`,
+			namespace, podFilter, containerFilter, rollup, datadogRegexMarker, podRegex,
 		)
 	case "memory":
 		return fmt.Sprintf(
-			`avg:kubernetes.memory.working_set{kube_namespace:%s,pod_name:%s%s} by {kube_container_name}.rollup(avg,%d)`,
-			namespace, podFilter, containerFilter, rollup,
+			`avg:kubernetes.memory.working_set{kube_namespace:%s,%s%s} by {kube_container_name,pod_name}.rollup(avg,%d)%s%s`,
+			namespace, podFilter, containerFilter, rollup, datadogRegexMarker, podRegex,
 		)
 	default:
 		return ""
 	}
 }
 
-// datadogPodFilter converts a PromQL-style pod regex into a Datadog tag
-// filter with glob-style wildcards.
-func datadogPodFilter(podRegex string) string {
-	prefix := extractLiteralPrefix(podRegex)
-	if prefix == "" {
-		return "*"
+// datadogRegexMarker separates the Datadog query from the PromQL pod regex
+// the collector uses to drop series the glob over-matched. It is stripped
+// before the HTTP call.
+const datadogRegexMarker = "\n#attune-pod-regex:"
+
+func splitDatadogQuery(query string) (ddQuery, podRegex string) {
+	if i := strings.LastIndex(query, datadogRegexMarker); i >= 0 {
+		return query[:i], query[i+len(datadogRegexMarker):]
 	}
-	return prefix + "*"
+	return query, ""
+}
+
+// datadogPodFilter converts a PromQL-style pod regex into a Datadog tag
+// clause. The clause is a superset of the regex: literal alternations are
+// listed in full, and other patterns keep an escaped literal prefix plus
+// a glob. Callers still drop series that fail the original regex.
+func datadogPodFilter(podRegex string) string {
+	if podRegex == "" {
+		return "pod_name:*"
+	}
+	// Controller regexes are PromQL-string-escaped (`my\\.app`). Interpret
+	// the regex Prometheus evaluates, not the escaped query text.
+	podRegex = unescapePromQLRegex(podRegex)
+	alts := splitTopLevelAlt(podRegex)
+	globs := make([]string, 0, len(alts))
+	for _, alt := range alts {
+		if alt == "" {
+			return "pod_name:*"
+		}
+		if lit, ok := unescapeLiteralRegex(alt); ok {
+			globs = append(globs, "pod_name:"+lit)
+			continue
+		}
+		prefix := literalRegexPrefix(alt)
+		if prefix == "" {
+			return "pod_name:*"
+		}
+		globs = append(globs, "pod_name:"+prefix+"*")
+	}
+	if len(globs) == 1 {
+		return globs[0]
+	}
+	return "(" + strings.Join(globs, " OR ") + ")"
 }
 
 // CloudWatchQuerySpec is the structured query encoded as JSON in the query
@@ -184,10 +220,13 @@ type CloudWatchQuerySpec struct {
 	Metric      string `json:"metric"`
 	ClusterName string `json:"clusterName"`
 	Namespace   string `json:"namespace"`
-	PodPrefix   string `json:"podPrefix"`
-	Container   string `json:"container,omitempty"`
-	Period      int    `json:"period"`
-	Stat        string `json:"stat"`
+	// PodPrefix is a legacy client-side name prefix. PodRegex, when set,
+	// is the PromQL pod regex and replaces the prefix check.
+	PodPrefix string `json:"podPrefix,omitempty"`
+	PodRegex  string `json:"podRegex,omitempty"`
+	Container string `json:"container,omitempty"`
+	Period    int    `json:"period"`
+	Stat      string `json:"stat"`
 }
 
 // CloudWatchQueryBuilder builds serialized CloudWatch query specifications.
@@ -198,8 +237,6 @@ type CloudWatchQueryBuilder struct {
 // BuildQuery produces a JSON-serialized CloudWatchQuerySpec that the
 // CloudWatchCollector parses to build GetMetricData requests.
 func (b *CloudWatchQueryBuilder) BuildQuery(namespace, podRegex, container, metric string, rateWindow time.Duration) string {
-	podPrefix := cloudWatchPodPrefix(podRegex)
-
 	var cwMetric string
 	switch metric {
 	case "cpu":
@@ -221,7 +258,7 @@ func (b *CloudWatchQueryBuilder) BuildQuery(namespace, podRegex, container, metr
 		Metric:      cwMetric,
 		ClusterName: b.ClusterName,
 		Namespace:   namespace,
-		PodPrefix:   podPrefix,
+		PodRegex:    podRegex,
 		Container:   container,
 		Period:      period,
 		Stat:        "Average",
@@ -236,15 +273,116 @@ func cloudWatchPodPrefix(podRegex string) string {
 	return extractLiteralPrefix(podRegex)
 }
 
-// extractLiteralPrefix returns the leading literal portion of a regex before
-// the first metacharacter. Used by both Datadog and CloudWatch query builders.
-func extractLiteralPrefix(regex string) string {
-	for i, ch := range regex {
-		if strings.ContainsRune(`[]()+*?{}.^$|\`, ch) {
-			return regex[:i]
+// literalRegexPrefix returns the leading literal text of a regex alternative.
+// A backslash escapes the next byte, so `my\.app-` yields `my.app-` instead
+// of stopping at the escape.
+func literalRegexPrefix(regex string) string {
+	var b strings.Builder
+	for i := 0; i < len(regex); i++ {
+		c := regex[i]
+		if c == '\\' && i+1 < len(regex) {
+			b.WriteByte(regex[i+1])
+			i++
+			continue
+		}
+		if strings.ContainsAny(string(c), `[]()+*?{}.^$|`) {
+			break
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
+}
+
+// unescapeLiteralRegex reports whether regex is only escaped literals.
+func unescapeLiteralRegex(regex string) (string, bool) {
+	var b strings.Builder
+	for i := 0; i < len(regex); i++ {
+		c := regex[i]
+		if c == '\\' && i+1 < len(regex) {
+			b.WriteByte(regex[i+1])
+			i++
+			continue
+		}
+		if strings.ContainsAny(string(c), `[]()+*?{}.^$|`) {
+			return "", false
+		}
+		b.WriteByte(c)
+	}
+	return b.String(), true
+}
+
+// splitTopLevelAlt splits a regex on unescaped `|`.
+func splitTopLevelAlt(regex string) []string {
+	var parts []string
+	start := 0
+	escaped := false
+	for i := 0; i < len(regex); i++ {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if regex[i] == '\\' {
+			escaped = true
+			continue
+		}
+		if regex[i] == '|' {
+			parts = append(parts, regex[start:i])
+			start = i + 1
 		}
 	}
-	return regex
+	return append(parts, regex[start:])
+}
+
+// podNameMatches reports whether name matches the PromQL pod regex.
+// An empty regex matches every name. An invalid regex matches nothing.
+// unescapePromQLRegex undoes PromQL double-quoted string escapes so the
+// result is the regex text Prometheus compiles.
+func unescapePromQLRegex(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] != '\\' || i+1 >= len(s) {
+			b.WriteByte(s[i])
+			continue
+		}
+		switch s[i+1] {
+		case '\\':
+			b.WriteByte('\\')
+			i++
+		case '"':
+			b.WriteByte('"')
+			i++
+		case 'n':
+			b.WriteByte('\n')
+			i++
+		case 'r':
+			b.WriteByte('\r')
+			i++
+		case 't':
+			b.WriteByte('\t')
+			i++
+		default:
+			b.WriteByte(s[i])
+		}
+	}
+	return b.String()
+}
+
+func podNameMatches(podRegex, name string) bool {
+	if podRegex == "" {
+		return true
+	}
+	re, err := regexp.Compile("^(?:" + unescapePromQLRegex(podRegex) + ")$")
+	if err != nil {
+		return false
+	}
+	return re.MatchString(name)
+}
+
+// extractLiteralPrefix returns the leading literal portion of a regex before
+// the first metacharacter. Used by CloudWatch when only a prefix is available.
+func extractLiteralPrefix(regex string) string {
+	return literalRegexPrefix(regex)
 }
 
 // FormatPromDuration formats a Go duration as a PromQL duration string.

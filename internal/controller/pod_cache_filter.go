@@ -25,7 +25,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
-	"github.com/attune-io/attune/internal/transform"
 )
 
 // refreshPodCacheFilterThrottle limits how often we rebuild dynamic selectors.
@@ -63,13 +62,8 @@ func (r *AttunePolicyReconciler) refreshPodCacheFilter(ctx context.Context) {
 			continue
 		}
 		for _, w := range workloads {
-			m := r.getPodSelectorLabels(w)
-			if len(m) == 0 {
-				continue
-			}
-			// Stable key for dedup.
-			sel := transform.SelectorFromMap(m)
-			if sel == nil {
+			sel, err := r.podSelector(w)
+			if err != nil || sel == nil {
 				continue
 			}
 			seen[sel.String()] = sel
