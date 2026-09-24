@@ -101,9 +101,12 @@ func (e *RecommendationEngine) Recommend(profile metrics.UsageProfile, current r
 func (e *RecommendationEngine) RecommendWithExplanation(profile metrics.UsageProfile, current resource.Quantity) (recommended resource.Quantity, explanation RecommendationExplanation, changed bool) {
 	percentileEstimator := &PercentileEstimator{Percentile: e.percentile, IsCPU: e.isCPU}
 	selected := percentileEstimator.selectedMax(profile)
-	// No samples, or a non-finite percentile, is not a request to grow.
-	// Overhead and the confidence buffer must not scale the current value.
-	if profile.DataPoints == 0 || math.IsNaN(selected) || math.IsInf(selected, 0) {
+	// A positive percentile is a real sample, even when DataPoints was left
+	// unset. Hold only when there is nothing to scale: non-finite values,
+	// or a zero percentile with no samples. Otherwise the confidence buffer
+	// would multiply the current request.
+	noSample := selected <= 0 && profile.DataPoints == 0
+	if noSample || math.IsNaN(selected) || math.IsInf(selected, 0) {
 		return current.DeepCopy(), holdAtCurrent(e, current), false
 	}
 	rawPercentile := percentileEstimator.Estimate(profile, current)
