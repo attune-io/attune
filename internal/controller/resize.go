@@ -1063,7 +1063,9 @@ func (r *AttunePolicyReconciler) resizeContainer(
 	}
 
 	// revert reverts the resize and marks all history entries as Reverted.
-	revert := func(reason string) {
+	// Returns true when RevertPod failed and the higher requests are still
+	// on the pod. Callers must not refund the cycle budget in that case.
+	revert := func(reason string) bool {
 		revertRecord := safety.ResizeRecord{
 			PodName:           pod.Name,
 			Namespace:         pod.Namespace,
@@ -1108,10 +1110,13 @@ func (r *AttunePolicyReconciler) resizeContainer(
 				history[i].Reason = reason
 			}
 		}
+		return revertFailed
 	}
 
 	if reason, err := r.persistResizeAnnotations(ctx, pod, containerRec, policy.Name, workloadName, now, restartCount); err != nil {
-		revert(reason)
+		if revert(reason) {
+			return history, resizeOutcomeInPlace
+		}
 		return history, resizeOutcomeNone
 	}
 
@@ -1128,7 +1133,9 @@ func (r *AttunePolicyReconciler) resizeContainer(
 	if reason, err := r.runImmediateSafetyCheck(ctx, policy, record); err != nil {
 		return history, resizeOutcomeInPlace
 	} else if reason != "" {
-		revert(reason)
+		if revert(reason) {
+			return history, resizeOutcomeInPlace
+		}
 		return history, resizeOutcomeNone
 	}
 

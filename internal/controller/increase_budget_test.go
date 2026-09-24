@@ -98,6 +98,20 @@ func TestIncreaseRateBucket_SmallRateOneSecondTicksDeliverConfiguredRate(t *test
 	assert.True(t, b.tryDraw(100, 0, tick), "100m/min must refill 100m across 60 one-second ticks")
 }
 
+func TestIncreaseRateBucket_ClockStepBackDoesNotRefill(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+	b := newIncreaseRateBucket(300, -1, now)
+	assert.True(t, b.tryDraw(300, 0, now), "full bucket must allow one minute of CPU")
+	b.tryDraw(0, 0, now.Add(-2*time.Minute))
+	assert.False(t, b.tryDraw(300, 0, now), "a backward clock must not refill a drained CPU bucket")
+
+	mem := newIncreaseRateBucket(-1, 1000, now)
+	assert.True(t, mem.tryDraw(0, 1000, now), "full bucket must allow one minute of memory")
+	mem.tryDraw(0, 0, now.Add(-2*time.Minute))
+	assert.False(t, mem.tryDraw(0, 1000, now), "a backward clock must not refill a drained memory bucket")
+}
+
 func TestIncreaseRateBucket_LongIdleFillsToCap(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)

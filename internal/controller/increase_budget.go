@@ -60,10 +60,10 @@ func refillResource(tokens, rate, cap int64, last time.Time, now time.Time) (int
 	if rate < 0 {
 		return tokens, last
 	}
+	// A backward or equal clock must not move last earlier. Doing so
+	// turns the rewind into idle time and refills a drained bucket
+	// when the clock returns to the original instant.
 	if !now.After(last) {
-		if now.Before(last) {
-			return tokens, now
-		}
 		return tokens, last
 	}
 	elapsed := now.Sub(last)
