@@ -169,6 +169,9 @@ injects a fake `PullRequestClient` and asserts `CreateOrUpdate` is not
 called again when the drift table is unchanged after the head branch is
 gone. `TestGitHubClient_Create_AgainAfterHeadDeleted` documents that the
 GitHub client *will* bootstrap another empty PR if the reconciler asks.
+`TestGitHubClient_Create_HeadExistsNotAhead` covers a leftover branch
+that still exists but is not ahead of base: the client adds an empty
+commit instead of opening a pull request with no commits between.
 | `test/e2e/runtime-profile-defaults/` | (webhook + API) | `runtimeProfile: java` stored and accepted; java+allowDecrease warns at admission |
 | `test/e2e/runtime-profile-java-no-mem-decrease/` | Recommend | java profile applies memory overhead=40 in explanation; CR overhead/allowDecrease stay unset |
 | `test/e2e/resize-blocked-status/` | Recommend | Injected Deferred+Infeasible pod conditions surface `workloads.deferred`/`infeasible` and `ResizeBlocked` |
