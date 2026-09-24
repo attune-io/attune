@@ -160,6 +160,13 @@ func TestQuantityFromFloat_MemoryFractional(t *testing.T) {
 	assert.Equal(t, resource.BinarySI, q.Format)
 }
 
+func TestPercentileEstimator_ObservedZeroIsZero(t *testing.T) {
+	e := &PercentileEstimator{Percentile: 95, IsCPU: true}
+	profile := metrics.UsageProfile{DataPoints: 10}
+	result := e.Estimate(profile, resource.MustParse("500m"))
+	assert.Equal(t, int64(0), result.MilliValue(), "sampled zeros are a real zero, not the current request")
+}
+
 func TestPercentileEstimator_NaNReturnsCurrent(t *testing.T) {
 	e := &PercentileEstimator{Percentile: 95}
 	nanPS := metrics.PercentileSet{

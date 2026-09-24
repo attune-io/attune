@@ -38,19 +38,35 @@ type PercentileEstimator struct {
 // configured percentile across all 24 hourly buckets. The float64 value
 // is interpreted as cores for CPU or bytes for memory.
 func (e *PercentileEstimator) Estimate(profile metrics.UsageProfile, current resource.Quantity) resource.Quantity {
-	maxVal := e.selectPercentile(profile.OverallPercentiles)
-
-	// Take the max across all hourly percentiles.
-	for h := 0; h < 24; h++ {
-		hourVal := e.selectPercentile(profile.HourlyPercentiles[h])
-		maxVal = math.Max(maxVal, hourVal)
-	}
-
-	if maxVal <= 0 || math.IsNaN(maxVal) || math.IsInf(maxVal, 0) {
+	maxVal := e.selectedMax(profile)
+	if math.IsNaN(maxVal) || math.IsInf(maxVal, 0) {
 		return current
 	}
-
+	if maxVal <= 0 {
+		if profile.DataPoints > 0 {
+			return zeroQuantity(e.IsCPU)
+		}
+		return current
+	}
 	return quantityFromFloat(maxVal, e.IsCPU)
+}
+
+// selectedMax is the highest configured percentile across the overall
+// profile and each hour. Callers use it to tell "no samples" from a
+// real zero.
+func (e *PercentileEstimator) selectedMax(profile metrics.UsageProfile) float64 {
+	maxVal := e.selectPercentile(profile.OverallPercentiles)
+	for h := 0; h < 24; h++ {
+		maxVal = math.Max(maxVal, e.selectPercentile(profile.HourlyPercentiles[h]))
+	}
+	return maxVal
+}
+
+func zeroQuantity(isCPU bool) resource.Quantity {
+	if isCPU {
+		return *resource.NewMilliQuantity(0, resource.DecimalSI)
+	}
+	return *resource.NewQuantity(0, resource.BinarySI)
 }
 
 // selectPercentile extracts the value for the configured percentile level
