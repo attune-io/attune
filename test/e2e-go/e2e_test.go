@@ -1284,7 +1284,7 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 // TestE2E_BudgetCaps_LimitsPerCycleIncrease proves maxTotalCpuIncrease blocks
 // a live CPU *increase* that exceeds the per-cycle budget (Prometheus +
 // /resize path). Multi-pod peer deferral math stays in unit tests; this
-// E2E asserts the gate fires in-cluster via BudgetExhausted and no resize.
+// E2E asserts the gate fires in-cluster via IncreaseExceedsBudget and no resize.
 //
 // CPU-burn at 50m with maxAllowed 300m typically wants >> 20m increase.
 // Budget of 20m cannot cover that increase → resize deferred.
@@ -1377,7 +1377,7 @@ func TestE2E_BudgetCaps_LimitsPerCycleIncrease(t *testing.T) {
 	// enough: cooldown, change filter, or query gaps can also leave the pod
 	// at 50m without proving maxTotalCpuIncrease ran.
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
-		if policyHasEvent(t, ns, "budinc-policy", "BudgetExhausted") {
+		if policyHasEvent(t, ns, "budinc-policy", "IncreaseExceedsBudget") {
 			return true, nil
 		}
 		var p attunev1alpha1.AttunePolicy
@@ -1395,12 +1395,12 @@ func TestE2E_BudgetCaps_LimitsPerCycleIncrease(t *testing.T) {
 			}
 		}
 		return false, nil
-	}), "timed out waiting for BudgetExhausted (CPU increase over maxTotalCpuIncrease)")
+	}), "timed out waiting for IncreaseExceedsBudget (CPU increase over maxTotalCpuIncrease)")
 
 	stillAtOrig := countPodsWithCPURequest(t, ns, app, origCPU)
 	var p attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "budinc-policy", Namespace: ns}, &p))
-	t.Logf("resized=%d stillAtOrig=%d BudgetExhausted=true",
+	t.Logf("resized=%d stillAtOrig=%d IncreaseExceedsBudget=true",
 		p.Status.Workloads.Resized, stillAtOrig)
 
 	require.Equal(t, 1, stillAtOrig,
@@ -1503,11 +1503,11 @@ func TestE2E_BudgetCaps_LimitsPerMinuteIncrease(t *testing.T) {
 	waitForPolicyDiscovered(t, "budrate-policy", ns, 2*time.Minute)
 
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
-		if policyHasEvent(t, ns, "budrate-policy", "BudgetExhausted") {
+		if policyHasEvent(t, ns, "budrate-policy", "IncreaseExceedsBudget") {
 			return true, nil
 		}
 		return false, nil
-	}), "timed out waiting for BudgetExhausted (CPU increase over maxCpuIncreasePerMinute)")
+	}), "timed out waiting for IncreaseExceedsBudget (CPU increase over maxCpuIncreasePerMinute)")
 
 	stillAtOrig := countPodsWithCPURequest(t, ns, app, origCPU)
 	require.Equal(t, 1, stillAtOrig,

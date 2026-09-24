@@ -88,7 +88,7 @@ Recommendations can look "ready" while pods stay unchanged. Common reasons:
 |--------|----------------|------------|
 | Change filter / min change | `explanation.*.changeFilterApplied` | Expected for tiny deltas; lower min change or wait for drift |
 | Cooldown | condition `Resizing=False` reason `CooldownActive` | Wait for cooldown / backoff |
-| Budget cap | events `BudgetExhausted`, metric `attune_budget_exhausted_total` | Raise per-cycle caps or reduce targets |
+| Budget cap | events `BudgetExhausted` (will fit on a later cycle) or `IncreaseExceedsBudget` (one increase is larger than the cap), metric `attune_budget_exhausted_total` | Raise the cap or reduce the target. `IncreaseExceedsBudget` does not clear by waiting |
 | Canary not promoted | `status.canary.phase` | Wait for observation or set `autoPromote` |
 | Deferred / Infeasible | condition `ResizeBlocked`, `workloads.deferred` / `infeasible` | See [troubleshooting](troubleshooting.md#deferred-or-infeasible-resize-stuck-pods) |
 | Stale data | `recommendations[].stale` | Last-known values stay in status for up to `3 * queryStep`. Resize and other apply paths skip. Ready and savings ignore stale recs. After the bound expires the rec drops and Ready can become `InsufficientData`. Fix Prometheus reachability |
