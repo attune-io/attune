@@ -802,7 +802,7 @@ func (r *ResizeEngine) WaitForResize(ctx context.Context, ns, podName,
 When `autoRevert: true` (default), the Safety Monitor watches resized pods for:
 
 1. **OOMKilled**: Container terminated with reason OOMKilled within observation period
-2. **CPU Throttle**: CPU throttle ratio exceeds 50% (configurable) post-resize
+2. **CPU Throttle**: CPU throttle ratio exceeds 50% post-resize. The threshold is fixed.
 3. **Excessive Restarts**: Container restart count increases by 2+ post-resize
 4. **Pod Not Ready**: Pod becomes NotReady within observation period
 5. **SLO Guardrail Breach**: Application-level PromQL query breached its threshold after `evaluationWindow` elapsed (fails open on query errors)
