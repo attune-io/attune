@@ -405,7 +405,7 @@ spec:
 
 | Condition Type | Reasons | Description |
 |---------------|---------|-------------|
-| `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `MetricsUnavailable` (alias `PrometheusUnavailable`), `InvalidConfig`, `WorkloadDiscoveryFailed`, `ConflictCheckFailed`, `Paused` | Overall health |
+| `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `MetricsUnavailable` (alias `PrometheusUnavailable`), `InvalidConfig`, `WorkloadDiscoveryFailed`, `ConflictCheckFailed`, `Paused`, `PrometheusSeriesCapped` | Overall health. `PrometheusSeriesCapped` keeps Ready True and means the query result was partial |
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation |
 | `Degraded` | `HighRevertRate` | Some resizes failing |
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Whether the current time is within the configured resize schedule window |
@@ -561,7 +561,7 @@ Raw Prometheus Data
 │ Confidence       │  Widen recommendation when data is sparse:
 │ Multiplier       │  result *= 1 + multiplier * (1 - confidence) ^ exponent
 │                  │  confidence = clamp(min(days, sqrt(points/24)) / 7, 0, 1)
-│                  │  Factor ranges from 1.0 (7d data) to ~1.8 (4h data)
+│                  │  Factor is 1.0 at confidence 1 and 2.0 at confidence 0
 └──────┬───────────┘
        │
        ▼
@@ -802,7 +802,7 @@ func (r *ResizeEngine) WaitForResize(ctx context.Context, ns, podName,
 When `autoRevert: true` (default), the Safety Monitor watches resized pods for:
 
 1. **OOMKilled**: Container terminated with reason OOMKilled within observation period
-2. **CPU Throttle**: CPU throttle ratio exceeds 50% (configurable) post-resize
+2. **CPU Throttle**: CPU throttle ratio exceeds 50% post-resize. The threshold is fixed.
 3. **Excessive Restarts**: Container restart count increases by 2+ post-resize
 4. **Pod Not Ready**: Pod becomes NotReady within observation period
 5. **SLO Guardrail Breach**: Application-level PromQL query breached its threshold after `evaluationWindow` elapsed (fails open on query errors)
@@ -1572,7 +1572,7 @@ attune/
 | Weight-based policy resolution | OptiPod | `weight` field for deterministic conflict resolution |
 | Gradual memory decrease | OptiPod | `memory.maxChangePercent` + `allowDecrease` flag |
 | Composable estimator chain | VPA | Decorator pattern: percentile -> overhead -> confidence -> bounds |
-| Confidence-based widening | VPA | `(1 + multiplier/confidence)^exponent` formula |
+| Confidence-based widening | VPA | `1 + multiplier * (1 - confidence) ^ exponent` |
 | Two-phase resize (CPU then memory) | right-sizer | CPU first (safer), then memory, with proper polling |
 | Conditions via meta.SetStatusCondition | Kyverno | Standard library helper, not hand-rolled |
 | Print columns with priority | Kyverno | `-o wide` shows savings columns |

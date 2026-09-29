@@ -475,6 +475,28 @@ func TestRecommendationEngine_ZeroConfidenceGivesMaxBuffer(t *testing.T) {
 		"zero confidence should produce factor 2.0 (100% buffer)")
 }
 
+func TestRecommendationEngine_ConfidenceFactorHalfAndPointEight(t *testing.T) {
+	engine := NewEngine(
+		95, 20.0,
+		resource.MustParse("1m"), resource.MustParse("4000m"),
+		200, 200,
+		EngineOpts{IsCPU: true},
+	)
+	current := resource.MustParse("500m")
+
+	_, half, _ := engine.RecommendWithExplanation(buildRealisticCPUProfile(0.200, 0.5), current)
+	// 1 + (1-0.5)^2 = 1.25; ceil(240m * 1.25) = 300m
+	assert.InDelta(t, 1.25, half.ConfidenceFactor, 0.0001)
+	assert.Equal(t, int64(300), half.AfterConfidence.MilliValue())
+
+	_, pointEight, _ := engine.RecommendWithExplanation(buildRealisticCPUProfile(0.200, 0.8), current)
+	// 1 + (1-0.8)^2 = 1.04; ceil(240m * 1.04) = 250m
+	assert.InDelta(t, 1.04, pointEight.ConfidenceFactor, 0.0001)
+	assert.Equal(t, int64(250), pointEight.AfterConfidence.MilliValue())
+	assert.Equal(t, int64(250), pointEight.Final.MilliValue())
+	assert.Empty(t, pointEight.ChangeFilterApplied)
+}
+
 func TestRecommendationEngine_ConfidenceClampedToUnitInterval(t *testing.T) {
 	engine := NewEngine(
 		95, 20.0,

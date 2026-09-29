@@ -77,9 +77,10 @@ rate(container_cpu_cfs_throttled_periods_total[5m])
 / rate(container_cpu_cfs_periods_total[5m])
 ```
 
-If the ratio exceeds 50% (configurable via `DefaultThrottleThreshold`), the
-resize is reverted. A high throttle ratio after a CPU reduction means the
-new allocation is too low.
+If the ratio exceeds 50%, the resize is reverted. That threshold is the
+Go constant `DefaultThrottleThreshold` in `internal/safety/monitor.go`.
+It is not a policy field, a Helm value, or a flag. A high throttle ratio
+after a CPU reduction means the new allocation is too low.
 
 !!! note "Throttle grace period"
     The throttle check is skipped for the first 5 minutes after a resize

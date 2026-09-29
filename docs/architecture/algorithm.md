@@ -73,27 +73,30 @@ Widens the recommendation when data confidence is low. High-confidence
 recommendations (near 1.0) pass through with minimal adjustment. Low
 confidence inflates the result to be conservative.
 
-**Formula**:
+**Formula** (see `confidenceFactor` in `internal/recommendation/chain.go`):
 
 ```
-result = inner * (1 + multiplier / max(confidence, 0.1)) ^ exponent
+factor = 1 + multiplier * (1 - confidence) ^ exponent
+result = inner * factor
 ```
+
+Confidence is clamped to the range 0 through 1 before this step. There is
+no division, so a confidence of 0 is safe. With the built-in multiplier
+and exponent, the factor is 1.0 at confidence 1 and 2.0 at confidence 0.
 
 | Parameter | Default | Effect |
 |-----------|---------|--------|
 | `multiplier` | 1.0 | Controls inflation magnitude |
 | `exponent` | 2.0 | Controls curve steepness |
 
-Confidence is floored at 0.1 to prevent division by zero.
-
 **Example**: with confidence = 0.5, multiplier = 1.0, exponent = 2.0:
 
 ```
-factor = (1 + 1.0/0.5)^2 = 3.0^2 = 9.0
+factor = 1 + 1.0 * (1 - 0.5)^2 = 1.25
 ```
 
-This means a low-confidence recommendation is inflated 9x, resulting in a
-very conservative (high) value that avoids under-provisioning.
+A low-confidence recommendation is widened by that factor, not by a
+multiple of the reciprocal of confidence.
 
 ### How confidence is computed
 
@@ -171,14 +174,16 @@ output via the `burstFactor` and `afterBurst` fields, and as the
 ## Full pipeline example
 
 Given: p95 CPU = 200m, overhead = 20%, confidence = 0.8,
-bounds = [1m, 4000m], current = 500m, max change = 50%.
+policy bounds = [1m, 4000m] (set on this policy),
+current = 500m, max change = 50%. CPU quantities round up to the next millicore.
 
 | Stage | Calculation | Result |
 |-------|-------------|--------|
 | Percentile | max across hourly p95 | 200m |
 | Overhead | 200m * (1 + 20/100) = 200m * 1.2 | 240m |
-| Confidence | 240m * (1 + 1/0.8)^2 = 240m * 5.0625 | 1215m |
-| Bounds | clamp(1215m, 1m, 4000m) | 1215m |
-| Change Filter | change = abs(1215-500)/500 = 143% > 50%, cap | 750m |
+| Confidence | factor = 1 + (1 - 0.8)^2 = 1.04; ceil(240m * 1.04) | 250m |
+| Bounds | 250m is inside the policy bounds [1m, 4000m] | 250m |
+| Change Filter | abs(250 - 500) / 500 = 50%, which is not greater than 50% | 250m |
 
-Final recommendation: **750m** (capped at 50% increase from 500m).
+Final recommendation: **250m**. The decrease cap does not move it, because
+the confidence step already landed on a 50% decrease.
