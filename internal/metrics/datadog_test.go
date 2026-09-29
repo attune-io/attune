@@ -34,16 +34,25 @@ import (
 	"github.com/attune-io/attune/internal/operatormetrics"
 )
 
+func ddPoints(pairs ...[2]float64) [][2]*float64 {
+	out := make([][2]*float64, len(pairs))
+	for i, p := range pairs {
+		ts, v := p[0], p[1]
+		out[i] = [2]*float64{&ts, &v}
+	}
+	return out
+}
+
 func TestDatadogCollector_QueryRangeGrouped_NaNInfFiltered(t *testing.T) {
 	// encoding/json cannot transport NaN/Inf; QueryRangeGrouped uses this helper after unmarshal.
 	ts1 := 1700000000000.0
-	points := [][2]float64{
-		{ts1, 250000000},          // 0.25 cores after nanocore conversion
-		{ts1 + 60000, math.NaN()}, // dropped
-		{ts1 + 120000, math.Inf(1)},
-		{ts1 + 180000, math.Inf(-1)},
-		{ts1 + 240000, 750000000}, // 0.75 cores
-	}
+	points := ddPoints(
+		[2]float64{ts1, 250000000},          // 0.25 cores after nanocore conversion
+		[2]float64{ts1 + 60000, math.NaN()}, // dropped
+		[2]float64{ts1 + 120000, math.Inf(1)},
+		[2]float64{ts1 + 180000, math.Inf(-1)},
+		[2]float64{ts1 + 240000, 750000000}, // 0.75 cores
+	)
 
 	ctx := WithNanInfLabels(context.Background(), "dd-ns", "dd-policy", "cpu")
 	before := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("dd-ns", "dd-policy", "untracked", "cpu"))
@@ -59,11 +68,11 @@ func TestDatadogCollector_QueryRangeGrouped_NaNInfFiltered(t *testing.T) {
 
 func TestDatadogCollector_QueryRangeGrouped_AllNonFiniteIncrementsOnce(t *testing.T) {
 	ts1 := 1700000000000.0
-	points := [][2]float64{
-		{ts1, math.NaN()},
-		{ts1 + 60000, math.Inf(1)},
-		{ts1 + 120000, math.Inf(-1)},
-	}
+	points := ddPoints(
+		[2]float64{ts1, math.NaN()},
+		[2]float64{ts1 + 60000, math.Inf(1)},
+		[2]float64{ts1 + 120000, math.Inf(-1)},
+	)
 
 	ctx := WithNanInfLabels(context.Background(), "dd-ns", "dd-policy", "cpu")
 	before := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("dd-ns", "dd-policy", "untracked", "cpu"))
@@ -86,17 +95,15 @@ func TestDatadogCollector_QueryRangeGrouped(t *testing.T) {
 				{
 					Metric: "kubernetes.cpu.usage.total",
 					TagSet: []string{"kube_container_name:web", "kube_namespace:default"},
-					Pointlist: [][2]float64{
-						{1700000000000, 500000000},  // 500M nanocores = 0.5 cores
-						{1700000300000, 1000000000}, // 1B nanocores = 1.0 cores
-					},
+					Pointlist: ddPoints(
+						[2]float64{1700000000000, 500000000},  // 500M nanocores = 0.5 cores
+						[2]float64{1700000300000, 1000000000}, // 1B nanocores = 1.0 cores
+					),
 				},
 				{
-					Metric: "kubernetes.cpu.usage.total",
-					TagSet: []string{"kube_container_name:sidecar", "kube_namespace:default"},
-					Pointlist: [][2]float64{
-						{1700000000000, 100000000}, // 0.1 cores
-					},
+					Metric:    "kubernetes.cpu.usage.total",
+					TagSet:    []string{"kube_container_name:sidecar", "kube_namespace:default"},
+					Pointlist: ddPoints([2]float64{1700000000000, 100000000}), // 0.1 cores
 				},
 			},
 		}
@@ -140,7 +147,7 @@ func TestDatadogCollector_MemoryNoConversion(t *testing.T) {
 				{
 					Metric:    "kubernetes.memory.working_set",
 					TagSet:    []string{"kube_container_name:web"},
-					Pointlist: [][2]float64{{1700000000000, 536870912}}, // 512 MiB
+					Pointlist: ddPoints([2]float64{1700000000000, 536870912}), // 512 MiB
 				},
 			},
 		}
@@ -217,7 +224,7 @@ func TestDatadogCollector_Query_Instant(t *testing.T) {
 				{
 					Metric:    "custom.metric",
 					TagSet:    []string{},
-					Pointlist: [][2]float64{{1700000000000, 42.5}},
+					Pointlist: ddPoints([2]float64{1700000000000, 42.5}),
 				},
 			},
 		}
@@ -275,7 +282,7 @@ func TestDatadogCollector_EmptyTagSet(t *testing.T) {
 				{
 					Metric:    "kubernetes.memory.working_set",
 					TagSet:    []string{}, // no kube_container_name tag
-					Pointlist: [][2]float64{{1700000000000, 100}},
+					Pointlist: ddPoints([2]float64{1700000000000, 100}),
 				},
 			},
 		}
@@ -309,17 +316,15 @@ func TestDatadogCollector_Query_ReturnsLatestTimestamp(t *testing.T) {
 				{
 					Metric: "custom.metric",
 					TagSet: []string{"kube_container_name:a"},
-					Pointlist: [][2]float64{
-						{1700000000000, 1.0}, // earlier
-						{1700000300000, 5.0}, // latest
-					},
+					Pointlist: ddPoints(
+						[2]float64{1700000000000, 1.0}, // earlier
+						[2]float64{1700000300000, 5.0}, // latest
+					),
 				},
 				{
-					Metric: "custom.metric",
-					TagSet: []string{"kube_container_name:b"},
-					Pointlist: [][2]float64{
-						{1700000100000, 3.0}, // middle
-					},
+					Metric:    "custom.metric",
+					TagSet:    []string{"kube_container_name:b"},
+					Pointlist: ddPoints([2]float64{1700000100000, 3.0}), // middle
 				},
 			},
 		}
@@ -339,6 +344,157 @@ func TestDatadogCollector_Query_ReturnsLatestTimestamp(t *testing.T) {
 	val, err := c.Query(context.Background(), "custom.metric{*}", time.Unix(1700000300, 0))
 	require.NoError(t, err)
 	assert.InDelta(t, 5.0, val, 0.001, "should return the sample with the latest timestamp")
+}
+
+func TestDatadogCollector_NullPointIsDroppedNumericZeroKept(t *testing.T) {
+	const body = `{
+		"status": "ok",
+		"series": [{
+			"metric": "kubernetes.cpu.usage.total",
+			"tag_set": ["kube_container_name:web"],
+			"pointlist": [[1700000000000, 500000000], [1700000060000, null], [1700000120000, 0]]
+		}]
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	c := &DatadogCollector{
+		httpClient:    server.Client(),
+		baseURL:       server.URL,
+		apiKey:        "key",
+		logger:        logr.Discard(),
+		cpuMetricName: "kubernetes.cpu.usage.total",
+	}
+	ctx := WithNanInfLabels(context.Background(), "dd-ns", "dd-policy", "cpu")
+	before := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("dd-ns", "dd-policy", "untracked", "cpu"))
+
+	grouped, err := c.QueryRangeGrouped(ctx, "avg:kubernetes.cpu.usage.total{*}", time.Unix(1700000000, 0), time.Unix(1700000200, 0), time.Minute)
+	require.NoError(t, err)
+	require.Len(t, grouped["web"], 2)
+	assert.InDelta(t, 0.5, grouped["web"][0].Value, 0.001)
+	assert.InDelta(t, 0, grouped["web"][1].Value, 0.001)
+
+	after := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("dd-ns", "dd-policy", "untracked", "cpu"))
+	assert.Equal(t, before, after, "a series that still has a usable point does not increment")
+}
+
+func TestDatadogCollector_MemoryNullPointIsDropped(t *testing.T) {
+	const body = `{
+		"status": "ok",
+		"series": [{
+			"metric": "kubernetes.memory.working_set",
+			"tag_set": ["kube_container_name:web"],
+			"pointlist": [[1700000000000, null], [1700000060000, 1048576]]
+		}]
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	c := &DatadogCollector{
+		httpClient:    server.Client(),
+		baseURL:       server.URL,
+		apiKey:        "key",
+		logger:        logr.Discard(),
+		cpuMetricName: "kubernetes.cpu.usage.total",
+	}
+	grouped, err := c.QueryRangeGrouped(context.Background(), "avg:kubernetes.memory.working_set{*}", time.Unix(1700000000, 0), time.Unix(1700000200, 0), time.Minute)
+	require.NoError(t, err)
+	require.Len(t, grouped["web"], 1)
+	assert.InDelta(t, 1048576, grouped["web"][0].Value, 1)
+}
+
+func TestDatadogCollector_AllNullPointsIncrementOnce(t *testing.T) {
+	const body = `{
+		"status": "ok",
+		"series": [{
+			"metric": "kubernetes.cpu.usage.total",
+			"tag_set": ["kube_container_name:web"],
+			"pointlist": [[1700000000000, null], [1700000060000, null]]
+		}]
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	c := &DatadogCollector{
+		httpClient:    server.Client(),
+		baseURL:       server.URL,
+		apiKey:        "key",
+		logger:        logr.Discard(),
+		cpuMetricName: "kubernetes.cpu.usage.total",
+	}
+	ctx := WithNanInfLabels(context.Background(), "dd-ns", "dd-policy", "cpu")
+	before := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("dd-ns", "dd-policy", "untracked", "cpu"))
+	grouped, err := c.QueryRangeGrouped(ctx, "avg:kubernetes.cpu.usage.total{*}", time.Unix(1700000000, 0), time.Unix(1700000200, 0), time.Minute)
+	require.NoError(t, err)
+	assert.Empty(t, grouped["web"])
+	after := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("dd-ns", "dd-policy", "untracked", "cpu"))
+	assert.Equal(t, before+1, after)
+}
+
+func TestDatadogCollector_NullTimestampKeepsValue(t *testing.T) {
+	const body = `{
+		"status": "ok",
+		"series": [{
+			"metric": "kubernetes.cpu.usage.total",
+			"tag_set": ["kube_container_name:web"],
+			"pointlist": [[null, 500000000], [1700000060000]]
+		}]
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	c := &DatadogCollector{
+		httpClient:    server.Client(),
+		baseURL:       server.URL,
+		apiKey:        "key",
+		logger:        logr.Discard(),
+		cpuMetricName: "kubernetes.cpu.usage.total",
+	}
+	ctx := WithNanInfLabels(context.Background(), "dd-ns", "dd-policy", "cpu")
+	before := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("dd-ns", "dd-policy", "untracked", "cpu"))
+
+	grouped, err := c.QueryRangeGrouped(ctx, "avg:kubernetes.cpu.usage.total{*}", time.Unix(1700000000, 0), time.Unix(1700000200, 0), time.Minute)
+	require.NoError(t, err)
+	require.Len(t, grouped["web"], 1)
+	assert.True(t, grouped["web"][0].Timestamp.Equal(time.Unix(0, 0)))
+	assert.InDelta(t, 0.5, grouped["web"][0].Value, 0.001)
+
+	after := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("dd-ns", "dd-policy", "untracked", "cpu"))
+	assert.Equal(t, before, after, "a kept value must not increment the counter")
+}
+
+func TestDatadogCollector_NonNumericPointFailsQuery(t *testing.T) {
+	const body = `{
+		"status": "ok",
+		"series": [{
+			"metric": "kubernetes.cpu.usage.total",
+			"tag_set": ["kube_container_name:web"],
+			"pointlist": [[1700000000000, "NaN"]]
+		}]
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	c := &DatadogCollector{
+		httpClient:    server.Client(),
+		baseURL:       server.URL,
+		apiKey:        "key",
+		logger:        logr.Discard(),
+		cpuMetricName: "kubernetes.cpu.usage.total",
+	}
+	_, err := c.QueryRangeGrouped(context.Background(), "avg:kubernetes.cpu.usage.total{*}", time.Unix(1700000000, 0), time.Unix(1700000200, 0), time.Minute)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parsing Datadog response")
 }
 
 func TestDatadogCollector_Close(t *testing.T) {

@@ -1316,7 +1316,11 @@ calculations.
 
 The `attune_nan_inf_samples_total` counter increments each time this
 happens, broken down by container and metric type (`cpu` or `memory`).
-Use it to alert on persistent data quality issues:
+A Datadog gap encoded as JSON `null`, or a point with no value, is dropped
+the same way. A numeric zero is kept, because a container can be idle. A
+Datadog series whose points are all null or missing increments this counter
+once. Use it to alert on persistent data quality
+issues:
 
 ```promql
 rate(attune_nan_inf_samples_total[1h]) > 0

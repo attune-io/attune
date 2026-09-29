@@ -299,8 +299,10 @@ See [Troubleshooting: OOM after memory limit decrease](../guides/troubleshooting
 
 ### attune_nan_inf_samples_total
 
-Total times all Prometheus samples for a container metric were non-finite
-(NaN or Inf), making the metric unusable for recommendations. See
+Total times every sample in a series was unusable, so that series could
+not feed a recommendation. Prometheus counts NaN and Inf. Datadog also
+counts a series whose points are all JSON null or missing. A numeric zero is a real
+sample and is not counted. See
 [Troubleshooting: NaN or Inf values](../guides/troubleshooting.md#nan-or-inf-values-in-prometheus-data).
 
 | Label | Description |
