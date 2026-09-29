@@ -41,32 +41,28 @@ func TestConfidenceEstimator(t *testing.T) {
 			multiplier: 1.0,
 			exponent:   2.0,
 			wantCheck: func(t *testing.T, millis int64) {
-				// (1 + 1.0/0.95)^2 = (1 + 1.0526)^2 = 2.0526^2 ~= 4.21
-				// 100m * 4.21 ~= 421m; still a multiplier but much less than low confidence.
-				assert.Less(t, millis, int64(500))
-				assert.Greater(t, millis, int64(100))
+				// 1 + (1-0.95)^2 = 1.0025; ceil(100m * 1.0025) = 101m
+				assert.Equal(t, int64(101), millis)
 			},
 		},
 		{
-			name:       "low confidence significantly increases result",
+			name:       "low confidence widens by less than 2x",
 			confidence: 0.1,
 			multiplier: 1.0,
 			exponent:   2.0,
 			wantCheck: func(t *testing.T, millis int64) {
-				// (1 + 1.0/0.1)^2 = (11)^2 = 121
-				// 100m * 121 = 12100m
-				assert.Greater(t, millis, int64(10000))
+				// 1 + 0.9^2 = 1.81; ceil(100m * 1.81) = 181m
+				assert.Equal(t, int64(181), millis)
 			},
 		},
 		{
-			name:       "zero confidence uses floor of 0.1",
+			name:       "zero confidence doubles",
 			confidence: 0.0,
 			multiplier: 1.0,
 			exponent:   2.0,
 			wantCheck: func(t *testing.T, millis int64) {
-				// Same as confidence 0.1: (1 + 1.0/0.1)^2 = 121
-				// 100m * 121 = 12100m
-				assert.Greater(t, millis, int64(10000))
+				// 1 + 1^2 = 2; 100m * 2 = 200m
+				assert.Equal(t, int64(200), millis)
 			},
 		},
 		{
@@ -75,9 +71,8 @@ func TestConfidenceEstimator(t *testing.T) {
 			multiplier: 0, // triggers default of 1.0
 			exponent:   0, // triggers default of 2.0
 			wantCheck: func(t *testing.T, millis int64) {
-				// (1 + 1.0/0.5)^2 = 3^2 = 9
-				// 100m * 9 = 900m
-				assert.InDelta(t, 900, millis, 10)
+				// 1 + (1-0.5)^2 = 1.25; ceil(100m * 1.25) = 125m
+				assert.Equal(t, int64(125), millis)
 			},
 		},
 	}

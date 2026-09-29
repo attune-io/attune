@@ -25,10 +25,10 @@ import (
 )
 
 // confidenceEstimator widens the recommendation when data confidence is low.
-// Used only in unit tests; the production path inlines this logic in
-// RecommendWithExplanation.
+// Used by the benchmark and its unit test. RecommendWithExplanation inlines
+// the same factor.
 //
-// Formula: result = inner * (1 + multiplier / max(confidence, 0.1)) ^ exponent
+// factor = 1 + multiplier * (1 - confidence) ^ exponent
 type confidenceEstimator struct {
 	multiplier float64
 	exponent   float64
@@ -36,8 +36,8 @@ type confidenceEstimator struct {
 }
 
 // Estimate delegates to the inner estimator and then applies the confidence
-// adjustment formula. Low confidence values are floored at 0.1 to prevent
-// division by zero or extreme inflation.
+// factor. Confidence is clamped to [0, 1]. A zero multiplier or exponent
+// means the built-in defaults (1 and 2), matching a nil policy field.
 func (e *confidenceEstimator) Estimate(profile metrics.UsageProfile, current resource.Quantity) resource.Quantity {
 	inner := e.inner.Estimate(profile, current)
 
@@ -50,8 +50,14 @@ func (e *confidenceEstimator) Estimate(profile metrics.UsageProfile, current res
 		exponent = 2.0
 	}
 
-	confidence := math.Max(profile.Confidence, 0.1)
-	factor := math.Pow(1+multiplier/confidence, exponent)
+	confidence := profile.Confidence
+	if confidence > 1 {
+		confidence = 1
+	}
+	if confidence < 0 {
+		confidence = 0
+	}
+	factor := 1 + multiplier*math.Pow(1-confidence, exponent)
 
 	return scaleQuantity(inner, factor)
 }
