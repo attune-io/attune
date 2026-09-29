@@ -863,6 +863,7 @@ func TestDefaultsValidate_CooldownInvalid(t *testing.T) {
 	}{
 		{"sub-minute cooldown", 30 * time.Second, "cooldown must be at least 1m"},
 		{"negative cooldown", -5 * time.Minute, "cooldown must be non-negative"},
+		{"zero cooldown", 0, "must be at least 1m, or omit the field"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -954,6 +955,7 @@ func TestDefaultsValidate_SafetyObservationPeriodInvalid(t *testing.T) {
 	}{
 		{"negative", -time.Minute, "safetyObservationPeriod must be non-negative"},
 		{"below minimum", 30 * time.Second, "safetyObservationPeriod must be at least 1m"},
+		{"zero", 0, "must be at least 1m, or omit the field"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1003,6 +1005,24 @@ func TestDefaultsValidate_CanaryObservationPeriodInvalid(t *testing.T) {
 			assert.Contains(t, err.Error(), tc.wantErr)
 		})
 	}
+}
+
+func TestDefaultsValidate_CanaryObservationPeriodZeroAccepted(t *testing.T) {
+	v := &AttuneDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Canary: &attunev1alpha1.CanaryConfig{
+					Percentage:        10,
+					ObservationPeriod: metav1.Duration{Duration: 0},
+				},
+			},
+		},
+	}
+
+	_, err := v.ValidateCreate(context.Background(), defaults)
+	assert.NoError(t, err)
 }
 
 func TestDefaultsValidate_SLOGuardrailsInvalid(t *testing.T) {
@@ -1081,6 +1101,13 @@ func TestDefaultsValidate_SLOGuardrailsInvalid(t *testing.T) {
 				{Name: "slo1", Query: "up", Threshold: "1", EvaluationWindow: &metav1.Duration{Duration: 30 * time.Second}},
 			},
 			wantErr: "evaluationWindow must be at least 1m",
+		},
+		{
+			name: "zero evaluationWindow",
+			guardrails: []attunev1alpha1.SLOGuardrail{
+				{Name: "slo1", Query: "up", Threshold: "1", EvaluationWindow: &metav1.Duration{Duration: 0}},
+			},
+			wantErr: "must be at least 1m, or omit the field",
 		},
 	}
 	for _, tc := range tests {

@@ -2687,6 +2687,100 @@ func TestPrintExplain_ObservationPeriodFromCanaryShowsConfigured(t *testing.T) {
 	assert.Contains(t, output, "Observation period: 10m0s (source: policy, configured: 10m)")
 }
 
+func TestEffectiveCooldown_ZeroAndSubMinute(t *testing.T) {
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Cooldown: &metav1.Duration{Duration: 0},
+			},
+		},
+	}
+	assert.Equal(t, time.Hour.String(), effectiveCooldown(policy))
+
+	policy.Spec.UpdateStrategy.Cooldown.Duration = -time.Minute
+	assert.Equal(t, time.Hour.String(), effectiveCooldown(policy))
+
+	policy.Spec.UpdateStrategy.Cooldown.Duration = 30 * time.Second
+	assert.Equal(t, time.Minute.String(), effectiveCooldown(policy))
+
+	policy.Spec.UpdateStrategy.Cooldown.Duration = time.Hour
+	assert.Equal(t, time.Hour.String(), effectiveCooldown(policy))
+}
+
+func TestEffectiveObservationPeriod_ZeroFallsThroughAndSubMinuteFloors(t *testing.T) {
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				SafetyObservationPeriod: &metav1.Duration{Duration: 30 * time.Second},
+			},
+		},
+	}
+	assert.Equal(t, time.Minute.String(), effectiveObservationPeriod(policy))
+
+	policy.Spec.UpdateStrategy.SafetyObservationPeriod.Duration = 90 * time.Second
+	assert.Equal(t, (90 * time.Second).String(), effectiveObservationPeriod(policy))
+
+	policy.Spec.UpdateStrategy.SafetyObservationPeriod = &metav1.Duration{Duration: 0}
+	policy.Spec.UpdateStrategy.Canary = &attunev1alpha1.CanaryConfig{
+		ObservationPeriod: metav1.Duration{Duration: 2 * time.Minute},
+	}
+	assert.Equal(t, (2 * time.Minute).String(), effectiveObservationPeriod(policy))
+
+	policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration = 0
+	assert.Equal(t, (5 * time.Minute).String(), effectiveObservationPeriod(policy))
+
+	policy.Spec.UpdateStrategy.SafetyObservationPeriod = nil
+	policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration = 30 * time.Second
+	assert.Equal(t, time.Minute.String(), effectiveObservationPeriod(policy))
+}
+
+func TestPrintExplain_ZeroCooldownShowsDefaultHour(t *testing.T) {
+	policy := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "attune.io/v1alpha1",
+		"kind":       "AttunePolicy",
+		"metadata": map[string]interface{}{
+			"name":      "zero-cooldown",
+			"namespace": "default",
+		},
+		"spec": map[string]interface{}{
+			"updateStrategy": map[string]interface{}{
+				"cooldown":                "0s",
+				"safetyObservationPeriod": "30s",
+				"canary": map[string]interface{}{
+					"observationPeriod": "0s",
+				},
+			},
+		},
+	}}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:                  "AttunePolicyList",
+			namespaceDefaultsGVR: "AttuneNamespaceDefaultsList",
+			defaultsGVR:          "AttuneDefaultsList",
+		},
+		policy)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printExplain(context.Background(), dynClient, "default", "zero-cooldown")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "Cooldown: 1h0m0s (source: policy, configured: 0s)")
+	assert.Contains(t, output, "Observation period: 1m0s (source: policy, configured: 30s)")
+}
+
 func TestPrintExplain_UsesClusterDefaultsWhenNoNamespaceDefaultsExist(t *testing.T) {
 	clusterQueryStep := &metav1.Duration{Duration: 2 * time.Minute}
 	clusterMode := attunev1alpha1.UpdateTypeAuto

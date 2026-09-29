@@ -480,6 +480,32 @@ kubectl patch attunepolicy <name> --type merge \
   -p '{"spec":{"updateStrategy":{"cooldown":"30m"}}}'
 ```
 
+### Stored cooldown of 0s
+
+**Symptom**: `kubectl describe attunepolicy <name>` shows
+`updateStrategy.cooldown: 0s`, and the policy reconciles about once an
+hour. A new apply that still sets `0s` fails admission with
+`cooldown must be at least 1m, or omit the field for the default`.
+
+**Cause**: Zero is not a wait. The webhook rejects `0s` on policy and
+AttuneDefaults `cooldown`, on `safetyObservationPeriod`, and on an SLO
+`evaluationWindow`. Omit the field for the built-in default (1h for
+cooldown, 5m for the observation and evaluation windows). The shortest
+accepted value is 1m.
+
+A policy already stored with `cooldown: 0s` waits 1h. It keeps
+reconciling on that interval. Canary `observationPeriod: 0s` is
+different: omitted and `0s` both mean the built-in observation period.
+An SLO `evaluationWindow` of `0s` is an admission error. It does not by
+itself stop the reconciler.
+
+**Fix**: Omit the field, or set at least `1m`:
+
+```bash
+kubectl patch attunepolicy <name> --type merge \
+  -p '{"spec":{"updateStrategy":{"cooldown":"1h"}}}'
+```
+
 ## Webhook / cert-manager issues
 
 ### Webhook connection refused
@@ -1253,9 +1279,10 @@ since most clusters use 1-2 Prometheus instances.
 
 ### Minimum cooldown floor
 
-The operator enforces a minimum cooldown of 1 minute regardless of the
-configured `cooldown` value. Setting `cooldown: 10s` effectively becomes
-`cooldown: 1m`. This prevents accidental resource churn.
+A positive cooldown shorter than 1 minute, such as `10s`, is raised to
+`1m`. This prevents accidental resource churn. `0s` is not raised to
+`1m`. Admission rejects it, and a policy already stored with `0s` waits
+the 1h default. See [Stored cooldown of 0s](#stored-cooldown-of-0s).
 
 ## Enabling debug logs
 

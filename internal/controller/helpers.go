@@ -434,15 +434,21 @@ func (r *AttunePolicyReconciler) getRateWindow(policy *attunev1alpha1.AttunePoli
 }
 
 // parseCooldown returns the cooldown duration from the policy's update strategy.
+// Zero and negative values are not waits. Admission rejects them. An object
+// already stored with those values, or one that bypassed the webhook, falls
+// back to the 1h default. A positive duration under the floor is raised to
+// that floor (1m unless MinCooldown is set).
 func (r *AttunePolicyReconciler) parseCooldown(policy *attunev1alpha1.AttunePolicy) time.Duration {
 	if policy.Spec.UpdateStrategy != nil && policy.Spec.UpdateStrategy.Cooldown != nil {
 		cd := policy.Spec.UpdateStrategy.Cooldown.Duration
-		// Defense-in-depth: enforce minimum floor even if webhook validation is bypassed.
+		if cd <= 0 {
+			return defaultCooldown
+		}
 		minCooldown := r.MinCooldown
 		if minCooldown == 0 {
 			minCooldown = time.Minute
 		}
-		if cd > 0 && cd < minCooldown {
+		if cd < minCooldown {
 			cd = minCooldown
 		}
 		return cd
@@ -532,7 +538,7 @@ func (r *AttunePolicyReconciler) allWorkloadsCooling(policy *attunev1alpha1.Attu
 
 // minCooldownRemaining is the soonest remaining cooldown among the named
 // workloads. Expired or never-resized apps are ignored. Zero means nobody
-// is still cooling (do not use that as RequeueAfter; it busy-loops).
+// is still cooling. Callers must not pass that zero as RequeueAfter.
 func (r *AttunePolicyReconciler) minCooldownRemaining(policy *attunev1alpha1.AttunePolicy, workloads []string) time.Duration {
 	var soonest time.Duration
 	found := false
@@ -1263,14 +1269,25 @@ func autoRevertEnabled(s *attunev1alpha1.UpdateStrategy) bool {
 	return s == nil || s.AutoRevert == nil || *s.AutoRevert
 }
 
+// floorObservationMinute raises a positive sub-minute period to 1m.
+// Callers pass only durations they already know are positive. Zero stays
+// unset so a later canary period or the 5m default can still apply.
+func floorObservationMinute(d time.Duration) time.Duration {
+	if d > 0 && d < time.Minute {
+		return time.Minute
+	}
+	return d
+}
+
 // getObservationPeriod returns the safety observation period using the
 // precedence: safetyObservationPeriod > canary.observationPeriod > default (5m).
+// A zero duration is unset. A positive sub-minute duration is raised to 1m.
 func getObservationPeriod(policy *attunev1alpha1.AttunePolicy) time.Duration {
 	if policy.Spec.UpdateStrategy.SafetyObservationPeriod != nil && policy.Spec.UpdateStrategy.SafetyObservationPeriod.Duration > 0 {
-		return policy.Spec.UpdateStrategy.SafetyObservationPeriod.Duration
+		return floorObservationMinute(policy.Spec.UpdateStrategy.SafetyObservationPeriod.Duration)
 	}
 	if policy.Spec.UpdateStrategy.Canary != nil && policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration > 0 {
-		return policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration
+		return floorObservationMinute(policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration)
 	}
 	return defaultObservationPeriod
 }
