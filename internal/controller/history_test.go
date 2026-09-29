@@ -165,6 +165,71 @@ func TestIsSuccessfulInPlaceHistory_LegacySuccessCounts(t *testing.T) {
 	}))
 }
 
+func TestCycleDeltaForCount(t *testing.T) {
+	start := time.Date(2026, 9, 29, 12, 0, 0, 800_000_000, time.UTC)
+	sameSecond := metav1.NewTime(time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC))
+	atCutoff := metav1.NewTime(start.Add(-time.Second))
+	beforeCutoff := metav1.NewTime(start.Add(-time.Second).Add(-time.Millisecond))
+	hourOld := metav1.NewTime(start.Add(-time.Hour))
+	row := func(ts metav1.Time, workload string) attunev1alpha1.ResizeHistoryEntry {
+		return attunev1alpha1.ResizeHistoryEntry{Timestamp: ts, Workload: workload}
+	}
+
+	tests := []struct {
+		name       string
+		delta      []attunev1alpha1.ResizeHistoryEntry
+		cycleStart time.Time
+		want       []string
+	}{
+		{
+			name:       "zero start keeps every row",
+			delta:      []attunev1alpha1.ResizeHistoryEntry{row(hourOld, "old")},
+			cycleStart: time.Time{},
+			want:       []string{"old"},
+		},
+		{
+			name:       "zero timestamp counts",
+			delta:      []attunev1alpha1.ResizeHistoryEntry{{Workload: "unstamped"}},
+			cycleStart: start,
+			want:       []string{"unstamped"},
+		},
+		{
+			name:       "same-second truncated stamp counts",
+			delta:      []attunev1alpha1.ResizeHistoryEntry{row(sameSecond, "now")},
+			cycleStart: start,
+			want:       []string{"now"},
+		},
+		{
+			name:       "stamp exactly at the one second cutoff counts",
+			delta:      []attunev1alpha1.ResizeHistoryEntry{row(atCutoff, "edge")},
+			cycleStart: start,
+			want:       []string{"edge"},
+		},
+		{
+			name:       "stamp before the cutoff is dropped",
+			delta:      []attunev1alpha1.ResizeHistoryEntry{row(beforeCutoff, "early"), row(sameSecond, "now")},
+			cycleStart: start,
+			want:       []string{"now"},
+		},
+		{
+			name:       "hour-old row is dropped from the count",
+			delta:      []attunev1alpha1.ResizeHistoryEntry{row(hourOld, "old")},
+			cycleStart: start,
+			want:       nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := cycleDeltaForCount(tt.delta, tt.cycleStart)
+			var names []string
+			for _, entry := range got {
+				names = append(names, entry.Workload)
+			}
+			assert.Equal(t, tt.want, names)
+		})
+	}
+}
+
 func TestRemoveSuccessfulInPlaceHistory_UsesSharedSemantics(t *testing.T) {
 	now := time.Now()
 	entries := []attunev1alpha1.ResizeHistoryEntry{

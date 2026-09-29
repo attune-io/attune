@@ -152,8 +152,8 @@ spec:
 | `cooldown.consecutiveReverts` | `int32` | Number of consecutive reverts driving the backoff |
 | `workloads.discovered` | `int32` | Number of workloads matching the target |
 | `workloads.withRecommendations` | `int32` | Workloads with active recommendations |
-| `workloads.resized` | `int32` | Workloads that have been resized |
-| `workloads.pending` | `int32` | Workloads awaiting resize |
+| `workloads.resized` | `int32` | Workloads with a successful in-place resize in the latest reconcile. That is this cycle's apply, plus a successful in-place row a concurrent reconcile wrote during this reconcile. Rows already in the snapshot do not count, and neither does a success from an earlier hour. Retained `resizeHistory` is not the source of this count. An idle reconcile stores 0. |
+| `workloads.pending` | `int32` | Workloads with a recommendation this cycle that were not resized this cycle (`withRecommendations - resized`, floored at 0). An idle cycle stores the recommendation count. |
 | `workloads.deferred` | `int32` | Pods with kubelet Deferred in-place resize (retry when cleared) |
 | `workloads.infeasible` | `int32` | Pods with Infeasible in-place resize on their node |
 | `workloads.dataPointsCollected` | `int32` | Max data points collected across all containers |
@@ -182,6 +182,7 @@ spec:
 | `savings.estimatedMonthlyCostIncrease` | `string` | Estimated monthly cost increase for under-provisioned workloads |
 | `savings.reclaimedCpuRequest` | `string` | Freeable CPU request if recommended decreases apply (alias of cpuRequestReduction) |
 | `savings.reclaimedMemoryRequest` | `string` | Freeable memory request if recommended decreases apply (alias of memoryRequestReduction) |
+| `resizeHistory` | `[]ResizeHistoryEntry` | Retained resize rows, capped at 50. Not a time window, and not the source of `workloads.resized` or `Resizing=InProgress`. |
 | `resizeHistory[].timestamp` | `Time` | When the resize occurred |
 | `resizeHistory[].workload` | `string` | Resized workload name |
 | `resizeHistory[].container` | `string` | Resized container name |
@@ -214,7 +215,7 @@ the estimator chain: `rawPercentile`, `overhead`, `afterOverhead`,
 | Type | Reasons | Description |
 |------|---------|-------------|
 | `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `MetricsUnavailable` (alias `PrometheusUnavailable`), `InvalidConfig`, `WorkloadDiscoveryFailed`, `ConflictCheckFailed`, `Paused`, `PrometheusSeriesCapped` | Overall health. `PrometheusSeriesCapped` keeps Ready True: the reconcile succeeded and the query result is partial. See [Ready reason: PrometheusSeriesCapped](../guides/scaling.md#ready-reason-prometheusseriescapped). |
-| `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation state. `CooldownActive` only when every matched app is still cooling |
+| `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Latest reconcile, only in resize modes. `InProgress` means this cycle resized at least one workload in place, or a conflict retry merged a successful in-place row written during this reconcile. A success from an earlier hour does not count. `CooldownActive` means every workload that has a recommendation this cycle is still cooling and this cycle resized nothing. `Idle` means this cycle resized nothing and cooldown is not active. |
 | `Degraded` | `HighRevertRate` | High revert rate detected (3+ of last 5 reverted) |
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Whether the current time is within the configured resize schedule window |
 | `ResizeBlocked` | `NamespaceFrozen`, `HPAListUnavailable`, `VPAListUnavailable`, `PodsDeferred`, `PodsInfeasible`, `PodsDeferredAndInfeasible` | Namespace freeze kill-switch (`attune.io/freeze=true` skips new resize, persist, and CREATE initial sizing; pending safety revert still runs), HPA or VPA list failure (apply skipped; recommendations still compute), or one or more target pods stuck Deferred (kubelet pending) or Infeasible; message includes sample pod names and next actions |

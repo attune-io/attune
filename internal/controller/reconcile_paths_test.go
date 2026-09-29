@@ -530,84 +530,180 @@ func TestReconcile_CooldownActive_SkipsResize(t *testing.T) {
 	assert.Equal(t, int32(0), updated.Status.Workloads.Resized)
 }
 
-// ---------- History-based Resized count derivation ----------
+// ---------- Resized counts this reconcile, not retained history ----------
 
 func TestReconcile_HistoryBasedResizedDerivation(t *testing.T) {
-	now := metav1.Now()
+	// Fixed clock so the last-resize stamp is exactly r.now(). Remaining
+	// cooldown then equals parseCooldown and is not shortened to the
+	// remainder. History timestamps use that same instant on purpose:
+	// ResizeHistoryEntry.Timestamp is whole seconds, so a "newer than
+	// last reconcile" check would still treat these retained rows as
+	// this cycle.
+	now := time.Now().UTC().Truncate(time.Second)
+	sameSecond := metav1.NewTime(now)
+	hourOld := metav1.NewTime(now.Add(-time.Hour))
+
+	success := func(ts metav1.Time, workload, method string) attunev1alpha1.ResizeHistoryEntry {
+		return attunev1alpha1.ResizeHistoryEntry{
+			Timestamp: ts,
+			Workload:  workload,
+			Container: "main",
+			Resource:  "cpu",
+			From:      "500m",
+			To:        "120m",
+			Method:    method,
+			Result:    attunev1alpha1.ResizeResultSuccess,
+		}
+	}
 
 	tests := []struct {
-		name        string
-		mode        attunev1alpha1.UpdateType
-		history     []attunev1alpha1.ResizeHistoryEntry
-		wantResized int32
+		name         string
+		mode         attunev1alpha1.UpdateType
+		history      []attunev1alpha1.ResizeHistoryEntry
+		cooldown     bool
+		wantResized  int32
+		wantReason   string
+		wantRemoved  bool
+		checkRequeue bool
 	}{
 		{
-			name: "derives Resized from distinct successful in-place workloads",
+			name: "same-second retained InPlace success is not this cycle",
 			mode: attunev1alpha1.UpdateTypeOneShot,
 			history: []attunev1alpha1.ResizeHistoryEntry{
-				{Workload: "api-server", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: now},
-				{Workload: "worker", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: now},
+				success(sameSecond, "api-server", "InPlace"),
+				success(sameSecond, "worker", "InPlace"),
 			},
-			wantResized: 2,
+			cooldown:     true,
+			wantResized:  0,
+			wantReason:   attunev1alpha1.ReasonCooldownActive,
+			checkRequeue: true,
+		},
+		{
+			name: "hour-old InPlace success is not this cycle",
+			mode: attunev1alpha1.UpdateTypeOneShot,
+			history: []attunev1alpha1.ResizeHistoryEntry{
+				success(hourOld, "api-server", "InPlace"),
+			},
+			cooldown:     true,
+			wantResized:  0,
+			wantReason:   attunev1alpha1.ReasonCooldownActive,
+			checkRequeue: true,
+		},
+		{
+			name: "hour-old blank method success is not this cycle",
+			mode: attunev1alpha1.UpdateTypeOneShot,
+			history: []attunev1alpha1.ResizeHistoryEntry{
+				success(hourOld, "api-server", ""),
+				success(hourOld, "worker", ""),
+			},
+			cooldown:     true,
+			wantResized:  0,
+			wantReason:   attunev1alpha1.ReasonCooldownActive,
+			checkRequeue: true,
+		},
+		{
+			name: "same-second blank method success is not this cycle",
+			mode: attunev1alpha1.UpdateTypeOneShot,
+			history: []attunev1alpha1.ResizeHistoryEntry{
+				success(sameSecond, "api-server", ""),
+			},
+			cooldown:     true,
+			wantResized:  0,
+			wantReason:   attunev1alpha1.ReasonCooldownActive,
+			checkRequeue: true,
 		},
 		{
 			name: "evicted workloads do not count as resized",
 			mode: attunev1alpha1.UpdateTypeOneShot,
 			history: []attunev1alpha1.ResizeHistoryEntry{
-				{Workload: "api-server", Method: "Eviction", Result: attunev1alpha1.ResizeResultEvicted, Timestamp: now},
-				{Workload: "worker", Method: "Eviction", Result: attunev1alpha1.ResizeResultEvicted, Timestamp: now},
+				{Workload: "api-server", Method: "Eviction", Result: attunev1alpha1.ResizeResultEvicted, Timestamp: sameSecond},
+				{Workload: "worker", Method: "Eviction", Result: attunev1alpha1.ResizeResultEvicted, Timestamp: sameSecond},
 			},
-			wantResized: 0,
+			cooldown:     true,
+			wantResized:  0,
+			wantReason:   attunev1alpha1.ReasonCooldownActive,
+			checkRequeue: true,
 		},
 		{
-			name: "legacy successful history without method still counts as resized",
+			name: "failed and reverted entries leave Resized at 0",
 			mode: attunev1alpha1.UpdateTypeOneShot,
 			history: []attunev1alpha1.ResizeHistoryEntry{
-				{Workload: "api-server", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: now},
-				{Workload: "worker", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: now},
+				{Workload: "api-server", Method: "InPlace", Result: attunev1alpha1.ResizeResultFailed, Timestamp: hourOld},
+				{Workload: "worker", Method: "InPlace", Result: attunev1alpha1.ResizeResultReverted, Timestamp: hourOld},
 			},
-			wantResized: 2,
+			cooldown:     true,
+			wantResized:  0,
+			wantReason:   attunev1alpha1.ReasonCooldownActive,
+			checkRequeue: true,
 		},
 		{
-			name: "only failed and reverted entries leave Resized at 0",
+			name: "template persistence does not count as resized",
 			mode: attunev1alpha1.UpdateTypeOneShot,
 			history: []attunev1alpha1.ResizeHistoryEntry{
-				{Workload: "api-server", Method: "InPlace", Result: attunev1alpha1.ResizeResultFailed, Timestamp: now},
-				{Workload: "worker", Method: "InPlace", Result: attunev1alpha1.ResizeResultReverted, Timestamp: now},
+				{
+					Workload:  "api-server",
+					Method:    "TemplatePersistence",
+					Resource:  "template",
+					Result:    attunev1alpha1.ResizeResultTemplatePatched,
+					Timestamp: sameSecond,
+				},
 			},
-			wantResized: 0,
+			cooldown:     true,
+			wantResized:  0,
+			wantReason:   attunev1alpha1.ReasonCooldownActive,
+			checkRequeue: true,
 		},
 		{
-			name: "duplicate workload entries counted as one",
+			name: "duplicate retained successes do not count",
 			mode: attunev1alpha1.UpdateTypeOneShot,
 			history: []attunev1alpha1.ResizeHistoryEntry{
-				{Workload: "api-server", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: now},
-				{Workload: "api-server", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: now},
-				{Workload: "api-server", Method: "InPlace", Result: attunev1alpha1.ResizeResultFailed, Timestamp: now},
+				success(sameSecond, "api-server", "InPlace"),
+				success(sameSecond, "api-server", "InPlace"),
+				{Workload: "api-server", Method: "InPlace", Result: attunev1alpha1.ResizeResultFailed, Timestamp: sameSecond},
 			},
-			wantResized: 1,
+			cooldown:     true,
+			wantResized:  0,
+			wantReason:   attunev1alpha1.ReasonCooldownActive,
+			checkRequeue: true,
 		},
 		{
-			name:        "empty history leaves Resized at 0",
-			mode:        attunev1alpha1.UpdateTypeOneShot,
-			history:     nil,
-			wantResized: 0,
+			name:         "empty history with an active cooldown is CooldownActive",
+			mode:         attunev1alpha1.UpdateTypeOneShot,
+			history:      nil,
+			cooldown:     true,
+			wantResized:  0,
+			wantReason:   attunev1alpha1.ReasonCooldownActive,
+			checkRequeue: true,
 		},
 		{
-			name: "Recommend mode skips derivation entirely",
+			name: "retained success without cooldown is Idle",
+			mode: attunev1alpha1.UpdateTypeOneShot,
+			history: []attunev1alpha1.ResizeHistoryEntry{
+				success(sameSecond, "api-server", "InPlace"),
+				success(hourOld, "worker", ""),
+			},
+			cooldown:     false,
+			wantResized:  0,
+			wantReason:   attunev1alpha1.ReasonIdle,
+			checkRequeue: true,
+		},
+		{
+			name: "Recommend mode removes the Resizing condition",
 			mode: attunev1alpha1.UpdateTypeRecommend,
 			history: []attunev1alpha1.ResizeHistoryEntry{
-				{Workload: "api-server", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: now},
+				success(sameSecond, "api-server", "InPlace"),
 			},
 			wantResized: 0,
+			wantRemoved: true,
 		},
 		{
-			name: "Observe mode skips derivation entirely",
+			name: "Observe mode removes the Resizing condition",
 			mode: attunev1alpha1.UpdateTypeObserve,
 			history: []attunev1alpha1.ResizeHistoryEntry{
-				{Workload: "api-server", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: now},
+				success(hourOld, "api-server", ""),
 			},
 			wantResized: 0,
+			wantRemoved: true,
 		},
 	}
 
@@ -615,14 +711,24 @@ func TestReconcile_HistoryBasedResizedDerivation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			policy := newTestPolicy("test-policy", "default")
 			policy.Spec.UpdateStrategy.Type = tt.mode
-			// Set cooldown annotation so resize execution is skipped;
-			// this isolates the history-based derivation path.
-			if isResizeMode(tt.mode) {
+			// autoRevert stays at the default (nil / true). Setting it
+			// false hides the observation-period requeue.
+			require.Nil(t, policy.Spec.UpdateStrategy.AutoRevert)
+			if tt.cooldown {
+				// Policy-wide key only. A per-workload key would hide it.
 				policy.Annotations = map[string]string{
-					lastResizeAnnotation: time.Now().UTC().Format(time.RFC3339),
+					lastResizeAnnotation: now.Format(time.RFC3339),
 				}
 			}
 			policy.Status.ResizeHistory = tt.history
+			if tt.wantRemoved {
+				meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+					Type:    attunev1alpha1.ConditionResizing,
+					Status:  metav1.ConditionTrue,
+					Reason:  attunev1alpha1.ReasonInProgress,
+					Message: "1 workload(s) resized this cycle",
+				})
+			}
 
 			deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 			pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
@@ -633,8 +739,9 @@ func TestReconcile_HistoryBasedResizedDerivation(t *testing.T) {
 				},
 			}
 			reconciler, fakeClient := newReconcilerForReconcile(mc, policy, deploy, pod)
+			reconciler.SetNowFunc(func() time.Time { return now })
 
-			_, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+			result, err := reconciler.Reconcile(context.Background(), ctrl.Request{
 				NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
 			})
 			require.NoError(t, err)
@@ -643,10 +750,83 @@ func TestReconcile_HistoryBasedResizedDerivation(t *testing.T) {
 			require.NoError(t, fakeClient.Get(context.Background(),
 				types.NamespacedName{Name: "test-policy", Namespace: "default"}, &updated))
 
+			if isResizeMode(tt.mode) {
+				assert.Greater(t, updated.Status.Workloads.WithRecommendations, int32(0),
+					"cooldown and idle need a recommendation this cycle and enough samples to leave bootstrap")
+				ready := meta.FindStatusCondition(updated.Status.Conditions, attunev1alpha1.ConditionReady)
+				require.NotNil(t, ready)
+				assert.NotEqual(t, attunev1alpha1.ReasonInsufficientData, ready.Reason)
+				assert.False(t, attunev1alpha1.IsMetricsUnavailable(ready.Reason))
+			}
+
 			assert.Equal(t, tt.wantResized, updated.Status.Workloads.Resized,
-				"Resized count should match derived value from history")
+				"retained resizeHistory must not become workloads.resized")
+			if tt.wantResized == 0 && isResizeMode(tt.mode) {
+				assert.Equal(t, updated.Status.Workloads.WithRecommendations, updated.Status.Workloads.Pending,
+					"idle cycle pending is the recommendation count")
+			}
+
+			cond := meta.FindStatusCondition(updated.Status.Conditions, attunev1alpha1.ConditionResizing)
+			if tt.wantRemoved {
+				assert.Nil(t, cond, "non-resize modes remove Resizing")
+			} else if tt.wantReason != "" {
+				require.NotNil(t, cond)
+				assert.Equal(t, tt.wantReason, cond.Reason)
+				assert.NotContains(t, cond.Message, "this cycle")
+				if tt.wantReason == attunev1alpha1.ReasonInProgress {
+					assert.Equal(t, metav1.ConditionTrue, cond.Status)
+				} else {
+					assert.Equal(t, metav1.ConditionFalse, cond.Status)
+				}
+			}
+
+			if tt.checkRequeue {
+				cooldown := reconciler.parseCooldown(policy)
+				assert.Equal(t, cooldown, result.RequeueAfter,
+					"autoRevert left on must not shorten an idle reconcile to the observation period")
+				assert.NotEqual(t, getObservationPeriod(policy), result.RequeueAfter)
+			}
 		})
 	}
+}
+
+func TestReconcile_ThisCycleResizeSetsInProgress(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.CPU.MaxChangePercent = int32Ptr(100)
+	require.Nil(t, policy.Spec.UpdateStrategy.AutoRevert)
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
+
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(200, 0.1), nil
+		},
+	}
+	reconciler, fakeClient := newReconcilerForReconcile(mc, policy, deploy, pod)
+	reconciler.Clientset = kubefake.NewSimpleClientset(pod.DeepCopy())
+
+	result, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+	})
+	require.NoError(t, err)
+
+	obs := getObservationPeriod(policy)
+	assert.Equal(t, obs, result.RequeueAfter,
+		"this cycle's resize shortens requeue to the observation period while autoRevert is unset")
+	assert.Less(t, result.RequeueAfter, reconciler.parseCooldown(policy))
+
+	var updated attunev1alpha1.AttunePolicy
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "test-policy", Namespace: "default",
+	}, &updated))
+	assert.Equal(t, int32(1), updated.Status.Workloads.Resized)
+	cond := meta.FindStatusCondition(updated.Status.Conditions, attunev1alpha1.ConditionResizing)
+	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionTrue, cond.Status)
+	assert.Equal(t, attunev1alpha1.ReasonInProgress, cond.Reason)
+	assert.Contains(t, cond.Message, "this cycle")
 }
 
 func TestReconcile_WorkloadOptedOut(t *testing.T) {

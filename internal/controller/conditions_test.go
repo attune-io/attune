@@ -1427,7 +1427,7 @@ func TestUpdateStatusWithRetry_FetchError(t *testing.T) {
 	r.Client = fakeClient
 	r.Scheme = scheme
 
-	err := r.updateStatusWithRetry(context.Background(), policy, types.NamespacedName{Name: "test-policy", Namespace: "default"})
+	err := r.updateStatusWithRetry(context.Background(), policy, types.NamespacedName{Name: "test-policy", Namespace: "default"}, nil, false, time.Time{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "network error")
 }

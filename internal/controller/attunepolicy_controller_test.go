@@ -1073,7 +1073,7 @@ func TestUpdateStatusWithRetry_SuccessFirstAttempt(t *testing.T) {
 
 	p.Status.Workloads = attunev1alpha1.WorkloadStatus{Discovered: 5}
 
-	err := reconciler.updateStatusWithRetry(ctx, &p, key)
+	err := reconciler.updateStatusWithRetry(ctx, &p, key, nil, false, time.Time{})
 	assert.NoError(t, err)
 
 	var updated attunev1alpha1.AttunePolicy
@@ -1105,7 +1105,7 @@ func TestUpdateStatusWithRetry_ConflictThenRetry(t *testing.T) {
 
 	// p now has a stale resource version. The function should handle the
 	// conflict, re-fetch the object, and retry successfully.
-	err := reconciler.updateStatusWithRetry(ctx, &p, key)
+	err := reconciler.updateStatusWithRetry(ctx, &p, key, nil, false, time.Time{})
 	assert.NoError(t, err)
 
 	var final attunev1alpha1.AttunePolicy
@@ -1116,32 +1116,278 @@ func TestUpdateStatusWithRetry_ConflictThenRetry(t *testing.T) {
 }
 
 func TestUpdateStatusWithRetry_PreservesHigherResizedCount(t *testing.T) {
-	policy := newTestPolicy("test-policy", "default")
-	reconciler, fakeClient := newReconcilerForReconcile(&mockCollector{}, policy)
+	idleCond := metav1.Condition{
+		Type:    attunev1alpha1.ConditionResizing,
+		Status:  metav1.ConditionFalse,
+		Reason:  attunev1alpha1.ReasonIdle,
+		Message: "No resizes needed",
+	}
 
-	ctx := context.Background()
-	key := types.NamespacedName{Name: "test-policy", Namespace: "default"}
+	t.Run("fetched success missing from the snapshot is this cycle", func(t *testing.T) {
+		policy := newTestPolicy("test-policy", "default")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+		reconciler, fakeClient := newReconcilerForReconcile(&mockCollector{}, policy)
 
-	var p attunev1alpha1.AttunePolicy
-	require.NoError(t, fakeClient.Get(ctx, key, &p))
+		ctx := context.Background()
+		key := types.NamespacedName{Name: "test-policy", Namespace: "default"}
 
-	// This reconcile has Resized=0 (stale snapshot).
-	p.Status.Workloads = attunev1alpha1.WorkloadStatus{Discovered: 5, Resized: 0}
+		var p attunev1alpha1.AttunePolicy
+		require.NoError(t, fakeClient.Get(ctx, key, &p))
+		// This reconcile resized nothing and has no new history.
+		p.Status.Workloads = attunev1alpha1.WorkloadStatus{
+			Discovered: 5, WithRecommendations: 2, Resized: 0, Pending: 2,
+		}
+		meta.SetStatusCondition(&p.Status.Conditions, idleCond)
 
-	// Simulate a concurrent reconcile that set Resized=2.
-	var concurrent attunev1alpha1.AttunePolicy
-	require.NoError(t, fakeClient.Get(ctx, key, &concurrent))
-	concurrent.Status.Workloads = attunev1alpha1.WorkloadStatus{Discovered: 5, Resized: 2}
-	require.NoError(t, fakeClient.Status().Update(ctx, &concurrent))
+		// Blank Method + Success is legacy in-place. A literal "InPlace"
+		// check would drop it. Timestamp is not the membership key.
+		fetched := attunev1alpha1.ResizeHistoryEntry{
+			Timestamp: metav1.Now(),
+			Workload:  "api-server",
+			Container: "main",
+			Resource:  "cpu",
+			From:      "500m",
+			To:        "120m",
+			Result:    attunev1alpha1.ResizeResultSuccess,
+		}
+		var concurrent attunev1alpha1.AttunePolicy
+		require.NoError(t, fakeClient.Get(ctx, key, &concurrent))
+		concurrent.Status.Workloads = attunev1alpha1.WorkloadStatus{
+			Discovered: 5, WithRecommendations: 2, Resized: 0,
+		}
+		concurrent.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{fetched}
+		require.NoError(t, fakeClient.Status().Update(ctx, &concurrent))
 
-	// p now has a stale resource version AND a lower Resized count.
-	err := reconciler.updateStatusWithRetry(ctx, &p, key)
-	assert.NoError(t, err)
+		// Non-zero start, within a second of the stamp. Whole-second
+		// RFC3339 truncation must still count as this cycle.
+		cycleStart := time.Now()
+		err := reconciler.updateStatusWithRetry(ctx, &p, key, nil, false, cycleStart)
+		require.NoError(t, err)
 
-	var final attunev1alpha1.AttunePolicy
-	require.NoError(t, fakeClient.Get(ctx, key, &final))
-	assert.Equal(t, int32(2), final.Status.Workloads.Resized,
-		"should preserve the higher Resized count from the concurrent reconcile")
+		var final attunev1alpha1.AttunePolicy
+		require.NoError(t, fakeClient.Get(ctx, key, &final))
+		assert.GreaterOrEqual(t, final.Status.Workloads.Resized, int32(1),
+			"a same-second success the saved snapshot did not have is this cycle")
+		assert.Equal(t, int32(1), final.Status.Workloads.Pending)
+		require.NotEmpty(t, final.Status.ResizeHistory)
+		assert.Equal(t, "api-server", final.Status.ResizeHistory[0].Workload)
+		assert.Equal(t, attunev1alpha1.ResizeResultSuccess, final.Status.ResizeHistory[0].Result)
+		cond := meta.FindStatusCondition(final.Status.Conditions, attunev1alpha1.ConditionResizing)
+		require.NotNil(t, cond)
+		assert.Equal(t, attunev1alpha1.ReasonInProgress, cond.Reason)
+		assert.Equal(t, metav1.ConditionTrue, cond.Status)
+		assert.Contains(t, cond.Message, "this cycle")
+	})
+
+	t.Run("hour-old success already in the snapshot is not this cycle", func(t *testing.T) {
+		policy := newTestPolicy("test-policy", "default")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+		reconciler, fakeClient := newReconcilerForReconcile(&mockCollector{}, policy)
+
+		ctx := context.Background()
+		key := types.NamespacedName{Name: "test-policy", Namespace: "default"}
+
+		hourAgo := metav1.NewTime(time.Now().Add(-time.Hour))
+		known := attunev1alpha1.ResizeHistoryEntry{
+			Timestamp: hourAgo,
+			Workload:  "api-server",
+			Container: "main",
+			Resource:  "cpu",
+			From:      "500m",
+			To:        "120m",
+			Method:    "InPlace",
+			Result:    attunev1alpha1.ResizeResultSuccess,
+		}
+		// Same identity, different timestamp. Membership must not use Timestamp.
+		fetchedCopy := known
+		fetchedCopy.Timestamp = metav1.Now()
+
+		var p attunev1alpha1.AttunePolicy
+		require.NoError(t, fakeClient.Get(ctx, key, &p))
+		p.Status.Workloads = attunev1alpha1.WorkloadStatus{
+			Discovered: 5, WithRecommendations: 2, Resized: 0, Pending: 0,
+		}
+		p.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{known}
+		meta.SetStatusCondition(&p.Status.Conditions, idleCond)
+
+		var concurrent attunev1alpha1.AttunePolicy
+		require.NoError(t, fakeClient.Get(ctx, key, &concurrent))
+		concurrent.Status.Workloads = attunev1alpha1.WorkloadStatus{
+			Discovered: 5, WithRecommendations: 2, Resized: 2,
+		}
+		concurrent.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{fetchedCopy}
+		require.NoError(t, fakeClient.Status().Update(ctx, &concurrent))
+
+		err := reconciler.updateStatusWithRetry(ctx, &p, key, nil, false, time.Time{})
+		require.NoError(t, err)
+
+		var final attunev1alpha1.AttunePolicy
+		require.NoError(t, fakeClient.Get(ctx, key, &final))
+		assert.Equal(t, int32(0), final.Status.Workloads.Resized,
+			"an hour-old success already in the snapshot must not raise Resized")
+		assert.Equal(t, int32(2), final.Status.Workloads.Pending)
+		require.Len(t, final.Status.ResizeHistory, 1)
+		assert.Equal(t, "api-server", final.Status.ResizeHistory[0].Workload)
+		assert.Equal(t, attunev1alpha1.ResizeResultSuccess, final.Status.ResizeHistory[0].Result)
+		cond := meta.FindStatusCondition(final.Status.Conditions, attunev1alpha1.ConditionResizing)
+		require.NotNil(t, cond)
+		assert.NotEqual(t, attunev1alpha1.ReasonInProgress, cond.Reason)
+		assert.Equal(t, attunev1alpha1.ReasonIdle, cond.Reason)
+		assert.NotContains(t, cond.Message, "this cycle")
+	})
+
+	t.Run("hour-old success only on the fetched object is not this cycle", func(t *testing.T) {
+		policy := newTestPolicy("test-policy", "default")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+		reconciler, fakeClient := newReconcilerForReconcile(&mockCollector{}, policy)
+
+		ctx := context.Background()
+		key := types.NamespacedName{Name: "test-policy", Namespace: "default"}
+
+		hourAgo := metav1.NewTime(time.Now().Add(-time.Hour))
+		oldOnly := attunev1alpha1.ResizeHistoryEntry{
+			Timestamp: hourAgo,
+			Workload:  "api-server",
+			Container: "main",
+			Resource:  "cpu",
+			From:      "500m",
+			To:        "120m",
+			Method:    "InPlace",
+			Result:    attunev1alpha1.ResizeResultSuccess,
+		}
+
+		var p attunev1alpha1.AttunePolicy
+		require.NoError(t, fakeClient.Get(ctx, key, &p))
+		// Saved snapshot has no history. The fetched row is still a delta,
+		// but its clock is an earlier hour, so it must not raise Resized.
+		p.Status.Workloads = attunev1alpha1.WorkloadStatus{
+			Discovered: 5, WithRecommendations: 2, Resized: 0, Pending: 0,
+		}
+		meta.SetStatusCondition(&p.Status.Conditions, idleCond)
+
+		var concurrent attunev1alpha1.AttunePolicy
+		require.NoError(t, fakeClient.Get(ctx, key, &concurrent))
+		concurrent.Status.Workloads = attunev1alpha1.WorkloadStatus{
+			Discovered: 5, WithRecommendations: 2, Resized: 1,
+		}
+		concurrent.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{oldOnly}
+		require.NoError(t, fakeClient.Status().Update(ctx, &concurrent))
+
+		err := reconciler.updateStatusWithRetry(ctx, &p, key, nil, true, time.Now())
+		require.NoError(t, err)
+
+		var final attunev1alpha1.AttunePolicy
+		require.NoError(t, fakeClient.Get(ctx, key, &final))
+		assert.Equal(t, int32(0), final.Status.Workloads.Resized,
+			"an hour-old success absent from the snapshot stays in history and does not raise Resized")
+		assert.Equal(t, int32(2), final.Status.Workloads.Pending)
+		require.Len(t, final.Status.ResizeHistory, 1)
+		assert.Equal(t, "api-server", final.Status.ResizeHistory[0].Workload)
+		assert.Equal(t, attunev1alpha1.ResizeResultSuccess, final.Status.ResizeHistory[0].Result)
+		cond := meta.FindStatusCondition(final.Status.Conditions, attunev1alpha1.ConditionResizing)
+		require.NotNil(t, cond)
+		assert.Equal(t, attunev1alpha1.ReasonCooldownActive, cond.Reason)
+		assert.Equal(t, metav1.ConditionFalse, cond.Status)
+		assert.NotContains(t, cond.Message, "this cycle")
+	})
+
+	t.Run("revert in the snapshot wins over the fetched success", func(t *testing.T) {
+		policy := newTestPolicy("test-policy", "default")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+		reconciler, fakeClient := newReconcilerForReconcile(&mockCollector{}, policy)
+
+		ctx := context.Background()
+		key := types.NamespacedName{Name: "test-policy", Namespace: "default"}
+
+		success := attunev1alpha1.ResizeHistoryEntry{
+			Timestamp: metav1.Now(),
+			Workload:  "api-server",
+			Container: "main",
+			Resource:  "cpu",
+			From:      "500m",
+			To:        "120m",
+			Method:    "InPlace",
+			Result:    attunev1alpha1.ResizeResultSuccess,
+		}
+
+		var p attunev1alpha1.AttunePolicy
+		require.NoError(t, fakeClient.Get(ctx, key, &p))
+		p.Status.Workloads = attunev1alpha1.WorkloadStatus{
+			Discovered: 5, WithRecommendations: 2, Resized: 0, Pending: 0,
+		}
+		p.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{success}
+		markLatestCycleReverted(p.Status.ResizeHistory, "api-server", "main", "OOMKilled")
+		meta.SetStatusCondition(&p.Status.Conditions, idleCond)
+
+		var concurrent attunev1alpha1.AttunePolicy
+		require.NoError(t, fakeClient.Get(ctx, key, &concurrent))
+		concurrent.Status.Workloads = attunev1alpha1.WorkloadStatus{
+			Discovered: 5, WithRecommendations: 2, Resized: 1,
+		}
+		concurrent.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{success}
+		require.NoError(t, fakeClient.Status().Update(ctx, &concurrent))
+
+		err := reconciler.updateStatusWithRetry(ctx, &p, key, nil, false, time.Now())
+		require.NoError(t, err)
+
+		var final attunev1alpha1.AttunePolicy
+		require.NoError(t, fakeClient.Get(ctx, key, &final))
+		require.Len(t, final.Status.ResizeHistory, 1)
+		assert.Equal(t, attunev1alpha1.ResizeResultReverted, final.Status.ResizeHistory[0].Result)
+		assert.Equal(t, "OOMKilled", final.Status.ResizeHistory[0].Reason)
+		assert.Equal(t, 1, consecutiveReverts(final.Status.ResizeHistory))
+		assert.Equal(t, int32(0), final.Status.Workloads.Resized)
+		cond := meta.FindStatusCondition(final.Status.Conditions, attunev1alpha1.ConditionResizing)
+		require.NotNil(t, cond)
+		assert.Equal(t, attunev1alpha1.ReasonIdle, cond.Reason)
+		assert.NotContains(t, cond.Message, "this cycle")
+	})
+
+	t.Run("normalized method matches a fetched blank legacy row", func(t *testing.T) {
+		policy := newTestPolicy("test-policy", "default")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+		reconciler, fakeClient := newReconcilerForReconcile(&mockCollector{}, policy)
+
+		ctx := context.Background()
+		key := types.NamespacedName{Name: "test-policy", Namespace: "default"}
+
+		legacy := attunev1alpha1.ResizeHistoryEntry{
+			Timestamp: metav1.Now(),
+			Workload:  "api-server",
+			Container: "main",
+			Resource:  "cpu",
+			From:      "500m",
+			To:        "120m",
+			Result:    attunev1alpha1.ResizeResultSuccess,
+		}
+		normalized := legacy
+		normalized.Method = "InPlace"
+
+		var p attunev1alpha1.AttunePolicy
+		require.NoError(t, fakeClient.Get(ctx, key, &p))
+		p.Status.Workloads = attunev1alpha1.WorkloadStatus{
+			Discovered: 5, WithRecommendations: 2, Resized: 0, Pending: 0,
+		}
+		p.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{normalized}
+		meta.SetStatusCondition(&p.Status.Conditions, idleCond)
+
+		var concurrent attunev1alpha1.AttunePolicy
+		require.NoError(t, fakeClient.Get(ctx, key, &concurrent))
+		concurrent.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{legacy}
+		require.NoError(t, fakeClient.Status().Update(ctx, &concurrent))
+
+		err := reconciler.updateStatusWithRetry(ctx, &p, key, nil, false, time.Now())
+		require.NoError(t, err)
+
+		var final attunev1alpha1.AttunePolicy
+		require.NoError(t, fakeClient.Get(ctx, key, &final))
+		require.Len(t, final.Status.ResizeHistory, 1)
+		assert.Equal(t, "InPlace", final.Status.ResizeHistory[0].Method)
+		assert.Equal(t, int32(0), final.Status.Workloads.Resized)
+		cond := meta.FindStatusCondition(final.Status.Conditions, attunev1alpha1.ConditionResizing)
+		require.NotNil(t, cond)
+		assert.NotEqual(t, attunev1alpha1.ReasonInProgress, cond.Reason)
+	})
 }
 
 // ---------- markResizeTime ----------

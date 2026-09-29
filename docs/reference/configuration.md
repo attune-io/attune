@@ -678,12 +678,16 @@ The controller sets these conditions on each `AttunePolicy`:
 | Condition | Reasons | Description |
 |-----------|---------|-------------|
 | `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `MetricsUnavailable` (alias `PrometheusUnavailable`), `InvalidConfig`, `WorkloadDiscoveryFailed`, `ConflictCheckFailed`, `Paused`, `PrometheusSeriesCapped` | Overall health. `PrometheusSeriesCapped` keeps Ready True: the reconcile succeeded and the query result is partial. See [Ready reason: PrometheusSeriesCapped](../guides/scaling.md#ready-reason-prometheusseriescapped). |
-| `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation state (only in resize modes). `CooldownActive` is set only when every matched workload is still cooling down. |
+| `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Latest reconcile (only in resize modes). `InProgress` means this cycle resized at least one workload in place. `CooldownActive` means every workload that has a recommendation this cycle is still cooling and this cycle resized nothing. `Idle` means this cycle resized nothing and cooldown is not active. |
 | `Degraded` | `HighRevertRate` | Set when 3+ of the last 5 resizes were reverted |
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Set when `updateStrategy.schedule` is configured; indicates whether the current time is within an allowed resize window |
 | `ResizeBlocked` | `NamespaceFrozen`, `HPAListUnavailable`, `VPAListUnavailable`, `PodsDeferred`, `PodsInfeasible`, `PodsDeferredAndInfeasible` | Namespace freeze kill-switch, HPA or VPA list failure (in-place resize, persist, boost, and CREATE skipped), or pods stuck Deferred or Infeasible; see troubleshooting "NamespaceFrozen", "HPAListUnavailable", "VPAListUnavailable", and "Deferred or Infeasible resize" |
 | `SafetyObservation` | `Observing`, `Evaluating`, `RestorePending`, `Incomplete` | True while pods still carry `attune.io` resize-tracking annotations. Derived from those annotations each reconcile; not a second in-memory store. Removed when no tracked pods remain. |
 | `GitOpsPullRequest` | `PullRequestOpen`, `PullRequestFailed`, `GitOpsEndpointBlocked`, `NoDrift`, `PullRequestUnchanged`, `PullRequestCooldown`, `PullRequestDryRun`, `PullRequestDisabled` | Opt-in `export.pullRequest` automation status (see [GitOps integration](../guides/gitops-integration.md)) |
+
+`status.workloads.resized` counts workloads with a successful in-place resize in the latest reconcile: this cycle's apply, plus a successful in-place row a concurrent reconcile wrote during this reconcile. Rows already in the snapshot do not count, and neither does a success from an earlier hour. `status.resizeHistory` is the retained list (capped at 50 entries, not a time window). It is not the source of `workloads.resized`. An idle reconcile stores `resized: 0` even when older successes are still in that list.
+
+`status.workloads.pending` is `workloads.withRecommendations - workloads.resized`, floored at 0. After an idle cycle it equals the recommendation count.
 
 ### Status fields (GitOps PR)
 
