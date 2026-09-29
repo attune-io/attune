@@ -174,7 +174,7 @@ output via the `burstFactor` and `afterBurst` fields, and as the
 ## Full pipeline example
 
 Given: p95 CPU = 200m, overhead = 20%, confidence = 0.8,
-policy bounds = [1m, 4000m] (set on the policy, not a hidden default),
+policy bounds = [1m, 4000m] (set on this policy),
 current = 500m, max change = 50%. CPU quantities round up to the next millicore.
 
 | Stage | Calculation | Result |

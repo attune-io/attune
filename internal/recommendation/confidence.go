@@ -37,7 +37,8 @@ type confidenceEstimator struct {
 
 // Estimate delegates to the inner estimator and then applies the confidence
 // factor. Confidence is clamped to [0, 1]. A zero multiplier or exponent
-// means the built-in defaults (1 and 2), matching a nil policy field.
+// uses 1 and 2 on this helper only. RecommendWithExplanation skips the
+// factor when either value is 0.
 func (e *confidenceEstimator) Estimate(profile metrics.UsageProfile, current resource.Quantity) resource.Quantity {
 	inner := e.inner.Estimate(profile, current)
 
