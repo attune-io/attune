@@ -255,7 +255,7 @@ var (
 	NanInfSamplesTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "attune_nan_inf_samples_total",
-			Help: "Total times all samples for a container metric were non-finite (NaN or Inf)",
+			Help: "Total times all samples for a container metric were unusable (NaN, Inf, or a Datadog null or missing point)",
 		},
 		[]string{"namespace", "policy", "container", "metric_type"},
 	)
