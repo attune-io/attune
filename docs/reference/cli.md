@@ -40,7 +40,7 @@ kubectl attune savings --sort-by savings -A
 | Column | Description |
 |--------|-------------|
 | PENDING | Workloads with active recommendations that are still awaiting resize |
-| READY | Current `Ready` reason (`Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `MetricsUnavailable` (alias `PrometheusUnavailable`), `InvalidConfig`, `WorkloadDiscoveryFailed`, `ConflictCheckFailed`, or `Paused`), or the current `Ready` condition message when `Ready=False` includes actionable details |
+| READY | Current `Ready` reason (`Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `MetricsUnavailable` (alias `PrometheusUnavailable`), `InvalidConfig`, `WorkloadDiscoveryFailed`, `ConflictCheckFailed`, `PrometheusSeriesCapped`, or `Paused`), or the current `Ready` condition message when `Ready=False` includes actionable details. `PrometheusSeriesCapped` is Ready True with a partial query result. |
 | RESIZING | `InProgress`, `Idle`, `CooldownActive`, `NamespaceFrozen`, `HPAListUnavailable`, `VPAListUnavailable`, or `-` (non-resize modes). Those last three reasons are copied from `ResizeBlocked`; `READY` can stay `Monitoring`. |
 | DEGRADED | `HighRevertRate` or `-` |
 | CANARY | Canary phase. With per-app rows: `CanaryInProgress (1/2 apps)`. Legacy: `CanaryInProgress (2 pods)`. `-` when mode is not Canary |
