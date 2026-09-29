@@ -96,11 +96,14 @@ reasonable range. For example, if HPA targets 70% utilization and pods
 typically use 200m, a `min: "200m"` prevents requests from dropping below
 actual usage.
 
-### Memory is always safe
+### Memory utilization moves with the request
 
-Memory-based HPAs (less common) scale on `memory` utilization, not requests.
-Attune can safely adjust memory requests alongside a memory-based HPA
-because the working set size does not change when the request changes.
+A memory HPA that uses utilization scales on usage divided by the request.
+Shrinking the memory request raises that percentage, so the HPA can add
+replicas. Attune does not retune memory targets. `memory.allowDecrease`
+defaults to false, so a default policy does not shrink memory requests.
+Do not turn that field on for a workload that also has a memory
+utilization HPA unless extra scale-ups are acceptable.
 
 ## Monitoring coexistence
 
