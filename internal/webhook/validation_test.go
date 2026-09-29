@@ -694,6 +694,38 @@ func TestValidate_SubMinuteCooldownRejected(t *testing.T) {
 	assert.Contains(t, err.Error(), "cooldown must be at least 1m")
 }
 
+func TestValidate_ZeroCooldownRejected(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 0}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cooldown must be at least 1m")
+	assert.Contains(t, err.Error(), "omit the field")
+}
+
+func TestValidate_MinCooldownAccepted(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: time.Minute}
+
+	warnings, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+	assert.Empty(t, warnings)
+}
+
+func TestValidate_ZeroSafetyObservationPeriodRejected(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.SafetyObservationPeriod = &metav1.Duration{Duration: 0}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "safetyObservationPeriod must be at least 1m")
+	assert.Contains(t, err.Error(), "omit the field")
+}
+
 func TestValidate_NegativeBudgetCaps(t *testing.T) {
 	validator := &AttunePolicyValidator{}
 
@@ -1582,6 +1614,24 @@ func TestValidate_SLOGuardrailEvalWindowTooShort(t *testing.T) {
 	_, err := validator.ValidateCreate(context.Background(), policy)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "evaluationWindow must be at least 1m")
+}
+
+func TestValidate_SLOGuardrailEvalWindowZero(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.SLOGuardrails = []attunev1alpha1.SLOGuardrail{
+		{
+			Name:             "test",
+			Query:            "up",
+			Threshold:        "1",
+			EvaluationWindow: &metav1.Duration{Duration: 0},
+		},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "evaluationWindow must be at least 1m")
+	assert.Contains(t, err.Error(), "omit the field")
 }
 
 func TestValidate_SLOGuardrailEvalWindowNegative(t *testing.T) {

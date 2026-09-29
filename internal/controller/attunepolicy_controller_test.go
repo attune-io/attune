@@ -1220,6 +1220,31 @@ func TestRequeueShortenedByObservationPeriod(t *testing.T) {
 	policySOP2.Spec.UpdateStrategy.SafetyObservationPeriod = &metav1.Duration{Duration: 90 * time.Second}
 	assert.Equal(t, 90*time.Second, getObservationPeriod(policySOP2))
 
+	// Zero safety is unset, so a positive canary period still applies.
+	policySafetyZero := newTestPolicy("test-policy5", "default")
+	policySafetyZero.Spec.UpdateStrategy.SafetyObservationPeriod = &metav1.Duration{Duration: 0}
+	policySafetyZero.Spec.UpdateStrategy.Canary = &attunev1alpha1.CanaryConfig{
+		ObservationPeriod: metav1.Duration{Duration: 2 * time.Minute},
+	}
+	assert.Equal(t, 2*time.Minute, getObservationPeriod(policySafetyZero),
+		"safety 0 must fall through to canary")
+
+	// Zero safety and no canary use the 5m default.
+	policySafetyZeroOnly := newTestPolicy("test-policy6", "default")
+	policySafetyZeroOnly.Spec.UpdateStrategy.SafetyObservationPeriod = &metav1.Duration{Duration: 0}
+	assert.Equal(t, defaultObservationPeriod, getObservationPeriod(policySafetyZeroOnly))
+
+	// Positive sub-minute periods are raised to 1m on both paths.
+	policySafetyShort := newTestPolicy("test-policy7", "default")
+	policySafetyShort.Spec.UpdateStrategy.SafetyObservationPeriod = &metav1.Duration{Duration: 30 * time.Second}
+	assert.Equal(t, time.Minute, getObservationPeriod(policySafetyShort))
+
+	policyCanaryShort := newTestPolicy("test-policy8", "default")
+	policyCanaryShort.Spec.UpdateStrategy.Canary = &attunev1alpha1.CanaryConfig{
+		ObservationPeriod: metav1.Duration{Duration: 30 * time.Second},
+	}
+	assert.Equal(t, time.Minute, getObservationPeriod(policyCanaryShort))
+
 	// Test the min(cooldown, observationPeriod) requeue logic directly.
 	// When AutoRevert is true and resizes occurred, the reconciler
 	// uses min(cooldown, observationPeriod) as requeue interval

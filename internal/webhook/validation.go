@@ -101,9 +101,10 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 		return warnings, err
 	}
 
-	// Validate canary observation period has a minimum floor.
+	// Canary observationPeriod is a non-pointer, so omitted and 0s are the
+	// same value. Both mean the built-in observation period.
 	if us.Canary != nil {
-		if err := validateDurationFloor("updateStrategy.canary.observationPeriod",
+		if err := validatePositiveDurationFloor("updateStrategy.canary.observationPeriod",
 			us.Canary.ObservationPeriod.Duration); err != nil {
 			return warnings, err
 		}
@@ -473,9 +474,19 @@ func validateBurstSensitivity(resource string, value *string) error {
 	return nil
 }
 
-// validateDurationFloor checks that a duration is non-negative and, if positive,
-// at least 1 minute. Used for cooldown, observation periods, and evaluation windows.
+// validateDurationFloor rejects a zero, negative, or sub-minute duration.
+// Zero is not a wait: omit the field to keep the built-in default.
 func validateDurationFloor(field string, d time.Duration) error {
+	if d == 0 {
+		return fmt.Errorf("%s must be at least 1m, or omit the field for the default", field)
+	}
+	return validatePositiveDurationFloor(field, d)
+}
+
+// validatePositiveDurationFloor allows zero. Canary observationPeriod is a
+// non-pointer duration, so omitted and 0s are the same value and both mean
+// the built-in observation period.
+func validatePositiveDurationFloor(field string, d time.Duration) error {
 	const minFloor = time.Minute
 	if d < 0 {
 		return fmt.Errorf("%s must be non-negative, got %s", field, d)

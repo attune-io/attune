@@ -1312,7 +1312,7 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 
 	fmt.Println("Effective values:")
 	printEffectiveField("Type", getNestedString(item, "spec", "updateStrategy", "type"), string(effective.Spec.UpdateStrategy.Type), selected, updateDefaults != nil && updateDefaults.Type != "")
-	printEffectiveField("Cooldown", getNestedString(item, "spec", "updateStrategy", "cooldown"), formatDurationPtr(effective.Spec.UpdateStrategy.Cooldown), selected, updateDefaults != nil && updateDefaults.Cooldown != nil)
+	printEffectiveField("Cooldown", getNestedString(item, "spec", "updateStrategy", "cooldown"), effectiveCooldown(effective), selected, updateDefaults != nil && updateDefaults.Cooldown != nil)
 	printEffectiveField("Query step", getNestedString(item, "spec", "metricsSource", "queryStep"), formatDurationPtr(effective.Spec.MetricsSource.QueryStep), selected, metricsDefaults != nil && metricsDefaults.QueryStep != nil)
 	providerConfigured := metricsProviderConfigured(item)
 	providerEffective := metricsProviderLabel(effective.Spec.MetricsSource)
@@ -1598,16 +1598,38 @@ func effectiveSource(selected selectedDefaults, inherited bool) string {
 	return sourceBuiltIn
 }
 
+// effectiveCooldown is the wait the controller uses. A stored zero or
+// negative duration is not a wait, so explain shows the 1h default. A
+// positive sub-minute value is raised to 1m.
+func effectiveCooldown(policy *attunev1alpha1.AttunePolicy) string {
+	cd := policy.Spec.UpdateStrategy.Cooldown
+	if cd == nil || cd.Duration <= 0 {
+		return time.Hour.String()
+	}
+	if cd.Duration < time.Minute {
+		return time.Minute.String()
+	}
+	return cd.Duration.String()
+}
+
 // effectiveObservationPeriod computes the observation period using the
 // precedence: safetyObservationPeriod > canary.observationPeriod > 5m default.
+// A positive sub-minute period is raised to 1m. Zero stays unset.
 func effectiveObservationPeriod(policy *attunev1alpha1.AttunePolicy) string {
 	if policy.Spec.UpdateStrategy.SafetyObservationPeriod != nil && policy.Spec.UpdateStrategy.SafetyObservationPeriod.Duration > 0 {
-		return policy.Spec.UpdateStrategy.SafetyObservationPeriod.Duration.String()
+		return floorExplainMinute(policy.Spec.UpdateStrategy.SafetyObservationPeriod.Duration)
 	}
 	if policy.Spec.UpdateStrategy.Canary != nil && policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration > 0 {
-		return policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration.String()
+		return floorExplainMinute(policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration)
 	}
 	return (5 * time.Minute).String()
+}
+
+func floorExplainMinute(d time.Duration) string {
+	if d > 0 && d < time.Minute {
+		return time.Minute.String()
+	}
+	return d.String()
 }
 
 func formatDurationPtr(value *metav1.Duration) string {

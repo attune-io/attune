@@ -233,9 +233,10 @@ func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec) (admission.War
 		}
 	}
 
-	// Validate canary observation period has a minimum floor.
+	// Canary observationPeriod is a non-pointer, so omitted and 0s both mean
+	// the built-in observation period.
 	if spec.UpdateStrategy != nil && spec.UpdateStrategy.Canary != nil {
-		if err := validateDurationFloor("updateStrategy.canary.observationPeriod",
+		if err := validatePositiveDurationFloor("updateStrategy.canary.observationPeriod",
 			spec.UpdateStrategy.Canary.ObservationPeriod.Duration); err != nil {
 			return warnings, err
 		}
