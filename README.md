@@ -312,8 +312,8 @@ The dashboard includes:
   cover peak hours, not just the average.
 - HPA coexistence: adjusts base resource requests without interfering
   with HPA's percentage-based scaling. No death spirals.
-- Always-bounded: resource bounds (`minAllowed`/`maxAllowed`) per-policy with safe
-  defaults (CPU: 1m-4000m, Memory: 4Mi-8Gi).
+- Resource bounds: `minAllowed` and `maxAllowed` are set per policy. Omitted
+  minimums floor at 1m CPU and 4Mi memory. Omitted maximums are not capped.
 
 ### Operations
 

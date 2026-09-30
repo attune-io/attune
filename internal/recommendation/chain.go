@@ -33,7 +33,7 @@ type RecommendationEngine struct {
 	overhead             float64 // percentage to add (e.g. 20.0 = +20%); converted to multiplier via 1+overhead/100
 	burstSensitivity     float64
 	minBound             resource.Quantity
-	maxBound             resource.Quantity
+	maxBound             *resource.Quantity
 	minChangePercent     float64
 	maxIncreasePercent   float64
 	maxDecreasePercent   float64
@@ -50,6 +50,8 @@ type EngineOpts struct {
 	// Default (0) means use the standard 0.1; set explicitly to disable or tune.
 	// Negative values are treated as 0 (no boost).
 	BurstSensitivity *float64
+	// NoMax skips the max comparison. The maxBound argument is ignored.
+	NoMax bool
 }
 
 // DefaultBurstSensitivity is the default burst sensitivity used when
@@ -73,12 +75,17 @@ func NewEngine(percentile int, overhead float64, minBound, maxBound resource.Qua
 			bs = 0
 		}
 	}
+	var storedMax *resource.Quantity
+	if !opt.NoMax {
+		copied := maxBound.DeepCopy()
+		storedMax = &copied
+	}
 	return &RecommendationEngine{
 		percentile:           percentile,
 		overhead:             overhead,
 		burstSensitivity:     bs,
 		minBound:             minBound.DeepCopy(),
-		maxBound:             maxBound.DeepCopy(),
+		maxBound:             storedMax,
 		minChangePercent:     10.0,
 		maxIncreasePercent:   maxIncreasePct,
 		maxDecreasePercent:   maxDecreasePct,
@@ -171,7 +178,7 @@ func (e *RecommendationEngine) RecommendWithExplanation(profile metrics.UsagePro
 		ConfidenceFactor:    confidenceFactor,
 		AfterConfidence:     afterConfidence.DeepCopy(),
 		MinBound:            e.minBound.DeepCopy(),
-		MaxBound:            e.maxBound.DeepCopy(),
+		MaxBound:            cloneMaxBound(e.maxBound),
 		BoundsApplied:       boundsApplied,
 		AfterBounds:         afterBounds.DeepCopy(),
 		MinChangePercent:    e.minChangePercent,
@@ -183,6 +190,15 @@ func (e *RecommendationEngine) RecommendWithExplanation(profile metrics.UsagePro
 	recommended = afterChangeFilter
 	changed = recommended.Cmp(current) != 0
 	return recommended, explanation, changed
+}
+
+// cloneMaxBound returns nil when max is unset, otherwise a copy.
+func cloneMaxBound(max *resource.Quantity) *resource.Quantity {
+	if max == nil {
+		return nil
+	}
+	copied := max.DeepCopy()
+	return &copied
 }
 
 // holdAtCurrent records an unchanged recommendation when the percentile
@@ -199,7 +215,7 @@ func holdAtCurrent(e *RecommendationEngine, current resource.Quantity) Recommend
 		ConfidenceFactor:  1,
 		AfterConfidence:   q.DeepCopy(),
 		MinBound:          e.minBound.DeepCopy(),
-		MaxBound:          e.maxBound.DeepCopy(),
+		MaxBound:          cloneMaxBound(e.maxBound),
 		AfterBounds:       q.DeepCopy(),
 		MinChangePercent:  e.minChangePercent,
 		MaxChangePercent:  e.maxIncreasePercent,

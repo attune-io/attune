@@ -1482,7 +1482,7 @@ func buildRecommendationEngines(policy *attunev1alpha1.AttunePolicy) (cpuEngine,
 	memOverhead := parseOverheadPercent(policy.Spec.Memory.Overhead, defaultMemoryOverhead)
 
 	cpuBoundsMin := attunev1alpha1.DefaultCPUBoundsMin.DeepCopy()
-	cpuBoundsMax := attunev1alpha1.DefaultCPUBoundsMax.DeepCopy()
+	var cpuBoundsMax k8sresource.Quantity
 	if policy.Spec.CPU.MinAllowed != nil {
 		cpuBoundsMin = policy.Spec.CPU.MinAllowed.DeepCopy()
 	}
@@ -1491,7 +1491,7 @@ func buildRecommendationEngines(policy *attunev1alpha1.AttunePolicy) (cpuEngine,
 	}
 
 	memBoundsMin := attunev1alpha1.DefaultMemoryBoundsMin.DeepCopy()
-	memBoundsMax := attunev1alpha1.DefaultMemoryBoundsMax.DeepCopy()
+	var memBoundsMax k8sresource.Quantity
 	if policy.Spec.Memory.MinAllowed != nil {
 		memBoundsMin = policy.Spec.Memory.MinAllowed.DeepCopy()
 	}
@@ -1507,12 +1507,12 @@ func buildRecommendationEngines(policy *attunev1alpha1.AttunePolicy) (cpuEngine,
 		attunev1alpha1.DefaultMemoryMaxChangePercent)
 
 	// Parse per-resource burst sensitivity; nil means default (0.1).
-	cpuOpts := recommendation.EngineOpts{IsCPU: true}
+	cpuOpts := recommendation.EngineOpts{IsCPU: true, NoMax: policy.Spec.CPU.MaxAllowed == nil}
 	if policy.Spec.CPU.BurstSensitivity != nil {
 		bs := parseFloat64NonNeg(*policy.Spec.CPU.BurstSensitivity, recommendation.DefaultBurstSensitivity)
 		cpuOpts.BurstSensitivity = &bs
 	}
-	memOpts := recommendation.EngineOpts{}
+	memOpts := recommendation.EngineOpts{NoMax: policy.Spec.Memory.MaxAllowed == nil}
 	if policy.Spec.Memory.BurstSensitivity != nil {
 		bs := parseFloat64NonNeg(*policy.Spec.Memory.BurstSensitivity, recommendation.DefaultBurstSensitivity)
 		memOpts.BurstSensitivity = &bs

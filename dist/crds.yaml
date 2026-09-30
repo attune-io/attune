@@ -3283,8 +3283,9 @@ spec:
                                         anyOf:
                                         - type: integer
                                         - type: string
-                                        description: Max is the maximum allowed resource
-                                          value.
+                                        description: |-
+                                          Max is the maximum allowed resource value.
+                                          Omitted when maxAllowed is unset. A present zero is a real cap.
                                         pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                                         x-kubernetes-int-or-string: true
                                       min:
@@ -3296,7 +3297,6 @@ spec:
                                         pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                                         x-kubernetes-int-or-string: true
                                     required:
-                                    - max
                                     - min
                                     type: object
                                   boundsApplied:
@@ -3418,8 +3418,9 @@ spec:
                                         anyOf:
                                         - type: integer
                                         - type: string
-                                        description: Max is the maximum allowed resource
-                                          value.
+                                        description: |-
+                                          Max is the maximum allowed resource value.
+                                          Omitted when maxAllowed is unset. A present zero is a real cap.
                                         pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                                         x-kubernetes-int-or-string: true
                                       min:
@@ -3431,7 +3432,6 @@ spec:
                                         pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                                         x-kubernetes-int-or-string: true
                                     required:
-                                    - max
                                     - min
                                     type: object
                                   boundsApplied:

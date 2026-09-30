@@ -48,7 +48,7 @@ type RecommendationExplanation struct {
 	ConfidenceFactor    float64
 	AfterConfidence     resource.Quantity
 	MinBound            resource.Quantity
-	MaxBound            resource.Quantity
+	MaxBound            *resource.Quantity
 	BoundsApplied       string
 	AfterBounds         resource.Quantity
 	MinChangePercent    float64

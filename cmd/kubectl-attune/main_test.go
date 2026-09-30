@@ -2371,6 +2371,32 @@ func TestPrintExplain(t *testing.T) {
 	assert.Contains(t, output, "Final adjustment:           memory decrease blocked by allowDecrease=false")
 }
 
+func TestPrintResourceExplanation_OmittedMaxPrintsNone(t *testing.T) {
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	printResourceExplanation("CPU",
+		map[string]interface{}{"cpuRequest": "10"},
+		map[string]interface{}{"cpuRequest": "10"},
+		map[string]interface{}{
+			"cpu": map[string]interface{}{
+				"rawPercentile": "10",
+				"bounds":        map[string]interface{}{"min": "1m"},
+				"afterBounds":   "10",
+				"final":         "10",
+			},
+		},
+	)
+	w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	assert.Contains(t, buf.String(), "Bounds [1m, none]:")
+	assert.NotContains(t, buf.String(), "Bounds [1m, 0]")
+}
+
 func TestPrintExplain_StaleNote(t *testing.T) {
 	policy := &unstructured.Unstructured{
 		Object: map[string]interface{}{

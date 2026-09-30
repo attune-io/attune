@@ -137,8 +137,13 @@ if changePct > MaxChangePercent:
 
 The filter runs after bounds. If keeping the current value, or stopping
 at the directional cap, would leave the result outside `[min, max]`, the
-bounds win and the published value is clamped back inside. A pod already
-above `maxAllowed` or below `minAllowed` moves back inside on this cycle.
+bounds win inside the engine and that engine result is clamped back
+inside. A request already above an explicit `maxAllowed` is pulled down
+in the engine result, including past `maxDecreasePercent`. Memory
+`allowDecrease` defaults to false and runs after the engine, so that
+memory pull is published only when decrease is enabled. CPU decrease
+defaults to true, so the CPU pull is published on this cycle. An omitted
+`maxAllowed` has no ceiling.
 
 | Parameter | Default | Purpose |
 |-----------|---------|---------|

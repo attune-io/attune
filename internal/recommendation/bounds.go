@@ -36,17 +36,18 @@ type boundsEstimator struct {
 // configured [Min, Max] range.
 func (e *boundsEstimator) Estimate(profile metrics.UsageProfile, current resource.Quantity) resource.Quantity {
 	inner := e.inner.Estimate(profile, current)
-	clamped, _ := applyBounds(inner, e.min, e.max)
+	clamped, _ := applyBounds(inner, e.min, &e.max)
 	return clamped
 }
 
-// applyBounds clamps q into [min, max]. The second return is "min", "max",
-// or empty when the value was already inside the range.
-func applyBounds(q, min, max resource.Quantity) (resource.Quantity, string) {
+// applyBounds clamps q to min, then to max when max is set. A nil max
+// skips only the ceiling. A non-nil zero max is a real cap. The second
+// return is "min", "max", or empty when the value was already inside.
+func applyBounds(q, min resource.Quantity, max *resource.Quantity) (resource.Quantity, string) {
 	if q.Cmp(min) < 0 {
 		return min.DeepCopy(), "min"
 	}
-	if q.Cmp(max) > 0 {
+	if max != nil && q.Cmp(*max) > 0 {
 		return max.DeepCopy(), "max"
 	}
 	return q, ""

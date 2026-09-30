@@ -98,12 +98,10 @@ var KnownSidecarContainers = []string{
 	"gce-proxy",
 }
 
-// Default resource bounds applied when a policy does not specify explicit bounds.
-// These are package-level vars (parsed once at init) rather than inline
-// MustParse calls in the reconciler hot path.
+// Default resource floors applied when a policy does not specify minAllowed.
+// An omitted maxAllowed is uncapped. These are package-level vars (parsed
+// once at init) rather than inline MustParse calls in the reconciler hot path.
 var (
 	DefaultCPUBoundsMin    = resource.MustParse("1m")
-	DefaultCPUBoundsMax    = resource.MustParse("4000m")
 	DefaultMemoryBoundsMin = resource.MustParse("4Mi")
-	DefaultMemoryBoundsMax = resource.MustParse("8Gi")
 )
