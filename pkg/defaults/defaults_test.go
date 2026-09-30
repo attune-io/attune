@@ -37,6 +37,71 @@ func quantityPtr(s string) *resource.Quantity {
 	return &q
 }
 
+func TestApplyBuiltInDefaults_ExcludeFromHistoryStaysNil(t *testing.T) {
+	t.Parallel()
+	falseVal := false
+
+	bare := &attunev1alpha1.AttunePolicy{}
+	ApplyBuiltInDefaults(bare)
+	assert.Nil(t, bare.Spec.CPU.StartupBoost)
+
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
+				StartupBoost: &attunev1alpha1.StartupBoost{
+					Multiplier: "2.0",
+					Duration:   metav1.Duration{Duration: time.Minute},
+				},
+			},
+		},
+	}
+	ApplyBuiltInDefaults(policy)
+	require.NotNil(t, policy.Spec.CPU.StartupBoost)
+	assert.Nil(t, policy.Spec.CPU.StartupBoost.ExcludeFromHistory)
+
+	policy.Spec.CPU.StartupBoost.ExcludeFromHistory = &falseVal
+	ApplyBuiltInDefaults(policy)
+	require.NotNil(t, policy.Spec.CPU.StartupBoost.ExcludeFromHistory)
+	assert.False(t, *policy.Spec.CPU.StartupBoost.ExcludeFromHistory)
+}
+
+func TestMergeDefaults_ExcludeFromHistory(t *testing.T) {
+	t.Parallel()
+	falseVal := false
+	trueVal := true
+	defaults := &attunev1alpha1.AttuneDefaults{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{
+				StartupBoost: &attunev1alpha1.StartupBoost{
+					Multiplier:         "3.0",
+					Duration:           metav1.Duration{Duration: 2 * time.Minute},
+					ExcludeFromHistory: &falseVal,
+				},
+			},
+		},
+	}
+	inheritedPolicy := &attunev1alpha1.AttunePolicy{}
+	MergeDefaults(inheritedPolicy, defaults)
+	require.NotNil(t, inheritedPolicy.Spec.CPU.StartupBoost)
+	require.NotNil(t, inheritedPolicy.Spec.CPU.StartupBoost.ExcludeFromHistory)
+	assert.False(t, *inheritedPolicy.Spec.CPU.StartupBoost.ExcludeFromHistory)
+
+	defaults.Spec.CPU.StartupBoost.ExcludeFromHistory = &trueVal
+	own := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
+				StartupBoost: &attunev1alpha1.StartupBoost{
+					Multiplier: "2.0",
+					Duration:   metav1.Duration{Duration: time.Minute},
+				},
+			},
+		},
+	}
+	MergeDefaults(own, defaults)
+	assert.Equal(t, "2.0", own.Spec.CPU.StartupBoost.Multiplier)
+	assert.Nil(t, own.Spec.CPU.StartupBoost.ExcludeFromHistory)
+}
+
 func TestApplyBuiltInDefaults_FillsAllFields(t *testing.T) {
 	policy := &attunev1alpha1.AttunePolicy{}
 	ApplyBuiltInDefaults(policy)

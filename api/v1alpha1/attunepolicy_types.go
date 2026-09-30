@@ -476,6 +476,17 @@ type StartupBoost struct {
 	// this duration. Ready is not checked. Must be >= 10s and <= 1h.
 	// +kubebuilder:validation:Required
 	Duration metav1.Duration `json:"duration"`
+
+	// ExcludeFromHistory, when true, drops CPU samples from the
+	// percentile while a pod is inside startupBoost.duration plus the
+	// rate window. The cutoff is pod CreationTimestamp plus duration
+	// plus rateWindow. Sample timestamps are the end of rate().
+	// Nil and false keep today's percentile. Memory samples are unchanged.
+	// Deleted pods stay in history until historyWindow because there is
+	// no CreationTimestamp to cut on. A series with no pod label is left
+	// unfiltered.
+	// +optional
+	ExcludeFromHistory *bool `json:"excludeFromHistory,omitempty"`
 }
 
 // ResourceBounds defines the minimum and maximum resource values.

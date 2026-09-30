@@ -41,9 +41,34 @@ import (
 )
 
 // Sample represents a single metric data point with a timestamp and value.
+// Pod is the series pod label when the caller asked to preserve per-pod
+// series. Empty means the series had no pod label, or the caller did not
+// ask to keep one.
 type Sample struct {
 	Timestamp time.Time
 	Value     float64
+	Pod       string
+}
+
+type preservePodSeriesKey struct{}
+
+// WithPreservePodSeries marks a query whose per-pod series must survive
+// grouping. Prometheus copies the pod label onto Sample.Pod and does not
+// cap by container first. Datadog copies pod_name. CloudWatch leaves Pod
+// empty.
+func WithPreservePodSeries(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, preservePodSeriesKey{}, true)
+}
+
+func preservePodSeries(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	v, ok := ctx.Value(preservePodSeriesKey{}).(bool)
+	return ok && v
 }
 
 // MetricsCollector defines the interface for querying Prometheus metrics.
@@ -423,19 +448,30 @@ func (c *PrometheusCollector) QueryRangeGrouped(ctx context.Context, query strin
 
 	limit := c.effectiveMaxSeries()
 	capped := limit > 0 && len(matrix) > limit
+	preservePods := preservePodSeries(ctx)
 	if capped {
 		c.logger.Info("Prometheus range query series capped",
 			"limit", limit, "got", len(matrix))
 		c.logger.V(2).Info("Prometheus range query series capped",
 			"limit", limit, "got", len(matrix), "query", query)
-		// Prefer one series per container before filling remaining budget so
-		// high-cardinality pods do not starve entire containers under None aggregation.
-		matrix = capMatrixByContainer(matrix, limit)
+		if preservePods {
+			// Fair share across pods. Capping by container first can keep
+			// only the young pod and drop the steady one.
+			matrix = capMatrixByPodFairShare(matrix, limit)
+		} else {
+			// Prefer one series per container before filling remaining budget so
+			// high-cardinality pods do not starve entire containers under None aggregation.
+			matrix = capMatrixByContainer(matrix, limit)
+		}
 	}
 
 	grouped := make(map[string][]Sample, len(matrix))
 	for _, series := range matrix {
 		container := string(series.Metric[model.LabelName("container")])
+		pod := ""
+		if preservePods {
+			pod = string(series.Metric[model.LabelName("pod")])
+		}
 		before := len(grouped[container])
 		grouped[container] = growSamples(grouped[container], len(series.Values))
 		for _, sp := range series.Values {
@@ -446,6 +482,7 @@ func (c *PrometheusCollector) QueryRangeGrouped(ctx context.Context, query strin
 			grouped[container] = append(grouped[container], Sample{
 				Timestamp: sp.Timestamp.Time(),
 				Value:     v,
+				Pod:       pod,
 			})
 		}
 		if len(series.Values) > 0 && len(grouped[container]) == before {
@@ -504,6 +541,46 @@ func capMatrixByContainer(matrix model.Matrix, limit int) model.Matrix {
 				continue
 			}
 			out = append(out, series)
+		}
+	}
+	return out
+}
+
+// capMatrixByPodFairShare keeps at most limit series, round-robin across
+// distinct pod labels. One pod cannot fill the cap before the others are
+// represented. Series order within a pod follows the matrix.
+func capMatrixByPodFairShare(matrix model.Matrix, limit int) model.Matrix {
+	if limit <= 0 || len(matrix) <= limit {
+		return matrix
+	}
+	byPod := make(map[string]model.Matrix)
+	var podOrder []string
+	for _, series := range matrix {
+		pod := string(series.Metric[model.LabelName("pod")])
+		if _, ok := byPod[pod]; !ok {
+			podOrder = append(podOrder, pod)
+		}
+		byPod[pod] = append(byPod[pod], series)
+	}
+	out := make(model.Matrix, 0, limit)
+	next := make(map[string]int, len(podOrder))
+	for len(out) < limit {
+		progressed := false
+		for _, pod := range podOrder {
+			i := next[pod]
+			series := byPod[pod]
+			if i >= len(series) {
+				continue
+			}
+			out = append(out, series[i])
+			next[pod] = i + 1
+			progressed = true
+			if len(out) >= limit {
+				break
+			}
+		}
+		if !progressed {
+			break
 		}
 	}
 	return out
