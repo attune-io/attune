@@ -60,6 +60,8 @@ func TestApplyBuiltInDefaults_FillsAllFields(t *testing.T) {
 	assert.Equal(t, attunev1alpha1.DefaultPodAggregation, policy.Spec.MetricsSource.PodAggregation)
 	assert.NotNil(t, policy.Spec.CPU.ControlledValues)
 	assert.Equal(t, attunev1alpha1.DefaultControlledValues, *policy.Spec.CPU.ControlledValues)
+	assert.Nil(t, policy.Spec.CPU.LimitMultiplier)
+	assert.Nil(t, policy.Spec.Memory.LimitMultiplier)
 	assert.NotNil(t, policy.Spec.Memory.ControlledValues)
 	assert.Equal(t, attunev1alpha1.DefaultControlledValues, *policy.Spec.Memory.ControlledValues)
 	require.NotNil(t, policy.Spec.ExcludeKnownSidecars)
@@ -268,6 +270,7 @@ func TestMergeResourceConfig_AllFields(t *testing.T) {
 		BurstSensitivity:   ptrStr("0.3"),
 		AllowDecrease:      ptrBool(true),
 		MemoryFromCPURatio: ptrStr("2.0"),
+		LimitMultiplier:    ptrStr("2"),
 		StartupBoost:       &attunev1alpha1.StartupBoost{Multiplier: "3.0", Duration: metav1.Duration{Duration: 2 * time.Minute}},
 		MaxChangePercent:   ptrInt32(50),
 		MaxIncreasePercent: ptrInt32(60),
@@ -290,6 +293,8 @@ func TestMergeResourceConfig_AllFields(t *testing.T) {
 	assert.True(t, *policy.AllowDecrease)
 	require.NotNil(t, policy.MemoryFromCPURatio)
 	assert.Equal(t, "2.0", *policy.MemoryFromCPURatio)
+	require.NotNil(t, policy.LimitMultiplier)
+	assert.Equal(t, "2", *policy.LimitMultiplier)
 	require.NotNil(t, policy.StartupBoost)
 	assert.Equal(t, "3.0", policy.StartupBoost.Multiplier)
 	assert.Equal(t, 2*time.Minute, policy.StartupBoost.Duration.Duration)
@@ -308,6 +313,7 @@ func TestMergeResourceConfig_AllFields(t *testing.T) {
 		"cpu.burstSensitivity",
 		"cpu.allowDecrease",
 		"cpu.memoryFromCpuRatio",
+		"cpu.limitMultiplier",
 		"cpu.startupBoost",
 		"cpu.maxChangePercent",
 		"cpu.maxIncreasePercent",
@@ -331,6 +337,7 @@ func TestMergeResourceConfig_PolicyFieldsTakePrecedence(t *testing.T) {
 		BurstSensitivity:   ptrStr("0.5"),
 		AllowDecrease:      ptrBool(true),
 		MemoryFromCPURatio: ptrStr("2.0"),
+		LimitMultiplier:    ptrStr("2"),
 		StartupBoost:       &attunev1alpha1.StartupBoost{Multiplier: "3.0"},
 		MinAllowed:         quantityPtr("50m"),
 		MaxChangePercent:   ptrInt32(50),
@@ -344,6 +351,7 @@ func TestMergeResourceConfig_PolicyFieldsTakePrecedence(t *testing.T) {
 		BurstSensitivity:   ptrStr("0.1"),
 		AllowDecrease:      ptrBool(false),
 		MemoryFromCPURatio: ptrStr("4.0"),
+		LimitMultiplier:    ptrStr("3"),
 		StartupBoost:       &attunev1alpha1.StartupBoost{Multiplier: "2.0"},
 		MinAllowed:         quantityPtr("100m"),
 		MaxChangePercent:   ptrInt32(40),
@@ -360,6 +368,7 @@ func TestMergeResourceConfig_PolicyFieldsTakePrecedence(t *testing.T) {
 	assert.Equal(t, "0.1", *policy.BurstSensitivity)
 	assert.False(t, *policy.AllowDecrease)
 	assert.Equal(t, "4.0", *policy.MemoryFromCPURatio)
+	assert.Equal(t, "3", *policy.LimitMultiplier)
 	assert.Equal(t, "2.0", policy.StartupBoost.Multiplier)
 	assert.Equal(t, resource.MustParse("100m"), *policy.MinAllowed)
 	assert.Equal(t, int32(40), *policy.MaxChangePercent)
@@ -377,6 +386,33 @@ func TestMergeResourceConfig_PrefixAppliedCorrectly(t *testing.T) {
 	policy2 := &attunev1alpha1.ResourceConfig{}
 	memInherited := MergeResourceConfig(policy2, defaults, "memory")
 	assert.Contains(t, memInherited, "memory.percentile")
+}
+
+func TestMergeResourceConfig_LimitMultiplier(t *testing.T) {
+	t.Parallel()
+	defaults := &attunev1alpha1.ResourceConfig{LimitMultiplier: ptrStr("2")}
+
+	omitted := &attunev1alpha1.ResourceConfig{}
+	inherited := MergeResourceConfig(omitted, defaults, "cpu")
+	require.NotNil(t, omitted.LimitMultiplier)
+	assert.Equal(t, "2", *omitted.LimitMultiplier)
+	assert.Contains(t, inherited, "cpu.limitMultiplier")
+
+	empty := &attunev1alpha1.ResourceConfig{LimitMultiplier: ptrStr("")}
+	inherited = MergeResourceConfig(empty, defaults, "memory")
+	require.NotNil(t, empty.LimitMultiplier)
+	assert.Equal(t, "2", *empty.LimitMultiplier)
+	assert.Contains(t, inherited, "memory.limitMultiplier")
+
+	three := &attunev1alpha1.ResourceConfig{LimitMultiplier: ptrStr("3")}
+	inherited = MergeResourceConfig(three, defaults, "cpu")
+	assert.Equal(t, "3", *three.LimitMultiplier)
+	assert.NotContains(t, inherited, "cpu.limitMultiplier")
+
+	one := &attunev1alpha1.ResourceConfig{LimitMultiplier: ptrStr("1")}
+	inherited = MergeResourceConfig(one, defaults, "cpu")
+	assert.Equal(t, "1", *one.LimitMultiplier)
+	assert.NotContains(t, inherited, "cpu.limitMultiplier")
 }
 
 // ---------- Direct MergeMetricsSource tests ----------

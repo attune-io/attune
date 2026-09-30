@@ -77,6 +77,9 @@ const (
 	// DefaultCloudWatchCPUUnit is the container_cpu_usage_total scale when
 	// cpuUnit is empty. Millicores divides by 1000.
 	DefaultCloudWatchCPUUnit = "Millicores"
+	// MaxLimitMultiplier is the largest accepted limitMultiplier.
+	// memoryFromCpuRatio uses 1000; a limit multiple does not need that.
+	MaxLimitMultiplier = 100
 	// DefaultMaxStatusRecommendations caps status.recommendations size.
 	DefaultMaxStatusRecommendations int32 = 100
 	// DefaultIncludeExplanationsInStatus keeps explanation chains in status.

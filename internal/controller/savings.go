@@ -167,16 +167,20 @@ func getCostPricing(defaults *attunev1alpha1.AttuneDefaults) (cpuPerCoreHour, me
 	return
 }
 
-// scaleLimits scales a resource limit proportionally to maintain the same
-// request:limit ratio when the request changes. Protects against int64
-// overflow from extreme limit/request ratios.
-func scaleLimits(currentReq, currentLim, newReq resource.Quantity) resource.Quantity {
+// scaleLimits sets the new limit from the live request:limit ratio, or from
+// multiplier when it is non-nil. A zero current request or limit returns a
+// zero quantity so the limit stays omitted. Overflow keeps the current limit.
+// A NaN, Inf, or non-positive ratio returns newReq.
+func scaleLimits(currentReq, currentLim, newReq resource.Quantity, multiplier *float64) resource.Quantity {
 	if currentReq.IsZero() || currentLim.IsZero() {
 		// Return zero so buildResizeTarget excludes this limit from the target.
 		// Setting limit = request would change the pod's QoS class.
 		return resource.Quantity{}
 	}
 	ratio := float64(currentLim.MilliValue()) / float64(currentReq.MilliValue())
+	if multiplier != nil {
+		ratio = *multiplier
+	}
 	if math.IsNaN(ratio) || math.IsInf(ratio, 0) || ratio <= 0 {
 		return newReq.DeepCopy()
 	}
@@ -185,6 +189,21 @@ func scaleLimits(currentReq, currentLim, newReq resource.Quantity) resource.Quan
 		return currentLim.DeepCopy()
 	}
 	return *resource.NewMilliQuantity(int64(product), currentLim.Format)
+}
+
+// limitMultiplierRatio parses an explicit limitMultiplier. Nil means omitted,
+// which keeps the live ratio. Invalid values also return nil so a bypassed
+// webhook cannot publish a multiple below 1 or above MaxLimitMultiplier.
+// A multiple below 1 would make the limit smaller than the request.
+func limitMultiplierRatio(raw *string) *float64 {
+	if raw == nil || *raw == "" {
+		return nil
+	}
+	v, err := strconv.ParseFloat(*raw, 64)
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 1 || v > float64(attunev1alpha1.MaxLimitMultiplier) {
+		return nil
+	}
+	return &v
 }
 
 // parseFloat64 parses a string as a float64, returning the fallback on error

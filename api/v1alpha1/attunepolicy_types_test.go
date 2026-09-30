@@ -87,3 +87,15 @@ func TestIsSupportedTargetKind(t *testing.T) {
 		assert.False(t, IsSupportedTargetKind(kind), "kind %q must be rejected", kind)
 	}
 }
+
+func TestResourceConfigDeepCopy_LimitMultiplier(t *testing.T) {
+	raw := "2"
+	in := ResourceConfig{LimitMultiplier: &raw}
+	out := in.DeepCopy()
+	require.NotNil(t, out)
+	require.NotNil(t, out.LimitMultiplier)
+	assert.Equal(t, "2", *out.LimitMultiplier)
+	assert.NotSame(t, in.LimitMultiplier, out.LimitMultiplier)
+	raw = "9"
+	assert.Equal(t, "2", *out.LimitMultiplier)
+}

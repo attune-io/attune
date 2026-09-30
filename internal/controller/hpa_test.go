@@ -1428,3 +1428,49 @@ func (r *AttunePolicyReconciler) adjustHPATargets(
 		limit:  cpuLimit,
 	})
 }
+
+func TestRetuneHPAAfterResize_RequestsAndLimitsCapsAtMultipliedLimit(t *testing.T) {
+	t.Parallel()
+	scheme := testScheme()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", nil,
+		cpuResourceMetric(90),
+		cpuContainerMetric("app", 90),
+	)
+	pod := workloadPod("api-server", podContainer(t, "app", "200m", "200m"))
+	cpuLim, err := resource.ParseQuantity("400m")
+	require.NoError(t, err)
+	both := attunev1alpha1.ControlledRequestsAndLimits
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.CPU.ControlledValues = &both
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(hpa.DeepCopy()).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api-server",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "app",
+			Recommended: attunev1alpha1.ResourceValues{
+				CPULimit: cpuLim,
+			},
+		}},
+	}}
+	r.retuneHPAAfterResize(context.Background(), policy, attunev1alpha1.UpdateTypeAuto,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "800m", "200m")},
+		recs,
+		[]autoscalingv2.HorizontalPodAutoscaler{hpa},
+		map[string][]corev1.Pod{"api-server": {pod}},
+	)
+
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(200), metricUtil(t, updated, 0),
+		"90*800/200=360 must cap at multiplied limit 400m/200m=200, not the live 200m limit")
+	assert.Equal(t, int32(200), metricUtil(t, updated, 1),
+		"container metric uses the same multiplied limit")
+	assert.Equal(t, "90", updated.Annotations[annotationHPAOriginalCPU])
+	assert.Equal(t, "800m", updated.Annotations[annotationHPAOriginalCPURequest])
+	assert.Equal(t, "90", updated.Annotations[annotationHPACPUTargetPrefix+"app"])
+	assert.Equal(t, "800m", updated.Annotations[annotationHPACPUBasePrefix+"app"])
+}

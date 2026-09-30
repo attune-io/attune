@@ -408,6 +408,7 @@ func TestScaleLimits_NormalCase(t *testing.T) {
 		resource.MustParse("500m"),
 		resource.MustParse("1000m"),
 		resource.MustParse("250m"),
+		nil,
 	)
 	expected := resource.MustParse("500m")
 	assert.True(t, result.Cmp(expected) == 0, "expected %s, got %s", expected.String(), result.String())
@@ -418,6 +419,7 @@ func TestScaleLimits_ZeroRequestReturnsZero(t *testing.T) {
 		resource.MustParse("0"),
 		resource.MustParse("1000m"),
 		resource.MustParse("250m"),
+		nil,
 	)
 	assert.True(t, result.IsZero())
 }
@@ -427,6 +429,7 @@ func TestScaleLimits_ZeroLimitReturnsZero(t *testing.T) {
 		resource.MustParse("500m"),
 		resource.MustParse("0"),
 		resource.MustParse("250m"),
+		nil,
 	)
 	assert.True(t, result.IsZero())
 }
@@ -437,6 +440,7 @@ func TestScaleLimits_EqualRequestAndLimit(t *testing.T) {
 		resource.MustParse("500m"),
 		resource.MustParse("500m"),
 		resource.MustParse("300m"),
+		nil,
 	)
 	expected := resource.MustParse("300m")
 	assert.True(t, result.Cmp(expected) == 0, "expected %s, got %s", expected.String(), result.String())

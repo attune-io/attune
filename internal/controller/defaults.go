@@ -108,6 +108,34 @@ func (r *AttunePolicyReconciler) applyBuiltInDefaults(policy *attunev1alpha1.Att
 	pkgdefaults.ApplyBuiltInDefaults(policy)
 }
 
+// limitMultiplierRequestsOnlyConflict rejects a multiplier once built-in
+// defaults have filled controlledValues with RequestsOnly. Admission cannot
+// see that pair when the multiplier is inherited and the policy omits
+// controlledValues.
+func limitMultiplierRequestsOnlyConflict(policy *attunev1alpha1.AttunePolicy) error {
+	if policy == nil {
+		return nil
+	}
+	if err := resourceLimitMultiplierConflict("cpu", &policy.Spec.CPU); err != nil {
+		return err
+	}
+	return resourceLimitMultiplierConflict("memory", &policy.Spec.Memory)
+}
+
+func resourceLimitMultiplierConflict(prefix string, rc *attunev1alpha1.ResourceConfig) error {
+	if rc == nil || rc.LimitMultiplier == nil || *rc.LimitMultiplier == "" {
+		return nil
+	}
+	cv := ""
+	if rc.ControlledValues != nil {
+		cv = *rc.ControlledValues
+	}
+	if cv == "" || cv == attunev1alpha1.ControlledRequestsOnly {
+		return fmt.Errorf("%s.limitMultiplier cannot be set when %s.controlledValues is RequestsOnly", prefix, prefix)
+	}
+	return nil
+}
+
 // mergeDefaults delegates to the shared defaults package and logs inherited fields.
 func (r *AttunePolicyReconciler) mergeDefaults(policy *attunev1alpha1.AttunePolicy, defaults *attunev1alpha1.AttuneDefaults) {
 	if defaults == nil {

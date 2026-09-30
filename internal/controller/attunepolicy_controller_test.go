@@ -499,6 +499,7 @@ func TestScaleLimits(t *testing.T) {
 				resource.MustParse(tt.currentReq),
 				resource.MustParse(tt.currentLim),
 				resource.MustParse(tt.newReq),
+				nil,
 			)
 			want := resource.MustParse(tt.wantLim)
 			assert.Equal(t, want.MilliValue(), got.MilliValue())
@@ -513,6 +514,7 @@ func TestScaleLimits_OverflowClamped(t *testing.T) {
 		resource.MustParse("1Ki"),
 		resource.MustParse("100Gi"),
 		resource.MustParse("1Gi"),
+		nil,
 	)
 	assert.True(t, got.Value() > 0, "overflow must not produce negative limit: %v", got)
 	want := resource.MustParse("100Gi")

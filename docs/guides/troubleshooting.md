@@ -833,6 +833,12 @@ any positive request or limit moves BestEffort to Burstable. Init
 containers, including completed ones, count. A Guaranteed pod is blocked
 when the sent requests and limits would no longer match.
 
+A Guaranteed pod will not accept a CPU multiplier above 1 in place. The
+CPU request and limit would differ, so the resize is skipped and the pod
+is not evicted. A memory multiplier on an already Guaranteed pod raises
+the memory request to the new limit and the resize proceeds. That applied
+request can exceed `maxAllowed`.
+
 **Fix**: For Burstable, raise the limit that already equals the new
 request, or choose a request that stays below that limit. Set
 `controlledValues: RequestsAndLimits` only when the result stays
