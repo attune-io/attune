@@ -339,8 +339,10 @@ Before resizing, the controller checks for potential conflicts:
   observation still reverts unsafe pods and restores AfterSuccessfulResize
   templates. If the namespace cannot be read, apply is skipped (fail
   closed).
-- **QoS preservation**: for Guaranteed-class pods, the resize is blocked if
-  it would cause requests to differ from limits.
+- **QoS preservation**: a resize that would change QoS class is skipped
+  before `UpdateResize` (Burstable to Guaranteed, BestEffort to
+  Burstable, or Guaranteed to Burstable). Init containers count. For
+  Guaranteed pods, requests must stay equal to limits.
 - **HPA coexistence**: an informational notice is logged but resizing proceeds.
   See [HPA Coexistence](../guides/hpa-coexistence.md).
 

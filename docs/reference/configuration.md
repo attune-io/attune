@@ -582,7 +582,7 @@ Per-resource fields in `cpu` and `memory` that limit how much a recommendation c
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `controlledValues` | string | `RequestsOnly` | `RequestsOnly` adjusts only requests, leaving limits unchanged. `RequestsAndLimits` adjusts both in lockstep. Use `RequestsAndLimits` for Guaranteed-QoS pods (where requests equal limits) or when you want limits to track recommendations. |
+| `controlledValues` | string | `RequestsOnly` | `RequestsOnly` adjusts only requests, leaving limits unchanged. `RequestsAndLimits` adjusts both in lockstep. Use `RequestsAndLimits` for Guaranteed-QoS pods (where requests equal limits) or when you want limits to track recommendations. `RequestsOnly` can still change QoS when a live limit already equals the new request. That resize is skipped. |
 
 ### Allow Decrease
 

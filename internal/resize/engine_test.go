@@ -423,7 +423,7 @@ func TestPreservesQoS(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := PreservesQoS(tt.pod, tt.container, tt.target)
+			got := PreservesQoS(tt.pod, tt.container, tt.target, QoSPlan{})
 			assert.Equal(t, tt.want, got)
 		})
 	}

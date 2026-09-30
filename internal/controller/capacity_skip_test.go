@@ -544,6 +544,7 @@ func TestExecuteResizes_UsageFloorUsesLiveLimitNotStaleInformer(t *testing.T) {
 	require.NoError(t, err)
 	live.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory] = mem2Gi
 	live.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory] = mem2Gi
+	live.Status.QOSClass = corev1.PodQOSGuaranteed
 
 	deploy := newTestDeployment(appName, policyNS, map[string]string{"app": appName})
 	reconciler, _ := newResizeReconciler(listed, deploy)

@@ -223,7 +223,7 @@ func TestResizeContainer_InfeasibleLiveRecheckAfterStaleCache(t *testing.T) {
 func TestResizeContainer_StaleInfeasibleClearedOnLiveGet(t *testing.T) {
 	// Listed/informer pod is still Infeasible; live Get has cleared it.
 	// Inverse of InfeasibleLiveRecheckAfterStaleCache: stay in-place.
-	listed := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	listed := newResizePod("api-server", "200m", "256Mi", "200m", "512Mi")
 	listed.Name = "api-server-abc-1"
 	listed.Status.Conditions = append(listed.Status.Conditions, corev1.PodCondition{
 		Type:   "PodResizePending",
@@ -232,7 +232,7 @@ func TestResizeContainer_StaleInfeasibleClearedOnLiveGet(t *testing.T) {
 	})
 	live := listed.DeepCopy()
 	live.Status.Conditions = nil
-	peer := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	peer := newResizePod("api-server", "200m", "256Mi", "200m", "512Mi")
 	peer.Name = "api-server-abc-2"
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 
@@ -445,7 +445,7 @@ func TestResizeContainer_FailedRevertStaysInPlace(t *testing.T) {
 	// Annotation persist fails after UpdateResize, then RevertPod fails.
 	// The higher requests stay on the pod, so the outcome must be in-place.
 	// resizeOutcomeNone would refund the cycle budget.
-	pod := newResizePod("api-server", "200m", "256Mi", "500m", "256Mi")
+	pod := newResizePod("api-server", "200m", "256Mi", "500m", "512Mi")
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).Build()

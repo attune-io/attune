@@ -88,8 +88,10 @@ then polls the container status until the new resources are reported or an
 `Infeasible` condition appears.
 
 !!! note "QoS class preservation"
-    The operator refuses a resize if it would change the pod's QoS class.
-    For Guaranteed pods, requests must always equal limits.
+    The operator skips a resize that would change the pod's QoS class,
+    including Burstable to Guaranteed and BestEffort to Burstable.
+    The skip happens before `UpdateResize`, so the pod is not evicted.
+    For Guaranteed pods, requests must stay equal to limits.
 
 ## Safety system
 

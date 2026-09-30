@@ -1830,8 +1830,17 @@ func (r *AttunePolicyReconciler) shouldSkipResize(
 	}
 
 	// QoS class change. Callers emit the user-visible event from the reason.
-	if !resize.PreservesQoS(pod, containerRec.Name, target) {
-		return true, "would change QoS class from Guaranteed. Use controlledValues: RequestsAndLimits, or on K8s v1.33 set resizePolicy to RestartContainer for memory"
+	// A Burstable or BestEffort change must not suggest RequestsAndLimits:
+	// that is how those charts become the other class.
+	from, to := resize.QoSClasses(pod, containerRec.Name, target, resize.QoSPlan{
+		AllowInPlaceMemoryLimitDecrease: r.AllowInPlaceMemoryLimitDecrease,
+		InPlacePodLevelResources:        r.inPlacePodLevelResources(),
+	})
+	if from != to {
+		if from == corev1.PodQOSGuaranteed {
+			return true, "would change QoS class from Guaranteed. Use controlledValues: RequestsAndLimits, or on K8s v1.33 set resizePolicy to RestartContainer for memory"
+		}
+		return true, "would change QoS class from " + string(from) + " to " + string(to)
 	}
 
 	return false, ""
