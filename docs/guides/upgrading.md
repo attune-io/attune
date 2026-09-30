@@ -10,6 +10,23 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### HPA auto-tune keeps the stored CPU base
+
+An HPA that Attune has already tuned keeps its stored CPU base, including
+a partial sum written before this fix. A later resize does not replace
+that base with the full pod total.
+
+To store the full pod base, delete these annotations and leave
+`attune.io/auto-tune` in place:
+
+- `attune.io/original-target-cpu`
+- `attune.io/original-cpu-request`
+- any `attune.io/hpa-cpu-target.*` key
+- any `attune.io/hpa-cpu-base.*` key
+
+The next successful CPU resize stores the full base. Deleting the keys is
+required. The next resize does not repair an old annotation by itself.
+
 ### Omitted maxAllowed is not capped
 
 Policies and AttuneDefaults objects that omitted `maxAllowed` were held

@@ -57,11 +57,26 @@ preserve the same absolute CPU threshold:
 newTarget = originalTarget * (originalRequest / newRequest)
 ```
 
-The first adjustment stores the original utilization percent on the HPA as
-`attune.io/original-target-cpu` and the original CPU request as
-`attune.io/original-cpu-request`. Later resizes reuse those values so the
-absolute threshold does not drift. For example, `200m` at 80% (160m
-absolute) becomes 40% at `400m`, then 20% at `800m`, not 40% again.
+A pod-level `Resource` metric uses the pod CPU total. The resized container
+contributes the applied CPU (`To` on the successful in-place history row),
+not the live request and not the recommendation. A container with no
+successful in-place CPU row contributes its live CPU request on both sides.
+For example, the app container goes from `400m` to `200m` and a sidecar
+stays at `200m`. The pod total goes from `600m` to `400m`, and a target of
+80 becomes 120 (`80 * 600 / 400`), not 160 from the app alone.
+
+The first `Resource` adjustment stores the original utilization percent as
+`attune.io/original-target-cpu` and the original pod CPU request as
+`attune.io/original-cpu-request` (`600m` in that example). Later resizes
+reuse those stored values so the absolute threshold does not drift. A
+single-container workload at `200m` and 80% (160m absolute) becomes 40% at
+`400m`, then 20% at `800m`, not 40% again.
+
+A `ContainerResource` metric uses only the named container. The first
+adjustment stores that container's original percent as
+`attune.io/hpa-cpu-target.<container>` and that container's original CPU
+request as `attune.io/hpa-cpu-base.<container>`. Those keys are separate
+from the pod-total keys. An unchanged container's metric is left alone.
 
 The upper cap on this target depends on the pod's QoS class:
 

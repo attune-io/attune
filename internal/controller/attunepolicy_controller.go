@@ -81,10 +81,14 @@ const (
 	annotationOriginalMemoryLimitPrefix  = "attune.io/original-memory-limit."
 	annotationOriginalRestartCountPrefix = "attune.io/original-restart-count."
 
-	// HPA auto-tune annotations.
+	// HPA auto-tune annotations. Pod-total Resource metrics use the bare keys.
+	// ContainerResource metrics use the per-container keys, which are not
+	// prefixes of the bare keys (and the bare keys are not prefixes of them).
 	annotationHPAAutoTune           = "attune.io/auto-tune"
 	annotationHPAOriginalCPU        = "attune.io/original-target-cpu"
 	annotationHPAOriginalCPURequest = "attune.io/original-cpu-request"
+	annotationHPACPUTargetPrefix    = "attune.io/hpa-cpu-target."
+	annotationHPACPUBasePrefix      = "attune.io/hpa-cpu-base."
 
 	// Startup boost annotation.
 	annotationStartupBoostAt = "attune.io/startup-boost-at"
