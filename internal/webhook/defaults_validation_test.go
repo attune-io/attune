@@ -1271,6 +1271,28 @@ func TestDefaultsValidator_ProviderFieldConstraints(t *testing.T) {
 			wantErr: "metricsSource.cloudwatch.roleArn",
 		},
 		{
+			name: "cloudwatch cpuUnit CoresPerHour",
+			ms: &attunev1alpha1.MetricsSource{
+				CloudWatch: &attunev1alpha1.CloudWatchConfig{
+					Region:      "us-east-1",
+					ClusterName: "prod",
+					CPUUnit:     "CoresPerHour",
+				},
+			},
+			wantErr: "metricsSource.cloudwatch.cpuUnit",
+		},
+		{
+			name: "cloudwatch cpuUnit millicores",
+			ms: &attunev1alpha1.MetricsSource{
+				CloudWatch: &attunev1alpha1.CloudWatchConfig{
+					Region:      "us-east-1",
+					ClusterName: "prod",
+					CPUUnit:     "millicores",
+				},
+			},
+			wantErr: "metricsSource.cloudwatch.cpuUnit",
+		},
+		{
 			name:    "vpa missing name",
 			ms:      &attunev1alpha1.MetricsSource{VPA: &attunev1alpha1.VPAConfig{}},
 			wantErr: "metricsSource.vpa.name is required",
@@ -1330,6 +1352,24 @@ func TestDefaultsValidator_ValidSingleProviders(t *testing.T) {
 			name: "cloudwatch",
 			ms: &attunev1alpha1.MetricsSource{
 				CloudWatch: &attunev1alpha1.CloudWatchConfig{Region: "eu-west-1", ClusterName: "prod"},
+			},
+		},
+		{
+			name: "cloudwatch cpuUnit Millicores",
+			ms: &attunev1alpha1.MetricsSource{
+				CloudWatch: &attunev1alpha1.CloudWatchConfig{Region: "eu-west-1", ClusterName: "prod", CPUUnit: "Millicores"},
+			},
+		},
+		{
+			name: "cloudwatch cpuUnit Cores",
+			ms: &attunev1alpha1.MetricsSource{
+				CloudWatch: &attunev1alpha1.CloudWatchConfig{Region: "eu-west-1", ClusterName: "prod", CPUUnit: "Cores"},
+			},
+		},
+		{
+			name: "cloudwatch cpuUnit Nanocores",
+			ms: &attunev1alpha1.MetricsSource{
+				CloudWatch: &attunev1alpha1.CloudWatchConfig{Region: "eu-west-1", ClusterName: "prod", CPUUnit: "Nanocores"},
 			},
 		},
 		{

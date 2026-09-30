@@ -1320,6 +1320,14 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 		(metricsDefaults.Prometheus != nil || metricsDefaults.Datadog != nil ||
 			metricsDefaults.CloudWatch != nil || metricsDefaults.VPA != nil)
 	printEffectiveField("Metrics source", providerConfigured, providerEffective, selected, providerInherited)
+	if cw := effective.Spec.MetricsSource.CloudWatch; cw != nil {
+		unit := cw.CPUUnit
+		if unit == "" {
+			unit = attunev1alpha1.DefaultCloudWatchCPUUnit
+		}
+		cpuUnitInherited := providerConfigured == unsetValue && metricsDefaults != nil && metricsDefaults.CloudWatch != nil
+		printEffectiveField("CloudWatch CPU unit", getNestedString(item, "spec", "metricsSource", "cloudwatch", "cpuUnit"), unit, selected, cpuUnitInherited)
+	}
 	printEffectiveField("Minimum data points", formatInt64Ptr(rawInt64Field(item, "spec", "metricsSource", "minimumDataPoints")), formatInt32Ptr(effective.Spec.MetricsSource.MinimumDataPoints), selected, metricsDefaults != nil && metricsDefaults.MinimumDataPoints != nil)
 	printEffectiveField("Paused", formatBoolField(item, "spec", "paused"), formatBoolPtr(effective.Spec.Paused), selected, false)
 	printEffectiveField("Weight", formatInt64Field(item, "spec", "weight"), formatInt32Val(effective.Spec.Weight), selected, false)

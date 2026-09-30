@@ -606,6 +606,7 @@ func TestResolveCloudWatchCollector_CreatesCollector(t *testing.T) {
 	cwQB, ok := qb.(*rsmetrics.CloudWatchQueryBuilder)
 	require.True(t, ok, "should return CloudWatchQueryBuilder")
 	assert.Equal(t, "test-cluster", cwQB.ClusterName)
+	assert.Empty(t, cwQB.CPUUnit)
 }
 
 func TestResolveCloudWatchCollector_QueryBuilder(t *testing.T) {
@@ -636,6 +637,59 @@ func TestResolveCloudWatchCollector_QueryBuilder(t *testing.T) {
 	cwQB, ok := qb.(*rsmetrics.CloudWatchQueryBuilder)
 	require.True(t, ok, "should return CloudWatchQueryBuilder")
 	assert.Equal(t, "prod-cluster", cwQB.ClusterName, "ClusterName should match policy")
+	assert.Empty(t, cwQB.CPUUnit)
+}
+
+func TestBuildCloudWatchQueryBuilder(t *testing.T) {
+	qb := cloudWatchQueryBuilder(&attunev1alpha1.CloudWatchConfig{
+		Region:      "us-east-1",
+		ClusterName: "prod",
+		RoleARN:     "arn:aws:iam::123456789012:role/x",
+		CPUUnit:     "Cores",
+	})
+	require.NotNil(t, qb)
+	assert.Equal(t, "prod", qb.ClusterName)
+	assert.Equal(t, "Cores", qb.CPUUnit)
+
+	omitted := cloudWatchQueryBuilder(&attunev1alpha1.CloudWatchConfig{ClusterName: "prod"})
+	assert.Equal(t, "prod", omitted.ClusterName)
+	assert.Empty(t, omitted.CPUUnit)
+	assert.Empty(t, cloudWatchQueryBuilder(nil).ClusterName)
+}
+
+func TestResolveCloudWatchCollector_CPUUnitNotInCacheKey(t *testing.T) {
+	reconciler := newReconcilerWithClient()
+	mc := &mockCollector{}
+	reconciler.collectors.Store("cloudwatch:us-east-1|cluster|", &collectorEntry{collector: mc, lastUsed: time.Now()})
+
+	policyFor := func(name, unit string) *attunev1alpha1.AttunePolicy {
+		return &attunev1alpha1.AttunePolicy{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+			Spec: attunev1alpha1.AttunePolicySpec{
+				MetricsSource: attunev1alpha1.MetricsSource{
+					CloudWatch: &attunev1alpha1.CloudWatchConfig{
+						Region:      "us-east-1",
+						ClusterName: "cluster",
+						CPUUnit:     unit,
+					},
+				},
+			},
+		}
+	}
+
+	c1, qb1, err1 := reconciler.resolveCloudWatchCollector(context.Background(), policyFor("p1", "Millicores"))
+	require.NoError(t, err1)
+	c2, qb2, err2 := reconciler.resolveCloudWatchCollector(context.Background(), policyFor("p2", "Nanocores"))
+	require.NoError(t, err2)
+	assert.Same(t, mc, c1)
+	assert.Same(t, mc, c2)
+	cw1, ok := qb1.(*rsmetrics.CloudWatchQueryBuilder)
+	require.True(t, ok)
+	cw2, ok := qb2.(*rsmetrics.CloudWatchQueryBuilder)
+	require.True(t, ok)
+	assert.Equal(t, "Millicores", cw1.CPUUnit)
+	assert.Equal(t, "Nanocores", cw2.CPUUnit)
+	assert.Equal(t, "cluster", cw1.ClusterName)
 }
 
 func TestResolveCloudWatchCollector_CacheKeyIncludesRoleARN(t *testing.T) {

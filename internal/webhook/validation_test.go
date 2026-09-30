@@ -1408,6 +1408,40 @@ func TestValidate_CloudWatchHostileRoleARN(t *testing.T) {
 	assert.Contains(t, err.Error(), "roleArn")
 }
 
+func TestValidate_CloudWatchCPUUnit(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	tests := []struct {
+		name    string
+		unit    string
+		wantErr bool
+	}{
+		{name: "omitted", unit: "", wantErr: false},
+		{name: "Millicores", unit: attunev1alpha1.DefaultCloudWatchCPUUnit, wantErr: false},
+		{name: "Cores", unit: "Cores", wantErr: false},
+		{name: "Nanocores", unit: "Nanocores", wantErr: false},
+		{name: "empty is omitted", unit: "", wantErr: false},
+		{name: "millicores", unit: "millicores", wantErr: true},
+		{name: "CoresPerHour", unit: "CoresPerHour", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			policy := validPolicy()
+			policy.Spec.MetricsSource.CloudWatch = &attunev1alpha1.CloudWatchConfig{
+				Region:      "us-east-1",
+				ClusterName: "my-eks-cluster",
+				CPUUnit:     tt.unit,
+			}
+			_, err := validator.ValidateCreate(context.Background(), policy)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "metricsSource.cloudwatch.cpuUnit")
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestValidate_CloudWatchValidRoleARN(t *testing.T) {
 	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
