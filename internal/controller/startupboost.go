@@ -147,8 +147,9 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 		recMap := make(map[string]startupBoostCPU, len(rec.Containers))
 		for _, c := range rec.Containers {
 			recMap[c.Name] = startupBoostCPU{
-				request: c.Recommended.CPURequest,
-				dest:    c.Recommended.CPULimit,
+				request:     c.Recommended.CPURequest,
+				dest:        c.Recommended.CPULimit,
+				memoryLimit: c.Recommended.MemoryLimit,
 			}
 		}
 
@@ -236,8 +237,11 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 						boostTarget.Limits = corev1.ResourceList{
 							corev1.ResourceCPU: boostDest.DeepCopy(),
 						}
-						// PreservesQoS on Guaranteed requires memory dest too.
-						if memLim, ok := c.Resources.Limits[corev1.ResourceMemory]; ok {
+						// PreservesQoS on Guaranteed needs a memory limit on
+						// this hand-built target. podsByWorkload is from
+						// before executeResizes, so the live limit can still
+						// be the pre-multiplier value.
+						if memLim, ok := boostMemoryLimit(policy.Spec.Memory.ControlledValues, c.Resources.Limits, recCPU.memoryLimit); ok {
 							boostRec.Recommended.MemoryLimit = memLim.DeepCopy()
 							boostTarget.Limits[corev1.ResourceMemory] = memLim.DeepCopy()
 						}
@@ -360,7 +364,7 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 							expireTarget.Limits = corev1.ResourceList{
 								corev1.ResourceCPU: recCPU.dest.DeepCopy(),
 							}
-							if memLim, ok := c.Resources.Limits[corev1.ResourceMemory]; ok {
+							if memLim, ok := boostMemoryLimit(policy.Spec.Memory.ControlledValues, c.Resources.Limits, recCPU.memoryLimit); ok {
 								expireRec.Recommended.MemoryLimit = memLim.DeepCopy()
 								expireTarget.Limits[corev1.ResourceMemory] = memLim.DeepCopy()
 							}
@@ -456,10 +460,27 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 	}
 }
 
-// startupBoostCPU is the rec request and dest used to dest-cap a live boost.
+// startupBoostCPU is the steady recommendation used while a boost window
+// is open. memoryLimit is already scaled when memory is RequestsAndLimits.
 type startupBoostCPU struct {
-	request resource.Quantity
-	dest    resource.Quantity
+	request     resource.Quantity
+	dest        resource.Quantity
+	memoryLimit resource.Quantity
+}
+
+// boostMemoryLimit chooses the memory limit copied onto a boost or expiry
+// target. The pod list predates executeResizes, so the live limit can be
+// the pre-multiplier value. Use the recommendation when memory is
+// RequestsAndLimits and that limit is already set. Otherwise keep the
+// live limit so the QoS check still sees one.
+func boostMemoryLimit(memoryCV *string, live corev1.ResourceList, recommended resource.Quantity) (resource.Quantity, bool) {
+	if memoryCV != nil && *memoryCV == attunev1alpha1.ControlledRequestsAndLimits && !recommended.IsZero() {
+		return recommended.DeepCopy(), true
+	}
+	if memLim, ok := live[corev1.ResourceMemory]; ok {
+		return memLim.DeepCopy(), true
+	}
+	return resource.Quantity{}, false
 }
 
 // boostResizeAndRefetch resizes a single container to target (CPU request,

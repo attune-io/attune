@@ -908,6 +908,7 @@ func TestValidate_LimitMultiplier(t *testing.T) {
 		{name: "fraction", cv: &both, value: limitMultPtr("1.5")},
 		{name: "ceiling", cv: &both, value: limitMultPtr("100")},
 		{name: "above ceiling", cv: &both, value: limitMultPtr("101"), wantErr: "must be <= 100"},
+		{name: "below one", cv: &both, value: limitMultPtr("0.5"), wantErr: "must be >= 1"},
 		{name: "zero", cv: &both, value: limitMultPtr("0"), wantErr: "must be positive"},
 		{name: "negative", cv: &both, value: limitMultPtr("-1"), wantErr: "must be positive"},
 		{name: "NaN", cv: &both, value: limitMultPtr("NaN"), wantErr: "must be a finite number"},

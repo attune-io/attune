@@ -148,12 +148,16 @@ func TestLimitMultiplierRatio(t *testing.T) {
 	assert.Nil(t, limitMultiplierRatio(nil))
 	empty := ""
 	assert.Nil(t, limitMultiplierRatio(&empty))
-	for _, raw := range []string{"NaN", "Inf", "+Inf", "-Inf", "0", "-1", "101", "nope"} {
+	for _, raw := range []string{"NaN", "Inf", "+Inf", "-Inf", "0", "-1", "0.5", "101", "nope"} {
 		v := raw
 		assert.Nil(t, limitMultiplierRatio(&v), raw)
 	}
+	one := "1"
+	got := limitMultiplierRatio(&one)
+	require.NotNil(t, got)
+	assert.InDelta(t, 1, *got, 0.0001)
 	two := "2"
-	got := limitMultiplierRatio(&two)
+	got = limitMultiplierRatio(&two)
 	require.NotNil(t, got)
 	assert.InDelta(t, 2, *got, 0.0001)
 	hundred := "100"
@@ -189,6 +193,23 @@ func TestScaleLimits_ExplicitMultiplierDoesNotInventZeroLimit(t *testing.T) {
 
 	got = scaleLimits(resource.Quantity{}, parseQty(t, "500m"), parseQty(t, "250m"), &two)
 	assert.True(t, got.IsZero(), "zero current request must not invent a limit, got %s", got.String())
+}
+
+func TestScaleControlledLimits_BelowOneKeepsLiveRatio(t *testing.T) {
+	t.Parallel()
+	policy := requestsAndLimitsPolicy("api")
+	half := "0.5"
+	policy.Spec.CPU.LimitMultiplier = &half
+	policy.Spec.Memory.LimitMultiplier = &half
+	// Live CPU ratio is 2 (200m/400m). A 0.5 multiple would set the limit
+	// to 100m, and ClampRequestsToLimits would then lower the request.
+	c := scaledContainerRec(t, policy, "200m", "400m", "256Mi", "512Mi", "200m", "256Mi")
+	assert.True(t, c.Recommended.CPURequest.Equal(parseQty(t, "200m")))
+	assert.True(t, c.Recommended.CPULimit.Equal(parseQty(t, "400m")),
+		"below 1 must keep the live CPU ratio, got %s", c.Recommended.CPULimit.String())
+	assert.True(t, c.Recommended.MemoryRequest.Equal(parseQty(t, "256Mi")))
+	assert.True(t, c.Recommended.MemoryLimit.Equal(parseQty(t, "512Mi")),
+		"below 1 must keep the live memory ratio, got %s", c.Recommended.MemoryLimit.String())
 }
 
 func TestScaleControlledLimits_ExplicitTwo(t *testing.T) {

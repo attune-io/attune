@@ -2470,3 +2470,139 @@ func TestApplyStartupBoosts_LimitMultiplierIsNotAppliedToBoostedRequest(t *testi
 		})
 	}
 }
+
+func TestApplyStartupBoosts_KeepsMultipliedMemoryLimit(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 5, 0, 0, time.UTC)
+	tests := []struct {
+		name    string
+		expired bool
+		liveCPU string
+		liveLim string
+		wantCPU string
+		wantLim string
+	}{
+		{
+			name:    "in window",
+			liveCPU: "100m",
+			liveLim: "400m",
+			wantCPU: "500m",
+			wantLim: "1000m",
+		},
+		{
+			name:    "expiry",
+			expired: true,
+			liveCPU: "500m",
+			liveLim: "1000m",
+			wantCPU: "250m",
+			wantLim: "1000m",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scheme := testScheme()
+			both := attunev1alpha1.ControlledRequestsAndLimits
+			cpuMult := "4"
+			memMult := "2"
+			policy := &attunev1alpha1.AttunePolicy{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+				Spec: attunev1alpha1.AttunePolicySpec{
+					CPU: attunev1alpha1.ResourceConfig{
+						ControlledValues: &both,
+						LimitMultiplier:  &cpuMult,
+						StartupBoost: &attunev1alpha1.StartupBoost{
+							Multiplier: "2.0",
+							Duration:   metav1.Duration{Duration: 2 * time.Minute},
+						},
+					},
+					Memory: attunev1alpha1.ResourceConfig{
+						ControlledValues: &both,
+						LimitMultiplier:  &memMult,
+					},
+				},
+			}
+			memReq, err := resource.ParseQuantity("128Mi")
+			require.NoError(t, err)
+			staleMemLim, err := resource.ParseQuantity("128Mi")
+			require.NoError(t, err)
+			appliedMemLim, err := resource.ParseQuantity("256Mi")
+			require.NoError(t, err)
+			liveCPU, err := resource.ParseQuantity(tt.liveCPU)
+			require.NoError(t, err)
+			liveLim, err := resource.ParseQuantity(tt.liveLim)
+			require.NoError(t, err)
+
+			// Snapshot is the pod list from before executeResizes. The
+			// clientset pod is what that resize already wrote: same memory
+			// request, limit already request * 2.
+			snapshot := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "boost-app-abc",
+					Namespace:         "default",
+					CreationTimestamp: metav1.NewTime(now.Add(-30 * time.Second)),
+				},
+				Status: corev1.PodStatus{Phase: corev1.PodRunning, QOSClass: corev1.PodQOSBurstable},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name: "main",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    liveCPU,
+								corev1.ResourceMemory: memReq,
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    liveLim,
+								corev1.ResourceMemory: staleMemLim,
+							},
+						},
+					}},
+				},
+			}
+			if tt.expired {
+				boostAt := now.Add(-3 * time.Minute)
+				snapshot.CreationTimestamp = metav1.NewTime(boostAt)
+				snapshot.Annotations = map[string]string{
+					annotationStartupBoostAt: boostAt.UTC().Format(time.RFC3339),
+				}
+			}
+			apiPod := snapshot.DeepCopy()
+			apiPod.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory] = appliedMemLim
+
+			clientset := kubefake.NewSimpleClientset(apiPod)
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(apiPod).Build()
+			r := NewAttunePolicyReconciler()
+			r.Client = fakeClient
+			r.Scheme = scheme
+			r.Clientset = clientset
+			r.SetNowFunc(func() time.Time { return now })
+			resizer := resize.NewPodResizer(clientset, ctrl.Log)
+			// 1.35+ allows a memory limit decrease, so a stale lower limit
+			// on the boost target would replace the limit just applied.
+			resizer.AllowInPlaceMemoryLimitDecrease = true
+			recs := []attunev1alpha1.WorkloadRecommendation{{
+				Workload: "boost-app",
+				Kind:     "Deployment",
+				Containers: []attunev1alpha1.ContainerRecommendation{{
+					Name: "main",
+					Recommended: attunev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("250m"),
+						CPULimit:      resource.MustParse("1000m"),
+						MemoryRequest: memReq.DeepCopy(),
+						MemoryLimit:   appliedMemLim.DeepCopy(),
+					},
+				}},
+			}}
+			r.applyStartupBoosts(context.Background(), policy, map[string][]corev1.Pod{"boost-app": {*snapshot}}, recs, resizer, nil)
+
+			got, getErr := clientset.CoreV1().Pods(snapshot.Namespace).Get(context.Background(), snapshot.Name, metav1.GetOptions{})
+			require.NoError(t, getErr)
+			gotCPU := got.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+			gotCPULim := got.Spec.Containers[0].Resources.Limits[corev1.ResourceCPU]
+			gotMem := got.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory]
+			gotMemLim := got.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory]
+			assert.True(t, gotCPU.Equal(resource.MustParse(tt.wantCPU)), "CPU request got %s want %s", gotCPU.String(), tt.wantCPU)
+			assert.True(t, gotCPULim.Equal(resource.MustParse(tt.wantLim)), "CPU limit got %s want %s", gotCPULim.String(), tt.wantLim)
+			assert.True(t, gotMem.Equal(memReq), "memory request got %s want 128Mi", gotMem.String())
+			assert.True(t, gotMemLim.Equal(appliedMemLim), "memory limit got %s want 256Mi", gotMemLim.String())
+		})
+	}
+}

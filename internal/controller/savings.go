@@ -193,13 +193,14 @@ func scaleLimits(currentReq, currentLim, newReq resource.Quantity, multiplier *f
 
 // limitMultiplierRatio parses an explicit limitMultiplier. Nil means omitted,
 // which keeps the live ratio. Invalid values also return nil so a bypassed
-// webhook cannot publish a multiple above MaxLimitMultiplier.
+// webhook cannot publish a multiple below 1 or above MaxLimitMultiplier.
+// A multiple below 1 would make the limit smaller than the request.
 func limitMultiplierRatio(raw *string) *float64 {
 	if raw == nil || *raw == "" {
 		return nil
 	}
 	v, err := strconv.ParseFloat(*raw, 64)
-	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v <= 0 || v > float64(attunev1alpha1.MaxLimitMultiplier) {
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 1 || v > float64(attunev1alpha1.MaxLimitMultiplier) {
 		return nil
 	}
 	return &v

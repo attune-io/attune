@@ -449,6 +449,11 @@ func validateLimitMultiplier(prefix string, rc *attunev1alpha1.ResourceConfig) e
 	if v <= 0 {
 		return fmt.Errorf("%s must be positive, got %s", field, *rc.LimitMultiplier)
 	}
+	// Kubernetes cannot store a request above its limit. A multiple in
+	// (0, 1) would make ClampRequestsToLimits lower the request.
+	if v < 1 {
+		return fmt.Errorf("%s must be >= 1, got %s", field, *rc.LimitMultiplier)
+	}
 	if v > float64(attunev1alpha1.MaxLimitMultiplier) {
 		return fmt.Errorf("%s must be <= %d, got %s", field, attunev1alpha1.MaxLimitMultiplier, *rc.LimitMultiplier)
 	}

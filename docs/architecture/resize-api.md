@@ -42,7 +42,8 @@ The engine writes the request first. `maxAllowed` caps that request, not
 the limit. When `controlledValues` is `RequestsAndLimits`,
 `scaleControlledLimits` then derives the CPU and memory limits from the
 new request. An omitted `limitMultiplier` keeps the live request-to-limit
-ratio. An explicit multiplier replaces that ratio. `applyLiveResizeTarget`
+ratio. An explicit multiplier replaces that ratio. A value below 1 is
+rejected, because a limit cannot be smaller than its request. `applyLiveResizeTarget`
 runs next: platform memory clamp, usage floor, and, on an already
 Guaranteed pod, a raise of the memory request up to the memory limit. That
 applied memory request can exceed `maxAllowed`. The resize path does not
