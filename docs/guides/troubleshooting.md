@@ -325,19 +325,20 @@ annotation.
 
 **Cause**: The mutating webhook only patches CREATE when every gate passes.
 A selector policy also has to fetch the owning Deployment, StatefulSet,
-DaemonSet, Job, or CronJob and match `targetRef.selector`. CronJob pods
-are owned by a Job; CREATE walks that Job to the CronJob. Get or parse
-errors skip the pod (the CREATE is still allowed). A stale recommendation
-also skips initial sizing (last-known values stay in status, but CREATE
-is not patched).
+DaemonSet, ReplicaSet, Job, or CronJob and match `targetRef.selector`.
+A Deployment-owned ReplicaSet is resolved to the Deployment and is not
+a ReplicaSet target. CronJob pods are owned by a Job; CREATE walks that
+Job to the CronJob. Get or parse errors skip the pod (the CREATE is
+still allowed). A stale recommendation also skips initial sizing
+(last-known values stay in status, but CREATE is not patched).
 
 **Fix**:
 
 1. Confirm the Helm/operator value `initialSizing.enabled` is true and the
    namespace has label `attune.io/initial-sizing=enabled`.
 2. Confirm `updateStrategy.initialSizing: true`. Auto, OneShot, and Canary
-   apply CREATE for any owner. Recommend is valid for Job and CronJob
-   CREATE. Observe skips CREATE for every owner.
+   apply CREATE for any owner. Recommend applies CREATE only for Job and
+   CronJob. Observe skips CREATE for every owner.
 3. If `targetRef.selector` is set, confirm the owner object exists and its
    labels match. An empty selector matches nothing.
 4. On Canary, CREATE sizing waits until that app is promoted, or the

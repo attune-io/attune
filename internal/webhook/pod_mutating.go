@@ -414,6 +414,8 @@ func getWorkloadObject(ctx context.Context, c client.Client, namespace, kind, na
 		obj = &appsv1.StatefulSet{}
 	case "DaemonSet":
 		obj = &appsv1.DaemonSet{}
+	case "ReplicaSet":
+		obj = &appsv1.ReplicaSet{}
 	case "CronJob":
 		obj = &batchv1.CronJob{}
 	case "Job":

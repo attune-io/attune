@@ -263,12 +263,27 @@ func TestGetWorkloadObject(t *testing.T) {
 		assert.Equal(t, "agent", obj.GetLabels()["app"])
 	})
 
+	t.Run("ReplicaSet", func(t *testing.T) {
+		t.Parallel()
+		rs := &appsv1.ReplicaSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "my-rs", Namespace: "default",
+				Labels: map[string]string{"app": "api"},
+			},
+		}
+		cl := admissionClientBuilder().WithObjects(rs).Build()
+		obj, err := getWorkloadObject(ctx, cl, "default", "ReplicaSet", "my-rs")
+		require.NoError(t, err)
+		assert.Equal(t, "my-rs", obj.GetName())
+		assert.Equal(t, "api", obj.GetLabels()["app"])
+	})
+
 	t.Run("unsupported kind", func(t *testing.T) {
 		t.Parallel()
 		cl := admissionClientBuilder().Build()
-		_, err := getWorkloadObject(ctx, cl, "default", "ReplicaSet", "my-rs")
+		_, err := getWorkloadObject(ctx, cl, "default", "ReplicationController", "my-rc")
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), `unsupported workload kind "ReplicaSet"`)
+		assert.Contains(t, err.Error(), `unsupported workload kind "ReplicationController"`)
 	})
 
 	t.Run("missing object", func(t *testing.T) {
@@ -2093,4 +2108,133 @@ func TestHasMinConfidence(t *testing.T) {
 			assert.Equal(t, tt.expected, hasMinConfidence(tt.containers, tt.minConf))
 		})
 	}
+}
+
+func TestPodMutatingHandler_ReplicaSetSelectorMatches(t *testing.T) {
+	rs := &appsv1.ReplicaSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "api-rs",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "api"},
+		},
+	}
+	policy := testPolicy("rs-policy", "default", "ReplicaSet", "api-rs", true, attunev1alpha1.UpdateTypeAuto)
+	policy.Spec.TargetRef.Name = nil
+	policy.Spec.TargetRef.Selector = &metav1.LabelSelector{
+		MatchLabels: map[string]string{"app": "api"},
+	}
+	require.Nil(t, policy.Spec.TargetRef.Name)
+	assert.Equal(t, "ReplicaSet", policy.Status.Recommendations[0].Kind)
+	assert.Equal(t, "api-rs", policy.Status.Recommendations[0].Workload)
+
+	pod := testPod("api-rs-pod", "ReplicaSet", "api-rs")
+	cl := admissionClientBuilder().WithObjects(policy, rs, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	req := makeAdmissionRequest(t, pod, "default")
+	resp := handler.Handle(context.Background(), req)
+
+	require.True(t, resp.Allowed, "expected pod to be allowed")
+	require.NotEmpty(t, resp.Patches, "expected one patch response")
+
+	mutatedPod := patchedPod(t, req.Object.Raw, resp)
+	assert.Equal(t, resource.MustParse("500m"), mutatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU])
+	assert.Equal(t, "applied", mutatedPod.Annotations[AnnotationInitialSizing])
+	assert.Equal(t, "default/rs-policy", mutatedPod.Annotations[AnnotationInitialSizingPolicy])
+}
+
+func TestPodMutatingHandler_ReplicaSetSelectorMiss(t *testing.T) {
+	rs := &appsv1.ReplicaSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "api-rs",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "other"},
+		},
+	}
+	policy := testPolicy("rs-policy", "default", "ReplicaSet", "api-rs", true, attunev1alpha1.UpdateTypeAuto)
+	policy.Spec.TargetRef.Name = nil
+	policy.Spec.TargetRef.Selector = &metav1.LabelSelector{
+		MatchLabels: map[string]string{"app": "api"},
+	}
+	pod := testPod("api-rs-pod", "ReplicaSet", "api-rs")
+	cl := admissionClientBuilder().WithObjects(policy, rs, testNamespace("default", nil)).Build()
+	var logged string
+	handler := &PodMutatingHandler{
+		Client: cl,
+		Logger: funcr.NewJSON(func(obj string) { logged += obj }, funcr.Options{Verbosity: 1}),
+	}
+
+	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
+	require.True(t, resp.Allowed)
+	assert.Nil(t, resp.Patches)
+	assert.NotContains(t, logged, "fetching workload for initial-sizing selector")
+	assert.NotContains(t, logged, `"level":"error"`)
+}
+
+func TestPodMutatingHandler_DeploymentWinsOverReplicaSetPolicy(t *testing.T) {
+	// The child ReplicaSet matches the higher-weight ReplicaSet selector.
+	// CREATE still applies the Deployment policy because a Deployment
+	// ownerReference is resolved before policies are listed.
+	deployPolicy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	rsPolicy := testPolicy("rs-policy", "default", "ReplicaSet", "my-app-abc", true, attunev1alpha1.UpdateTypeAuto)
+	rsPolicy.Spec.Weight = 1000
+	rsPolicy.Spec.TargetRef.Name = nil
+	rsPolicy.Spec.TargetRef.Selector = &metav1.LabelSelector{
+		MatchLabels: map[string]string{"app": "my-app"},
+	}
+	cpu, err := resource.ParseQuantity("999m")
+	require.NoError(t, err)
+	rsPolicy.Status.Recommendations[0].Containers[0].Recommended.CPURequest = cpu
+	rs := &appsv1.ReplicaSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-app-abc",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "my-app"},
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: "apps/v1",
+				Kind:       "Deployment",
+				Name:       "my-app",
+			}},
+		},
+	}
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+
+	cl := admissionClientBuilder().WithObjects(deployPolicy, rsPolicy, rs, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	req := makeAdmissionRequest(t, pod, "default")
+	resp := handler.Handle(context.Background(), req)
+
+	require.True(t, resp.Allowed, "expected pod to be allowed")
+	require.NotEmpty(t, resp.Patches, "expected patches")
+
+	mutatedPod := patchedPod(t, req.Object.Raw, resp)
+	assert.Equal(t, resource.MustParse("500m"), mutatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU])
+	assert.Equal(t, resource.MustParse("256Mi"), mutatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory])
+	assert.Equal(t, "applied", mutatedPod.Annotations[AnnotationInitialSizing])
+	assert.Equal(t, "default/my-policy", mutatedPod.Annotations[AnnotationInitialSizingPolicy])
+}
+
+func TestPodMutatingHandler_ReplicaSetRecommendSkips(t *testing.T) {
+	rs := &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{Name: "api-rs", Namespace: "default"}}
+	policy := testPolicy("rs-policy", "default", "ReplicaSet", "api-rs", true, attunev1alpha1.UpdateTypeRecommend)
+	pod := testPod("api-rs-pod", "ReplicaSet", "api-rs")
+	cl := admissionClientBuilder().WithObjects(rs, policy, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
+	assert.True(t, resp.Allowed)
+	assert.Nil(t, resp.Patches, "Recommend mode should not mutate a ReplicaSet")
+}
+
+func TestPodMutatingHandler_ReplicaSetObserveSkips(t *testing.T) {
+	rs := &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{Name: "api-rs", Namespace: "default"}}
+	policy := testPolicy("rs-policy", "default", "ReplicaSet", "api-rs", true, attunev1alpha1.UpdateTypeObserve)
+	pod := testPod("api-rs-pod", "ReplicaSet", "api-rs")
+	cl := admissionClientBuilder().WithObjects(rs, policy, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
+	assert.True(t, resp.Allowed)
+	assert.Nil(t, resp.Patches, "Observe mode should not mutate a ReplicaSet")
 }
