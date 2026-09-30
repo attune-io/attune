@@ -473,8 +473,9 @@ type ResourceBounds struct {
 	Min resource.Quantity `json:"min"`
 
 	// Max is the maximum allowed resource value.
-	// +kubebuilder:validation:Required
-	Max resource.Quantity `json:"max"`
+	// Omitted when maxAllowed is unset. A present zero is a real cap.
+	// +optional
+	Max *resource.Quantity `json:"max,omitempty"`
 }
 
 // UpdateStrategy configures how resource changes are applied.

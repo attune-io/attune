@@ -143,8 +143,8 @@ func TestProperty_BoundsAreFixpoint(t *testing.T) {
 		min := *resource.NewMilliQuantity(minMilli, resource.DecimalSI)
 		max := *resource.NewMilliQuantity(maxMilli, resource.DecimalSI)
 		q := *resource.NewMilliQuantity(qMilli, resource.DecimalSI)
-		once, _ := applyBounds(q, min, max)
-		twice, _ := applyBounds(once, min, max)
+		once, _ := applyBounds(q, min, &max)
+		twice, _ := applyBounds(once, min, &max)
 		if once.Cmp(twice) != 0 {
 			rt.Fatalf("applyBounds not fixpoint: %s then %s", once.String(), twice.String())
 		}

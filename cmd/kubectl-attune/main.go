@@ -1765,9 +1765,13 @@ func printResourceExplanation(resourceName string, current, recommended, explana
 		formatFloat(nestedFloat(resourceExplanation, "confidenceFactor")),
 		nestedFloat(resourceExplanation, "confidence"),
 		nestedString(resourceExplanation, "afterConfidence"))
+	maxBound := nestedStringMap(resourceExplanation, "bounds", "max")
+	if maxBound == "" {
+		maxBound = "none"
+	}
 	fmt.Printf("      Bounds [%s, %s]:         %s%s\n",
 		nestedStringMap(resourceExplanation, "bounds", "min"),
-		nestedStringMap(resourceExplanation, "bounds", "max"),
+		maxBound,
 		nestedString(resourceExplanation, "afterBounds"),
 		formatAppliedSuffix(nestedString(resourceExplanation, "boundsApplied")))
 	fmt.Printf("      Change filter [%s%%, %s%%]: %s%s\n",

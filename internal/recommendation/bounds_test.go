@@ -74,3 +74,20 @@ func TestBoundsEstimator(t *testing.T) {
 		})
 	}
 }
+
+func TestApplyBounds_NilMaxSkipsCeiling(t *testing.T) {
+	q := resource.MustParse("10")
+	min := resource.MustParse("1m")
+	got, which := applyBounds(q, min, nil)
+	assert.True(t, q.Equal(got), got.String())
+	assert.Empty(t, which)
+}
+
+func TestApplyBounds_ZeroMaxIsACap(t *testing.T) {
+	q := resource.MustParse("10")
+	min := resource.MustParse("1m")
+	zero := resource.MustParse("0")
+	got, which := applyBounds(q, min, &zero)
+	assert.True(t, zero.Equal(got), got.String())
+	assert.Equal(t, "max", which)
+}

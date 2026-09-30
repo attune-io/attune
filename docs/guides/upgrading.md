@@ -10,6 +10,41 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### Omitted maxAllowed is not capped
+
+Policies and AttuneDefaults objects that omitted `maxAllowed` were held
+at 4000m CPU and 8Gi memory. CPU `allowDecrease` defaults to true, so a
+CPU request already above 4000m could drop to that ceiling in one cycle.
+Memory `allowDecrease` defaults to false, so the 8Gi ceiling blocked
+further growth. A memory request already above 8Gi stayed at the current
+request until decrease was enabled.
+
+To restore the old ceiling, set it on the policy or on AttuneDefaults:
+
+```yaml
+cpu:
+  maxAllowed: "4000m"
+memory:
+  maxAllowed: "8Gi"
+```
+
+An omitted minimum still floors at 1m CPU and 4Mi memory. An explicit
+`maxAllowed` of `"0"` remains a cap. The engine applies an explicit max
+again after the percent cap. A memory request above that max is published
+downward only when `allowDecrease` is true. Explanation status omits
+`bounds.max` when the policy has no maximum, so it is not reported as 0.
+
+Apply CRDs before the controller upgrade. Helm does not update CRDs on
+`helm upgrade`. The previous CRD requires
+`explanation.cpu.bounds.max` and `explanation.memory.bounds.max`. The
+next status write for a policy that omits `maxAllowed` fails that
+required field until the new CRDs are applied:
+
+```bash
+kubectl apply --server-side --force-conflicts -f \
+  https://github.com/attune-io/attune/releases/latest/download/crds.yaml
+```
+
 ### CloudWatch CPU unit
 
 CloudWatch policies that omit `cpuUnit` now treat `container_cpu_usage_total` as millicores (divide by 1000). Older releases divided that metric by 1e9. The next reconcile changes CPU recommendations.

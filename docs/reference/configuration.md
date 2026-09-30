@@ -271,9 +271,9 @@ itself was admitted.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `cpu.minAllowed` | quantity | (none) | Minimum CPU recommendation (for example `"50m"`). When both bounds are set, must be less than or equal to `cpu.maxAllowed`. |
-| `cpu.maxAllowed` | quantity | (none) | Maximum CPU recommendation (for example `"4000m"`). Must not exceed 256 cores. |
-| `memory.minAllowed` | quantity | (none) | Minimum memory recommendation (for example `"64Mi"`). When both bounds are set, must be less than or equal to `memory.maxAllowed`. |
+| `cpu.minAllowed` | quantity | 1m | Minimum CPU recommendation when the field is omitted. An explicit value, including one below 1m, replaces this floor. When both bounds are set, must be less than or equal to `cpu.maxAllowed`. |
+| `cpu.maxAllowed` | quantity | (none) | Maximum CPU recommendation (for example `"4000m"`). Must not exceed 256 cores. Omitted means no maximum. |
+| `memory.minAllowed` | quantity | 4Mi | Minimum memory recommendation when the field is omitted. An explicit value replaces this floor. When both bounds are set, must be less than or equal to `memory.maxAllowed`. |
 | `memory.maxAllowed` | quantity | (none) | Maximum memory recommendation (for example `"8Gi"`). Must not exceed 16Ti. |
 
 The 256-core and 16Ti values are admission caps only. They reject
@@ -281,6 +281,15 @@ oversized `maxAllowed`; they do not inject a default clamp when the
 field is unset. Helm `defaults.cpu.*` and `defaults.memory.*` are
 subject to the same webhook because the chart creates an
 `AttuneDefaults` resource.
+
+An explicit `maxAllowed` is applied again after the percent cap, which
+can move farther than `maxDecreasePercent` in that engine step. CPU
+`allowDecrease` defaults to true, so a live CPU request above the max
+is published at the cap on this cycle. Memory `allowDecrease` defaults
+to false, so a live memory request above the max stays at the current
+request until decrease is enabled. An omitted `maxAllowed` is not
+capped. `"0"` is a real cap, not an omitted maximum. An explicit
+`minAllowed` below 1m or 4Mi replaces the built-in floor.
 
 ### Cost Pricing
 
