@@ -251,7 +251,7 @@ View them with `kubectl describe attunepolicy <name>` or
 | `InfeasibleBlocked` | Warning | In-place resize skipped because the kubelet marked the pod Infeasible and `resizeMethod` is `InPlaceOnly` |
 | `EvictionBlocked` | Warning | Eviction fallback skipped (last live Running replica, missing selector, or pod list failure). `spec.replicas` and NotReady pods are not counted |
 | `EvictionDenied` | Warning | Eviction API denied the request (typically a PodDisruptionBudget) |
-| `ResizeSkipped` | Warning | A resize was skipped (e.g. pod in bad state, rolling out, pod-level envelope) |
+| `ResizeSkipped` | Warning | A resize was skipped (for example a pod in a bad state, a rollout, or a pod-level envelope). A QoS skip from Burstable or BestEffort names both classes, such as Burstable to Guaranteed. A Guaranteed skip keeps the RequestsAndLimits hint and does not name the destination class. |
 | `Reverted` | Warning | A resize was reverted due to safety observation failure (OOMKill, CPU throttle, restarts, or SLO guardrail breach) |
 | `Evicted` | Warning | A pod was evicted as a fallback when in-place resize was not possible |
 | `StaleRecommendation` | Warning | Recommendations are stale (no fresh Prometheus data) |

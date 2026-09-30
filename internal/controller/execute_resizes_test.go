@@ -449,7 +449,10 @@ func TestExecuteResizes_ProceedsWhenWithinNodeCapacity(t *testing.T) {
 // ---------- Event emission ----------
 
 func TestExecuteResizes_EmitsResizedEvent(t *testing.T) {
-	pod := newResizePod("api-server", "500m", "256Mi", "500m", "256Mi")
+	// Memory limit stays above the request so this decrease remains
+	// Burstable. A Guaranteed pod would skip when RequestsOnly keeps
+	// the old CPU limit.
+	pod := newResizePod("api-server", "500m", "256Mi", "500m", "512Mi")
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	reconciler, _ := newResizeReconciler(pod, deploy)
 
@@ -489,7 +492,7 @@ func TestExecuteResizes_ThrottleNotRevertedDuringGracePeriod(t *testing.T) {
 	// because the Prometheus rate(…[5m]) window still contains 100% pre-resize
 	// data. Throttle reverts should only happen during deferred observations
 	// (>5 minutes after resize). See safety/monitor.go throttleGrace.
-	pod := newResizePod("api-server", "500m", "256Mi", "500m", "256Mi")
+	pod := newResizePod("api-server", "500m", "256Mi", "500m", "512Mi")
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	reconciler, _ := newResizeReconciler(pod, deploy)
 
@@ -1048,9 +1051,9 @@ func TestExecuteResizes_FloorToCurrentEmitsResizeUnchanged(t *testing.T) {
 }
 
 func TestExecuteResizes_RateCapDefersUntilRefill(t *testing.T) {
-	pod1 := newResizePod("api-server", "200m", "256Mi", "500m", "256Mi")
+	pod1 := newResizePod("api-server", "200m", "256Mi", "500m", "512Mi")
 	pod1.Name = "api-server-abc-1"
-	pod2 := newResizePod("api-server", "200m", "256Mi", "500m", "256Mi")
+	pod2 := newResizePod("api-server", "200m", "256Mi", "500m", "512Mi")
 	pod2.Name = "api-server-abc-2"
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	scheme := testScheme()
@@ -1185,7 +1188,7 @@ done:
 func TestExecuteResizes_BudgetCapsAllowsWithinBudget(t *testing.T) {
 	// Pod at 200m CPU, recommendation is 500m (increase of 300m).
 	// Budget cap is 500m, so the resize should proceed.
-	pod := newResizePod("api-server", "200m", "256Mi", "500m", "256Mi")
+	pod := newResizePod("api-server", "200m", "256Mi", "500m", "512Mi")
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	reconciler, _ := newResizeReconciler(pod, deploy)
 
@@ -1206,7 +1209,7 @@ func TestExecuteResizes_BudgetCapsAllowsWithinBudget(t *testing.T) {
 func TestExecuteResizes_BudgetCapsDecreasesFree(t *testing.T) {
 	// Pod at 800m CPU, recommendation is 400m (decrease of 400m).
 	// Budget cap is 100m. Decreases should NOT consume budget.
-	pod := newResizePod("api-server", "800m", "256Mi", "800m", "256Mi")
+	pod := newResizePod("api-server", "800m", "256Mi", "800m", "512Mi")
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	reconciler, _ := newResizeReconciler(pod, deploy)
 
@@ -1247,7 +1250,7 @@ func TestExecuteResizes_BudgetCapsMemory(t *testing.T) {
 
 func TestExecuteResizes_BudgetCapsExactlyEqualsPasses(t *testing.T) {
 	// Increase of exactly 500m with budget of 500m should pass (not strict >).
-	pod := newResizePod("api-server", "200m", "256Mi", "700m", "256Mi")
+	pod := newResizePod("api-server", "200m", "256Mi", "700m", "512Mi")
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	reconciler, _ := newResizeReconciler(pod, deploy)
 
@@ -1266,7 +1269,7 @@ func TestExecuteResizes_BudgetCapsExactlyEqualsPasses(t *testing.T) {
 }
 
 func TestExecuteResizes_BudgetCapsClampedTargetUsesAppliedIncrease(t *testing.T) {
-	pod := newResizePod("api-server", "500m", "256Mi", "600m", "256Mi")
+	pod := newResizePod("api-server", "500m", "256Mi", "600m", "512Mi")
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	reconciler, _ := newResizeReconciler(pod, deploy)
 
@@ -1477,10 +1480,10 @@ func TestExecuteResizes_MultiContainerStillResizesBoth(t *testing.T) {
 }
 
 func TestExecuteResizes_BudgetCapsSkipDoesNotConsumeBudget(t *testing.T) {
-	pod1 := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	pod1 := newResizePod("api-server", "200m", "256Mi", "200m", "512Mi")
 	pod1.Name = "api-server-abc-1"
 	pod1.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("500m")
-	pod2 := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	pod2 := newResizePod("api-server", "200m", "256Mi", "200m", "512Mi")
 	pod2.Name = "api-server-abc-2"
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 
@@ -1507,9 +1510,9 @@ func TestExecuteResizes_BudgetCapsSkipDoesNotConsumeBudget(t *testing.T) {
 }
 
 func TestExecuteResizes_BudgetCapsResizeFailureSpendsFilterSlot(t *testing.T) {
-	pod1 := newResizePod("api-server", "200m", "256Mi", "500m", "256Mi")
+	pod1 := newResizePod("api-server", "200m", "256Mi", "500m", "512Mi")
 	pod1.Name = "api-server-abc-1"
-	pod2 := newResizePod("api-server", "200m", "256Mi", "500m", "256Mi")
+	pod2 := newResizePod("api-server", "200m", "256Mi", "500m", "512Mi")
 	pod2.Name = "api-server-abc-2"
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 
@@ -1550,14 +1553,14 @@ func TestExecuteResizes_BudgetCapsResizeFailureSpendsFilterSlot(t *testing.T) {
 }
 
 func TestExecuteResizes_EvictionSpendsFilterSlot(t *testing.T) {
-	pod1 := newResizePod("api-server", "200m", "256Mi", "500m", "256Mi")
+	pod1 := newResizePod("api-server", "200m", "256Mi", "500m", "512Mi")
 	pod1.Name = "api-server-abc-1"
 	pod1.Status.Conditions = append(pod1.Status.Conditions, corev1.PodCondition{
 		Type:   "PodResizePending",
 		Status: corev1.ConditionTrue,
 		Reason: "Infeasible",
 	})
-	pod2 := newResizePod("api-server", "200m", "256Mi", "500m", "256Mi")
+	pod2 := newResizePod("api-server", "200m", "256Mi", "500m", "512Mi")
 	pod2.Name = "api-server-abc-2"
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 
@@ -1592,7 +1595,7 @@ func TestExecuteResizes_EvictionSpendsFilterSlot(t *testing.T) {
 }
 
 func TestExecuteResizes_MixedOutcomePodDoesNotLeakSuccessOrBudget(t *testing.T) {
-	apiPod1 := newResizePod("api-server", "200m", "256Mi", "500m", "256Mi")
+	apiPod1 := newResizePod("api-server", "200m", "256Mi", "500m", "512Mi")
 	apiPod1.Name = "api-server-abc-1"
 	apiPod1.Spec.Containers = append(apiPod1.Spec.Containers, corev1.Container{
 		Name:  "sidecar",
@@ -1672,7 +1675,7 @@ func TestExecuteResizes_MixedOutcomePodDoesNotLeakSuccessOrBudget(t *testing.T) 
 				},
 			},
 		},
-		newResizeRecommendation("worker", "200m", "256Mi", "200m", "256Mi", "500m", "256Mi", "500m", "256Mi"),
+		newResizeRecommendation("worker", "200m", "256Mi", "200m", "256Mi", "500m", "256Mi", "500m", "512Mi"),
 	}
 
 	count, history := reconciler.executeResizes(context.Background(), policy,
@@ -1701,9 +1704,9 @@ func TestExecuteResizes_MixedOutcomePodDoesNotLeakSuccessOrBudget(t *testing.T) 
 }
 
 func TestExecuteResizes_BudgetCapsRevertSpendsFilterSlot(t *testing.T) {
-	pod1 := newResizePodWithStatus("api-server", "200m", "256Mi", "500m", "256Mi", 0)
+	pod1 := newResizePodWithStatus("api-server", "200m", "256Mi", "500m", "512Mi", 0)
 	pod1.Name = "api-server-abc-1"
-	pod2 := newResizePodWithStatus("api-server", "200m", "256Mi", "500m", "256Mi", 0)
+	pod2 := newResizePodWithStatus("api-server", "200m", "256Mi", "500m", "512Mi", 0)
 	pod2.Name = "api-server-abc-2"
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 
@@ -1740,9 +1743,9 @@ func TestExecuteResizes_BudgetCapsRevertSpendsFilterSlot(t *testing.T) {
 
 func TestExecuteResizes_ConcurrentResizes(t *testing.T) {
 	// Test that maxConcurrentResizes > 1 processes multiple pods without races.
-	pod1 := newResizePod("api-server", "500m", "256Mi", "750m", "384Mi")
+	pod1 := newResizePod("api-server", "500m", "256Mi", "1500m", "1Gi")
 	pod1.Name = "api-server-abc-1"
-	pod2 := newResizePod("api-server", "500m", "256Mi", "750m", "384Mi")
+	pod2 := newResizePod("api-server", "500m", "256Mi", "1500m", "1Gi")
 	pod2.Name = "api-server-abc-2"
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 

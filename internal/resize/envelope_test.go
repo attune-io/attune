@@ -364,7 +364,7 @@ func TestPreservesQoS_UsesEnvelopeWhenSet(t *testing.T) {
 			corev1.ResourceMemory: resource.MustParse("512Mi"),
 		},
 	}
-	assert.True(t, PreservesQoS(pod, "app", target),
+	assert.True(t, PreservesQoS(pod, "app", target, QoSPlan{InPlacePodLevelResources: true}),
 		"Guaranteed QoS is defined by the envelope, not container equality")
 
 	// Raising a container limit above the envelope limit makes limit > request.
@@ -378,7 +378,7 @@ func TestPreservesQoS_UsesEnvelopeWhenSet(t *testing.T) {
 			corev1.ResourceMemory: resource.MustParse("2Gi"),
 		},
 	}
-	assert.False(t, PreservesQoS(pod, "app", breakTarget),
+	assert.False(t, PreservesQoS(pod, "app", breakTarget, QoSPlan{InPlacePodLevelResources: true}),
 		"raised envelope limit above request must not keep Guaranteed")
 }
 

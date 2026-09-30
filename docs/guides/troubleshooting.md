@@ -805,16 +805,24 @@ an existing envelope limit (that limit is a user cap).
 
 ### QoS class change blocked
 
-**Symptom**: Operator logs `Skipping resize: would change QoS class`.
+**Symptom**: Operator logs `Skipping resize: would change QoS class from
+Burstable to Guaranteed`, `from BestEffort to Burstable`, or `from
+Guaranteed`. The event is `ResizeSkipped`. The pod is not evicted.
 
-**Cause**: For Guaranteed-class pods, requests must equal limits. If the
-policy would set different values for requests and limits, the resize is
-skipped.
+**Cause**: The resources that would be sent leave the pod's current
+class. `RequestsOnly` keeps existing limits, so raising a request up to
+a limit that already matches can move Burstable to Guaranteed. Adding
+any positive request or limit moves BestEffort to Burstable. Init
+containers, including completed ones, count. A Guaranteed pod is blocked
+when the sent requests and limits would no longer match.
 
-**Fix**: Use controlledValues: RequestsAndLimits so requests stay equal
-to limits. Attune will not change QoS from Guaranteed to Burstable. On
-Kubernetes 1.33, a memory limit decrease may also need resizePolicy:
-RestartContainer.
+**Fix**: For Burstable, raise the limit that already equals the new
+request, or choose a request that stays below that limit. Set
+`controlledValues: RequestsAndLimits` only when the result stays
+Burstable. For BestEffort, leave requests and limits unset. For
+Guaranteed, use `controlledValues: RequestsAndLimits` so requests stay
+equal to limits. On Kubernetes 1.33, a memory limit decrease may also
+need `resizePolicy: RestartContainer`.
 
 ### ResourceQuota exceeded
 

@@ -54,9 +54,16 @@ Before calling `UpdateResize`, the controller runs several safety checks:
    request increases under MemoryPressure / DiskPressure / PIDPressure.
 5. **LimitRange/ResourceQuota**: Checks that the target doesn't violate
    namespace constraints.
-6. **QoS preservation**: Ensures the resize won't change the pod's QoS
-   class (e.g., from Guaranteed to Burstable). When `spec.resources` is
-   set, QoS is defined by that pod-level envelope only.
+6. **QoS preservation**: The check runs on the spec `UpdateResize` would
+   send, before that call, so `InPlaceOrRecreate` does not evict a pod
+   whose class would change. Every app container, init container
+   (including a completed one-shot init), and native sidecar counts.
+   A zero quantity is unset. `RequestsOnly` can still change class when
+   a live limit already equals the new request, and that resize is
+   skipped. Burstable to Guaranteed and BestEffort to Burstable name
+   both classes. The Guaranteed reason keeps the `RequestsAndLimits`
+   hint. The pod-level envelope defines QoS only when in-place
+   pod-level resize is on and `spec.resources` is set.
 7. **Pod-level envelope**: If the pod already has `spec.resources`, Attune
    never invents an envelope and never shrinks one. When in-place
    pod-level resize is on, the same `UpdateResize` writes the container

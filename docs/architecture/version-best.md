@@ -287,7 +287,7 @@ Doctor reuses `cluster.Discover` (same Discovery + node list) for version, `pods
 - CREATE (`internal/webhook/pod_mutating.go` `mutateContainer`) writes container requests/limits only.
 - Persist (`applyResourcesToPodSpec`) writes container + native-sidecar resources on Deployment/StatefulSet templates. It does not write `spec.resources`. DaemonSet persist is already unsupported.
 - `transform.StripPodFields` does **not** strip `spec.resources` (it only nils volumes, env, probes, ephemeral containers). Live pods and templates in cache will keep an envelope if the API sent one. No transform change required for the field itself.
-- `PreservesQoS` only looks at the named container's target vs `pod.Status.QOSClass`. With pod-level resources, QoS is computed from the envelope.
+- `PreservesQoS` compares the spec `UpdateResize` would send, including init containers, with `pod.Status.QOSClass`. An empty status is inferred from the live spec. The pod-level envelope defines QoS only when in-place pod-level resize is on.
 - `excludeKnownSidecars` skips sidecar **recommendations**. Sidecar containers still consume the envelope.
 
 `pod.Spec.Resources` is `*corev1.ResourceRequirements` on `PodSpec` in `k8s.io/api v0.37.0` (protobuf tag 40, feature gate `PodLevelResources`). Attune's go.mod already has this field. Zero code reads it today (the only "pod-level" hits are PromQL aggregation comments).
@@ -396,7 +396,7 @@ Safety restore (`replace=true`) restores container snapshots as today. **v1 does
 
 ### QoS, sidecars, validation
 
-- Update `PreservesQoS` in two branches. When `pod.Spec.Resources != nil` (after the planned raise), QoS is the **envelope only**: Guaranteed means envelope request==limit for cpu and memory. Container request != limit is legal on a Guaranteed pod with a Guaranteed envelope (KEP-2837). Do **not** also require the named container target to have request==limit; that would skip RequestsOnly + Guaranteed even after Key Decision 10 raises envelope limits. When `pod.Spec.Resources == nil`, keep today's container-level check (requests and limits present and equal on the named container). Table test: Guaranteed envelope + RequestsOnly container target is allowed if the envelope stays request==limit.
+- `PreservesQoS` classifies the merged pod, including init containers. When in-place pod-level resize is on and `pod.Spec.Resources != nil` (after the planned raise), QoS is the **envelope only**: Guaranteed means envelope request==limit for cpu and memory. Container request != limit is legal on a Guaranteed pod with a Guaranteed envelope (KEP-2837). When the flag is off, `spec.resources` is ignored and every app container, init container, and native sidecar counts. A zero quantity is unset. Table test: Guaranteed envelope + RequestsOnly container target is allowed if the envelope stays request==limit and in-place pod-level resize is on.
 - CREATE and persist already dest-clamp via `ClampRequestsToLimits`. Envelope raise runs after that clamp.
 - Admission validation of AttunePolicy does not change. Pod API validation enforces the sum rule; our job is to never submit a violating `/resize`.
 

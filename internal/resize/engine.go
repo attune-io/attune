@@ -430,29 +430,3 @@ func RestartContainerResources(pod *corev1.Pod, containerName string) []string {
 	}
 	return nil
 }
-
-// PreservesQoS returns true if applying the target resources to the named
-// container would preserve the pod's current QoS class. For Guaranteed pods
-// this means requests must equal limits for both CPU and memory. Burstable
-// and BestEffort pods always return true because changing resource values
-// within those classes does not alter the QoS category.
-func PreservesQoS(pod *corev1.Pod, container string, target corev1.ResourceRequirements) bool {
-	if pod.Status.QOSClass != corev1.PodQOSGuaranteed {
-		return true
-	}
-	if pod.Spec.Resources != nil {
-		planned := applyPlannedContainer(pod, container, target)
-		return envelopeIsGuaranteed(RaiseToCover(planned))
-	}
-
-	cpuReq, hasCPUReq := target.Requests[corev1.ResourceCPU]
-	cpuLim, hasCPULim := target.Limits[corev1.ResourceCPU]
-	memReq, hasMemReq := target.Requests[corev1.ResourceMemory]
-	memLim, hasMemLim := target.Limits[corev1.ResourceMemory]
-
-	if !hasCPUReq || !hasCPULim || !hasMemReq || !hasMemLim {
-		return false
-	}
-
-	return cpuReq.Equal(cpuLim) && memReq.Equal(memLim)
-}
