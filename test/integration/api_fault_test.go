@@ -112,13 +112,15 @@ func createFaultFixture(t *testing.T, cl client.Client, nsName, deployName, poli
 
 	deploy := newTestDeployment(deployName, nsName)
 	require.NoError(t, cl.Create(ctx, deploy), "create deployment")
-	// envtest has no ReplicaSet controller. Zero status replicas makes
-	// IsRollingOut true and skips recommendations. Mark the Deployment ready
-	// so the interceptor tests can assert recommendation idempotency.
+	// Create leaves metadata.generation >= 1 and observedGeneration at 0.
+	// That stale generation skips resize, not recommendations.
+	// updatedReplicas equal to spec is not enough to clear the stale check.
+	require.NoError(t, cl.Get(ctx, client.ObjectKeyFromObject(deploy), deploy), "read deployment generation")
 	deploy.Status.Replicas = 1
 	deploy.Status.UpdatedReplicas = 1
 	deploy.Status.ReadyReplicas = 1
 	deploy.Status.AvailableReplicas = 1
+	deploy.Status.ObservedGeneration = deploy.Generation
 	require.NoError(t, cl.Status().Update(ctx, deploy), "mark deployment ready")
 
 	policy := newTestPolicy(policyName, nsName, deployName)

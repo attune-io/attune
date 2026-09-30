@@ -282,6 +282,23 @@ spec:
     historyWindow: 168h     # query the last 7 days of metrics
 ```
 
+### Recommendations missing while a pod is crash looping
+
+**Symptom**: Recommendations are missing for a Deployment or ReplicaSet
+while one of its pods is crash looping.
+
+**Cause**: The workload gate used to treat a Deployment with
+`availableReplicas` behind `spec.replicas`, or a ReplicaSet with
+`readyReplicas` behind `spec.replicas`, as a rollout. That skipped
+recommendations. A crash loop is not a rollout when generation is
+observed and no old pods remain.
+
+**Fix**: Recommendations are still computed in that state. If a resize
+does not happen, read the pod-level skip on the policy events.
+`ResizeSkipped` covers a pod that is not ready, terminating, Deferred,
+Infeasible, or a QoS change. `RolloutInProgress` is only a resize skip
+for Auto, OneShot, and Canary during a real replacement.
+
 ### InvalidConfig
 
 **Symptom**: Ready condition is `False` with reason `InvalidConfig`.

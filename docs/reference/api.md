@@ -266,7 +266,7 @@ View them with `kubectl describe attunepolicy <name>` or
 | `RestartOnResize` | Normal | Container will restart on resize due to `RestartContainer` resize policy |
 | `MemoryLimitClamped` | Normal | Memory limit decrease skipped due to K8s v1.33 restriction |
 | `PolicyConflict` | Warning | Multiple policies target the same workload |
-| `RolloutInProgress` | Normal | Resize skipped because the workload is mid-rollout |
+| `RolloutInProgress` | Normal | Resize skip for Auto, OneShot, and Canary during a real replacement. Recommendations are still computed. OnDelete is not a rollout. A Deployment with availableReplicas behind, or a ReplicaSet with readyReplicas behind, is not a rollout when generation is observed and no old pods remain. |
 | `WorkloadOptOut` | Normal | Workload opted out via annotation |
 
 Events use 1-hour deduplication to prevent log spam. Identical events are emitted at most once per hour; condition changes produce new events immediately. Specific events can be suppressed per-policy using the `attune.io/suppress-warnings` annotation (comma-separated list of event reasons).

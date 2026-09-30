@@ -152,6 +152,20 @@ tests:
               - list
               - watch
 
+  - it: should include controllerrevision read permissions
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - apps
+            resources:
+              - controllerrevisions
+            verbs:
+              - get
+              - list
+              - watch
+
   - it: should include batch workload read permissions
     asserts:
       - contains:

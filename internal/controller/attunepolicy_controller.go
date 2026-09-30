@@ -129,6 +129,7 @@ const (
 //+kubebuilder:rbac:groups=attune.io,resources=attunedefaults,verbs=get;list;watch
 //+kubebuilder:rbac:groups=attune.io,resources=attunenamespacedefaults,verbs=get;list;watch
 //+kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;daemonsets;replicasets,verbs=get;list;watch
+//+kubebuilder:rbac:groups=apps,resources=controllerrevisions,verbs=get;list;watch
 //+kubebuilder:rbac:groups=apps,resources=deployments;statefulsets,verbs=patch;update
 //+kubebuilder:rbac:groups=batch,resources=cronjobs;jobs,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update;patch
@@ -1172,13 +1173,6 @@ func (r *AttunePolicyReconciler) processWorkloads(
 				logger.Info("Higher-weight policy exists, skipping workload", "workload", workloadName, "policy", policyConflict.Name, "message", policyConflict.Message)
 				r.emitEventOnce(policy, corev1.EventTypeWarning, "PolicyConflict", "recommend",
 					"Workload %s yielded to higher-weight policy %s: %s", workloadName, policyConflict.Name, policyConflict.Message)
-				return nil
-			}
-
-			if r.isRollingOut(workload) {
-				logger.Info("Skipping workload mid-rollout", "workload", workloadName)
-				r.emitEventOnce(policy, corev1.EventTypeNormal, "RolloutInProgress", "resize",
-					"Resize deferred for workload %s: rollout in progress", workloadName)
 				return nil
 			}
 

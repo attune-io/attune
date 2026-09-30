@@ -21,10 +21,13 @@ func TestStripDeploymentFields_PreservesSelectorAndContainers(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:          "app",
 			Namespace:     "ns",
+			Generation:    2,
 			ManagedFields: []metav1.ManagedFieldsEntry{{Manager: "kubectl"}},
 		},
 		Spec: appsv1.DeploymentSpec{
+			Paused:   true,
 			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "x"}},
+			Strategy: appsv1.DeploymentStrategy{Type: appsv1.RecreateDeploymentStrategyType},
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{
@@ -37,9 +40,11 @@ func TestStripDeploymentFields_PreservesSelectorAndContainers(t *testing.T) {
 			},
 		},
 		Status: appsv1.DeploymentStatus{
-			UpdatedReplicas:   2,
-			AvailableReplicas: 2,
-			Conditions:        []appsv1.DeploymentCondition{{Type: appsv1.DeploymentAvailable}},
+			ObservedGeneration: 2,
+			Replicas:           4,
+			UpdatedReplicas:    2,
+			AvailableReplicas:  2,
+			Conditions:         []appsv1.DeploymentCondition{{Type: appsv1.DeploymentAvailable}},
 		},
 	}
 	out, err := StripDeploymentFields(d)
@@ -52,6 +57,10 @@ func TestStripDeploymentFields_PreservesSelectorAndContainers(t *testing.T) {
 	assert.Empty(t, stripped.Spec.Template.Spec.Containers[0].Image)
 	assert.Nil(t, stripped.Spec.Template.Spec.Containers[0].Env)
 	assert.Equal(t, int32(2), stripped.Status.UpdatedReplicas)
+	assert.Equal(t, int32(4), stripped.Status.Replicas)
+	assert.Equal(t, int64(2), stripped.Status.ObservedGeneration)
+	assert.True(t, stripped.Spec.Paused)
+	assert.Equal(t, appsv1.RecreateDeploymentStrategyType, stripped.Spec.Strategy.Type)
 	assert.Nil(t, stripped.Status.Conditions)
 }
 
@@ -90,11 +99,15 @@ func TestStripStatefulSetFields_PreservesSelectorAndReplicas(t *testing.T) {
 	s := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:          "sts",
+			Generation:    3,
 			ManagedFields: []metav1.ManagedFieldsEntry{{Manager: "kubectl"}},
 		},
 		Spec: appsv1.StatefulSetSpec{
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "sts"}},
+			UpdateStrategy: appsv1.StatefulSetUpdateStrategy{
+				Type: appsv1.OnDeleteStatefulSetStrategyType,
+			},
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{
@@ -107,8 +120,12 @@ func TestStripStatefulSetFields_PreservesSelectorAndReplicas(t *testing.T) {
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{{ObjectMeta: metav1.ObjectMeta{Name: "data"}}},
 		},
 		Status: appsv1.StatefulSetStatus{
-			ReadyReplicas: 3,
-			Conditions:    []appsv1.StatefulSetCondition{{Type: "Ready"}},
+			ObservedGeneration: 3,
+			Replicas:           3,
+			ReadyReplicas:      3,
+			CurrentRevision:    "rev-a",
+			UpdateRevision:     "rev-b",
+			Conditions:         []appsv1.StatefulSetCondition{{Type: "Ready"}},
 		},
 	}
 	out, err := StripStatefulSetFields(s)
@@ -122,6 +139,10 @@ func TestStripStatefulSetFields_PreservesSelectorAndReplicas(t *testing.T) {
 	assert.Empty(t, stripped.Spec.Template.Spec.Containers[0].Image)
 	assert.Nil(t, stripped.Spec.VolumeClaimTemplates)
 	assert.Equal(t, int32(3), stripped.Status.ReadyReplicas)
+	assert.Equal(t, int64(3), stripped.Status.ObservedGeneration)
+	assert.Equal(t, "rev-a", stripped.Status.CurrentRevision)
+	assert.Equal(t, "rev-b", stripped.Status.UpdateRevision)
+	assert.Equal(t, appsv1.OnDeleteStatefulSetStrategyType, stripped.Spec.UpdateStrategy.Type)
 	assert.Nil(t, stripped.Status.Conditions)
 }
 
@@ -132,7 +153,8 @@ func TestStripDaemonSetFields_PreservesSelector(t *testing.T) {
 			ManagedFields: []metav1.ManagedFieldsEntry{{Manager: "x"}},
 		},
 		Spec: appsv1.DaemonSetSpec{
-			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "ds"}},
+			Selector:       &metav1.LabelSelector{MatchLabels: map[string]string{"app": "ds"}},
+			UpdateStrategy: appsv1.DaemonSetUpdateStrategy{Type: appsv1.OnDeleteDaemonSetStrategyType},
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{Name: "c", Image: "img", Env: []corev1.EnvVar{{Name: "E"}}}},
@@ -152,6 +174,7 @@ func TestStripDaemonSetFields_PreservesSelector(t *testing.T) {
 	require.Len(t, stripped.Spec.Template.Spec.Containers, 1)
 	assert.Empty(t, stripped.Spec.Template.Spec.Containers[0].Image)
 	assert.Equal(t, int32(2), stripped.Status.NumberReady)
+	assert.Equal(t, appsv1.OnDeleteDaemonSetStrategyType, stripped.Spec.UpdateStrategy.Type)
 	assert.Nil(t, stripped.Status.Conditions)
 }
 

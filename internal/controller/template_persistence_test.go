@@ -2764,3 +2764,182 @@ func TestApplyTemplatePersistence_AfterSuccessfulResize_OmitsRevertedContainer(t
 	assert.Equal(t, int64(400), updated.Spec.Template.Spec.Containers[1].Resources.Requests.Cpu().MilliValue(),
 		"reverted container B must stay at the original template request")
 }
+
+func TestTemplatePersistence_SkipsWhileOldDeploymentPodsRemain(t *testing.T) {
+	history, updated := applyDeploymentPersistence(t, appsv1.DeploymentStatus{
+		ObservedGeneration: 1,
+		Replicas:           4,
+		UpdatedReplicas:    3,
+		AvailableReplicas:  3,
+	})
+	assert.Empty(t, history, "old pods still present must not patch")
+	assert.Equal(t, int64(500), updated.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue())
+}
+
+func TestTemplatePersistence_RunsWhenOnlyAvailabilityIsLow(t *testing.T) {
+	history, updated := applyDeploymentPersistence(t, appsv1.DeploymentStatus{
+		ObservedGeneration: 1,
+		Replicas:           3,
+		UpdatedReplicas:    3,
+		AvailableReplicas:  1,
+	})
+	require.Len(t, history, 1)
+	assert.Equal(t, attunev1alpha1.ResizeResultTemplatePatched, history[0].Result)
+	assert.Equal(t, int64(200), updated.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue())
+}
+
+func applyDeploymentPersistence(t *testing.T, status appsv1.DeploymentStatus) ([]attunev1alpha1.ResizeHistoryEntry, appsv1.Deployment) {
+	t.Helper()
+	scheme := testScheme()
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+
+	cpu500, err := resource.ParseQuantity("500m")
+	require.NoError(t, err)
+	cpu200, err := resource.ParseQuantity("200m")
+	require.NoError(t, err)
+	mem512, err := resource.ParseQuantity("512Mi")
+	require.NoError(t, err)
+	mem256, err := resource.ParseQuantity("256Mi")
+	require.NoError(t, err)
+
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default", Generation: 1},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(3),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "app",
+						Image: "nginx",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    cpu500,
+								corev1.ResourceMemory: mem512,
+							},
+						},
+					}},
+				},
+			},
+		},
+		Status: status,
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: boolPtr(true),
+		When:    attunev1alpha1.TemplatePersistenceOnRecommendation,
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "app",
+			Current: attunev1alpha1.ResourceValues{
+				CPURequest:    cpu500,
+				MemoryRequest: mem512,
+			},
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest:    cpu200,
+				MemoryRequest: mem256,
+			},
+		}},
+	}}
+	history := r.applyTemplatePersistence(context.Background(), policy, []client.Object{deploy}, recs,
+		attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
+	var updated appsv1.Deployment
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(deploy), &updated))
+	return history, updated
+}
+
+func TestTemplatePersistenceBlockedByRollout(t *testing.T) {
+	replicas := int32(5)
+	partition := int32(2)
+	tests := []struct {
+		name string
+		obj  client.Object
+		want bool
+	}{
+		{
+			name: "paused deployment with old pods",
+			obj: &appsv1.Deployment{
+				Spec:   appsv1.DeploymentSpec{Replicas: int32Ptr(3), Paused: true},
+				Status: appsv1.DeploymentStatus{Replicas: 4, UpdatedReplicas: 2},
+			},
+			want: true,
+		},
+		{
+			name: "deployment recreate does not skip",
+			obj: &appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{
+					Replicas: int32Ptr(3),
+					Strategy: appsv1.DeploymentStrategy{Type: appsv1.RecreateDeploymentStrategyType},
+				},
+				Status: appsv1.DeploymentStatus{Replicas: 3, UpdatedReplicas: 1},
+			},
+			want: false,
+		},
+		{
+			name: "statefulset ondelete",
+			obj: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Replicas:       &replicas,
+					UpdateStrategy: appsv1.StatefulSetUpdateStrategy{Type: appsv1.OnDeleteStatefulSetStrategyType},
+				},
+				Status: appsv1.StatefulSetStatus{UpdatedReplicas: 1, CurrentRevision: "a", UpdateRevision: "b"},
+			},
+			want: false,
+		},
+		{
+			name: "statefulset scale-out same revision",
+			obj: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Replicas:       &replicas,
+					UpdateStrategy: appsv1.StatefulSetUpdateStrategy{Type: appsv1.RollingUpdateStatefulSetStrategyType},
+				},
+				Status: appsv1.StatefulSetStatus{UpdatedReplicas: 3, CurrentRevision: "rev-1", UpdateRevision: "rev-1"},
+			},
+			want: false,
+		},
+		{
+			name: "statefulset held partition",
+			obj: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Replicas: &replicas,
+					UpdateStrategy: appsv1.StatefulSetUpdateStrategy{
+						Type:          appsv1.RollingUpdateStatefulSetStrategyType,
+						RollingUpdate: &appsv1.RollingUpdateStatefulSetStrategy{Partition: &partition},
+					},
+				},
+				Status: appsv1.StatefulSetStatus{UpdatedReplicas: 3, CurrentRevision: "old", UpdateRevision: "new"},
+			},
+			want: false,
+		},
+		{
+			name: "statefulset partition still replacing",
+			obj: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Replicas: &replicas,
+					UpdateStrategy: appsv1.StatefulSetUpdateStrategy{
+						Type:          appsv1.RollingUpdateStatefulSetStrategyType,
+						RollingUpdate: &appsv1.RollingUpdateStatefulSetStrategy{Partition: &partition},
+					},
+				},
+				Status: appsv1.StatefulSetStatus{UpdatedReplicas: 2, CurrentRevision: "old", UpdateRevision: "new"},
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, templatePersistenceBlockedByRollout(tt.obj))
+		})
+	}
+}
