@@ -226,18 +226,44 @@ func TestWorkload_IsRollingOut(t *testing.T) {
 		{
 			name: "Deployment mid-rollout updatedReplicas < replicas",
 			workload: &appsv1.Deployment{
-				Spec:   appsv1.DeploymentSpec{Replicas: int32Ptr(3)},
-				Status: appsv1.DeploymentStatus{UpdatedReplicas: 1, AvailableReplicas: 3},
+				ObjectMeta: metav1.ObjectMeta{Generation: 1},
+				Spec:       appsv1.DeploymentSpec{Replicas: int32Ptr(3)},
+				Status: appsv1.DeploymentStatus{
+					ObservedGeneration: 1,
+					Replicas:           3,
+					UpdatedReplicas:    1,
+					AvailableReplicas:  3,
+				},
 			},
 			want: true,
 		},
 		{
 			name: "Deployment unavailable replicas",
 			workload: &appsv1.Deployment{
-				Spec:   appsv1.DeploymentSpec{Replicas: int32Ptr(3)},
-				Status: appsv1.DeploymentStatus{UpdatedReplicas: 3, AvailableReplicas: 1},
+				ObjectMeta: metav1.ObjectMeta{Generation: 1},
+				Spec:       appsv1.DeploymentSpec{Replicas: int32Ptr(3)},
+				Status: appsv1.DeploymentStatus{
+					ObservedGeneration: 1,
+					Replicas:           3,
+					UpdatedReplicas:    3,
+					AvailableReplicas:  1,
+				},
 			},
-			want: true,
+			want: false,
+		},
+		{
+			name: "Deployment_unavailable_but_fully_updated",
+			workload: &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{Generation: 1},
+				Spec:       appsv1.DeploymentSpec{Replicas: int32Ptr(3)},
+				Status: appsv1.DeploymentStatus{
+					ObservedGeneration: 1,
+					Replicas:           3,
+					UpdatedReplicas:    3,
+					AvailableReplicas:  1,
+				},
+			},
+			want: false,
 		},
 		{
 			name: "StatefulSet mid-rollout",
@@ -245,7 +271,164 @@ func TestWorkload_IsRollingOut(t *testing.T) {
 				Spec:   appsv1.StatefulSetSpec{Replicas: int32Ptr(5)},
 				Status: appsv1.StatefulSetStatus{UpdatedReplicas: 2},
 			},
+			want: false,
+		},
+		{
+			name: "Deployment_old_pods_still_present",
+			workload: &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{Generation: 1},
+				Spec:       appsv1.DeploymentSpec{Replicas: int32Ptr(3)},
+				Status: appsv1.DeploymentStatus{
+					ObservedGeneration: 1,
+					Replicas:           4,
+					UpdatedReplicas:    3,
+					AvailableReplicas:  3,
+				},
+			},
 			want: true,
+		},
+		{
+			name: "Deployment_scale_out_not_a_replacement",
+			workload: &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{Generation: 1},
+				Spec:       appsv1.DeploymentSpec{Replicas: int32Ptr(5)},
+				Status: appsv1.DeploymentStatus{
+					ObservedGeneration: 1,
+					Replicas:           3,
+					UpdatedReplicas:    3,
+					AvailableReplicas:  3,
+				},
+			},
+			want: false,
+		},
+		{
+			name: "Deployment_maxUnavailable_replacement",
+			workload: &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{Generation: 1},
+				Spec:       appsv1.DeploymentSpec{Replicas: int32Ptr(3)},
+				Status: appsv1.DeploymentStatus{
+					ObservedGeneration: 1,
+					Replicas:           3,
+					UpdatedReplicas:    1,
+				},
+			},
+			want: true,
+		},
+		{
+			name: "Deployment_stale_generation",
+			workload: &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{Generation: 4},
+				Spec:       appsv1.DeploymentSpec{Replicas: int32Ptr(3)},
+				Status: appsv1.DeploymentStatus{
+					ObservedGeneration: 3,
+					Replicas:           3,
+					UpdatedReplicas:    3,
+					AvailableReplicas:  3,
+				},
+			},
+			want: true,
+		},
+		{
+			name: "Deployment_zero_generation_is_not_stale",
+			workload: &appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{Replicas: int32Ptr(3)},
+				Status: appsv1.DeploymentStatus{
+					Replicas:          3,
+					UpdatedReplicas:   3,
+					AvailableReplicas: 3,
+				},
+			},
+			want: false,
+		},
+		{
+			name: "Deployment_paused_after_partial_update_is_not_a_whole_workload_skip",
+			workload: &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{Generation: 1},
+				Spec: appsv1.DeploymentSpec{
+					Replicas: int32Ptr(3),
+					Paused:   true,
+				},
+				Status: appsv1.DeploymentStatus{
+					ObservedGeneration: 1,
+					Replicas:           4,
+					UpdatedReplicas:    2,
+				},
+			},
+			want: false,
+		},
+		{
+			name: "Deployment_Recreate_does_not_use_updated_count",
+			workload: &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{Generation: 1},
+				Spec: appsv1.DeploymentSpec{
+					Replicas: int32Ptr(3),
+					Strategy: appsv1.DeploymentStrategy{Type: appsv1.RecreateDeploymentStrategyType},
+				},
+				Status: appsv1.DeploymentStatus{
+					ObservedGeneration: 1,
+					Replicas:           3,
+					UpdatedReplicas:    1,
+				},
+			},
+			want: false,
+		},
+		{
+			name: "StatefulSet_OnDelete_updated_behind",
+			workload: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Replicas:       int32Ptr(5),
+					UpdateStrategy: appsv1.StatefulSetUpdateStrategy{Type: appsv1.OnDeleteStatefulSetStrategyType},
+				},
+				Status: appsv1.StatefulSetStatus{UpdatedReplicas: 1},
+			},
+			want: false,
+		},
+		{
+			name: "StatefulSet_scale_out_same_revision",
+			workload: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Replicas:       int32Ptr(5),
+					UpdateStrategy: appsv1.StatefulSetUpdateStrategy{Type: appsv1.RollingUpdateStatefulSetStrategyType},
+				},
+				Status: appsv1.StatefulSetStatus{
+					UpdatedReplicas: 3,
+					CurrentRevision: "rev-1",
+					UpdateRevision:  "rev-1",
+				},
+			},
+			want: false,
+		},
+		{
+			name: "StatefulSet_partition_holds_old_pods",
+			workload: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					Replicas: int32Ptr(5),
+					UpdateStrategy: appsv1.StatefulSetUpdateStrategy{
+						Type:          appsv1.RollingUpdateStatefulSetStrategyType,
+						RollingUpdate: &appsv1.RollingUpdateStatefulSetStrategy{Partition: int32Ptr(2)},
+					},
+				},
+				Status: appsv1.StatefulSetStatus{
+					Replicas:        5,
+					UpdatedReplicas: 3,
+					CurrentRevision: "old",
+					UpdateRevision:  "new",
+				},
+			},
+			want: false,
+		},
+		{
+			name: "StatefulSet_ordered_rollout_skips_old_hash_only",
+			workload: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{Replicas: int32Ptr(5)},
+				Status: appsv1.StatefulSetStatus{
+					Replicas:        5,
+					UpdatedReplicas: 2,
+					CurrentRevision: "old",
+					UpdateRevision:  "new",
+				},
+			},
+			want: false,
 		},
 		{
 			name: "StatefulSet fully rolled out",
@@ -263,7 +446,45 @@ func TestWorkload_IsRollingOut(t *testing.T) {
 					UpdatedNumberScheduled: 3,
 				},
 			},
-			want: true,
+			want: false,
+		},
+		{
+			name: "DaemonSet_OnDelete_updated_behind",
+			workload: &appsv1.DaemonSet{
+				Spec: appsv1.DaemonSetSpec{
+					UpdateStrategy: appsv1.DaemonSetUpdateStrategy{Type: appsv1.OnDeleteDaemonSetStrategyType},
+				},
+				Status: appsv1.DaemonSetStatus{
+					DesiredNumberScheduled: 5,
+					UpdatedNumberScheduled: 1,
+				},
+			},
+			want: false,
+		},
+		{
+			name: "DaemonSet_new_node_current_pods_still_eligible",
+			workload: &appsv1.DaemonSet{
+				ObjectMeta: metav1.ObjectMeta{Generation: 1},
+				Status: appsv1.DaemonSetStatus{
+					ObservedGeneration:     1,
+					DesiredNumberScheduled: 5,
+					UpdatedNumberScheduled: 4,
+				},
+			},
+			want: false,
+		},
+		{
+			name: "DaemonSet_RollingUpdate_old_pod_skipped",
+			workload: &appsv1.DaemonSet{
+				Spec: appsv1.DaemonSetSpec{
+					UpdateStrategy: appsv1.DaemonSetUpdateStrategy{Type: appsv1.RollingUpdateDaemonSetStrategyType},
+				},
+				Status: appsv1.DaemonSetStatus{
+					DesiredNumberScheduled: 5,
+					UpdatedNumberScheduled: 3,
+				},
+			},
+			want: false,
 		},
 		{
 			name: "DaemonSet fully rolled out",
@@ -288,8 +509,32 @@ func TestWorkload_IsRollingOut(t *testing.T) {
 		{
 			name: "ReplicaSet mid-rollout ReadyReplicas < spec",
 			workload: &appsv1.ReplicaSet{
-				Spec:   appsv1.ReplicaSetSpec{Replicas: int32Ptr(3)},
-				Status: appsv1.ReplicaSetStatus{ReadyReplicas: 1},
+				ObjectMeta: metav1.ObjectMeta{Generation: 1},
+				Spec:       appsv1.ReplicaSetSpec{Replicas: int32Ptr(3)},
+				Status: appsv1.ReplicaSetStatus{
+					ObservedGeneration: 1,
+					ReadyReplicas:      1,
+				},
+			},
+			want: false,
+		},
+		{
+			name: "ReplicaSet nil replicas is not a rollout",
+			workload: &appsv1.ReplicaSet{
+				ObjectMeta: metav1.ObjectMeta{Generation: 2},
+				Status:     appsv1.ReplicaSetStatus{ObservedGeneration: 1},
+			},
+			want: false,
+		},
+		{
+			name: "ReplicaSet stale generation",
+			workload: &appsv1.ReplicaSet{
+				ObjectMeta: metav1.ObjectMeta{Generation: 2},
+				Spec:       appsv1.ReplicaSetSpec{Replicas: int32Ptr(3)},
+				Status: appsv1.ReplicaSetStatus{
+					ObservedGeneration: 1,
+					ReadyReplicas:      3,
+				},
 			},
 			want: true,
 		},
@@ -663,7 +908,7 @@ func TestWorkload_ReplicaSetAdapter_RollingOut(t *testing.T) {
 	}
 	a := newWorkloadAdapter(rs)
 	require.NotNil(t, a)
-	assert.True(t, a.IsRollingOut(), "should be rolling out when readyReplicas < replicas")
+	assert.False(t, a.IsRollingOut(), "readyReplicas below spec is not a rollout when generation is observed")
 }
 
 func TestWorkload_ReplicaSetAdapter_NilSelector(t *testing.T) {

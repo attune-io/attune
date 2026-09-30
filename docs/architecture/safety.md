@@ -329,8 +329,12 @@ resizes.
 
 Before resizing, the controller checks for potential conflicts:
 
-- **Active rollout**: if `UpdatedReplicas < Replicas`, the workload is
-  mid-rollout and resizing is deferred.
+- **Active rollout**: Auto, OneShot, and Canary skip resize
+  (`RolloutInProgress`) during a real replacement. Recommendations are
+  still computed. OnDelete is not a rollout. A Deployment with
+  `availableReplicas` behind, or a ReplicaSet with `readyReplicas`
+  behind, is not a rollout when generation is observed and no old pods
+  remain.
 - **Opt-out annotation**: workloads with `attune.io/skip: "true"` are
   skipped entirely.
 - **Namespace freeze**: `attune.io/freeze=true` on the namespace skips

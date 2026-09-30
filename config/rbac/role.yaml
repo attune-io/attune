@@ -60,6 +60,7 @@ rules:
 - apiGroups:
   - apps
   resources:
+  - controllerrevisions
   - daemonsets
   - replicasets
   verbs:

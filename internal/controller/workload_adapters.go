@@ -42,7 +42,9 @@ type WorkloadAdapter interface {
 	// PodSpec returns the pod template spec from the workload.
 	PodSpec() *corev1.PodSpec
 
-	// IsRollingOut returns true if the workload is mid-rollout.
+	// IsRollingOut is the whole-workload resize skip. It does not gate
+	// recommendations. StatefulSet and DaemonSet stay false; those kinds
+	// use podSkippedForRollout.
 	IsRollingOut() bool
 
 	// PodNameRegexSuffix returns the PromQL regex suffix that matches pods for this kind.
@@ -161,13 +163,19 @@ func (a *deploymentAdapter) PodSpec() *corev1.PodSpec {
 }
 
 func (a *deploymentAdapter) IsRollingOut() bool {
-	if a.Spec.Replicas != nil && a.Status.UpdatedReplicas < *a.Spec.Replicas {
+	// Nil replicas is not a rollout. Do not treat it as Kubernetes' default of 1.
+	// Availability (availableReplicas) and scale-out (updatedReplicas still
+	// catching up to spec) are not a replacement.
+	if a.Spec.Replicas == nil || a.Spec.Paused {
+		return false
+	}
+	if !deploymentUsesRollingUpdate(a.Deployment) {
+		return false
+	}
+	if generationStale(a.Generation, a.Status.ObservedGeneration) {
 		return true
 	}
-	if a.Spec.Replicas != nil && a.Status.AvailableReplicas < *a.Spec.Replicas {
-		return true
-	}
-	return false
+	return a.Status.Replicas > a.Status.UpdatedReplicas
 }
 
 func (a *deploymentAdapter) PodNameRegexSuffix() string { return "-[a-z0-9]+-[a-z0-9]{5}" }
@@ -196,9 +204,8 @@ func (a *statefulSetAdapter) PodSpec() *corev1.PodSpec {
 }
 
 func (a *statefulSetAdapter) IsRollingOut() bool {
-	if a.Spec.Replicas != nil && a.Status.UpdatedReplicas < *a.Spec.Replicas {
-		return true
-	}
+	// Scale-out, OnDelete, and a held partition are not a workload skip.
+	// A stale generation skips every pod in podSkippedForRollout instead.
 	return false
 }
 
@@ -228,7 +235,9 @@ func (a *daemonSetAdapter) PodSpec() *corev1.PodSpec {
 }
 
 func (a *daemonSetAdapter) IsRollingOut() bool {
-	return a.Status.UpdatedNumberScheduled < a.Status.DesiredNumberScheduled
+	// updatedNumberScheduled below desired is also a new node. Per-pod
+	// ControllerRevision identity decides the skip.
+	return false
 }
 
 func (a *daemonSetAdapter) PodNameRegexSuffix() string { return "-[a-z0-9]{5}" }
@@ -342,10 +351,12 @@ func (a *replicaSetAdapter) PodSpec() *corev1.PodSpec {
 }
 
 func (a *replicaSetAdapter) IsRollingOut() bool {
-	if a.Spec.Replicas != nil && a.Status.ReadyReplicas < *a.Spec.Replicas {
-		return true
+	// Nil replicas is not a rollout. Do not treat it as the default of 1.
+	// readyReplicas below spec is not a rollout. ReplicaSet has no strategy.
+	if a.Spec.Replicas == nil {
+		return false
 	}
-	return false
+	return generationStale(a.Generation, a.Status.ObservedGeneration)
 }
 
 func (a *replicaSetAdapter) PodNameRegexSuffix() string { return "-[a-z0-9]{5}" }

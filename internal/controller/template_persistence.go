@@ -368,7 +368,7 @@ func (r *AttunePolicyReconciler) applyTemplatePersistence(
 				"workload", rec.Workload, "kind", kind)
 			continue
 		}
-		if r.isRollingOut(w) {
+		if templatePersistenceBlockedByRollout(w) {
 			logger.Info("Skipping template persistence mid-rollout",
 				"workload", rec.Workload)
 			continue

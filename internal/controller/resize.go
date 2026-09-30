@@ -579,6 +579,12 @@ func (r *AttunePolicyReconciler) executeResizes(
 			continue
 		}
 
+		if r.isRollingOut(matchedWorkload) {
+			logger.Info("Skipping resize mid-rollout", "workload", rec.Workload)
+			r.emitRolloutInProgress(policy, rec.Workload)
+			continue
+		}
+
 		pods := podsByWorkload[rec.Workload]
 		if pods == nil {
 			var err error
@@ -612,6 +618,10 @@ func (r *AttunePolicyReconciler) executeResizes(
 		logger.V(1).Info("Pod selection for resize",
 			"workload", rec.Workload, "total", len(pods),
 			"selected", len(selectedPods), "type", wlMode)
+		if len(selectedPods) == 0 {
+			continue
+		}
+		selectedPods = r.filterRolloutPods(ctx, policy, matchedWorkload, rec.Workload, selectedPods)
 		if len(selectedPods) == 0 {
 			continue
 		}

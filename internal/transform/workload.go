@@ -32,13 +32,13 @@ func StripDeploymentFields(obj any) (any, error) {
 	}
 	d.ManagedFields = nil
 	stripPodTemplate(&d.Spec.Template)
-	// Keep selector, replicas, and rollout-relevant status fields.
-	d.Spec.Strategy = appsv1.DeploymentStrategy{}
+	// Keep selector, replicas, strategy, and paused. Empty strategy is
+	// RollingUpdate. Clearing it makes Recreate look the same, and
+	// clearing paused drops the per-pod hash skip.
 	d.Spec.MinReadySeconds = 0
 	d.Spec.RevisionHistoryLimit = nil
-	d.Spec.Paused = false
 	d.Spec.ProgressDeadlineSeconds = nil
-	// Status: keep replica counts used by IsRollingOut.
+	// Status: keep observedGeneration and replica counts used by IsRollingOut.
 	d.Status.Conditions = nil
 	d.Status.CollisionCount = nil
 	return d, nil
@@ -53,7 +53,7 @@ func StripStatefulSetFields(obj any) (any, error) {
 	s.ManagedFields = nil
 	stripPodTemplate(&s.Spec.Template)
 	s.Spec.VolumeClaimTemplates = nil
-	s.Spec.UpdateStrategy = appsv1.StatefulSetUpdateStrategy{}
+	// Keep UpdateStrategy. OnDelete must not look like empty RollingUpdate.
 	s.Spec.RevisionHistoryLimit = nil
 	s.Spec.MinReadySeconds = 0
 	s.Spec.PersistentVolumeClaimRetentionPolicy = nil
@@ -71,7 +71,7 @@ func StripDaemonSetFields(obj any) (any, error) {
 	}
 	d.ManagedFields = nil
 	stripPodTemplate(&d.Spec.Template)
-	d.Spec.UpdateStrategy = appsv1.DaemonSetUpdateStrategy{}
+	// Keep UpdateStrategy so OnDelete is not treated as RollingUpdate.
 	d.Spec.MinReadySeconds = 0
 	d.Spec.RevisionHistoryLimit = nil
 	d.Status.Conditions = nil

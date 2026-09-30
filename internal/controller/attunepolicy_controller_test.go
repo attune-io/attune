@@ -427,7 +427,10 @@ func TestIsRollingOut_DeploymentStable(t *testing.T) {
 func TestIsRollingOut_DeploymentMidRollout(t *testing.T) {
 	reconciler := NewAttunePolicyReconciler()
 	deploy := newTestDeployment("test", "default", nil)
-	deploy.Status.UpdatedReplicas = 1 // Only 1 of 2 updated.
+	deploy.Generation = 1
+	deploy.Status.ObservedGeneration = 1
+	deploy.Status.Replicas = 2
+	deploy.Status.UpdatedReplicas = 1 // Old pod still present; 0 would not be.
 	assert.True(t, reconciler.isRollingOut(deploy))
 }
 
@@ -806,7 +809,8 @@ func TestIsRollingOut_StatefulSetMidRollout(t *testing.T) {
 		Spec:   appsv1.StatefulSetSpec{Replicas: &replicas},
 		Status: appsv1.StatefulSetStatus{UpdatedReplicas: 1},
 	}
-	assert.True(t, r.isRollingOut(sts))
+	// updatedReplicas behind spec is not a whole-workload skip.
+	assert.False(t, r.isRollingOut(sts))
 }
 
 func TestIsRollingOut_DaemonSet(t *testing.T) {
@@ -828,7 +832,8 @@ func TestIsRollingOut_DaemonSetMidRollout(t *testing.T) {
 			UpdatedNumberScheduled: 2,
 		},
 	}
-	assert.True(t, r.isRollingOut(ds))
+	// updatedNumberScheduled behind desired is not a whole-workload skip.
+	assert.False(t, r.isRollingOut(ds))
 }
 
 func TestParseCooldown_Default(t *testing.T) {

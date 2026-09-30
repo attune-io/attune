@@ -20,8 +20,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -180,7 +182,8 @@ func isBatchWorkload(workload client.Object) bool {
 	return false
 }
 
-// isRollingOut checks if a workload is currently in the middle of a rollout.
+// isRollingOut is the whole-workload resize skip. Recommendations still run.
+// Nil spec.replicas is not a rollout. Zero generations are not stale.
 func (r *AttunePolicyReconciler) isRollingOut(workload client.Object) bool {
 	if a := newWorkloadAdapter(workload); a != nil {
 		return a.IsRollingOut()
@@ -205,6 +208,280 @@ func (r *AttunePolicyReconciler) getPodRegex(workload client.Object) string {
 	}
 	// Unknown kinds: fall back to prefix match.
 	return name + ".*"
+}
+
+const (
+	// podTemplateGenerationAnnotation is the legacy DaemonSet revision
+	// identity used when controller-revision-hash is empty.
+	podTemplateGenerationAnnotation = "pod-template-generation"
+	deploymentRevisionAnnotation    = "deployment.kubernetes.io/revision"
+)
+
+// generationStale is true only when the spec generation is ahead of the
+// status. Both zero is not stale: fixtures and fresh objects use that.
+func generationStale(generation, observed int64) bool {
+	return generation > observed
+}
+
+func deploymentUsesRollingUpdate(d *appsv1.Deployment) bool {
+	if d == nil {
+		return false
+	}
+	t := d.Spec.Strategy.Type
+	return t == "" || t == appsv1.RollingUpdateDeploymentStrategyType
+}
+
+func statefulSetUsesRollingUpdate(s *appsv1.StatefulSet) bool {
+	if s == nil {
+		return false
+	}
+	t := s.Spec.UpdateStrategy.Type
+	return t == "" || t == appsv1.RollingUpdateStatefulSetStrategyType
+}
+
+func daemonSetUsesRollingUpdate(d *appsv1.DaemonSet) bool {
+	if d == nil {
+		return false
+	}
+	t := d.Spec.UpdateStrategy.Type
+	return t == "" || t == appsv1.RollingUpdateDaemonSetStrategyType
+}
+
+// templatePersistenceBlockedByRollout is the template-write skip. It is
+// stricter than IsRollingOut for paused Deployments and for StatefulSet
+// revisions, and it is not the per-pod resize helper.
+func templatePersistenceBlockedByRollout(w client.Object) bool {
+	switch o := w.(type) {
+	case *appsv1.Deployment:
+		return deploymentTemplateMidReplacement(o)
+	case *appsv1.StatefulSet:
+		return statefulSetTemplateMidReplacement(o)
+	default:
+		return false
+	}
+}
+
+func deploymentTemplateMidReplacement(d *appsv1.Deployment) bool {
+	if d == nil || !deploymentUsesRollingUpdate(d) {
+		return false
+	}
+	if generationStale(d.Generation, d.Status.ObservedGeneration) {
+		return true
+	}
+	return d.Status.Replicas > d.Status.UpdatedReplicas
+}
+
+func statefulSetTemplateMidReplacement(s *appsv1.StatefulSet) bool {
+	if s == nil || !statefulSetUsesRollingUpdate(s) {
+		return false
+	}
+	if generationStale(s.Generation, s.Status.ObservedGeneration) {
+		return true
+	}
+	if s.Status.UpdateRevision == "" || s.Status.CurrentRevision == s.Status.UpdateRevision {
+		return false
+	}
+	if s.Spec.Replicas == nil {
+		return false
+	}
+	var partition int32
+	if ru := s.Spec.UpdateStrategy.RollingUpdate; ru != nil && ru.Partition != nil {
+		partition = *ru.Partition
+	}
+	target := int64(*s.Spec.Replicas) - int64(partition)
+	return int64(s.Status.UpdatedReplicas) < target
+}
+
+func (r *AttunePolicyReconciler) emitRolloutInProgress(policy *attunev1alpha1.AttunePolicy, workloadName string) {
+	r.emitEventOnce(policy, corev1.EventTypeNormal, "RolloutInProgress", "resize",
+		"Resize deferred for workload %s: rollout in progress", workloadName)
+}
+
+// podSkippedForRollout reports a per-pod resize skip. currentHash is the
+// DaemonSet ControllerRevision name, or the paused Deployment's current
+// pod-template-hash. Empty means the lookup failed or does not apply, and
+// that must not skip the pod.
+func (r *AttunePolicyReconciler) podSkippedForRollout(workload client.Object, pod *corev1.Pod, currentHash string) bool {
+	if pod == nil {
+		return false
+	}
+	switch w := workload.(type) {
+	case *appsv1.StatefulSet:
+		return statefulSetPodSkipped(w, pod)
+	case *appsv1.DaemonSet:
+		return daemonSetPodSkipped(w, pod, currentHash)
+	case *appsv1.Deployment:
+		return pausedDeploymentPodSkipped(w, pod, currentHash)
+	default:
+		return false
+	}
+}
+
+func statefulSetPodSkipped(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
+	if !statefulSetUsesRollingUpdate(sts) {
+		return false
+	}
+	if generationStale(sts.Generation, sts.Status.ObservedGeneration) {
+		return true
+	}
+	if sts.Status.UpdateRevision == "" || sts.Status.CurrentRevision == sts.Status.UpdateRevision {
+		return false
+	}
+	return podLabel(pod, appsv1.ControllerRevisionHashLabelKey) != sts.Status.UpdateRevision
+}
+
+func daemonSetPodSkipped(ds *appsv1.DaemonSet, pod *corev1.Pod, currentHash string) bool {
+	if !daemonSetUsesRollingUpdate(ds) || currentHash == "" {
+		return false
+	}
+	return daemonSetPodRevision(pod) != currentHash
+}
+
+func daemonSetPodRevision(pod *corev1.Pod) string {
+	if h := podLabel(pod, appsv1.ControllerRevisionHashLabelKey); h != "" {
+		return h
+	}
+	if pod.Annotations == nil {
+		return ""
+	}
+	return pod.Annotations[podTemplateGenerationAnnotation]
+}
+
+func pausedDeploymentPodSkipped(dep *appsv1.Deployment, pod *corev1.Pod, currentHash string) bool {
+	if dep == nil || !dep.Spec.Paused || currentHash == "" {
+		return false
+	}
+	return podLabel(pod, appsv1.DefaultDeploymentUniqueLabelKey) != currentHash
+}
+
+func podLabel(pod *corev1.Pod, key string) string {
+	if pod == nil || pod.Labels == nil {
+		return ""
+	}
+	return pod.Labels[key]
+}
+
+// filterRolloutPods drops pods that must not be resized yet. A skip emits
+// RolloutInProgress once, including when every selected pod is skipped.
+// No skip emits nothing. A whole-workload skip is handled by the caller.
+func (r *AttunePolicyReconciler) filterRolloutPods(
+	ctx context.Context,
+	policy *attunev1alpha1.AttunePolicy,
+	workload client.Object,
+	workloadName string,
+	pods []corev1.Pod,
+) []corev1.Pod {
+	hash, err := r.rolloutRevisionHash(ctx, workload)
+	if err != nil {
+		log.FromContext(ctx).Error(err, "Failed to resolve rollout revision; not skipping pods", "workload", workloadName)
+		hash = ""
+	}
+	kept := make([]corev1.Pod, 0, len(pods))
+	skipped := 0
+	for i := range pods {
+		if r.podSkippedForRollout(workload, &pods[i], hash) {
+			skipped++
+			log.FromContext(ctx).V(1).Info("Skipping pod on previous rollout revision",
+				"workload", workloadName, "pod", pods[i].Name)
+			continue
+		}
+		kept = append(kept, pods[i])
+	}
+	if skipped > 0 {
+		r.emitRolloutInProgress(policy, workloadName)
+	}
+	return kept
+}
+
+func (r *AttunePolicyReconciler) rolloutRevisionHash(ctx context.Context, workload client.Object) (string, error) {
+	switch w := workload.(type) {
+	case *appsv1.DaemonSet:
+		if !daemonSetUsesRollingUpdate(w) {
+			return "", nil
+		}
+		return r.currentDaemonSetRevisionName(ctx, w)
+	case *appsv1.Deployment:
+		if !w.Spec.Paused {
+			return "", nil
+		}
+		return r.currentPausedDeploymentHash(ctx, w)
+	default:
+		return "", nil
+	}
+}
+
+func (r *AttunePolicyReconciler) currentDaemonSetRevisionName(ctx context.Context, ds *appsv1.DaemonSet) (string, error) {
+	if r.Client == nil {
+		return "", fmt.Errorf("listing ControllerRevisions: client is nil")
+	}
+	var list appsv1.ControllerRevisionList
+	if err := r.List(ctx, &list, client.InNamespace(ds.Namespace)); err != nil {
+		return "", err
+	}
+	var best *appsv1.ControllerRevision
+	for i := range list.Items {
+		rev := &list.Items[i]
+		if !objectOwnedBy(rev, ds.UID) {
+			continue
+		}
+		if best == nil || rev.Revision > best.Revision {
+			best = rev
+		}
+	}
+	if best == nil {
+		return "", nil
+	}
+	return best.Name, nil
+}
+
+func (r *AttunePolicyReconciler) currentPausedDeploymentHash(ctx context.Context, dep *appsv1.Deployment) (string, error) {
+	if r.Client == nil {
+		return "", fmt.Errorf("listing ReplicaSets: client is nil")
+	}
+	var list appsv1.ReplicaSetList
+	if err := r.List(ctx, &list, client.InNamespace(dep.Namespace)); err != nil {
+		return "", err
+	}
+	var best *appsv1.ReplicaSet
+	var bestRev int64 = -1
+	for i := range list.Items {
+		rs := &list.Items[i]
+		if !objectOwnedBy(rs, dep.UID) {
+			continue
+		}
+		rev := parseDeploymentRevision(rs.Annotations)
+		if best == nil || rev > bestRev {
+			best = rs
+			bestRev = rev
+		}
+	}
+	if best == nil || best.Labels == nil {
+		return "", nil
+	}
+	return best.Labels[appsv1.DefaultDeploymentUniqueLabelKey], nil
+}
+
+func objectOwnedBy(obj metav1.Object, uid types.UID) bool {
+	if uid == "" {
+		return false
+	}
+	for _, ref := range obj.GetOwnerReferences() {
+		if ref.UID == uid {
+			return true
+		}
+	}
+	return false
+}
+
+func parseDeploymentRevision(annotations map[string]string) int64 {
+	if annotations == nil {
+		return 0
+	}
+	v, err := strconv.ParseInt(annotations[deploymentRevisionAnnotation], 10, 64)
+	if err != nil {
+		return 0
+	}
+	return v
 }
 
 // queryMetricsGrouped queries the configured metrics backend once per metric
