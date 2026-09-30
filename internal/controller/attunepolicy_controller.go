@@ -663,21 +663,13 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Set ScheduleBlocked condition when a schedule is configured.
 	r.setScheduleBlockedCondition(&policy, withinWindow)
 
-	// Derive the Resized count from history to self-heal from race conditions
-	// where a concurrent reconcile overwrote Resized to 0 after a successful
-	// resize. The resize history is preserved through races because
-	// updateStatusWithRetry keeps the longer history on conflict retry.
-	if isResizeMode(mode) && policy.Status.Workloads.Resized == 0 {
-		resizedWorkloads := make(map[string]bool)
-		for _, h := range policy.Status.ResizeHistory {
-			if isSuccessfulInPlaceHistory(h) {
-				resizedWorkloads[h.Workload] = true
-			}
-		}
-		if derived := safeInt32(len(resizedWorkloads)); derived > policy.Status.Workloads.Resized {
-			policy.Status.Workloads.Resized = derived
-		}
-	}
+	// Workloads.Resized is this cycle only (newResizedCount). Retained
+	// resizeHistory is a 50-entry cap, not a time window, so counting every
+	// successful in-place row keeps Resizing=InProgress after the apply.
+	// Conflict retry appends fetched rows whose normalized identity is not
+	// already in this snapshot. Identity ignores timestamp. The count still
+	// drops delta rows strictly older than this reconcile's start minus one
+	// second; those rows stay in history.
 	if isResizeMode(mode) && allCooling && newResizedCount == 0 {
 		logger.Info("Cooldown active for all matched workloads, skipping resize")
 		r.emitEventOnce(&policy, corev1.EventTypeNormal, "CooldownActive", "resize",
@@ -760,7 +752,9 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	// Use a retry loop for the status update to handle resource version conflicts
 	// caused by concurrent metadata updates (e.g., cooldown annotations).
-	if statusErr := r.updateStatusWithRetry(ctx, &policy, req.NamespacedName); statusErr != nil {
+	// cooldownActive is the pre-write value. The retry recomputes Resizing
+	// after it merges fetched history, because Resized may move off zero.
+	if statusErr := r.updateStatusWithRetry(ctx, &policy, req.NamespacedName, cycleResizeHistory, allCooling && newResizedCount == 0, startTime); statusErr != nil {
 		operatormetrics.ReconcileErrorsTotal.WithLabelValues("status_update").Inc()
 		return ctrl.Result{}, fmt.Errorf("updating status: %w", statusErr)
 	}
@@ -798,7 +792,10 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			requeueAfter = rem
 		}
 	}
-	if autoRevertEnabled(policy.Spec.UpdateStrategy) && (policy.Status.Workloads.Resized > 0 || safetyObservationsPending) {
+	// newResizedCount, not Workloads.Resized. A conflict retry can raise
+	// Resized from the other reconcile's new rows; this loser did not
+	// resize and must keep the cooldown delay.
+	if autoRevertEnabled(policy.Spec.UpdateStrategy) && (newResizedCount > 0 || safetyObservationsPending) {
 		obs := getObservationPeriod(&policy)
 		if obs < requeueAfter {
 			requeueAfter = obs

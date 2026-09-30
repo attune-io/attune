@@ -465,6 +465,25 @@ rollout. It now skips, same as an HPA list error.
 3. The next successful list retries persist (including AfterSuccessfulResize
    lagging retry outside cooldown).
 
+### Resizing stays InProgress
+
+**Symptom**: `Resizing` is `True` with reason `InProgress` for longer than
+a few minutes, including across cooldown. The message says workloads were
+resized this cycle, and the policy requeues at the safety observation
+period instead of the cooldown.
+
+**Cause**: Older builds copied every successful in-place row still in
+`status.resizeHistory` (a 50-entry cap, not a time window) into
+`status.workloads.resized`. Later idle reconciles looked like a fresh
+resize. With `autoRevert` left on (the default), that shortened the
+requeue for as long as any successful in-place row remained.
+
+**Fix**: Upgrade to a release that counts only resizes from the latest
+reconcile. After that, sustained `InProgress` means resizes are still
+happening. Check `status.resizeHistory` timestamps and live pod requests.
+`CooldownActive` or `Idle` with `workloads.resized: 0` is the idle state,
+even when history still lists older successes.
+
 ### CooldownActive
 
 **Symptom**: The operator logs "Cooldown active, skipping resize" and no

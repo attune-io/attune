@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	kubefake "k8s.io/client-go/kubernetes/fake"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
@@ -114,26 +115,27 @@ func TestReconcile_ZeroCooldown_ObservationAndMonitoring(t *testing.T) {
 	t.Run("auto safety zero uses 5m not query step", func(t *testing.T) {
 		policy := zeroCooldownAutoPolicy(30*time.Minute, &metav1.Duration{Duration: 0})
 		policy.Status.ResizeHistory = successHistory
-		result, updated := reconcileZeroCooldown(t, policy, 20)
+		result, updated := reconcileZeroCooldown(t, policy, 20, true)
 		assert.Equal(t, 5*time.Minute, result.RequeueAfter)
 		cond := meta.FindStatusCondition(updated.Status.Conditions, attunev1alpha1.ConditionReady)
 		require.NotNil(t, cond)
 		assert.Equal(t, attunev1alpha1.ReasonInsufficientData, cond.Reason)
-		assert.Greater(t, updated.Status.Workloads.Resized, int32(0))
+		assert.Equal(t, int32(0), updated.Status.Workloads.Resized)
 	})
 
 	t.Run("auto safety 30s floors to 1m", func(t *testing.T) {
 		policy := zeroCooldownAutoPolicy(30*time.Minute, &metav1.Duration{Duration: 30 * time.Second})
 		policy.Status.ResizeHistory = successHistory
-		result, _ := reconcileZeroCooldown(t, policy, 20)
+		result, updated := reconcileZeroCooldown(t, policy, 20, true)
 		assert.Equal(t, time.Minute, result.RequeueAfter)
+		assert.Equal(t, int32(0), updated.Status.Workloads.Resized)
 	})
 
 	t.Run("recommend with data requeues at 1h", func(t *testing.T) {
 		policy := newTestPolicy("test-policy", "default")
 		policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 0}
 		policy.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: 30 * time.Minute}
-		result, updated := reconcileZeroCooldown(t, policy, 200)
+		result, updated := reconcileZeroCooldown(t, policy, 200, false)
 		assert.Equal(t, time.Hour, result.RequeueAfter)
 		cond := meta.FindStatusCondition(updated.Status.Conditions, attunev1alpha1.ConditionReady)
 		require.NotNil(t, cond)
@@ -144,7 +146,7 @@ func TestReconcile_ZeroCooldown_ObservationAndMonitoring(t *testing.T) {
 		policy := zeroCooldownAutoPolicy(30*time.Minute, nil)
 		policy.Spec.UpdateStrategy.AutoRevert = boolPtr(false)
 		policy.Status.ResizeHistory = successHistory
-		result, updated := reconcileZeroCooldown(t, policy, 200)
+		result, updated := reconcileZeroCooldown(t, policy, 200, false)
 		assert.Equal(t, time.Hour, result.RequeueAfter)
 		cond := meta.FindStatusCondition(updated.Status.Conditions, attunev1alpha1.ConditionReady)
 		require.NotNil(t, cond)
@@ -161,16 +163,32 @@ func zeroCooldownAutoPolicy(queryStep time.Duration, safety *metav1.Duration) *a
 	return policy
 }
 
-func reconcileZeroCooldown(t *testing.T, policy *attunev1alpha1.AttunePolicy, samples int) (ctrl.Result, attunev1alpha1.AttunePolicy) {
+func reconcileZeroCooldown(t *testing.T, policy *attunev1alpha1.AttunePolicy, samples int, track bool) (ctrl.Result, attunev1alpha1.AttunePolicy) {
 	t.Helper()
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+	if track {
+		// A retained history row is not this cycle. The short wait comes from
+		// a pod still inside its observation window.
+		pod.Labels[labelTracked] = "true"
+		pod.Annotations = map[string]string{
+			annotationResizedAt:                     time.Now().UTC().Format(time.RFC3339),
+			annotationResizedWorkload:               "api-server",
+			annotationResizedContainers:             "main",
+			annotationOriginalCPUPrefix + "main":    "100m",
+			annotationOriginalMemoryPrefix + "main": "128Mi",
+			annotationPolicy:                        policy.Name,
+		}
+	}
 	mc := &mockCollector{
 		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
 			return generateSamples(samples, 0.1), nil
 		},
 	}
 	reconciler, fakeClient := newReconcilerForReconcile(mc, policy, deploy, pod)
+	if track {
+		reconciler.Clientset = kubefake.NewSimpleClientset(pod.DeepCopy())
+	}
 	reconciler.RequeueJitter = 0
 	result, err := reconciler.Reconcile(context.Background(), ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: policy.Name, Namespace: policy.Namespace},

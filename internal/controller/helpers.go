@@ -651,7 +651,80 @@ func normalizeResizeHistoryMethods(history []attunev1alpha1.ResizeHistoryEntry) 
 }
 
 func isSuccessfulInPlaceHistory(entry attunev1alpha1.ResizeHistoryEntry) bool {
+	// Blank Method on Success is legacy in-place. resizeHistoryMethod
+	// fills that in. A literal Method == "InPlace" check drops those rows.
+	// TemplatePersistence, Evicted, Failed, and Reverted do not count.
 	return resizeHistoryMethod(entry) == resize.MethodInPlace && entry.Result == attunev1alpha1.ResizeResultSuccess
+}
+
+// historyEntryIdentity ignores Timestamp, Result, and Reason. Whole-second
+// RFC3339 makes time unstable. Method is normalized so a blank legacy row
+// matches InPlace or Eviction. Result and Reason stay out so a revert of a
+// row already in the snapshot is not appended again.
+func historyEntryIdentity(entry attunev1alpha1.ResizeHistoryEntry) string {
+	return strings.Join([]string{
+		entry.Workload,
+		entry.Container,
+		entry.Resource,
+		entry.From,
+		entry.To,
+		resizeHistoryMethod(entry),
+	}, "\x00")
+}
+
+// resizeHistoryDelta returns fetched rows that exceed the snapshot's count
+// of the same normalized identity. History is append-only, so the matching
+// prefix consumes that count and a later extra copy is a new row. Timestamp,
+// Result, and Reason are not part of the identity, so a revert already in
+// the snapshot is not appended again.
+func resizeHistoryDelta(saved, fetched []attunev1alpha1.ResizeHistoryEntry) []attunev1alpha1.ResizeHistoryEntry {
+	remaining := make(map[string]int, len(saved))
+	for _, entry := range saved {
+		remaining[historyEntryIdentity(entry)]++
+	}
+	delta := make([]attunev1alpha1.ResizeHistoryEntry, 0)
+	for _, entry := range fetched {
+		id := historyEntryIdentity(entry)
+		if remaining[id] > 0 {
+			remaining[id]--
+			continue
+		}
+		delta = append(delta, entry)
+	}
+	return delta
+}
+
+// cycleDeltaForCount drops delta rows that finished before this
+// reconcile. Status timestamps are whole seconds, so a stamp up to one
+// second before cycleStart still belongs to this cycle. A zero
+// cycleStart keeps every row. A zero timestamp has no clock to reject.
+func cycleDeltaForCount(delta []attunev1alpha1.ResizeHistoryEntry, cycleStart time.Time) []attunev1alpha1.ResizeHistoryEntry {
+	if cycleStart.IsZero() {
+		return delta
+	}
+	cutoff := cycleStart.Add(-time.Second)
+	kept := make([]attunev1alpha1.ResizeHistoryEntry, 0, len(delta))
+	for _, entry := range delta {
+		if entry.Timestamp.IsZero() || !entry.Timestamp.Time.Before(cutoff) {
+			kept = append(kept, entry)
+		}
+	}
+	return kept
+}
+
+// successfulInPlaceWorkloadCount is the distinct workloads with a
+// successful in-place row across the given slices.
+func successfulInPlaceWorkloadCount(groups ...[]attunev1alpha1.ResizeHistoryEntry) int32 {
+	seen := make(map[string]struct{})
+	for _, entries := range groups {
+		for _, entry := range entries {
+			if entry.Workload == "" || !isSuccessfulInPlaceHistory(entry) {
+				continue
+			}
+			seen[entry.Workload] = struct{}{}
+		}
+	}
+	return safeInt32(len(seen))
 }
 
 func removeSuccessfulInPlaceHistory(entries []attunev1alpha1.ResizeHistoryEntry) []attunev1alpha1.ResizeHistoryEntry {
@@ -1187,10 +1260,24 @@ func stripRecommendationClocks(recs []attunev1alpha1.WorkloadRecommendation) {
 
 // updateStatusWithRetry performs a status update with up to 4 attempts
 // (3 retries + 1 final) on conflict. On each conflict it re-fetches the
-// policy and re-applies the saved status fields, preserving the higher
-// Resized count from concurrent reconciles. A status that only differs
-// by LastReconcileTime is left unwritten.
-func (r *AttunePolicyReconciler) updateStatusWithRetry(ctx context.Context, policy *attunev1alpha1.AttunePolicy, key types.NamespacedName) error {
+// policy, keeps this reconcile's status, and appends fetched history rows
+// that were not in that snapshot. Workloads.Resized is the distinct
+// successful in-place workloads in cycleResizeHistory plus delta rows
+// from this reconcile. Identity ignores timestamp, result, and reason, so
+// a revert already in the snapshot is not appended again. An earlier hour
+// stays in history and does not raise the count. Not the length of
+// retained history, and not a stale lifetime count.
+// Resizing is recomputed after the merge so a retry cannot persist
+// Resized >= 1 with Idle or CooldownActive chosen while the count was 0.
+// A status that only differs by LastReconcileTime is left unwritten.
+func (r *AttunePolicyReconciler) updateStatusWithRetry(
+	ctx context.Context,
+	policy *attunev1alpha1.AttunePolicy,
+	key types.NamespacedName,
+	cycleResizeHistory []attunev1alpha1.ResizeHistoryEntry,
+	cooldownActive bool,
+	cycleStart time.Time,
+) error {
 	var stored attunev1alpha1.AttunePolicy
 	if err := r.Get(ctx, key, &stored); err != nil {
 		return err
@@ -1201,6 +1288,9 @@ func (r *AttunePolicyReconciler) updateStatusWithRetry(ctx context.Context, poli
 
 	const maxRetries = 3
 	logger := log.FromContext(ctx)
+	// Diff every retry against this reconcile's snapshot. Diffing against
+	// the already merged status drops the previous delta from Resized.
+	original := policy.Status.DeepCopy()
 
 	for attempt := range maxRetries {
 		err := r.Status().Update(ctx, policy)
@@ -1211,19 +1301,25 @@ func (r *AttunePolicyReconciler) updateStatusWithRetry(ctx context.Context, poli
 			return err
 		}
 
-		// Conflict: re-fetch and retry, preserving the higher Resized count.
-		// A concurrent reconcile may have already set Resized > 0; we must not
-		// overwrite it with 0 from our stale snapshot.
 		logger.Info("Status update conflict, retrying", "attempt", attempt+1, "maxRetries", maxRetries)
-		savedStatus := policy.Status.DeepCopy()
 		if fetchErr := r.Get(ctx, key, policy); fetchErr != nil {
 			return fetchErr
 		}
-		fetchedResized := policy.Status.Workloads.Resized
-		policy.Status = *savedStatus
-		if fetchedResized > policy.Status.Workloads.Resized {
-			policy.Status.Workloads.Resized = fetchedResized
+		fetchedHistory := append([]attunev1alpha1.ResizeHistoryEntry{}, policy.Status.ResizeHistory...)
+		restored := original.DeepCopy()
+		policy.Status = *restored
+		delta := resizeHistoryDelta(original.ResizeHistory, fetchedHistory)
+		base := append([]attunev1alpha1.ResizeHistoryEntry{}, original.ResizeHistory...)
+		policy.Status.ResizeHistory = appendHistory(base, delta, maxHistoryEntries)
+		policy.Status.Workloads.Resized = successfulInPlaceWorkloadCount(cycleResizeHistory, cycleDeltaForCount(delta, cycleStart))
+		pending := policy.Status.Workloads.WithRecommendations - policy.Status.Workloads.Resized
+		if pending < 0 {
+			pending = 0
 		}
+		policy.Status.Workloads.Pending = pending
+		// Recompute after Resized changes. The condition chosen before
+		// the first write still describes the pre-merge count.
+		r.setResizingCondition(policy, cooldownActive)
 	}
 	return r.Status().Update(ctx, policy)
 }
