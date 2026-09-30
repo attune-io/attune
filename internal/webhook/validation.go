@@ -649,6 +649,11 @@ func validateMetricsSourceProviderFields(ms *attunev1alpha1.MetricsSource) error
 		if err := validation.CloudWatchRoleARN(cw.RoleARN); err != nil {
 			return fmt.Errorf("metricsSource.cloudwatch.roleArn: %w", err)
 		}
+		switch cw.CPUUnit {
+		case "", attunev1alpha1.DefaultCloudWatchCPUUnit, "Cores", "Nanocores":
+		default:
+			return fmt.Errorf("metricsSource.cloudwatch.cpuUnit must be Millicores, Cores, or Nanocores, got %q", cw.CPUUnit)
+		}
 	}
 	if m := ms.CPURecordingMetric; m != "" && !rsmetrics.ValidRecordingMetricName(m) {
 		return fmt.Errorf("metricsSource.cpuRecordingMetric: invalid metric name %q", m)

@@ -227,11 +227,15 @@ type CloudWatchQuerySpec struct {
 	Container string `json:"container,omitempty"`
 	Period    int    `json:"period"`
 	Stat      string `json:"stat"`
+	// CPUUnit is the container_cpu_usage_total scale. Empty means millicores.
+	// It is not interpolated into the SEARCH expression.
+	CPUUnit string `json:"cpuUnit,omitempty"`
 }
 
 // CloudWatchQueryBuilder builds serialized CloudWatch query specifications.
 type CloudWatchQueryBuilder struct {
 	ClusterName string
+	CPUUnit     string
 }
 
 // BuildQuery produces a JSON-serialized CloudWatchQuerySpec that the
@@ -262,6 +266,7 @@ func (b *CloudWatchQueryBuilder) BuildQuery(namespace, podRegex, container, metr
 		Container:   container,
 		Period:      period,
 		Stat:        "Average",
+		CPUUnit:     b.CPUUnit,
 	}
 
 	data, _ := json.Marshal(spec)

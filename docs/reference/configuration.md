@@ -422,7 +422,7 @@ All fields from `AttuneDefaults` are available in
 
 | Section | Fields |
 |---------|--------|
-| `metricsSource` | `prometheus.address`, `prometheus.headers`, `prometheus.queryParameters`, `prometheus.bearerTokenSecret`, `prometheus.tls`, `datadog.site`, `datadog.apiKeySecretRef`, `cloudwatch.region`, `cloudwatch.clusterName`, `cloudwatch.roleArn`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow`, `podAggregation`, `cpuRecordingMetric`, `memoryRecordingMetric` |
+| `metricsSource` | `prometheus.address`, `prometheus.headers`, `prometheus.queryParameters`, `prometheus.bearerTokenSecret`, `prometheus.tls`, `datadog.site`, `datadog.apiKeySecretRef`, `cloudwatch.region`, `cloudwatch.clusterName`, `cloudwatch.roleArn`, `cloudwatch.cpuUnit`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow`, `podAggregation`, `cpuRecordingMetric`, `memoryRecordingMetric` |
 | `cpu` | `percentile`, `overhead`, `minAllowed`, `maxAllowed`, `controlledValues`, `burstSensitivity`, `allowDecrease`, `startupBoost`, `maxChangePercent`, `maxIncreasePercent`, `maxDecreasePercent` |
 | `memory` | Same as `cpu` (no `startupBoost`), plus `decreaseUsageMarginPercent` and `memoryFromCpuRatio` |
 | `updateStrategy` | `type`, `cooldown`, `autoRevert`, `resizeMethod`, `initialSizing`, `maxConcurrentResizes`, `maxStatusRecommendations`, `includeExplanationsInStatus`, `maxTotalCpuIncrease`, `maxTotalMemoryIncrease`, `maxCpuIncreasePerMinute`, `maxMemoryIncreasePerMinute`, `schedule`, `export`, `canary`, `safetyObservationPeriod`, `sloGuardrails`, `templatePersistence` |
@@ -465,6 +465,7 @@ operator queries. The wizard inherit option uses that omit shape.
 | `metricsSource.cloudwatch.region` | string | (required) | AWS region (e.g., `us-east-1`) |
 | `metricsSource.cloudwatch.clusterName` | string | (required) | EKS cluster name for Container Insights metric filtering (1-100 chars, alphanumeric / hyphen / underscore) |
 | `metricsSource.cloudwatch.roleArn` | string | `""` | Optional IAM role ARN for cross-account access (`arn:aws:iam::ACCOUNT:role/NAME`; IRSA/Pod Identity used if empty) |
+| `metricsSource.cloudwatch.cpuUnit` | string | `Millicores` | Scale of `container_cpu_usage_total`. Millicores divides by 1000. Cores leaves the value unchanged. Nanocores divides by 1e9. Empty means Millicores. |
 
 ## Policy-Level Fields
 

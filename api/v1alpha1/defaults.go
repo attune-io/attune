@@ -74,6 +74,9 @@ const (
 	DefaultExcludeKnownSidecars = true
 	// DefaultPodAggregation is Max: max by (container) for PromQL.
 	DefaultPodAggregation = "Max"
+	// DefaultCloudWatchCPUUnit is the container_cpu_usage_total scale when
+	// cpuUnit is empty. Millicores divides by 1000.
+	DefaultCloudWatchCPUUnit = "Millicores"
 	// DefaultMaxStatusRecommendations caps status.recommendations size.
 	DefaultMaxStatusRecommendations int32 = 100
 	// DefaultIncludeExplanationsInStatus keeps explanation chains in status.

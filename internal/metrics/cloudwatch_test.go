@@ -56,12 +56,12 @@ func TestCloudWatchCollector_QueryRangeGrouped_CPU(t *testing.T) {
 					{
 						Label:      aws.String("container_cpu_usage_total api-server-abc web"),
 						Timestamps: []time.Time{ts1, ts2},
-						Values:     []float64{500000000, 1000000000}, // nanocores
+						Values:     []float64{500, 1000}, // millicores
 					},
 					{
 						Label:      aws.String("container_cpu_usage_total api-server-abc sidecar"),
 						Timestamps: []time.Time{ts1},
-						Values:     []float64{100000000},
+						Values:     []float64{100},
 					},
 				},
 			}, nil
@@ -88,10 +88,154 @@ func TestCloudWatchCollector_QueryRangeGrouped_CPU(t *testing.T) {
 	assert.Len(t, grouped["web"], 2)
 	assert.Len(t, grouped["sidecar"], 1)
 
-	// Verify nanocores -> cores conversion.
+	// Omitted cpuUnit is millicores: 500 -> 0.5 cores.
 	assert.InDelta(t, 0.5, grouped["web"][0].Value, 0.001)
 	assert.InDelta(t, 1.0, grouped["web"][1].Value, 0.001)
 	assert.InDelta(t, 0.1, grouped["sidecar"][0].Value, 0.001)
+}
+
+func cloudWatchOneSample(t *testing.T, metric, cpuUnit string, raw float64) float64 {
+	t.Helper()
+	ts1 := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	var expr string
+	mock := &mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, params *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			if params != nil && len(params.MetricDataQueries) > 0 && params.MetricDataQueries[0].Expression != nil {
+				expr = aws.ToString(params.MetricDataQueries[0].Expression)
+			}
+			return &cloudwatch.GetMetricDataOutput{
+				MetricDataResults: []cwtypes.MetricDataResult{
+					{
+						Label:      aws.String(metric + " api-server-abc web"),
+						Timestamps: []time.Time{ts1},
+						Values:     []float64{raw},
+					},
+				},
+			}, nil
+		},
+	}
+	c := NewCloudWatchCollectorWithClient(mock, "my-cluster", logr.Discard())
+	spec := CloudWatchQuerySpec{
+		Metric:      metric,
+		ClusterName: "my-cluster",
+		Namespace:   "default",
+		PodPrefix:   "api-server-",
+		Period:      300,
+		Stat:        "Average",
+		CPUUnit:     cpuUnit,
+	}
+	query, err := json.Marshal(spec)
+	require.NoError(t, err)
+	grouped, err := c.QueryRangeGrouped(context.Background(), string(query),
+		ts1.Add(-time.Hour), ts1, 5*time.Minute)
+	require.NoError(t, err)
+	require.NotContains(t, expr, "cpuUnit")
+	require.Len(t, grouped["web"], 1)
+	return grouped["web"][0].Value
+}
+
+func TestCloudWatchCPUUnit_Millicores(t *testing.T) {
+	got := cloudWatchOneSample(t, "container_cpu_usage_total", "Millicores", 500)
+	assert.InDelta(t, 0.5, got, 0.001)
+}
+
+func TestCloudWatchCPUUnit_Omitted(t *testing.T) {
+	got := cloudWatchOneSample(t, "container_cpu_usage_total", "", 500)
+	assert.InDelta(t, 0.5, got, 0.001)
+}
+
+func TestCloudWatchCPUUnit_Cores(t *testing.T) {
+	got := cloudWatchOneSample(t, "container_cpu_usage_total", "Cores", 0.5)
+	assert.InDelta(t, 0.5, got, 0.001)
+}
+
+func TestCloudWatchCPUUnit_Nanocores(t *testing.T) {
+	got := cloudWatchOneSample(t, "container_cpu_usage_total", "Nanocores", 500000000)
+	assert.InDelta(t, 0.5, got, 0.001)
+}
+
+func TestCloudWatchCPUUnit_MemoryIgnoresNanocores(t *testing.T) {
+	got := cloudWatchOneSample(t, "container_memory_working_set", "Nanocores", 536870912)
+	assert.InDelta(t, 536870912, got, 1)
+}
+
+func TestCloudWatchCPUUnit_RejectsUnknown(t *testing.T) {
+	ts1 := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	for _, unit := range []string{"millicores", "CoresPerHour", "cores"} {
+		t.Run(unit, func(t *testing.T) {
+			called := false
+			mock := &mockCloudWatchClient{
+				getMetricDataFn: func(_ context.Context, _ *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+					called = true
+					return &cloudwatch.GetMetricDataOutput{}, nil
+				},
+			}
+			c := NewCloudWatchCollectorWithClient(mock, "my-cluster", logr.Discard())
+			spec := CloudWatchQuerySpec{
+				Metric:      "container_cpu_usage_total",
+				ClusterName: "my-cluster",
+				Namespace:   "default",
+				PodPrefix:   "api-server-",
+				Period:      300,
+				Stat:        "Average",
+				CPUUnit:     unit,
+			}
+			query, err := json.Marshal(spec)
+			require.NoError(t, err)
+			_, err = c.QueryRangeGrouped(context.Background(), string(query),
+				ts1.Add(-time.Hour), ts1, 5*time.Minute)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "cpuUnit")
+			assert.False(t, called)
+		})
+	}
+}
+
+func TestCloudWatchCPUUnit_NonFinite(t *testing.T) {
+	ts1 := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	ts2 := ts1.Add(time.Minute)
+	ts3 := ts1.Add(2 * time.Minute)
+
+	mock := &mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, _ *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			return &cloudwatch.GetMetricDataOutput{
+				MetricDataResults: []cwtypes.MetricDataResult{
+					{
+						Label:      aws.String("container_cpu_usage_total pod-a gone"),
+						Timestamps: []time.Time{ts1, ts2, ts3},
+						Values:     []float64{math.NaN(), math.Inf(1), math.Inf(-1)},
+					},
+					{
+						Label:      aws.String("container_cpu_usage_total pod-b web"),
+						Timestamps: []time.Time{ts1, ts2, ts3},
+						Values:     []float64{math.NaN(), 500, math.Inf(1)},
+					},
+				},
+			}, nil
+		},
+	}
+	c := NewCloudWatchCollectorWithClient(mock, "my-cluster", logr.Discard())
+	spec := CloudWatchQuerySpec{
+		Metric:      "container_cpu_usage_total",
+		ClusterName: "my-cluster",
+		Namespace:   "default",
+		PodPrefix:   "pod-",
+		Period:      300,
+		Stat:        "Average",
+		CPUUnit:     "Millicores",
+	}
+	query, err := json.Marshal(spec)
+	require.NoError(t, err)
+
+	ctx := WithNanInfLabels(context.Background(), "cw-cpu-unit-ns", "cw-cpu-unit-policy", "")
+	before := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("cw-cpu-unit-ns", "cw-cpu-unit-policy", "untracked", "cpu"))
+	grouped, err := c.QueryRangeGrouped(ctx, string(query), ts1.Add(-time.Hour), ts3, time.Minute)
+	require.NoError(t, err)
+	assert.Empty(t, grouped["gone"])
+	require.Len(t, grouped["web"], 1)
+	assert.InDelta(t, 0.5, grouped["web"][0].Value, 0.001)
+	after := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("cw-cpu-unit-ns", "cw-cpu-unit-policy", "untracked", "cpu"))
+	assert.Equal(t, before+1, after)
 }
 
 func TestCloudWatchCollector_QueryRangeGrouped_Memory(t *testing.T) {

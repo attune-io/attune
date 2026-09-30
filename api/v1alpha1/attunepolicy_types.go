@@ -326,6 +326,16 @@ type CloudWatchConfig struct {
 	// If not set, uses the pod's service account IAM role (IRSA/Pod Identity).
 	// +optional
 	RoleARN string `json:"roleArn,omitempty"`
+
+	// CPUUnit selects the scale of Container Insights container_cpu_usage_total
+	// before Attune converts it to cores. Millicores divides by 1000, Cores
+	// leaves the sample unchanged, and Nanocores divides by 1e9 (the pre-field
+	// behavior, and the Datadog scale). Empty means Millicores, including
+	// objects stored before this field existed. Memory samples are not scaled.
+	// Unknown values are rejected.
+	// +optional
+	// +kubebuilder:validation:Enum=Millicores;Cores;Nanocores
+	CPUUnit string `json:"cpuUnit,omitempty"`
 }
 
 // ResourceConfig defines resource recommendation parameters.
@@ -372,7 +382,9 @@ type ResourceConfig struct {
 	BurstSensitivity *string `json:"burstSensitivity,omitempty"`
 
 	// AllowDecrease controls whether the resource value can be decreased.
-	// For CPU: nil defaults to true (decreases allowed, throttle detected by safety monitor).
+	// For CPU: nil defaults to true (decreases allowed when the backend supports
+	// throttle queries, because throttle is detected by the safety monitor).
+	// CloudWatch does not support throttle queries.
 	// For memory: nil defaults to false (decreases blocked to prevent OOMKill).
 	// +optional
 	AllowDecrease *bool `json:"allowDecrease,omitempty"`

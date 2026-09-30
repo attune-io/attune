@@ -8,6 +8,18 @@ Maintainers: before publishing a release after multi-version product changes,
 run the full E2E Nightly matrix on tip of `main` (see
 [Releasing: full E2E matrix](../contributing/releasing.md#1b-full-e2e-matrix-required-before-tagging-a-product-release)).
 
+## Unreleased
+
+### CloudWatch CPU unit
+
+CloudWatch policies that omit `cpuUnit` now treat `container_cpu_usage_total` as millicores (divide by 1000). Older releases divided that metric by 1e9. The next reconcile changes CPU recommendations.
+
+To keep the old scale, set `cpuUnit: Nanocores` on each policy that has its own `cloudwatch` block. Setting it only on AttuneDefaults does not reach those policies. Defaults apply when the policy omits the whole metrics provider.
+
+If the new scale is too small, CPU requests sit at 1m or minAllowed. If it is too large, they move toward maxAllowed. CPU `allowDecrease` still defaults to true, and CloudWatch does not run throttle revert, so a bad step is not undone by the throttle check. Confirm one raw GetMetricData sample against the container limit before rollout.
+
+The OpenTelemetry `awscontainerinsightreceiver` multiplies the core rate by 1000, and its README lists `container_cpu_usage_total` as Millicore ([cpu extractor](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/receiver/awscontainerinsightreceiver/internal/cadvisor/extractors/cpu_extractor.go)).
+
 ## v0.1.31 to v0.1.32
 
 v0.1.32 restores CloudWatch samples for Deployments and CronJobs, and

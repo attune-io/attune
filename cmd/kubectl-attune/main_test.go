@@ -3227,6 +3227,42 @@ func TestPrintEffectivePolicySummary_CostPricing(t *testing.T) {
 	assert.Contains(t, s, "Memory per GiB-hour: 0.004 (source: built-in default, configured: <unset>)")
 }
 
+func TestPrintEffectivePolicySummary_CloudWatchCPUUnitDefault(t *testing.T) {
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeAuto},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				CloudWatch: &attunev1alpha1.CloudWatchConfig{
+					Region:      "us-east-1",
+					ClusterName: "prod",
+				},
+			},
+		},
+	}
+	item := unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{
+			"metricsSource": map[string]interface{}{
+				"cloudwatch": map[string]interface{}{
+					"region":      "us-east-1",
+					"clusterName": "prod",
+				},
+			},
+		},
+	}}
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	old := os.Stdout
+	os.Stdout = w
+	printEffectivePolicySummary(item, policy, selectedDefaults{})
+	_ = w.Close()
+	os.Stdout = old
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	s := string(out)
+	assert.Contains(t, s, "CloudWatch CPU unit")
+	assert.Contains(t, s, "Millicores")
+}
+
 func TestPrintEffectivePolicySummary_PodAggregationDefault(t *testing.T) {
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{

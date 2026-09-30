@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -31,6 +32,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/go-logr/logr"
 
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	"github.com/attune-io/attune/internal/validation"
 )
 
@@ -182,7 +184,7 @@ func (c *CloudWatchCollector) QueryRangeGrouped(ctx context.Context, query strin
 					break
 				}
 				hadPoints = true
-				grouped[container] = appendFiniteScaled(grouped[container], ts, result.Values[i], isCPU)
+				grouped[container] = appendCloudWatchSample(grouped[container], ts, result.Values[i], spec.Metric, spec.CPUUnit)
 			}
 			if hadPoints && len(grouped[container]) == before {
 				recordDroppedNonFinite(ctx, metricTypeFromCPU(isCPU))
@@ -285,7 +287,39 @@ func validateCloudWatchQuerySpec(spec CloudWatchQuerySpec) error {
 			return fmt.Errorf("podPrefix: %w", err)
 		}
 	}
+	switch spec.CPUUnit {
+	case "", attunev1alpha1.DefaultCloudWatchCPUUnit, "Cores", "Nanocores":
+	default:
+		return fmt.Errorf("unsupported cpuUnit %q", spec.CPUUnit)
+	}
 	return nil
+}
+
+// appendCloudWatchSample drops NaN and Inf, then scales container_cpu_usage_total
+// into cores. Memory samples stay raw. Empty cpuUnit uses millicores.
+func appendCloudWatchSample(dst []Sample, ts time.Time, value float64, metric, cpuUnit string) []Sample {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return dst
+	}
+	if metric == "container_cpu_usage_total" {
+		value /= cloudWatchCPUDivisor(cpuUnit)
+	}
+	return append(dst, Sample{Timestamp: ts, Value: value})
+}
+
+// cloudWatchCPUDivisor converts container_cpu_usage_total into cores.
+// validateCloudWatchQuerySpec rejects any cpuUnit outside this set.
+func cloudWatchCPUDivisor(cpuUnit string) float64 {
+	switch cpuUnit {
+	case "Cores":
+		return 1
+	case "Nanocores":
+		return 1e9
+	case "", attunev1alpha1.DefaultCloudWatchCPUUnit:
+		return 1000
+	default:
+		return 1000
+	}
 }
 
 // parseCloudWatchLabel extracts the container name and pod name from a

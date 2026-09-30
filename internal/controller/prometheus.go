@@ -1174,8 +1174,19 @@ func (r *AttunePolicyReconciler) resolveCloudWatchCollector(ctx context.Context,
 	if err != nil {
 		return nil, nil, fmt.Errorf("creating CloudWatch collector: %w", err)
 	}
-	qb := &rsmetrics.CloudWatchQueryBuilder{ClusterName: cw.ClusterName}
-	return collector, qb, nil
+	return collector, cloudWatchQueryBuilder(cw), nil
+}
+
+// cloudWatchQueryBuilder copies cluster name and cpuUnit onto the query
+// builder. cpuUnit is not part of the collector cache key.
+func cloudWatchQueryBuilder(cw *attunev1alpha1.CloudWatchConfig) *rsmetrics.CloudWatchQueryBuilder {
+	if cw == nil {
+		return &rsmetrics.CloudWatchQueryBuilder{}
+	}
+	return &rsmetrics.CloudWatchQueryBuilder{
+		ClusterName: cw.ClusterName,
+		CPUUnit:     cw.CPUUnit,
+	}
 }
 
 // resolvePrometheusAddress returns the Prometheus address from the policy spec,

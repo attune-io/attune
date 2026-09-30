@@ -110,6 +110,19 @@ func TestCloudWatchQueryBuilder_Memory(t *testing.T) {
 	assert.Equal(t, "container_memory_working_set", spec.Metric)
 }
 
+func TestCloudWatchQueryBuilder_EmitsCPUUnit(t *testing.T) {
+	qb := &CloudWatchQueryBuilder{ClusterName: "my-cluster", CPUUnit: "Cores"}
+	for _, metric := range []string{"cpu", "memory"} {
+		got := qb.BuildQuery("production", "api-server-[a-z0-9]+", "", metric, 5*time.Minute)
+		assert.Contains(t, got, `"cpuUnit":"Cores"`, metric)
+		assert.NotContains(t, got, "SEARCH")
+	}
+
+	omitted := &CloudWatchQueryBuilder{ClusterName: "my-cluster"}
+	got := omitted.BuildQuery("production", "api-server-[a-z0-9]+", "", "cpu", 5*time.Minute)
+	assert.NotContains(t, got, "cpuUnit")
+}
+
 func TestCloudWatchQueryBuilder_PeriodRounding(t *testing.T) {
 	qb := &CloudWatchQueryBuilder{ClusterName: "c"}
 	got := qb.BuildQuery("ns", "p-.*", "", "cpu", 90*time.Second)
