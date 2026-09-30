@@ -210,6 +210,8 @@ spec:
     maxAllowed: "4000m"
     # Optional: control what is adjusted
     controlledValues: RequestsAndLimits  # RequestsOnly | RequestsAndLimits
+    # limitMultiplier stays off until set. Omitted keeps the live ratio.
+    # limitMultiplier: "2"
     # Maximum change per reconciliation cycle
     maxChangePercent: 50      # default: 50
 
@@ -219,6 +221,8 @@ spec:
     minAllowed: "64Mi"
     maxAllowed: "8Gi"
     controlledValues: RequestsAndLimits
+    # limitMultiplier stays off until set. Omitted keeps the live ratio.
+    # limitMultiplier: "1.5"
     # Memory-specific safety
     allowDecrease: false      # default: false (OOM risk), set true only when confident
     # Maximum change per reconciliation cycle
@@ -653,8 +657,11 @@ When an HPA targets the same Deployment on CPU:
 
 To prevent conflicts:
 - Detect HPA presence via informer
-- If HPA targets CPU utilization, Attune adjusts CPU requests but NOT limits
-  (preserving the request-to-limit ratio for HPA's calculations)
+- If HPA targets CPU utilization, an omitted `limitMultiplier` keeps the
+  request-to-limit ratio. An explicit multiplier replaces that ratio and
+  stays off until set. When `controlledValues` is `RequestsAndLimits`, HPA
+  auto-tune caps the CPU utilization target using that multiplied limit,
+  which can sit above `maxAllowed`.
 - If HPA targets custom metrics (not CPU/memory), no conflict exists
 - Log a warning if both VPA and Attune target the same workload
 

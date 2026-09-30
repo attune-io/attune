@@ -392,6 +392,11 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	ddAuth.namespaceSetDatadog = namespaceSetDatadog
 	r.mergeDefaults(&policy, defaults)
 	r.applyBuiltInDefaults(&policy)
+	if err := limitMultiplierRequestsOnlyConflict(&policy); err != nil {
+		logger.Error(err, "Invalid limitMultiplier")
+		r.setFailedCondition(ctx, &policy, attunev1alpha1.ReasonInvalidConfig, err.Error())
+		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
+	}
 	r.warnConfigClamping(&policy)
 
 	// Early return if paused.

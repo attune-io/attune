@@ -297,6 +297,10 @@ func validateResourceConfigFields(prefix string, rc *attunev1alpha1.ResourceConf
 		return err
 	}
 
+	if err := validateLimitMultiplier(prefix, rc); err != nil {
+		return err
+	}
+
 	// Percentile
 	supportedPercentiles := map[int32]bool{50: true, 90: true, 95: true, 99: true}
 	if p := rc.Percentile; p != 0 && !supportedPercentiles[p] {

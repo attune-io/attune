@@ -365,13 +365,26 @@ type ResourceConfig struct {
 	MaxAllowed *resource.Quantity `json:"maxAllowed,omitempty"`
 
 	// ControlledValues specifies which resource values to manage.
-	// "RequestsOnly" (default) adjusts only requests, leaving limits unchanged.
-	// "RequestsAndLimits" adjusts both requests and limits in lockstep.
-	// For Guaranteed-QoS pods (where requests equal limits), use
-	// "RequestsAndLimits" or resizes will be skipped to preserve QoS class.
+	// "RequestsOnly" (default) adjusts only requests. The live limit is
+	// copied through on resize and is not scaled.
+	// "RequestsAndLimits" scales the limit with the request. An omitted
+	// limitMultiplier keeps the live request-to-limit ratio. An explicit
+	// limitMultiplier replaces that ratio. For Guaranteed QoS, use
+	// "RequestsAndLimits" so a request can stay equal to its limit.
 	// +kubebuilder:validation:Enum=RequestsOnly;RequestsAndLimits
 	// +optional
 	ControlledValues *string `json:"controlledValues,omitempty"`
+
+	// LimitMultiplier sets the new limit to the new request times this
+	// multiple when controlledValues is RequestsAndLimits. Omitted keeps
+	// the live request-to-limit ratio. Explicit "1" forces the new limit
+	// equal to the new request. A container with no current limit keeps
+	// an omitted limit; this field does not invent one. RequestsOnly plus
+	// a multiplier is rejected. Maximum 100. maxAllowed caps the request,
+	// not the limit produced here.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?)?$`
+	LimitMultiplier *string `json:"limitMultiplier,omitempty"`
 
 	// BurstSensitivity controls how much burst detection inflates the
 	// recommendation. Expressed as a decimal string multiplied by

@@ -2238,3 +2238,71 @@ func TestPodMutatingHandler_ReplicaSetObserveSkips(t *testing.T) {
 	assert.True(t, resp.Allowed)
 	assert.Nil(t, resp.Patches, "Observe mode should not mutate a ReplicaSet")
 }
+
+func TestPodMutatingHandler_LimitMultiplierNotAppliedTwice(t *testing.T) {
+	both := attunev1alpha1.ControlledRequestsAndLimits
+	cpuMult := "2"
+	memMult := "1.5"
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	policy.Spec.CPU.ControlledValues = &both
+	policy.Spec.Memory.ControlledValues = &both
+	policy.Spec.CPU.LimitMultiplier = &cpuMult
+	policy.Spec.Memory.LimitMultiplier = &memMult
+	cr := &policy.Status.Recommendations[0].Containers[0]
+	cr.Recommended.CPURequest = mustQty(t, "250m")
+	cr.Recommended.CPULimit = mustQty(t, "500m")
+	cr.Recommended.MemoryRequest = mustQty(t, "512Mi")
+	cr.Recommended.MemoryLimit = mustQty(t, "768Mi")
+
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+	cl := admissionClientBuilder().WithObjects(policy, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+	req := makeAdmissionRequest(t, pod, "default")
+	resp := handler.Handle(context.Background(), req)
+	require.True(t, resp.Allowed)
+	require.NotEmpty(t, resp.Patches)
+
+	mutated := patchedPod(t, req.Object.Raw, resp)
+	gotCPU := mutated.Spec.Containers[0].Resources.Limits[corev1.ResourceCPU]
+	gotMem := mutated.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory]
+	assert.True(t, gotCPU.Equal(mustQty(t, "500m")), "CREATE must keep the pre-multiplied CPU limit, got %s", gotCPU.String())
+	assert.True(t, mutated.Spec.Containers[0].Resources.Requests.Cpu().Equal(mustQty(t, "250m")))
+	assert.True(t, gotMem.Equal(mustQty(t, "768Mi")), "CREATE must keep the pre-multiplied memory limit, got %s", gotMem.String())
+}
+
+func TestPodMutatingHandler_StartupBoostDoesNotMultiplyPreMultipliedLimit(t *testing.T) {
+	both := attunev1alpha1.ControlledRequestsAndLimits
+	cpuMult := "2"
+	memMult := "1.5"
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	policy.Spec.CPU.ControlledValues = &both
+	policy.Spec.Memory.ControlledValues = &both
+	policy.Spec.CPU.LimitMultiplier = &cpuMult
+	policy.Spec.Memory.LimitMultiplier = &memMult
+	policy.Spec.CPU.StartupBoost = &attunev1alpha1.StartupBoost{
+		Multiplier: "3",
+		Duration:   metav1.Duration{Duration: 2 * time.Minute},
+	}
+	cr := &policy.Status.Recommendations[0].Containers[0]
+	cr.Recommended.CPURequest = mustQty(t, "250m")
+	cr.Recommended.CPULimit = mustQty(t, "500m")
+	cr.Recommended.MemoryRequest = mustQty(t, "512Mi")
+	cr.Recommended.MemoryLimit = mustQty(t, "768Mi")
+
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+	cl := admissionClientBuilder().WithObjects(policy, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+	req := makeAdmissionRequest(t, pod, "default")
+	resp := handler.Handle(context.Background(), req)
+	require.True(t, resp.Allowed)
+	require.NotEmpty(t, resp.Patches)
+
+	mutated := patchedPod(t, req.Object.Raw, resp)
+	gotReq := mutated.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+	gotLim := mutated.Spec.Containers[0].Resources.Limits[corev1.ResourceCPU]
+	gotMem := mutated.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory]
+	assert.True(t, gotReq.Equal(mustQty(t, "750m")), "boosted request got %s", gotReq.String())
+	assert.True(t, gotLim.Equal(mustQty(t, "750m")),
+		"window limit is max(750m, 500m), got %s", gotLim.String())
+	assert.True(t, gotMem.Equal(mustQty(t, "768Mi")), "memory limit got %s", gotMem.String())
+}

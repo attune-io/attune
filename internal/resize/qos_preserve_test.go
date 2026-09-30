@@ -206,6 +206,24 @@ func TestPreservesQoS_MergedPod(t *testing.T) {
 			target:    resReq(t, "1", "1024Mi", "1", "1Gi"),
 			want:      true,
 		},
+		{
+			name: "burstable multiplier keeps a gap while memory is already equal",
+			pod: qosPod(t, corev1.PodQOSBurstable, []corev1.Container{
+				namedContainer("app", resReq(t, "100m", "256Mi", "400m", "256Mi"), false),
+			}, nil),
+			container: "app",
+			target:    resReq(t, "250m", "256Mi", "500m", "256Mi"),
+			want:      true,
+		},
+		{
+			name: "explicit one equalizes burstable into guaranteed",
+			pod: qosPod(t, corev1.PodQOSBurstable, []corev1.Container{
+				namedContainer("app", resReq(t, "250m", "256Mi", "1000m", "256Mi"), false),
+			}, nil),
+			container: "app",
+			target:    resReq(t, "500m", "256Mi", "500m", "256Mi"),
+			want:      false,
+		},
 	}
 
 	for _, tt := range tests {

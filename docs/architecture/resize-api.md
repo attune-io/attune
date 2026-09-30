@@ -38,6 +38,21 @@ clientset.CoreV1().Pods(namespace).UpdateResize(ctx, name, updatedPod, opts)
 
 ### Pre-checks before resize
 
+The engine writes the request first. `maxAllowed` caps that request, not
+the limit. When `controlledValues` is `RequestsAndLimits`,
+`scaleControlledLimits` then derives the CPU and memory limits from the
+new request. An omitted `limitMultiplier` keeps the live request-to-limit
+ratio. An explicit multiplier replaces that ratio. `applyLiveResizeTarget`
+runs next: platform memory clamp, usage floor, and, on an already
+Guaranteed pod, a raise of the memory request up to the memory limit. That
+applied memory request can exceed `maxAllowed`. The resize path does not
+multiply the limit a second time. `shouldSkipResize` and `PreservesQoS`
+see that applied target. A CPU multiplier above 1 on a Guaranteed pod
+leaves the CPU request and limit unequal, so the resize is skipped and the
+pod is not evicted. A memory multiplier above 1 on an already Guaranteed
+pod keeps the class, because the memory request is raised to the new
+limit, and the resize proceeds.
+
 Before calling `UpdateResize`, the controller runs several safety checks:
 
 1. **Pod already at target**: Skips if the running pod's actual resources

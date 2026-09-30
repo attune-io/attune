@@ -657,6 +657,11 @@
                 "RequestsAndLimits"
               ]
             },
+            "limitMultiplier": {
+              "type": "string",
+              "pattern": "^[0-9]+(\\.[0-9]+)?$",
+              "description": "Multiple applied to the new request when controlledValues is RequestsAndLimits. Omitted keeps the live ratio. No default."
+            },
             "burstSensitivity": {
               "type": "string"
             },
@@ -731,6 +736,11 @@
                 "RequestsOnly",
                 "RequestsAndLimits"
               ]
+            },
+            "limitMultiplier": {
+              "type": "string",
+              "pattern": "^[0-9]+(\\.[0-9]+)?$",
+              "description": "Multiple applied to the new request when controlledValues is RequestsAndLimits. Omitted keeps the live ratio. No default."
             },
             "burstSensitivity": {
               "type": "string"

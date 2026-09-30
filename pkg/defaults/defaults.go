@@ -32,8 +32,10 @@ import (
 // MergeDefaults with the operator's built-in default values. This runs
 // AFTER MergeDefaults so that cluster-wide AttuneDefaults take precedence.
 //
-// Per-resource fields (Percentile, Overhead, MinAllowed/MaxAllowed, BurstSensitivity)
-// are NOT set here; they are handled defensively at their usage sites in
+// Per-resource fields (Percentile, Overhead, MinAllowed/MaxAllowed,
+// BurstSensitivity, LimitMultiplier) are NOT set here. LimitMultiplier has
+// no built-in default: omitted keeps the live request-to-limit ratio.
+// The other fields are handled at their usage sites in
 // buildRecommendationEngines.
 func ApplyBuiltInDefaults(policy *attunev1alpha1.AttunePolicy) {
 	if policy.Spec.UpdateStrategy == nil {
@@ -339,6 +341,11 @@ func MergeResourceConfig(policy *attunev1alpha1.ResourceConfig, defaults *attune
 	if policy.MemoryFromCPURatio == nil && defaults.MemoryFromCPURatio != nil {
 		policy.MemoryFromCPURatio = defaults.MemoryFromCPURatio
 		inherited = append(inherited, prefix+".memoryFromCpuRatio")
+	}
+	if (policy.LimitMultiplier == nil || *policy.LimitMultiplier == "") &&
+		defaults.LimitMultiplier != nil && *defaults.LimitMultiplier != "" {
+		policy.LimitMultiplier = defaults.LimitMultiplier
+		inherited = append(inherited, prefix+".limitMultiplier")
 	}
 	if policy.StartupBoost == nil && defaults.StartupBoost != nil {
 		policy.StartupBoost = defaults.StartupBoost

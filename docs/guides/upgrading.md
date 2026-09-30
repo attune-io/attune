@@ -10,6 +10,28 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### RequestsAndLimits limit multiplier
+
+`cpu.limitMultiplier` and `memory.limitMultiplier` stay off until you set
+them. Omitted keeps the live request-to-limit ratio. Explicit `"1"` forces
+the limit equal to the new request. `maxAllowed` caps the request, not the
+limit. A limit above that cap is the HPA CPU ceiling when `controlledValues`
+is `RequestsAndLimits`.
+
+During a startup-boost window the CPU limit is the greater of the boosted
+request and the steady multiplied limit. The startup-boost multiplier does
+not multiply that limit again. Expiry restores the steady multiplied limit.
+
+A Guaranteed pod skips an in-place CPU multiplier above 1 because the
+request and limit would differ. A memory multiplier on an already
+Guaranteed pod raises the memory request to the new limit and the resize
+proceeds. That applied request can exceed `maxAllowed`.
+
+`RequestsOnly` plus a multiplier on the same object is rejected.
+`AttuneDefaults` may carry a multiplier without `RequestsAndLimits`. After
+merge, a policy that still omits `controlledValues` is `RequestsOnly`, so
+that pair is rejected at reconcile.
+
 ### HPA auto-tune keeps the stored CPU base
 
 An HPA that Attune has already tuned keeps its stored CPU base, including

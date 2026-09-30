@@ -1076,6 +1076,40 @@ func TestComputeRecommendations_RequestsAndLimits(t *testing.T) {
 	assert.InDelta(t, 2.0, memRatio, 0.01, "Memory limit/request ratio should preserve the original ~2:1 ratio")
 }
 
+// Explicit "1" forces limit equal to the new request. Omitted keeps the
+// live 2:1 ratio asserted by TestComputeRecommendations_RequestsAndLimits.
+func TestComputeRecommendations_RequestsAndLimits_ExplicitOne(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	ral := "RequestsAndLimits"
+	one := "1"
+	policy.Spec.CPU.ControlledValues = &ral
+	policy.Spec.Memory.ControlledValues = &ral
+	policy.Spec.CPU.LimitMultiplier = &one
+	policy.Spec.Memory.LimitMultiplier = &one
+
+	deploy := newTestDeployment("api-server", "default", nil)
+	reconciler := newReconcilerWithClient()
+
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(200, 0.1), nil
+		},
+	}
+
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	require.Len(t, rec.Containers, 1)
+
+	c := rec.Containers[0]
+	assert.False(t, c.Recommended.CPURequest.IsZero())
+	assert.False(t, c.Recommended.MemoryRequest.IsZero())
+	assert.Equal(t, c.Recommended.CPURequest.MilliValue(), c.Recommended.CPULimit.MilliValue(),
+		"explicit limitMultiplier 1 must set the CPU limit equal to the CPU request")
+	assert.Equal(t, c.Recommended.MemoryRequest.Value(), c.Recommended.MemoryLimit.Value(),
+		"explicit limitMultiplier 1 must set the memory limit equal to the memory request")
+}
+
 func TestComputeRecommendations_BatchesQueriesPerWorkload(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	deploy := newTestDeployment("api-server", "default", nil)

@@ -890,6 +890,62 @@ func TestValidate_CPUMemoryFromCPURatioFieldPath(t *testing.T) {
 	assert.NotContains(t, err.Error(), "memory.memoryFromCpuRatio")
 }
 
+func limitMultPtr(s string) *string { return &s }
+
+func TestValidate_LimitMultiplier(t *testing.T) {
+	both := "RequestsAndLimits"
+	only := "RequestsOnly"
+	tests := []struct {
+		name    string
+		cv      *string
+		value   *string
+		wantErr string
+	}{
+		{name: "omitted", cv: &both},
+		{name: "empty", cv: &both, value: limitMultPtr(""), wantErr: ""},
+		{name: "one", cv: &both, value: limitMultPtr("1")},
+		{name: "two", cv: &both, value: limitMultPtr("2")},
+		{name: "fraction", cv: &both, value: limitMultPtr("1.5")},
+		{name: "ceiling", cv: &both, value: limitMultPtr("100")},
+		{name: "above ceiling", cv: &both, value: limitMultPtr("101"), wantErr: "must be <= 100"},
+		{name: "zero", cv: &both, value: limitMultPtr("0"), wantErr: "must be positive"},
+		{name: "negative", cv: &both, value: limitMultPtr("-1"), wantErr: "must be positive"},
+		{name: "NaN", cv: &both, value: limitMultPtr("NaN"), wantErr: "must be a finite number"},
+		{name: "Inf", cv: &both, value: limitMultPtr("Inf"), wantErr: "must be a finite number"},
+		{name: "not a number", cv: &both, value: limitMultPtr("abc"), wantErr: "not a valid number"},
+		{name: "requests only", cv: &only, value: limitMultPtr("2"), wantErr: "RequestsOnly"},
+		{name: "requests only empty is unset", cv: &only, value: limitMultPtr("")},
+		{name: "multiplier without controlled values", value: limitMultPtr("2")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validator := &AttunePolicyValidator{}
+			policy := validPolicy()
+			policy.Spec.CPU.ControlledValues = tt.cv
+			policy.Spec.CPU.LimitMultiplier = tt.value
+			_, err := validator.ValidateCreate(context.Background(), policy)
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "cpu.limitMultiplier")
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestValidate_MemoryLimitMultiplierFieldPath(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	policy := validPolicy()
+	tooHigh := "101"
+	policy.Spec.Memory.LimitMultiplier = &tooHigh
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "memory.limitMultiplier")
+	assert.NotContains(t, err.Error(), "cpu.limitMultiplier")
+}
+
 func TestValidate_MemoryFromCPURatioValid(t *testing.T) {
 	tests := []struct {
 		name  string

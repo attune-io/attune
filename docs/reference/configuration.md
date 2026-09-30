@@ -582,7 +582,13 @@ Per-resource fields in `cpu` and `memory` that limit how much a recommendation c
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `controlledValues` | string | `RequestsOnly` | `RequestsOnly` adjusts only requests, leaving limits unchanged. `RequestsAndLimits` adjusts both in lockstep. Use `RequestsAndLimits` for Guaranteed-QoS pods (where requests equal limits) or when you want limits to track recommendations. `RequestsOnly` can still change QoS when a live limit already equals the new request. That resize is skipped. |
+| `controlledValues` | string | `RequestsOnly` | `RequestsOnly` adjusts only requests and keeps the live limit. `RequestsAndLimits` scales the limit with the request. Omitted `limitMultiplier` keeps the live ratio. Explicit `"1"` forces equality. `maxAllowed` caps the request, not the limit. `RequestsOnly` can still change QoS when a live limit already equals the new request. That resize is skipped. |
+| `cpu.limitMultiplier` | string | (none) | Multiple applied to the new CPU request when `cpu.controlledValues` is `RequestsAndLimits`. Omitted keeps the live request-to-limit ratio. Explicit `"1"` forces the limit equal to the new request. A container with no current limit keeps that limit omitted. `RequestsOnly` plus a multiplier on the same object is rejected. `AttuneDefaults` may carry a multiplier without `RequestsAndLimits`. Maximum `100`. Zero, negative, NaN, Inf, and values above 100 are rejected. `maxAllowed` caps the request, not the limit. |
+| `memory.limitMultiplier` | string | (none) | Multiple applied to the new memory request when `memory.controlledValues` is `RequestsAndLimits`. Omitted keeps the live request-to-limit ratio. Explicit `"1"` forces the limit equal to the new request. A container with no current limit keeps that limit omitted. `RequestsOnly` plus a multiplier on the same object is rejected. `AttuneDefaults` may carry a multiplier without `RequestsAndLimits`. Maximum `100`. Zero, negative, NaN, Inf, and values above 100 are rejected. `maxAllowed` caps the request, not the limit. |
+
+When `controlledValues` is `RequestsAndLimits`, HPA auto-tune caps the CPU
+utilization target using the multiplied CPU limit. A limit above
+`maxAllowed` is still that cap. The cap is not the bare new request.
 
 ### Allow Decrease
 
@@ -598,7 +604,7 @@ Temporarily increases CPU requests for newly created or restarted pods to accele
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `startupBoost.multiplier` | string | (none) | Scales the recommended CPU request during startup. For example, `"3.0"` means 3x the steady-state recommendation. Must be > 1.0 and <= 10.0. |
+| `startupBoost.multiplier` | string | (none) | Scales the recommended CPU request during startup. For example, `"3.0"` means 3x the steady-state recommendation. Must be > 1.0 and <= 10.0. This is not `limitMultiplier`. During the boost window the CPU limit is the greater of the boosted request and the steady multiplied limit, not the boosted request times `limitMultiplier`. Expiry restores that steady limit. |
 | `startupBoost.duration` | duration | (none) | How long the boost lasts before reducing to the steady-state recommendation. Must be >= 10s and <= 1h. CREATE and live reconcile dest-cap the boosted request at leftover dest when `controlledValues` is `RequestsOnly`. When it is `RequestsAndLimits` and a rec dest is set, dest-cap uses that rec dest (leftover dest is not a skip). Job and CronJob pods skip CREATE boost because expiry cannot run. |
 
 Example:

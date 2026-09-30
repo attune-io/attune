@@ -434,6 +434,34 @@ func validateOverhead(resource, overhead string) error {
 	return nil
 }
 
+func validateLimitMultiplier(prefix string, rc *attunev1alpha1.ResourceConfig) error {
+	if rc == nil || rc.LimitMultiplier == nil || *rc.LimitMultiplier == "" {
+		return nil
+	}
+	field := prefix + ".limitMultiplier"
+	v, err := strconv.ParseFloat(*rc.LimitMultiplier, 64)
+	if err != nil {
+		return fmt.Errorf("%s %q is not a valid number: %w", field, *rc.LimitMultiplier, err)
+	}
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return fmt.Errorf("%s must be a finite number, got %s", field, *rc.LimitMultiplier)
+	}
+	if v <= 0 {
+		return fmt.Errorf("%s must be positive, got %s", field, *rc.LimitMultiplier)
+	}
+	if v > float64(attunev1alpha1.MaxLimitMultiplier) {
+		return fmt.Errorf("%s must be <= %d, got %s", field, attunev1alpha1.MaxLimitMultiplier, *rc.LimitMultiplier)
+	}
+	cv := ""
+	if rc.ControlledValues != nil {
+		cv = *rc.ControlledValues
+	}
+	if cv == attunev1alpha1.ControlledRequestsOnly {
+		return fmt.Errorf("%s cannot be set when %s.controlledValues is RequestsOnly", field, prefix)
+	}
+	return nil
+}
+
 func validateMemoryFromCPURatio(fieldPath string, ratio *string) error {
 	if ratio == nil || *ratio == "" {
 		return nil

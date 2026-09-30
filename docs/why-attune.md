@@ -174,6 +174,10 @@ not retrofitted onto a VPA architecture that was never meant for it.
  └──────────────────────┘
 ```
 
+When `controlledValues` is `RequestsAndLimits`, an omitted `limitMultiplier`
+keeps the live request-to-limit ratio. The multiplier stays off until you
+set it. Explicit `"1"` forces the limit equal to the new request.
+
 ### In-place apply is not enough
 
 Kubernetes In-Place Pod Resize (GA in 1.35) is the **shared primitive**: change

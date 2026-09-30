@@ -32,6 +32,34 @@ import (
 	"github.com/attune-io/attune/internal/operatormetrics"
 )
 
+func TestDefaultsValidator_LimitMultiplier(t *testing.T) {
+	only := attunev1alpha1.ControlledRequestsOnly
+	both := attunev1alpha1.ControlledRequestsAndLimits
+	two := "2"
+	v := &AttuneDefaultsValidator{}
+
+	withoutMode := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{LimitMultiplier: &two},
+		},
+	}
+	_, err := v.ValidateCreate(context.Background(), withoutMode)
+	require.NoError(t, err, "AttuneDefaults may carry a multiplier without RequestsAndLimits")
+
+	withBoth := withoutMode.DeepCopy()
+	withBoth.Spec.CPU.ControlledValues = &both
+	_, err = v.ValidateCreate(context.Background(), withBoth)
+	require.NoError(t, err)
+
+	withOnly := withoutMode.DeepCopy()
+	withOnly.Spec.CPU.ControlledValues = &only
+	_, err = v.ValidateCreate(context.Background(), withOnly)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cpu.limitMultiplier")
+	assert.Contains(t, err.Error(), "RequestsOnly")
+}
+
 func TestDefaultsValidator_NoPricing(t *testing.T) {
 	v := &AttuneDefaultsValidator{}
 	defaults := &attunev1alpha1.AttuneDefaults{
