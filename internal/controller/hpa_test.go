@@ -1031,3 +1031,381 @@ func TestAdjustHPATargets_GuaranteedCapsAt100(t *testing.T) {
 	assert.Equal(t, int32(100), *stored.Spec.Metrics[0].Resource.Target.AverageUtilization,
 		"Guaranteed pod (limit==request) should cap at 100")
 }
+
+func cpuResourceMetric(util int32) autoscalingv2.MetricSpec {
+	return autoscalingv2.MetricSpec{
+		Type: autoscalingv2.ResourceMetricSourceType,
+		Resource: &autoscalingv2.ResourceMetricSource{
+			Name: corev1.ResourceCPU,
+			Target: autoscalingv2.MetricTarget{
+				Type:               autoscalingv2.UtilizationMetricType,
+				AverageUtilization: int32Ptr(util),
+			},
+		},
+	}
+}
+
+func cpuContainerMetric(container string, util int32) autoscalingv2.MetricSpec {
+	return autoscalingv2.MetricSpec{
+		Type: autoscalingv2.ContainerResourceMetricSourceType,
+		ContainerResource: &autoscalingv2.ContainerResourceMetricSource{
+			Name:      corev1.ResourceCPU,
+			Container: container,
+			Target: autoscalingv2.MetricTarget{
+				Type:               autoscalingv2.UtilizationMetricType,
+				AverageUtilization: int32Ptr(util),
+			},
+		},
+	}
+}
+
+func newAutoTuneHPA(name, kind string, annotations map[string]string, metrics ...autoscalingv2.MetricSpec) autoscalingv2.HorizontalPodAutoscaler {
+	ann := map[string]string{annotationHPAAutoTune: "true"}
+	for k, v := range annotations {
+		ann[k] = v
+	}
+	if kind == "" {
+		kind = "Deployment"
+	}
+	return autoscalingv2.HorizontalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        name,
+			Namespace:   "default",
+			Annotations: ann,
+		},
+		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+				Kind: kind,
+				Name: "api-server",
+			},
+			Metrics: metrics,
+		},
+	}
+}
+
+func podContainer(t *testing.T, name, cpuReq, cpuLim string) corev1.Container {
+	t.Helper()
+	c := corev1.Container{Name: name, Image: "nginx"}
+	if cpuReq != "" {
+		q, err := resource.ParseQuantity(cpuReq)
+		require.NoError(t, err)
+		c.Resources.Requests = corev1.ResourceList{corev1.ResourceCPU: q}
+	}
+	if cpuLim != "" {
+		q, err := resource.ParseQuantity(cpuLim)
+		require.NoError(t, err)
+		c.Resources.Limits = corev1.ResourceList{corev1.ResourceCPU: q}
+	}
+	return c
+}
+
+func workloadPod(name string, containers ...corev1.Container) corev1.Pod {
+	return corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name + "-pod",
+			Namespace: "default",
+			Labels:    map[string]string{"app": name},
+		},
+		Spec:   corev1.PodSpec{Containers: containers},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+}
+
+func cpuHistory(container, from, to string) attunev1alpha1.ResizeHistoryEntry {
+	return attunev1alpha1.ResizeHistoryEntry{
+		Workload:  "api-server",
+		Container: container,
+		Resource:  "cpu",
+		From:      from,
+		To:        to,
+		Method:    "InPlace",
+		Result:    attunev1alpha1.ResizeResultSuccess,
+	}
+}
+
+func runHPARetune(t *testing.T, hpas []autoscalingv2.HorizontalPodAutoscaler, pod *corev1.Pod, history []attunev1alpha1.ResizeHistoryEntry, onUpdate func()) client.Client {
+	t.Helper()
+	scheme := testScheme()
+	objs := make([]client.Object, 0, len(hpas))
+	for i := range hpas {
+		objs = append(objs, hpas[i].DeepCopy())
+	}
+	builder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...)
+	if onUpdate != nil {
+		builder = builder.WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				onUpdate()
+				return c.Update(ctx, obj, opts...)
+			},
+		})
+	}
+	cl := builder.Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	var pods map[string][]corev1.Pod
+	if pod != nil {
+		pods = map[string][]corev1.Pod{"api-server": {*pod}}
+	}
+	r.retuneHPAAfterResize(context.Background(), policy, attunev1alpha1.UpdateTypeAuto,
+		history,
+		[]attunev1alpha1.WorkloadRecommendation{{
+			Workload: "api-server",
+			Kind:     "Deployment",
+		}},
+		hpas, pods)
+	return cl
+}
+
+func storedHPA(t *testing.T, cl client.Client, name string) autoscalingv2.HorizontalPodAutoscaler {
+	t.Helper()
+	var hpa autoscalingv2.HorizontalPodAutoscaler
+	require.NoError(t, cl.Get(context.Background(), types.NamespacedName{
+		Name: name, Namespace: "default",
+	}, &hpa))
+	return hpa
+}
+
+func metricUtil(t *testing.T, hpa autoscalingv2.HorizontalPodAutoscaler, idx int) int32 {
+	t.Helper()
+	require.Less(t, idx, len(hpa.Spec.Metrics))
+	m := hpa.Spec.Metrics[idx]
+	switch m.Type {
+	case autoscalingv2.ResourceMetricSourceType:
+		require.NotNil(t, m.Resource)
+		require.NotNil(t, m.Resource.Target.AverageUtilization)
+		return *m.Resource.Target.AverageUtilization
+	case autoscalingv2.ContainerResourceMetricSourceType:
+		require.NotNil(t, m.ContainerResource)
+		require.NotNil(t, m.ContainerResource.Target.AverageUtilization)
+		return *m.ContainerResource.Target.AverageUtilization
+	default:
+		t.Fatalf("metric %d is not a CPU utilization metric", idx)
+		return 0
+	}
+}
+
+func TestRetuneHPAAfterResize_ResourceUsesUnchangedLiveContainer(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", nil, cpuResourceMetric(80))
+	pod := workloadPod("api-server",
+		podContainer(t, "app", "400m", "1000m"),
+		podContainer(t, "sidecar", "200m", "1000m"),
+	)
+	cl := runHPARetune(t, []autoscalingv2.HorizontalPodAutoscaler{hpa}, &pod,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "400m", "200m")}, nil)
+
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(120), metricUtil(t, updated, 0),
+		"80 * 600/400 = 120 from pod total, not 80 * 400/200 = 160")
+	assert.Equal(t, "80", updated.Annotations[annotationHPAOriginalCPU])
+	assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest])
+}
+
+func TestRetuneHPAAfterResize_SecondResizeUsesPodTotal(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
+		annotationHPAOriginalCPU:        "80",
+		annotationHPAOriginalCPURequest: "600m",
+	}, cpuResourceMetric(120))
+	pod := workloadPod("api-server",
+		podContainer(t, "app", "200m", "1000m"),
+		podContainer(t, "sidecar", "200m", "1000m"),
+	)
+	cl := runHPARetune(t, []autoscalingv2.HorizontalPodAutoscaler{hpa}, &pod,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "200m", "150m")}, nil)
+
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(137), metricUtil(t, updated, 0),
+		"80 * 600/350 = 137; stored base stays the first pod total")
+	assert.Equal(t, "80", updated.Annotations[annotationHPAOriginalCPU])
+	assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest])
+}
+
+func TestRetuneHPAAfterResize_UnparseableCPURowSkipsResource(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", nil, cpuResourceMetric(80))
+	pod := workloadPod("api-server",
+		podContainer(t, "app", "400m", "1000m"),
+		podContainer(t, "sidecar", "200m", "1000m"),
+	)
+	cl := runHPARetune(t, []autoscalingv2.HorizontalPodAutoscaler{hpa}, &pod,
+		[]attunev1alpha1.ResizeHistoryEntry{
+			cpuHistory("app", "400m", "bogus"),
+			cpuHistory("sidecar", "200m", "100m"),
+		}, nil)
+
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(80), metricUtil(t, updated, 0))
+	assert.Empty(t, updated.Annotations[annotationHPAOriginalCPU])
+	assert.Empty(t, updated.Annotations[annotationHPAOriginalCPURequest])
+}
+
+func TestRetuneHPAAfterResize_ZeroContainerDoesNotBlockPodTotal(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", nil,
+		cpuContainerMetric("app", 80),
+		cpuResourceMetric(80),
+	)
+	pod := workloadPod("api-server",
+		podContainer(t, "app", "0", "1000m"),
+		podContainer(t, "sidecar", "200m", "1000m"),
+	)
+	cl := runHPARetune(t, []autoscalingv2.HorizontalPodAutoscaler{hpa}, &pod,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "0", "100m")}, nil)
+
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(80), metricUtil(t, updated, 0),
+		"zero app ContainerResource is skipped")
+	assert.Equal(t, int32(53), metricUtil(t, updated, 1),
+		"80 * 200/300 = 53; a zero container must not block the pod total")
+}
+
+func TestRetuneHPAAfterResize_TwoHPAsBothUpdated(t *testing.T) {
+	t.Parallel()
+	deployA := newAutoTuneHPA("hpa-a", "Deployment", nil, cpuResourceMetric(80))
+	deployB := newAutoTuneHPA("hpa-b", "Deployment", nil, cpuResourceMetric(50))
+	sts := newAutoTuneHPA("hpa-sts", "StatefulSet", nil, cpuResourceMetric(80))
+	pod := workloadPod("api-server",
+		podContainer(t, "app", "400m", "1000m"),
+		podContainer(t, "sidecar", "200m", "1000m"),
+	)
+	cl := runHPARetune(t, []autoscalingv2.HorizontalPodAutoscaler{deployA, deployB, sts}, &pod,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "400m", "200m")}, nil)
+
+	updatedA := storedHPA(t, cl, "hpa-a")
+	assert.Equal(t, int32(120), metricUtil(t, updatedA, 0))
+	assert.Equal(t, "80", updatedA.Annotations[annotationHPAOriginalCPU])
+	assert.Equal(t, "600m", updatedA.Annotations[annotationHPAOriginalCPURequest])
+
+	updatedB := storedHPA(t, cl, "hpa-b")
+	assert.Equal(t, int32(75), metricUtil(t, updatedB, 0), "50 * 600/400 = 75")
+	assert.Equal(t, "50", updatedB.Annotations[annotationHPAOriginalCPU])
+	assert.Equal(t, "600m", updatedB.Annotations[annotationHPAOriginalCPURequest])
+
+	updatedSTS := storedHPA(t, cl, "hpa-sts")
+	assert.Equal(t, int32(80), metricUtil(t, updatedSTS, 0))
+	assert.Empty(t, updatedSTS.Annotations[annotationHPAOriginalCPU])
+	assert.Empty(t, updatedSTS.Annotations[annotationHPAOriginalCPURequest])
+}
+
+func TestRetuneHPAAfterResize_ResourceAndContainerResourceOneUpdate(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", nil,
+		cpuResourceMetric(80),
+		cpuContainerMetric("app", 80),
+	)
+	pod := workloadPod("api-server",
+		podContainer(t, "app", "400m", "1000m"),
+		podContainer(t, "sidecar", "200m", "1000m"),
+	)
+	updates := 0
+	cl := runHPARetune(t, []autoscalingv2.HorizontalPodAutoscaler{hpa}, &pod,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "400m", "200m")},
+		func() { updates++ })
+
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(120), metricUtil(t, updated, 0))
+	assert.Equal(t, int32(160), metricUtil(t, updated, 1), "80 * 400/200 = 160 for app")
+	assert.Equal(t, 1, updates, "both metrics are written by one HPA update")
+}
+
+func TestRetuneHPAAfterResize_ContainerResourceIgnoresOtherContainer(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", nil, cpuContainerMetric("app", 80))
+	pod := workloadPod("api-server",
+		podContainer(t, "app", "400m", "1000m"),
+		podContainer(t, "sidecar", "100m", "1000m"),
+	)
+	cl := runHPARetune(t, []autoscalingv2.HorizontalPodAutoscaler{hpa}, &pod,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("sidecar", "100m", "50m")}, nil)
+
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(80), metricUtil(t, updated, 0))
+	assert.Empty(t, updated.Annotations["attune.io/hpa-cpu-target.app"])
+	assert.Empty(t, updated.Annotations["attune.io/hpa-cpu-base.app"])
+}
+
+func TestRetuneHPAAfterResize_ContainerResourceUsesNamedContainerOnly(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", nil, cpuContainerMetric("sidecar", 80))
+	pod := workloadPod("api-server",
+		podContainer(t, "app", "400m", "1000m"),
+		podContainer(t, "sidecar", "100m", "1000m"),
+	)
+	cl := runHPARetune(t, []autoscalingv2.HorizontalPodAutoscaler{hpa}, &pod,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("sidecar", "100m", "50m")}, nil)
+
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(160), metricUtil(t, updated, 0), "80 * 100/50 = 160")
+	assert.Equal(t, "80", updated.Annotations["attune.io/hpa-cpu-target.sidecar"])
+	assert.Equal(t, "100m", updated.Annotations["attune.io/hpa-cpu-base.sidecar"])
+	assert.Empty(t, updated.Annotations[annotationHPAOriginalCPU])
+	assert.Empty(t, updated.Annotations[annotationHPAOriginalCPURequest])
+}
+
+func TestRetuneHPAAfterResize_ContainerResourceSecondStepUsesStoredBase(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
+		"attune.io/hpa-cpu-target.sidecar": "80",
+		"attune.io/hpa-cpu-base.sidecar":   "100m",
+	}, cpuContainerMetric("sidecar", 160))
+	pod := workloadPod("api-server",
+		podContainer(t, "app", "400m", "800m"),
+		podContainer(t, "sidecar", "50m", "200m"),
+	)
+	cl := runHPARetune(t, []autoscalingv2.HorizontalPodAutoscaler{hpa}, &pod,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("sidecar", "50m", "30m")}, nil)
+
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(266), metricUtil(t, updated, 0), "80 * 100/30 = 266")
+	assert.Equal(t, "80", updated.Annotations["attune.io/hpa-cpu-target.sidecar"])
+	assert.Equal(t, "100m", updated.Annotations["attune.io/hpa-cpu-base.sidecar"])
+	assert.Empty(t, updated.Annotations[annotationHPAOriginalCPURequest])
+	assert.Empty(t, updated.Annotations[annotationHPAOriginalCPU])
+}
+
+func TestRetuneHPAAfterResize_ContainerResourceCapUsesContainerLimit(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", nil, cpuContainerMetric("app", 80))
+	pod := workloadPod("api-server",
+		podContainer(t, "app", "400m", "200m"),
+		podContainer(t, "sidecar", "200m", "800m"),
+	)
+	cl := runHPARetune(t, []autoscalingv2.HorizontalPodAutoscaler{hpa}, &pod,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "400m", "200m")}, nil)
+
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(100), metricUtil(t, updated, 0),
+		"app limit equals the new 200m request, so 160 caps at 100, not the pod limit")
+}
+
+func TestRetuneHPAAfterResize_InitContainerStaysOutOfPodTotal(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", nil,
+		cpuResourceMetric(80),
+		cpuContainerMetric("migrate", 80),
+	)
+	pod := workloadPod("api-server",
+		podContainer(t, "app", "400m", "1000m"),
+		podContainer(t, "sidecar", "200m", "1000m"),
+	)
+	pod.Spec.InitContainers = []corev1.Container{podContainer(t, "migrate", "100m", "1000m")}
+	cl := runHPARetune(t, []autoscalingv2.HorizontalPodAutoscaler{hpa}, &pod,
+		[]attunev1alpha1.ResizeHistoryEntry{
+			cpuHistory("app", "400m", "200m"),
+			cpuHistory("migrate", "100m", "50m"),
+		}, nil)
+
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(120), metricUtil(t, updated, 0),
+		"init history stays out of the pod total: 80 * 600/400 = 120")
+	assert.Equal(t, "80", updated.Annotations[annotationHPAOriginalCPU])
+	assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest])
+	assert.Equal(t, int32(160), metricUtil(t, updated, 1),
+		"named init ContainerResource uses that container: 80 * 100/50 = 160")
+	assert.Equal(t, "80", updated.Annotations["attune.io/hpa-cpu-target.migrate"])
+	assert.Equal(t, "100m", updated.Annotations["attune.io/hpa-cpu-base.migrate"])
+}
