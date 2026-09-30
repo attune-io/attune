@@ -3077,6 +3077,87 @@ func TestPrintEffectivePolicySummary_DoesNotPanic(t *testing.T) {
 	printEffectivePolicySummary(item, policy, selectedDefaults{defaults: defaults, source: "cluster"})
 }
 
+func TestPrintEffectivePolicySummary_ExcludeFromHistorySource(t *testing.T) {
+	boolPtr := func(v bool) *bool { return &v }
+	boost := func(flag *bool) *attunev1alpha1.StartupBoost {
+		return &attunev1alpha1.StartupBoost{
+			Multiplier:         "2",
+			Duration:           metav1.Duration{Duration: 5 * time.Minute},
+			ExcludeFromHistory: flag,
+		}
+	}
+	policyWith := func(flag *bool) *attunev1alpha1.AttunePolicy {
+		return &attunev1alpha1.AttunePolicy{
+			Spec: attunev1alpha1.AttunePolicySpec{
+				CPU:            attunev1alpha1.ResourceConfig{StartupBoost: boost(flag)},
+				UpdateStrategy: &attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeAuto},
+			},
+		}
+	}
+	capture := func(item unstructured.Unstructured, effective *attunev1alpha1.AttunePolicy, selected selectedDefaults) string {
+		r, w, err := os.Pipe()
+		require.NoError(t, err)
+		old := os.Stdout
+		os.Stdout = w
+		printEffectivePolicySummary(item, effective, selected)
+		require.NoError(t, w.Close())
+		os.Stdout = old
+		out, err := io.ReadAll(r)
+		require.NoError(t, err)
+		return string(out)
+	}
+	defaultsWithTrue := &attunev1alpha1.AttuneDefaults{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{StartupBoost: boost(boolPtr(true))},
+		},
+	}
+
+	t.Run("omitted on a policy boost is the policy unset", func(t *testing.T) {
+		item := unstructured.Unstructured{Object: map[string]interface{}{
+			"spec": map[string]interface{}{
+				"cpu": map[string]interface{}{
+					"startupBoost": map[string]interface{}{
+						"multiplier": "2",
+						"duration":   "5m",
+					},
+				},
+			},
+		}}
+		got := capture(item, policyWith(nil), selectedDefaults{defaults: defaultsWithTrue, source: sourceCluster})
+		assert.Equal(t, 1, strings.Count(got, "Exclude from history:"))
+		assert.Contains(t, got, "Exclude from history: false (source: policy, configured: <unset>)")
+		assert.NotContains(t, got, "Exclude from history: false (source: built-in default")
+		assert.NotContains(t, got, "Exclude from history: false (source: cluster default")
+	})
+
+	t.Run("defaults object supplies the boost", func(t *testing.T) {
+		item := unstructured.Unstructured{Object: map[string]interface{}{
+			"spec": map[string]interface{}{},
+		}}
+		got := capture(item, policyWith(boolPtr(true)), selectedDefaults{defaults: defaultsWithTrue, source: sourceCluster})
+		assert.Equal(t, 1, strings.Count(got, "Exclude from history:"))
+		assert.Contains(t, got, "Exclude from history: true (source: cluster default, configured: <unset>)")
+		assert.NotContains(t, got, "Exclude from history: true (source: built-in default")
+	})
+
+	t.Run("explicit policy bool stays on the policy", func(t *testing.T) {
+		item := unstructured.Unstructured{Object: map[string]interface{}{
+			"spec": map[string]interface{}{
+				"cpu": map[string]interface{}{
+					"startupBoost": map[string]interface{}{
+						"multiplier":         "2",
+						"duration":           "5m",
+						"excludeFromHistory": false,
+					},
+				},
+			},
+		}}
+		got := capture(item, policyWith(boolPtr(false)), selectedDefaults{})
+		assert.Equal(t, 1, strings.Count(got, "Exclude from history:"))
+		assert.Contains(t, got, "Exclude from history: false (source: policy, configured: false)")
+	})
+}
+
 func TestPrintEffectivePolicySummary_NamespaceFreezeHelp(t *testing.T) {
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{

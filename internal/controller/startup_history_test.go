@@ -1,3 +1,19 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package controller
 
 import (
@@ -293,7 +309,8 @@ func TestStartupHistory_DropsYoungSpikeAndNotes(t *testing.T) {
 	mc := &mockCollector{
 		queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
 			if strings.Contains(query, "container_cpu_usage_seconds_total") {
-				assert.NotContains(t, query, "max by")
+				assert.Contains(t, query, "max by (pod, container)")
+				assert.NotContains(t, query, "max by (container)")
 				assert.NotContains(t, query, "avg by")
 				return map[string][]rsmetrics.Sample{
 					"main": append(steadyPodSamples(now, "old", 12, 0.05), rsmetrics.Sample{
@@ -566,15 +583,30 @@ func TestStartupHistory_DatadogBuilderUnchanged(t *testing.T) {
 	assert.Same(t, qb, got)
 	query := got.BuildQuery("default", "api-.*", "", "cpu", time.Minute)
 	assert.Contains(t, query, "pod_name")
+	assert.NotContains(t, query, "max by (pod, container)")
+
+	cw := &rsmetrics.CloudWatchQueryBuilder{}
+	assert.Same(t, cw, cpuQueryBuilderForStartupHistory(cw))
 
 	prom := &rsmetrics.PromQLQueryBuilder{Aggregation: rsmetrics.PodAggregationMax, CPUMetric: "attune:cpu:rate5m"}
-	copied := cpuQueryBuilderForStartupHistory(prom).(*rsmetrics.PromQLQueryBuilder)
-	assert.Equal(t, rsmetrics.PodAggregationNone, copied.Aggregation)
+	wrapped := cpuQueryBuilderForStartupHistory(prom)
+	cpuQuery := wrapped.BuildQuery("default", "api-.*", "app", "cpu", 5*time.Minute)
+	assert.Contains(t, cpuQuery, "max by (pod, container)")
+	assert.Contains(t, cpuQuery, "attune:cpu:rate5m")
+	assert.NotContains(t, cpuQuery, "max by (container)")
+	memQuery := wrapped.BuildQuery("default", "api-.*", "app", "memory", time.Minute)
+	assert.NotContains(t, memQuery, "max by (pod, container)")
 	assert.Equal(t, rsmetrics.PodAggregationMax, prom.Aggregation)
-	assert.Equal(t, "attune:cpu:rate5m", copied.CPUMetric)
+	assert.Equal(t, "attune:cpu:rate5m", prom.CPUMetric)
 
-	none := cpuQueryBuilderForStartupHistory(nil).(*rsmetrics.PromQLQueryBuilder)
-	assert.Equal(t, rsmetrics.PodAggregationNone, none.Aggregation)
+	none := cpuQueryBuilderForStartupHistory(nil)
+	noneCPU := none.BuildQuery("ns", "pod-.*", "", "cpu", time.Minute)
+	assert.Contains(t, noneCPU, "max by (pod, container) (rate(")
+	assert.NotContains(t, noneCPU, "max by (container)")
+
+	var typedNil *rsmetrics.PromQLQueryBuilder
+	typedCPU := cpuQueryBuilderForStartupHistory(typedNil).BuildQuery("ns", "pod-.*", "", "cpu", time.Minute)
+	assert.Contains(t, typedCPU, "max by (pod, container) (rate(")
 }
 
 func steadyPodSamples(now time.Time, pod string, count int, value float64) []rsmetrics.Sample {

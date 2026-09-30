@@ -1519,7 +1519,18 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 		if flag := effective.Spec.CPU.StartupBoost.ExcludeFromHistory; flag != nil && *flag {
 			effectiveExclude = "true"
 		}
-		printEffectiveField("  Exclude from history", configuredExclude, effectiveExclude, selected, false)
+		// Nil is not filled by ApplyBuiltInDefaults. A boost on the policy
+		// with the bool omitted is the policy's own unset, not a built-in.
+		// Inheritance applies only when the policy omitted startupBoost and
+		// AttuneDefaults supplied the object.
+		policyHasBoost := configuredBoost != ""
+		boostFromDefaults := !policyHasBoost && cpuDefaults != nil && cpuDefaults.StartupBoost != nil
+		if configuredExclude == "" && policyHasBoost {
+			fmt.Printf("  %s: %s (source: %s, configured: %s)\n",
+				"  Exclude from history", effectiveExclude, sourcePolicy, unsetValue)
+		} else {
+			printEffectiveField("  Exclude from history", configuredExclude, effectiveExclude, selected, boostFromDefaults)
+		}
 	}
 
 	fmt.Println("  Memory:")

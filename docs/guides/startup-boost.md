@@ -44,8 +44,9 @@ are the end of `rate()`, so the rate window is part of the cutoff. A
 sample exactly at the cutoff stays. Nil and false keep today's
 percentile. Memory samples are unchanged. Deleted pods stay in history
 until `historyWindow`, because there is no `CreationTimestamp` to cut
-on. A series with no pod label is left unfiltered. The boost annotation
-is not the cutoff.
+on. A series with no pod label is left unfiltered. Prometheus uses
+`max by (pod, container)` for that CPU query so each pod and container
+is one series. The boost annotation is not the cutoff.
 
 If the boosted CPU would exceed `maxAllowed` or the node's allocatable
 CPU, the boost is capped. `RequestsOnly` also dest-caps leftover dest

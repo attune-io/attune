@@ -283,8 +283,8 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 		cpuCtx := rsmetrics.WithNanInfLabels(ctx, policy.Namespace, policy.Name, "cpu")
 		cpuQB := qb
 		if excludeHistory {
-			// Per-pod CPU series, then filter. Memory keeps the original
-			// builder, including its aggregation. Do not mutate qb.
+			// Per-pod CPU series, collapsed with max by (pod, container),
+			// then filter. Memory keeps the original builder. Do not mutate qb.
 			cpuCtx = rsmetrics.WithPreservePodSeries(cpuCtx)
 			cpuQB = cpuQueryBuilderForStartupHistory(qb)
 		}
@@ -1527,21 +1527,41 @@ func appendStartupExcludeNotes(existing string, excluded, skipped bool) string {
 	return existing
 }
 
+// startupHistoryPromQL keeps one PromQL series per pod and container.
+// max collapses cAdvisor's per-core cpu label the same way max by (container)
+// does. sum is wrong when cpu="total" is also present. Memory queries are
+// not wrapped; only the CPU goroutine uses this builder.
+type startupHistoryPromQL struct {
+	inner *rsmetrics.PromQLQueryBuilder
+}
+
+func (b startupHistoryPromQL) BuildQuery(namespace, podRegex, container, metric string, rateWindow time.Duration) string {
+	if b.inner == nil {
+		return ""
+	}
+	inner := b.inner.BuildQuery(namespace, podRegex, container, metric, rateWindow)
+	if inner == "" || metric != "cpu" {
+		return inner
+	}
+	return fmt.Sprintf("max by (pod, container) (%s)", inner)
+}
+
 // cpuQueryBuilderForStartupHistory returns the builder for the CPU query
-// when startup samples will be filtered client-side. PromQL is copied with
-// aggregation None so each pod stays a series. Nil uses that same PromQL
-// shape. Datadog and CloudWatch builders are returned unchanged.
+// when startup samples will be filtered client-side. PromQL keeps pod
+// identity and collapses the cAdvisor cpu label with max by (pod, container).
+// Nil uses that same PromQL shape. Datadog and CloudWatch builders are
+// returned unchanged.
 func cpuQueryBuilderForStartupHistory(qb rsmetrics.QueryBuilder) rsmetrics.QueryBuilder {
 	switch b := qb.(type) {
 	case *rsmetrics.PromQLQueryBuilder:
-		if b == nil {
-			return &rsmetrics.PromQLQueryBuilder{Aggregation: rsmetrics.PodAggregationNone}
+		copied := rsmetrics.PromQLQueryBuilder{}
+		if b != nil {
+			copied = *b
 		}
-		copied := *b
 		copied.Aggregation = rsmetrics.PodAggregationNone
-		return &copied
+		return startupHistoryPromQL{inner: &copied}
 	case nil:
-		return &rsmetrics.PromQLQueryBuilder{Aggregation: rsmetrics.PodAggregationNone}
+		return startupHistoryPromQL{inner: &rsmetrics.PromQLQueryBuilder{Aggregation: rsmetrics.PodAggregationNone}}
 	default:
 		return qb
 	}

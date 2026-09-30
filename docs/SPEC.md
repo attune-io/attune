@@ -551,11 +551,12 @@ A single controller reconciles `AttunePolicy` resources. The reconcile function:
 
 Inspired by VPA's decorator pattern, but with critical improvements:
 
-When `cpu.startupBoost.excludeFromHistory` is true, CPU samples before
-pod CreationTimestamp plus duration plus the rate window are dropped,
-then the remaining pod series are reduced with `podAggregation`. Nil and
-false keep today's percentile. Memory samples are unchanged. Deleted
-pods stay until `historyWindow`.
+When `cpu.startupBoost.excludeFromHistory` is true, the Prometheus CPU
+query is `max by (pod, container)` so each pod and container is one
+series. CPU samples before pod CreationTimestamp plus duration plus the
+rate window are dropped, then the remaining pod series are reduced with
+`podAggregation`. Nil and false keep today's percentile. Memory samples
+are unchanged. Deleted pods stay until `historyWindow`.
 
 ```
 Raw Prometheus Data
