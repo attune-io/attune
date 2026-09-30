@@ -701,11 +701,12 @@ spec:
                       InitialSizing enables a mutating admission webhook that sets resource
                       requests/limits on new pods at creation time, based on existing
                       recommendations. Matching uses targetRef.name or targetRef.selector.
-                      Owner Get includes Deployment, StatefulSet, DaemonSet, Job, and
-                      CronJob. Job pods walk the owning Job to the CronJob. Fail-closes
-                      on Get or parse errors. Recommend is allowed for Job and CronJob
-                      CREATE; Observe still skips. Requires the namespace label
-                      attune.io/initial-sizing=enabled. Defaults to false.
+                      Owner Get includes Deployment, StatefulSet, DaemonSet, ReplicaSet, Job,
+                      and CronJob. A Deployment-owned ReplicaSet is resolved to the
+                      Deployment and is not a ReplicaSet target. Job pods walk the owning
+                      Job to the CronJob. Fail-closes on Get or parse errors. Recommend is
+                      allowed for Job and CronJob CREATE; Observe still skips. Requires the
+                      namespace label attune.io/initial-sizing=enabled. Defaults to false.
                     type: boolean
                   maxConcurrentResizes:
                     description: |-
@@ -1649,11 +1650,12 @@ spec:
                       InitialSizing enables a mutating admission webhook that sets resource
                       requests/limits on new pods at creation time, based on existing
                       recommendations. Matching uses targetRef.name or targetRef.selector.
-                      Owner Get includes Deployment, StatefulSet, DaemonSet, Job, and
-                      CronJob. Job pods walk the owning Job to the CronJob. Fail-closes
-                      on Get or parse errors. Recommend is allowed for Job and CronJob
-                      CREATE; Observe still skips. Requires the namespace label
-                      attune.io/initial-sizing=enabled. Defaults to false.
+                      Owner Get includes Deployment, StatefulSet, DaemonSet, ReplicaSet, Job,
+                      and CronJob. A Deployment-owned ReplicaSet is resolved to the
+                      Deployment and is not a ReplicaSet target. Job pods walk the owning
+                      Job to the CronJob. Fail-closes on Get or parse errors. Recommend is
+                      allowed for Job and CronJob CREATE; Observe still skips. Requires the
+                      namespace label attune.io/initial-sizing=enabled. Defaults to false.
                     type: boolean
                   maxConcurrentResizes:
                     description: |-
@@ -2693,11 +2695,12 @@ spec:
                       InitialSizing enables a mutating admission webhook that sets resource
                       requests/limits on new pods at creation time, based on existing
                       recommendations. Matching uses targetRef.name or targetRef.selector.
-                      Owner Get includes Deployment, StatefulSet, DaemonSet, Job, and
-                      CronJob. Job pods walk the owning Job to the CronJob. Fail-closes
-                      on Get or parse errors. Recommend is allowed for Job and CronJob
-                      CREATE; Observe still skips. Requires the namespace label
-                      attune.io/initial-sizing=enabled. Defaults to false.
+                      Owner Get includes Deployment, StatefulSet, DaemonSet, ReplicaSet, Job,
+                      and CronJob. A Deployment-owned ReplicaSet is resolved to the
+                      Deployment and is not a ReplicaSet target. Job pods walk the owning
+                      Job to the CronJob. Fail-closes on Get or parse errors. Recommend is
+                      allowed for Job and CronJob CREATE; Observe still skips. Requires the
+                      namespace label attune.io/initial-sizing=enabled. Defaults to false.
                     type: boolean
                   maxConcurrentResizes:
                     description: |-
