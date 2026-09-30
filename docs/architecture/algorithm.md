@@ -26,6 +26,13 @@ multi-pod sample pool. Caps such as `maxPodsInMetricsQuery` and
 `maxProfileSamples` further bound query and memory cost; see the
 [scaling guide](../guides/scaling.md).
 
+When `cpu.startupBoost.excludeFromHistory` is true, CPU points before
+pod `CreationTimestamp` plus `startupBoost.duration` plus the rate window
+are removed, then the surviving pod series are reduced with
+`podAggregation` (Max, Avg, or None). Nil and false keep today's
+percentile. Memory samples are not filtered. Deleted pods stay until
+`historyWindow`. A series with no pod label is left unfiltered.
+
 ## 1. Percentile Estimator
 
 Selects the configured percentile from the usage profile. Usage data is

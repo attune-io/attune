@@ -275,12 +275,20 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 	// against the same metrics backend. The rate limiter provides backpressure,
 	// so concurrent queries are safe.
 	rateWindow := r.getRateWindow(policy)
+	excludeHistory := excludeStartupHistory(policy)
 	var cpuSamplesByContainer, memSamplesByContainer map[string][]rsmetrics.Sample
 	var cpuErr, memErr, cpuCapped, memCapped bool
 	var qg errgroup.Group
 	qg.Go(func() error {
 		cpuCtx := rsmetrics.WithNanInfLabels(ctx, policy.Namespace, policy.Name, "cpu")
-		cpuSamplesByContainer, cpuErr, cpuCapped = queryMetricsGrouped(cpuCtx, collector, qb, policy.Namespace, podRegex, "cpu", start, now, queryStep, rateWindow)
+		cpuQB := qb
+		if excludeHistory {
+			// Per-pod CPU series, then filter. Memory keeps the original
+			// builder, including its aggregation. Do not mutate qb.
+			cpuCtx = rsmetrics.WithPreservePodSeries(cpuCtx)
+			cpuQB = cpuQueryBuilderForStartupHistory(qb)
+		}
+		cpuSamplesByContainer, cpuErr, cpuCapped = queryMetricsGrouped(cpuCtx, collector, cpuQB, policy.Namespace, podRegex, "cpu", start, now, queryStep, rateWindow)
 		return nil
 	})
 	qg.Go(func() error {
@@ -299,6 +307,52 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 	}
 	seriesCapped = cpuCapped || memCapped
 
+	// Post-filter CPU only. blockedReuse is about the aggregated series:
+	// one young pod with no surviving points does not block the workload
+	// when an older pod still has enough points.
+	var startupDropped, startupSkipped map[string]bool
+	blockedReuse := false
+	if excludeHistory {
+		startupDropped = make(map[string]bool, len(cpuSamplesByContainer))
+		startupSkipped = make(map[string]bool, len(cpuSamplesByContainer))
+		if cpuSamplesByContainer == nil {
+			cpuSamplesByContainer = map[string][]rsmetrics.Sample{}
+		}
+		boost := policy.Spec.CPU.StartupBoost.Duration.Duration
+		agg := resolvePodAggregation(policy)
+		for name, samples := range cpuSamplesByContainer {
+			filtered := filterStartupCPUSamples(samples, pods, boost, rateWindow, agg)
+			cpuSamplesByContainer[name] = filtered.Samples
+			startupDropped[name] = filtered.Dropped
+			startupSkipped[name] = filtered.Skipped
+		}
+		// A failed or empty CPU query did not delete startup points, so the
+		// prior rec can still be reused. Block only when this filter removed
+		// points and every eligible container is still under the minimum.
+		if !cpuErr {
+			droppedEligible := false
+			allBelow := true
+			sawEligible := false
+			for _, container := range containers {
+				if excludeSet[container.Name] {
+					continue
+				}
+				sawEligible = true
+				sampleKey := container.Name
+				if _, ok := cpuSamplesByContainer[sampleKey]; !ok {
+					sampleKey = ""
+				}
+				if startupDropped[sampleKey] {
+					droppedEligible = true
+				}
+				if len(samplesForContainer(cpuSamplesByContainer, container.Name)) >= int(minimumDataPoints) {
+					allBelow = false
+				}
+			}
+			blockedReuse = sawEligible && droppedEligible && allBelow
+		}
+	}
+
 	var containerRecs []attunev1alpha1.ContainerRecommendation
 	eligibleContainers := 0
 	// True when a container had data for only one resource and neither live
@@ -315,17 +369,28 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 		}
 		eligibleContainers++
 
+		startupExcluded, startupExcludeSkipped := false, false
+		if excludeHistory {
+			sampleKey := container.Name
+			if _, ok := cpuSamplesByContainer[sampleKey]; !ok {
+				sampleKey = ""
+			}
+			startupExcluded = startupDropped[sampleKey]
+			startupExcludeSkipped = startupSkipped[sampleKey]
+		}
 		crec, ok, unfilled, pts := r.recommendContainer(ctx, recommendContainerInput{
-			policy:            policy,
-			workload:          workload,
-			container:         container,
-			cpuSamples:        samplesForContainer(cpuSamplesByContainer, container.Name),
-			memSamples:        samplesForContainer(memSamplesByContainer, container.Name),
-			cpuEngine:         cpuEngine,
-			memEngine:         memEngine,
-			pods:              pods,
-			now:               now,
-			minimumDataPoints: minimumDataPoints,
+			policy:                policy,
+			workload:              workload,
+			container:             container,
+			cpuSamples:            samplesForContainer(cpuSamplesByContainer, container.Name),
+			memSamples:            samplesForContainer(memSamplesByContainer, container.Name),
+			cpuEngine:             cpuEngine,
+			memEngine:             memEngine,
+			pods:                  pods,
+			now:                   now,
+			minimumDataPoints:     minimumDataPoints,
+			startupExcluded:       startupExcluded,
+			startupExcludeSkipped: startupExcludeSkipped,
 		})
 		if pts > maxDataPoints {
 			maxDataPoints = pts
@@ -342,7 +407,11 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 		// Only reuse when an eligible container had no usable data.
 		// Exclude-all must still return nil so status drops the rec.
 		// Under memoryFromCpuRatio, reuse only a ratio-derived prior rec.
-		if eligibleContainers > 0 && staleReuseAllowed(policy, workloadKindName(workload), workload.GetName()) {
+		// Startup exclusion that dropped points and left every eligible
+		// container below minimumDataPoints must not republish a prior CPU
+		// rec, including a memoryFromCpuRatio rec derived from that CPU.
+		// A failed or empty query did not drop points and still reuses.
+		if eligibleContainers > 0 && !blockedReuse && staleReuseAllowed(policy, workloadKindName(workload), workload.GetName()) {
 			freshness := recommendationFreshnessBound(queryStep)
 			if reused := reuseStaleRecommendation(policy, workloadKindName(workload), workload.GetName(), now, freshness); reused != nil {
 				logger.Info("Reusing prior recommendation as stale; Prometheus returned no fresh data",
@@ -378,16 +447,18 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 // recommendContainerInput is the already-fetched query result for one
 // container. Dual PromQL and stale reuse stay in computeRecommendations.
 type recommendContainerInput struct {
-	policy            *attunev1alpha1.AttunePolicy
-	workload          client.Object
-	container         corev1.Container
-	cpuSamples        []rsmetrics.Sample
-	memSamples        []rsmetrics.Sample
-	cpuEngine         *recommendation.RecommendationEngine
-	memEngine         *recommendation.RecommendationEngine
-	pods              []corev1.Pod
-	now               time.Time
-	minimumDataPoints int32
+	policy                *attunev1alpha1.AttunePolicy
+	workload              client.Object
+	container             corev1.Container
+	cpuSamples            []rsmetrics.Sample
+	memSamples            []rsmetrics.Sample
+	cpuEngine             *recommendation.RecommendationEngine
+	memEngine             *recommendation.RecommendationEngine
+	pods                  []corev1.Pod
+	now                   time.Time
+	minimumDataPoints     int32
+	startupExcluded       bool
+	startupExcludeSkipped bool
 }
 
 // recommendContainer builds one container rec from grouped samples.
@@ -512,7 +583,13 @@ func (r *AttunePolicyReconciler) recommendContainer(
 
 	if !cpuApplied || !memApplied {
 		prior := priorContainerRecommendation(policy, workloadKindName(workload), workload.GetName(), containerName)
-		if !cpuApplied && !holdMissingResourceRequest(&rec, corev1.ResourceCPU, pods, prior) {
+		cpuPrior := prior
+		// The filter removed the CPU points. Holding the prior target would
+		// put that pre-filter CPU back. Keep the live request instead.
+		if in.startupExcluded && !cpuApplied {
+			cpuPrior = nil
+		}
+		if !cpuApplied && !holdMissingResourceRequest(&rec, corev1.ResourceCPU, pods, cpuPrior) {
 			partialUnfilled = true
 		}
 		if !memApplied && !holdMissingResourceRequest(&rec, corev1.ResourceMemory, pods, prior) {
@@ -520,6 +597,14 @@ func (r *AttunePolicyReconciler) recommendContainer(
 		}
 	}
 	recordQuerySettings(policy, explanation)
+	if in.startupExcluded || in.startupExcludeSkipped {
+		if explanation.CPU != nil {
+			explanation.CPU.FinalAdjustment = appendStartupExcludeNotes(explanation.CPU.FinalAdjustment, in.startupExcluded, in.startupExcludeSkipped)
+		}
+		if explanation.Memory != nil {
+			explanation.Memory.FinalAdjustment = appendStartupExcludeNotes(explanation.Memory.FinalAdjustment, in.startupExcluded, in.startupExcludeSkipped)
+		}
+	}
 	if explanation.CPU != nil || explanation.Memory != nil {
 		rec.Explanation = explanation
 	}
@@ -1427,6 +1512,39 @@ func deriveMemoryFromCPU(
 	}
 
 	return memRec, memExplain, true
+}
+
+// appendStartupExcludeNotes records that CPU startup samples were removed
+// or that a series was left unfiltered. Memory-only explanations still
+// get the note when CPU was excluded. Existing podAggregation text stays.
+func appendStartupExcludeNotes(existing string, excluded, skipped bool) string {
+	if excluded {
+		existing = appendNote(existing, "startupExcluded")
+	}
+	if skipped {
+		existing = appendNote(existing, "startupExcluded=skipped")
+	}
+	return existing
+}
+
+// cpuQueryBuilderForStartupHistory returns the builder for the CPU query
+// when startup samples will be filtered client-side. PromQL is copied with
+// aggregation None so each pod stays a series. Nil uses that same PromQL
+// shape. Datadog and CloudWatch builders are returned unchanged.
+func cpuQueryBuilderForStartupHistory(qb rsmetrics.QueryBuilder) rsmetrics.QueryBuilder {
+	switch b := qb.(type) {
+	case *rsmetrics.PromQLQueryBuilder:
+		if b == nil {
+			return &rsmetrics.PromQLQueryBuilder{Aggregation: rsmetrics.PodAggregationNone}
+		}
+		copied := *b
+		copied.Aggregation = rsmetrics.PodAggregationNone
+		return &copied
+	case nil:
+		return &rsmetrics.PromQLQueryBuilder{Aggregation: rsmetrics.PodAggregationNone}
+	default:
+		return qb
+	}
 }
 
 // appendNote appends a note to an existing adjustment string, separated by "; ".

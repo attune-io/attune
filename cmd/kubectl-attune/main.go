@@ -1514,6 +1514,12 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 		}
 		effectiveBoost := effective.Spec.CPU.StartupBoost.Multiplier + "x for " + effective.Spec.CPU.StartupBoost.Duration.Duration.String()
 		printEffectiveField("  Startup boost", configuredBoost, effectiveBoost, selected, cpuDefaults != nil && cpuDefaults.StartupBoost != nil)
+		configuredExclude := formatBoolField(item, "spec", "cpu", "startupBoost", "excludeFromHistory")
+		effectiveExclude := "false"
+		if flag := effective.Spec.CPU.StartupBoost.ExcludeFromHistory; flag != nil && *flag {
+			effectiveExclude = "true"
+		}
+		printEffectiveField("  Exclude from history", configuredExclude, effectiveExclude, selected, false)
 	}
 
 	fmt.Println("  Memory:")

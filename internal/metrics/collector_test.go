@@ -946,6 +946,115 @@ func TestSameOrigin_DifferentHost(t *testing.T) {
 	assert.False(t, sameOrigin(a, b))
 }
 
+func TestPreservePodSeries(t *testing.T) {
+	assert.False(t, preservePodSeries(context.Background()))
+	assert.True(t, preservePodSeries(WithPreservePodSeries(context.Background())))
+}
+
+func TestQueryRangeGrouped_PreservePodLabel(t *testing.T) {
+	response := `{
+		"status": "success",
+		"data": {
+			"resultType": "matrix",
+			"result": [
+				{
+					"metric": {"__name__": "cpu_usage", "pod": "steady", "container": "app"},
+					"values": [[1700000000, "0.2"], [1700000060, "0"]]
+				},
+				{
+					"metric": {"__name__": "cpu_usage", "pod": "young", "container": "app"},
+					"values": [[1700000000, "10"]]
+				}
+			]
+		}
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(response))
+	}))
+	defer server.Close()
+
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
+	require.NoError(t, err)
+	start := time.Unix(1700000000, 0)
+	end := time.Unix(1700000120, 0)
+
+	plain, err := collector.QueryRangeGrouped(context.Background(), "cpu_usage", start, end, time.Minute)
+	require.NoError(t, err)
+	require.Len(t, plain["app"], 3)
+	for _, sample := range plain["app"] {
+		assert.Empty(t, sample.Pod)
+	}
+
+	grouped, err := collector.QueryRangeGrouped(WithPreservePodSeries(context.Background()), "cpu_usage", start, end, time.Minute)
+	require.NoError(t, err)
+	require.Len(t, grouped["app"], 3)
+	pods := map[string]int{}
+	var sawZero bool
+	for _, sample := range grouped["app"] {
+		pods[sample.Pod]++
+		if sample.Value == 0 {
+			sawZero = true
+			assert.Equal(t, "steady", sample.Pod)
+		}
+	}
+	assert.Equal(t, 2, pods["steady"])
+	assert.Equal(t, 1, pods["young"])
+	assert.True(t, sawZero, "numeric 0 stays")
+}
+
+func TestCapMatrixByPodFairShare_YoungPodDoesNotStarveOld(t *testing.T) {
+	young1 := &model.SampleStream{Metric: model.Metric{"container": "app", "pod": "young"}}
+	young2 := &model.SampleStream{Metric: model.Metric{"container": "app", "pod": "young"}}
+	old := &model.SampleStream{Metric: model.Metric{"container": "app", "pod": "old"}}
+	matrix := model.Matrix{young1, young2, old}
+
+	out := capMatrixByPodFairShare(matrix, 2)
+	require.Len(t, out, 2)
+	assert.Equal(t, "young", string(out[0].Metric["pod"]))
+	assert.Equal(t, "old", string(out[1].Metric["pod"]))
+
+	// Same input, container cap keeps only the young pod.
+	byContainer := capMatrixByContainer(matrix, 2)
+	require.Len(t, byContainer, 2)
+	assert.Equal(t, "young", string(byContainer[0].Metric["pod"]))
+	assert.Equal(t, "young", string(byContainer[1].Metric["pod"]))
+}
+
+func TestQueryRangeGrouped_PreservePodFairShareCaps(t *testing.T) {
+	response := `{
+		"status": "success",
+		"data": {
+			"resultType": "matrix",
+			"result": [
+				{"metric": {"pod": "young", "container": "app"}, "values": [[1700000000, "10"]]},
+				{"metric": {"pod": "young", "container": "app"}, "values": [[1700000060, "9"]]},
+				{"metric": {"pod": "old", "container": "app"}, "values": [[1700000000, "0.2"]]}
+			]
+		}
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(response))
+	}))
+	defer server.Close()
+
+	collector, err := NewPrometheusCollectorWithOptions(server.URL, logr.Discard(), &CollectorOptions{MaxSeries: 2}, http.DefaultTransport)
+	require.NoError(t, err)
+	start := time.Unix(1700000000, 0)
+	end := time.Unix(1700000120, 0)
+	grouped, err := collector.QueryRangeGrouped(WithPreservePodSeries(context.Background()), "cpu_usage", start, end, time.Minute)
+	require.ErrorIs(t, err, ErrSeriesCapped)
+	pods := map[string]int{}
+	for _, sample := range grouped["app"] {
+		pods[sample.Pod]++
+	}
+	assert.Equal(t, 1, pods["young"])
+	assert.Equal(t, 1, pods["old"])
+}
+
 func TestQueryRangeGrouped_SeriesCapByContainer(t *testing.T) {
 	// Build a fake matrix via a small custom collector is hard without API;
 	// unit-test capMatrixByContainer directly.

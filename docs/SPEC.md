@@ -214,6 +214,12 @@ spec:
     # limitMultiplier: "2"
     # Maximum change per reconciliation cycle
     maxChangePercent: 50      # default: 50
+    # startupBoost:          # optional CPU cold-start multiplier
+    #   multiplier: "2.0"
+    #   duration: 2m
+    #   # excludeFromHistory: true drops CPU samples until
+    #   # CreationTimestamp + duration + rateWindow. Omitted keeps
+    #   # today's percentile. Deleted pods stay until historyWindow.
 
   memory:
     percentile: 99            # supported: 50, 90, 95, 99
@@ -544,6 +550,12 @@ A single controller reconciles `AttunePolicy` resources. The reconcile function:
 ### 5.1 Composable Estimator Chain
 
 Inspired by VPA's decorator pattern, but with critical improvements:
+
+When `cpu.startupBoost.excludeFromHistory` is true, CPU samples before
+pod CreationTimestamp plus duration plus the rate window are dropped,
+then the remaining pod series are reduced with `podAggregation`. Nil and
+false keep today's percentile. Memory samples are unchanged. Deleted
+pods stay until `historyWindow`.
 
 ```
 Raw Prometheus Data

@@ -150,7 +150,15 @@ func (c *DatadogCollector) QueryRangeGrouped(ctx context.Context, query string, 
 			continue
 		}
 		container := extractDatadogTag(series.TagSet, "kube_container_name")
+		before := len(grouped[container])
 		grouped[container] = appendDatadogSamples(ctx, grouped[container], series.Pointlist, isCPU)
+		// pod_name is already in the query. Copy it only when the CPU
+		// exclude path asked to keep per-pod series. Numeric 0 stays.
+		if preservePodSeries(ctx) {
+			for i := before; i < len(grouped[container]); i++ {
+				grouped[container][i].Pod = podName
+			}
+		}
 	}
 
 	c.logger.V(1).Info("Datadog query completed",

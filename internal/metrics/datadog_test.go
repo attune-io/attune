@@ -82,6 +82,61 @@ func TestDatadogCollector_QueryRangeGrouped_AllNonFiniteIncrementsOnce(t *testin
 	assert.Equal(t, before+1, after, "all-non-finite series increments the counter once")
 }
 
+func TestDatadogCollector_PreservePodName(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		resp := datadogSeriesResponse{
+			Status: "ok",
+			Series: []datadogSeries{
+				{
+					Metric: "kubernetes.cpu.usage.total",
+					TagSet: []string{"kube_container_name:web", "pod_name:steady"},
+					Pointlist: ddPoints(
+						[2]float64{1700000000000, 0},
+						[2]float64{1700000300000, 500000000},
+					),
+				},
+				{
+					Metric:    "kubernetes.cpu.usage.total",
+					TagSet:    []string{"kube_container_name:web", "pod_name:young"},
+					Pointlist: ddPoints([2]float64{1700000000000, 1000000000}),
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	c := &DatadogCollector{
+		httpClient:    server.Client(),
+		baseURL:       server.URL,
+		apiKey:        "key",
+		logger:        logr.Discard(),
+		cpuMetricName: "kubernetes.cpu.usage.total",
+	}
+	query := `avg:kubernetes.cpu.usage.total{kube_namespace:default} by {kube_container_name,pod_name}`
+	start := time.Unix(1700000000, 0)
+	end := time.Unix(1700000600, 0)
+
+	plain, err := c.QueryRangeGrouped(context.Background(), query, start, end, time.Minute)
+	require.NoError(t, err)
+	require.Len(t, plain["web"], 3)
+	for _, sample := range plain["web"] {
+		assert.Empty(t, sample.Pod)
+	}
+	assert.InDelta(t, 0, plain["web"][0].Value, 0.001, "numeric 0 stays")
+
+	grouped, err := c.QueryRangeGrouped(WithPreservePodSeries(context.Background()), query, start, end, time.Minute)
+	require.NoError(t, err)
+	require.Len(t, grouped["web"], 3)
+	pods := map[string]int{}
+	for _, sample := range grouped["web"] {
+		pods[sample.Pod]++
+	}
+	assert.Equal(t, 2, pods["steady"])
+	assert.Equal(t, 1, pods["young"])
+}
+
 func TestDatadogCollector_QueryRangeGrouped(t *testing.T) {
 	// Simulate Datadog /api/v1/query response.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

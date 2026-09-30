@@ -150,7 +150,9 @@ notready, throttle, or slo:&lt;name&gt; for SLO guardrail breaches).
   `updateStrategy.sloGuardrails` in the [configuration reference](../reference/configuration.md#slo-guardrails).
 - **Startup boost**: for JVM or other cold-start heavy apps, enable
   `cpu.startupBoost` so pods get temporary CPU headroom at start, then
-  scale back. See the [startup boost guide](../guides/startup-boost.md).
+  scale back. `excludeFromHistory: true` drops CPU samples until creation
+  plus duration plus the rate window; omitted keeps today's percentile.
+  See the [startup boost guide](../guides/startup-boost.md).
 
 !!! warning
     If you see repeated reverts, increase the overhead or adjust

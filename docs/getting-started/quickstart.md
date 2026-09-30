@@ -33,6 +33,7 @@ This quick start gets you to recommendations. When you are ready to go further:
 | Application SLO checks after resize (latency, errors) | [SLO guardrails](../guides/slo-guardrails.md) |
 | Memory limit decrease safety (usage floor on 1.35+) | [Resize API](../architecture/resize-api.md) and [troubleshooting OOM](../guides/troubleshooting.md#oom-after-memory-limit-decrease) |
 | Language runtime defaults (Java, Python, Go, Node) | [Runtime profiles](../guides/runtime-profiles.md) |
+| Cold-start CPU headroom | [Startup boost](../guides/startup-boost.md). `excludeFromHistory: true` drops CPU samples until creation plus duration plus the rate window; omitted keeps today's percentile. |
 | Node pressure skips and reclaimed capacity | [Bin packing](../guides/bin-packing.md) and [node capacity](../architecture/node-capacity.md) |
 
 ## 1. Create an AttunePolicy in Recommend mode

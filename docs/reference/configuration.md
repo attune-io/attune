@@ -606,6 +606,7 @@ Temporarily increases CPU requests for newly created or restarted pods to accele
 |-------|------|---------|-------------|
 | `startupBoost.multiplier` | string | (none) | Scales the recommended CPU request during startup. For example, `"3.0"` means 3x the steady-state recommendation. Must be > 1.0 and <= 10.0. This is not `limitMultiplier`. During the boost window the CPU limit is the greater of the boosted request and the steady multiplied limit, not the boosted request times `limitMultiplier`. Expiry restores that steady limit. |
 | `startupBoost.duration` | duration | (none) | How long the boost lasts before reducing to the steady-state recommendation. Must be >= 10s and <= 1h. CREATE and live reconcile dest-cap the boosted request at leftover dest when `controlledValues` is `RequestsOnly`. When it is `RequestsAndLimits` and a rec dest is set, dest-cap uses that rec dest (leftover dest is not a skip). Job and CronJob pods skip CREATE boost because expiry cannot run. |
+| `startupBoost.excludeFromHistory` | bool | omitted (false) | When true, drop CPU samples from the percentile while the pod is inside startup. The cutoff is pod `CreationTimestamp` plus `startupBoost.duration` plus `rateWindow`. A sample at the cutoff stays. Nil and false keep today's percentile. Memory samples are unchanged. Deleted pods stay in history until `historyWindow` because there is no `CreationTimestamp` to cut on. A series with no pod label is left unfiltered. |
 
 Example:
 
