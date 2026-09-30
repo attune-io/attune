@@ -1409,3 +1409,22 @@ func TestRetuneHPAAfterResize_InitContainerStaysOutOfPodTotal(t *testing.T) {
 	assert.Equal(t, "80", updated.Annotations["attune.io/hpa-cpu-target.migrate"])
 	assert.Equal(t, "100m", updated.Annotations["attune.io/hpa-cpu-base.migrate"])
 }
+
+// adjustHPATargets applies one precomputed CPU pair to every adjustable
+// CPU utilization metric.
+func (r *AttunePolicyReconciler) adjustHPATargets(
+	ctx context.Context,
+	hpas []autoscalingv2.HorizontalPodAutoscaler,
+	workloadName, workloadKind string,
+	oldCPURequest, newCPURequest, cpuLimit resource.Quantity,
+) {
+	if oldCPURequest.IsZero() || newCPURequest.IsZero() || oldCPURequest.Equal(newCPURequest) {
+		return
+	}
+	r.tuneHPAs(ctx, hpas, workloadName, workloadKind, hpaTuneScope{
+		scalar: true,
+		old:    oldCPURequest,
+		neu:    newCPURequest,
+		limit:  cpuLimit,
+	})
+}

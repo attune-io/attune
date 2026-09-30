@@ -503,26 +503,6 @@ func copyHPATuneAnnotations(dst, src map[string]string) {
 	}
 }
 
-// adjustHPATargets applies one precomputed CPU pair to every adjustable
-// CPU utilization metric. Retune uses tuneHPAs directly so each metric
-// keeps its own ratio.
-func (r *AttunePolicyReconciler) adjustHPATargets(
-	ctx context.Context,
-	hpas []autoscalingv2.HorizontalPodAutoscaler,
-	workloadName, workloadKind string,
-	oldCPURequest, newCPURequest, cpuLimit resource.Quantity,
-) {
-	if oldCPURequest.IsZero() || newCPURequest.IsZero() || oldCPURequest.Equal(newCPURequest) {
-		return
-	}
-	r.tuneHPAs(ctx, hpas, workloadName, workloadKind, hpaTuneScope{
-		scalar: true,
-		old:    oldCPURequest,
-		neu:    newCPURequest,
-		limit:  cpuLimit,
-	})
-}
-
 // tuneHPAs updates every matching auto-tune HPA. Changed metrics on one HPA
 // are written with a single Update. Get or Update errors are logged and do
 // not abort the next HPA.
