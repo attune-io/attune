@@ -26,6 +26,7 @@ jobs:
       contents: write
       pull-requests: write
     if: >
+      github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.user.login != 'github-actions[bot]' &&
       github.event.pull_request.user.login != 'dependabot[bot]' &&
       (github.actor == 'SebTardif' ||
@@ -51,8 +52,8 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
 
-      # Draft PRs cannot have auto-merge enabled (GitHub API rejects it).
-      # Skip cleanly so the required Auto Approve check stays green on drafts.
+      # The merge API rejects a draft pull request.
+      # Skip this step. The approve step above still runs on a same-repo draft.
       - name: Enable auto-merge
         if: >-
           !github.event.pull_request.draft &&
