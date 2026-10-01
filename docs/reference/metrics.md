@@ -106,8 +106,19 @@ configured schedule window.
 
 ### attune_budget_exhausted_total
 
-Total resize operations deferred because the per-cycle budget cap
-(`maxTotalCpuIncrease` / `maxTotalMemoryIncrease`) was exhausted.
+Total resize operations the increase budget refused. The counter covers
+two events, which the policy events tell apart (`kubectl describe
+attunepolicy <name>`):
+
+- `BudgetExhausted`: the increase fits every configured cap, but not the
+  budget left this cycle (`maxTotalCpuIncrease` / `maxTotalMemoryIncrease`)
+  or this minute (`maxCpuIncreasePerMinute` / `maxMemoryIncreasePerMinute`).
+  The resize is deferred, and a later cycle can run it.
+- `IncreaseExceedsBudget`: one container's increase is larger than
+  `maxCpuIncreasePerMinute`, `maxMemoryIncreasePerMinute`,
+  `maxTotalCpuIncrease`, or `maxTotalMemoryIncrease`. Waiting does not help,
+  and the counter keeps rising on every reconcile while that recommendation
+  stands. Raise that cap or lower the target.
 
 | Label | Description |
 |-------|-------------|

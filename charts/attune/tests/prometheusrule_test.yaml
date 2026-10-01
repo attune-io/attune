@@ -84,6 +84,35 @@ tests:
           path: spec.groups[0].rules[13].expr
           pattern: "clamped_usage\\|skipped_unsafe"
 
+  - it: should describe both budget cap events on AttuneBudgetExhausted
+    set:
+      metrics:
+        enabled: true
+        prometheusRule:
+          enabled: true
+          rules:
+            budgetExhausted:
+              enabled: true
+    asserts:
+      - equal:
+          path: spec.groups[0].rules[5].alert
+          value: AttuneBudgetExhausted
+      - matchRegex:
+          path: spec.groups[0].rules[5].annotations.description
+          pattern: "BudgetExhausted.*IncreaseExceedsBudget"
+      - matchRegex:
+          path: spec.groups[0].rules[5].annotations.description
+          pattern: "Check the policy events"
+      - matchRegex:
+          path: spec.groups[0].rules[5].annotations.description
+          pattern: "IncreaseExceedsBudget:.*maxCpuIncreasePerMinute.*maxMemoryIncreasePerMinute.*maxTotalCpuIncrease.*maxTotalMemoryIncrease.*waiting does not"
+      - notMatchRegex:
+          path: spec.groups[0].rules[5].annotations.description
+          pattern: "IncreaseExceedsBudget[^.]*defer"
+      - notMatchRegex:
+          path: spec.groups[0].rules[5].annotations.description
+          pattern: "maxTotalCPUIncrease"
+
   - it: should omit gitops PR alert when disabled
     set:
       metrics:

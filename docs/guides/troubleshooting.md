@@ -1253,11 +1253,13 @@ TZ="America/New_York" date "+%H:%M %A"
 cycle" and some pods are not resized.
 
 **Cause**: The total CPU or memory increase across all pods exceeds the
-configured `maxTotalCpuIncrease` or `maxTotalMemoryIncrease`.
+budget left this cycle (`maxTotalCpuIncrease` / `maxTotalMemoryIncrease`)
+or the budget available this minute (`maxCpuIncreasePerMinute` /
+`maxMemoryIncreasePerMinute`). The policy event reason is `BudgetExhausted`.
 
-**Fix**: Either increase the budget or accept that resizes are spread
-across multiple reconcile cycles (this is the intended behavior for
-gradual rollout).
+**Fix**: Either raise the cap your policy sets (both families apply when
+both are set) or accept that resizes are spread across multiple reconcile
+cycles (this is the intended behavior for gradual rollout).
 
 If the event reason is `IncreaseExceedsBudget`, one container's increase
 is larger than the configured cap. The bucket only holds one minute of
@@ -1268,8 +1270,10 @@ recommendation shrinks. It is not waiting for the next cycle.
 
 ```yaml
 updateStrategy:
-  maxTotalCpuIncrease: "4000m"    # 4 cores per cycle
-  maxTotalMemoryIncrease: "8Gi"   # 8 GiB per cycle
+  maxCpuIncreasePerMinute: "4000m"    # 4 cores per minute
+  maxMemoryIncreasePerMinute: "8Gi"   # 8 GiB per minute
+  # maxTotalCpuIncrease / maxTotalMemoryIncrease are the older per-cycle
+  # cap (deprecated); raise them too if your policy still sets them.
 ```
 
 ### Policy rejected: invalid schedule timezone
