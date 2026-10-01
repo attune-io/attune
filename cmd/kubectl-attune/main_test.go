@@ -1217,6 +1217,29 @@ func TestFilterPolicies_ConflictCheckFailed(t *testing.T) {
 	assert.Equal(t, "invalid-policy", got[0].GetName())
 }
 
+func TestFilterPolicies_WorkloadCRDMissing(t *testing.T) {
+	missing := unstructured.Unstructured{Object: map[string]interface{}{
+		"metadata": map[string]interface{}{"name": "rollout-policy", "namespace": "default"},
+		"status": map[string]interface{}{
+			"conditions": []interface{}{
+				map[string]interface{}{
+					"type":    "Ready",
+					"status":  "False",
+					"reason":  "WorkloadCRDMissing",
+					"message": "argoproj.io/v1alpha1 Rollout CRD is not installed",
+				},
+			},
+		},
+	}}
+
+	got := filterPolicies([]unstructured.Unstructured{missing}, "workloadcrdmissing")
+	require.Len(t, got, 1)
+	assert.Equal(t, "rollout-policy", got[0].GetName())
+
+	assert.Empty(t, filterPolicies([]unstructured.Unstructured{missing}, "ready"))
+	assert.Empty(t, filterPolicies([]unstructured.Unstructured{missing}, "invalidconfig"))
+}
+
 func TestRun_FilterFlagRejectedForNonStatus(t *testing.T) {
 	code := run([]string{"savings", "--filter", "degraded"}, func(string, string) (dynamic.Interface, string, error) {
 		return nil, "default", nil

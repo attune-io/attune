@@ -44,6 +44,7 @@ import (
 	webhookserver "sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/argorollout"
 	"github.com/attune-io/attune/internal/cluster"
 	"github.com/attune-io/attune/internal/controller"
 	"github.com/attune-io/attune/internal/fleetreport"
@@ -65,6 +66,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(attunev1alpha1.AddToScheme(scheme))
+	utilruntime.Must(argorollout.AddToScheme(scheme))
 }
 
 func main() {
@@ -225,7 +227,7 @@ func main() {
 		LeaderElectionID:       "attune.attune.io",
 		Client: client.Options{
 			Cache: &client.CacheOptions{
-				DisableFor: []client.Object{&corev1.Secret{}},
+				DisableFor: []client.Object{&corev1.Secret{}, &argorollout.Rollout{}},
 			},
 		},
 	}
@@ -315,6 +317,7 @@ func main() {
 	reconciler.APIReader = mgr.GetAPIReader()
 	reconciler.PodCacheFilter = podFilter
 	reconciler.Scheme = mgr.GetScheme()
+	reconciler.RESTMapper = mgr.GetRESTMapper()
 	reconciler.Clientset = clientset
 	reconciler.Recorder = mgr.GetEventRecorder("attune")
 	caps, capErr := cluster.Discover(

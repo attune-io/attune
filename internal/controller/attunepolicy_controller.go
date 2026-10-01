@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/events"
@@ -46,6 +47,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/argorollout"
 	"github.com/attune-io/attune/internal/cluster"
 	"github.com/attune-io/attune/internal/conflict"
 	"github.com/attune-io/attune/internal/gitops"
@@ -133,7 +135,20 @@ const (
 	// conflictCheckFailedMessage is written to status, conditions, and
 	// Events. The raw List error stays in operator logs only.
 	conflictCheckFailedMessage = "Failed to list AttunePolicies for conflict detection; recommendations not computed"
+
+	// rolloutCRDMissingRequeue is how long to wait before checking again
+	// whether the Rollout CRD was installed.
+	rolloutCRDMissingRequeue = 2 * time.Minute
 )
+
+// errRolloutCRDMissing is the sentinel for a missing Rollout CRD.
+// The text is the Ready condition message. Do not wrap it.
+var errRolloutCRDMissing = errors.New(argorollout.Group + "/" + argorollout.Version + " " + argorollout.Kind + " CRD is not installed")
+
+// GVKMapper is the subset of meta.RESTMapper used to detect a missing Rollout CRD.
+type GVKMapper interface {
+	RESTMapping(gk schema.GroupKind, versions ...string) (*meta.RESTMapping, error)
+}
 
 //+kubebuilder:rbac:groups=attune.io,resources=attunepolicies,verbs=get;list;watch;patch
 //+kubebuilder:rbac:groups=attune.io,resources=attunepolicies/status,verbs=get;update;patch
@@ -141,6 +156,7 @@ const (
 //+kubebuilder:rbac:groups=attune.io,resources=attunedefaults,verbs=get;list;watch
 //+kubebuilder:rbac:groups=attune.io,resources=attunenamespacedefaults,verbs=get;list;watch
 //+kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;daemonsets;replicasets,verbs=get;list;watch
+//+kubebuilder:rbac:groups=argoproj.io,resources=rollouts,verbs=get;list;watch;patch;update
 //+kubebuilder:rbac:groups=apps,resources=controllerrevisions,verbs=get;list;watch
 //+kubebuilder:rbac:groups=apps,resources=deployments;statefulsets,verbs=patch;update
 //+kubebuilder:rbac:groups=batch,resources=cronjobs;jobs,verbs=get;list;watch
@@ -167,6 +183,8 @@ type AttunePolicyReconciler struct {
 	// Gets that feed MergeFrom/Update of stripped workload/HPA objects.
 	APIReader client.Reader
 	Scheme    *runtime.Scheme
+	// RESTMapper resolves GVKs before a Rollout Get. Nil skips that check.
+	RESTMapper GVKMapper
 	// PodCacheFilter is the shared informer transform filter (may be nil).
 	PodCacheFilter          *transform.PodCacheFilter
 	MetricsFactory          MetricsCollectorFactory
@@ -355,6 +373,46 @@ func (r *AttunePolicyReconciler) now() time.Time {
 	return time.Now()
 }
 
+// rolloutCRDMissing reports whether the Rollout CRD is absent.
+// A nil mapper skips the check so unit tests keep today's behavior.
+// NoMatch means the CRD is not installed. Any other mapper error is returned.
+func (r *AttunePolicyReconciler) rolloutCRDMissing() (bool, error) {
+	if r == nil || r.RESTMapper == nil {
+		return false, nil
+	}
+	_, err := r.RESTMapper.RESTMapping(schema.GroupKind{Group: argorollout.Group, Kind: argorollout.Kind}, argorollout.Version)
+	if err == nil {
+		return false, nil
+	}
+	if meta.IsNoMatchError(err) {
+		return true, nil
+	}
+	return false, err
+}
+
+// failIfRolloutCRDMissing sets Ready=False and asks the caller to stop
+// when kind is Rollout and the CRD is not installed. The result is success
+// with a short requeue. Other mapper errors use the discovery-failed path.
+func (r *AttunePolicyReconciler) failIfRolloutCRDMissing(ctx context.Context, policy *attunev1alpha1.AttunePolicy) (bool, ctrl.Result) {
+	if policy == nil || policy.Spec.TargetRef.Kind != argorollout.Kind {
+		return false, ctrl.Result{}
+	}
+	missing, err := r.rolloutCRDMissing()
+	if err != nil {
+		log.FromContext(ctx).Error(err, "Failed to resolve Rollout CRD")
+		operatormetrics.ReconcileErrorsTotal.WithLabelValues("discover_workloads").Inc()
+		r.setFailedCondition(ctx, policy, attunev1alpha1.ReasonWorkloadDiscoveryFailed,
+			fmt.Sprintf("Failed to discover workloads: %v", err))
+		return true, ctrl.Result{RequeueAfter: time.Minute}
+	}
+	if !missing {
+		return false, ctrl.Result{}
+	}
+	log.FromContext(ctx).Info("Rollout CRD is not installed")
+	r.setFailedCondition(ctx, policy, attunev1alpha1.ReasonWorkloadCRDMissing, errRolloutCRDMissing.Error())
+	return true, ctrl.Result{RequeueAfter: rolloutCRDMissingRequeue}
+}
+
 func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	startTime := r.now()
 	logger := log.FromContext(ctx)
@@ -422,6 +480,12 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, nil
 	}
 
+	// A missing Rollout CRD is visible even when the metrics backend is down.
+	// Deployment policies never enter this branch. A nil mapper skips the check.
+	if stop, result := r.failIfRolloutCRDMissing(ctx, &policy); stop {
+		return result, nil
+	}
+
 	// Namespace freeze is an incident kill-switch: still recommend, do not apply.
 	applyFrozen, freezeErr := r.namespaceApplyFrozen(ctx, policy.Namespace)
 	if freezeErr != nil {
@@ -443,6 +507,11 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Step 3: Discover target workloads (before safety check to avoid duplicate API calls).
 	workloads, err := r.discoverWorkloads(ctx, &policy)
 	if err != nil {
+		if errors.Is(err, errRolloutCRDMissing) {
+			logger.Info("Rollout CRD is not installed")
+			r.setFailedCondition(ctx, &policy, attunev1alpha1.ReasonWorkloadCRDMissing, errRolloutCRDMissing.Error())
+			return ctrl.Result{RequeueAfter: rolloutCRDMissingRequeue}, nil
+		}
 		logger.Error(err, "Failed to discover workloads")
 		operatormetrics.ReconcileErrorsTotal.WithLabelValues("discover_workloads").Inc()
 		r.setFailedCondition(ctx, &policy, attunev1alpha1.ReasonWorkloadDiscoveryFailed,

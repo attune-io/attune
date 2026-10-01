@@ -31,6 +31,9 @@ const (
 	// ConditionSafetyObservation is True while one or more pods still
 	// carry attune.io tracking annotations from a recent resize.
 	ConditionSafetyObservation = "SafetyObservation"
+	// ConditionTemplatePersistence is False when Attune skips a Rollout
+	// template patch because spec.workloadRef is set. Ready stays independent.
+	ConditionTemplatePersistence = "TemplatePersistence"
 )
 
 // Condition reason constants for AttunePolicy.
@@ -55,6 +58,14 @@ const (
 	ReasonHighRevertRate          = "HighRevertRate"
 	ReasonNoWorkloadsFound        = "NoWorkloadsFound"
 	ReasonWorkloadDiscoveryFailed = "WorkloadDiscoveryFailed"
+	// ReasonWorkloadCRDMissing is set when targetRef.kind is Rollout and
+	// argoproj.io/v1alpha1 Rollout is not installed. Reconcile succeeds and
+	// retries. This is not InvalidConfig.
+	ReasonWorkloadCRDMissing = "WorkloadCRDMissing"
+	// ReasonTemplateWorkloadRef is set on ConditionTemplatePersistence when
+	// a Rollout spec.workloadRef is set. Attune does not patch that template
+	// and does not follow the reference.
+	ReasonTemplateWorkloadRef = "TemplateWorkloadRef"
 	// ReasonConflictCheckFailed is set when listing AttunePolicies for
 	// conflict detection fails. Recommendations from the last successful
 	// cycle are kept; this cycle does not compute new ones.

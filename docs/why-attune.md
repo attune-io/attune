@@ -479,6 +479,10 @@ spec:
     type: Recommend
 ```
 
+`targetRef.kind` can also be `StatefulSet`, `DaemonSet`, `ReplicaSet`,
+`Job`, `CronJob`, or `Rollout`. `Rollout` targets an Argo Rollouts
+workload. Other policies do not need that CRD installed.
+
 ### 3. Wait for data, then review
 
 ```bash

@@ -3778,6 +3778,7 @@ spec:
                     - CronJob
                     - Job
                     - ReplicaSet
+                    - Rollout
                     type: string
                   name:
                     description: Name is the name of a specific target resource.
@@ -5187,6 +5188,16 @@ rules:
   resources:
   - deployments
   - statefulsets
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - argoproj.io
+  resources:
+  - rollouts
   verbs:
   - get
   - list

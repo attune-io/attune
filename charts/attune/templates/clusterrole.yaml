@@ -69,6 +69,19 @@ rules:
     verbs:
       - patch
       - update
+  # Argo Rollouts: read for discovery; patch and update spec.template when
+  # templatePersistence is enabled. Installing this rule does not require
+  # the Rollout CRD.
+  - apiGroups:
+      - argoproj.io
+    resources:
+      - rollouts
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+      - update
   # Batch workloads: read-only (Job/CronJob recommend-only support)
   - apiGroups:
       - batch

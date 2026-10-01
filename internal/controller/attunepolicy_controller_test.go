@@ -48,6 +48,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/argorollout"
 	rsmetrics "github.com/attune-io/attune/internal/metrics"
 	"github.com/attune-io/attune/internal/operatormetrics"
 	"github.com/attune-io/attune/internal/recommendation"
@@ -58,6 +59,7 @@ func testScheme() *runtime.Scheme {
 	scheme := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(scheme)
 	_ = attunev1alpha1.AddToScheme(scheme)
+	_ = argorollout.AddToScheme(scheme)
 	return scheme
 }
 

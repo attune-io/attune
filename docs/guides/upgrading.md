@@ -10,6 +10,15 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### Argo Rollout workloads
+
+`targetRef.kind` accepts `Rollout` (`argoproj.io/v1alpha1`). Helm upgrades
+add a ClusterRole rule for `argoproj.io` `rollouts`: get, list, watch,
+patch, and update. Raw manifests need that rule on the operator
+ClusterRole. Policies that do not set `kind: Rollout` do not change.
+Attune does not install the Rollout CRD. A Rollout policy stays Ready
+False with reason `WorkloadCRDMissing` until Argo Rollouts is installed.
+
 ### Memory HPA targets move when auto-tune is on
 
 A memory utilization HPA used to keep its percent when Attune changed the

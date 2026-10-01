@@ -165,7 +165,7 @@ spec:
   # Which workloads to target
   targetRef:
     # Option A: specific workload
-    kind: Deployment          # Deployment | StatefulSet | DaemonSet | CronJob | Job | ReplicaSet
+    kind: Deployment          # Deployment | StatefulSet | DaemonSet | CronJob | Job | ReplicaSet | Rollout
     name: api-server          # optional; omit to match by selector
     # Option B: label selector (matches all matching workloads in namespace)
     selector:
@@ -429,7 +429,8 @@ spec:
 
 | Condition Type | Reasons | Description |
 |---------------|---------|-------------|
-| `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `MetricsUnavailable` (alias `PrometheusUnavailable`), `InvalidConfig`, `WorkloadDiscoveryFailed`, `ConflictCheckFailed`, `Paused`, `PrometheusSeriesCapped` | Overall health. `PrometheusSeriesCapped` keeps Ready True and means the query result was partial |
+| `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `MetricsUnavailable` (alias `PrometheusUnavailable`), `InvalidConfig`, `WorkloadDiscoveryFailed`, `WorkloadCRDMissing`, `ConflictCheckFailed`, `Paused`, `PrometheusSeriesCapped` | Overall health. `PrometheusSeriesCapped` keeps Ready True and means the query result was partial. `WorkloadCRDMissing` means a Rollout policy's CRD is not installed |
+| `TemplatePersistence` | `TemplateWorkloadRef` | False when a Rollout `spec.workloadRef` is set. Attune does not patch that template |
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation |
 | `Degraded` | `HighRevertRate` | Some resizes failing |
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Whether the current time is within the configured resize schedule window |

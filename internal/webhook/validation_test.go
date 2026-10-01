@@ -517,6 +517,22 @@ func TestValidate_UnsupportedWorkloadKind(t *testing.T) {
 	assert.Empty(t, warnings)
 }
 
+func TestValidate_RolloutKindAccepted(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.TargetRef.Kind = "Rollout"
+
+	warnings, err := validator.ValidateCreate(context.Background(), policy)
+
+	assert.NoError(t, err)
+	assert.Empty(t, warnings)
+
+	policy.Spec.TargetRef.Kind = "AnalysisRun"
+	_, err = validator.ValidateCreate(context.Background(), policy)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not supported")
+}
+
 func TestValidate_NameAndSelectorBothSet(t *testing.T) {
 	validator := &AttunePolicyValidator{}
 	policy := validPolicy()

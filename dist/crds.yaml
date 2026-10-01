@@ -3779,6 +3779,7 @@ spec:
                     - CronJob
                     - Job
                     - ReplicaSet
+                    - Rollout
                     type: string
                   name:
                     description: Name is the name of a specific target resource.

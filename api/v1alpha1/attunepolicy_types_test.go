@@ -30,6 +30,7 @@ func TestDefaultConstants(t *testing.T) {
 	assert.Equal(t, "Resizing", ConditionResizing)
 	assert.Equal(t, "Degraded", ConditionDegraded)
 	assert.Equal(t, "SafetyObservation", ConditionSafetyObservation)
+	assert.Equal(t, "TemplatePersistence", ConditionTemplatePersistence)
 
 	// Verify all reason constants are non-empty.
 	reasons := []string{
@@ -47,7 +48,11 @@ func TestDefaultConstants(t *testing.T) {
 		ReasonSafetyEvaluating,
 		ReasonSafetyRestorePending,
 		ReasonSafetyIncomplete,
+		ReasonWorkloadCRDMissing,
+		ReasonTemplateWorkloadRef,
 	}
+	assert.Equal(t, "WorkloadCRDMissing", ReasonWorkloadCRDMissing)
+	assert.Equal(t, "TemplateWorkloadRef", ReasonTemplateWorkloadRef)
 	for _, r := range reasons {
 		assert.NotEmpty(t, r, "reason constant should not be empty")
 	}
@@ -70,7 +75,7 @@ func TestIsSupportedTargetKind(t *testing.T) {
 
 	// Must stay aligned with the kubebuilder Enum on TargetRef.Kind.
 	assert.Equal(t, []string{
-		"Deployment", "StatefulSet", "DaemonSet", "CronJob", "Job", "ReplicaSet",
+		"Deployment", "StatefulSet", "DaemonSet", "CronJob", "Job", "ReplicaSet", "Rollout",
 	}, supported)
 
 	rejects := []string{
@@ -80,7 +85,7 @@ func TestIsSupportedTargetKind(t *testing.T) {
 		" Deployment",
 		"Pod",
 		"HorizontalPodAutoscaler",
-		"Rollout",
+		"rollout",
 		"ReplicaSet ",
 	}
 	for _, kind := range rejects {

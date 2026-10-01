@@ -420,6 +420,21 @@ func TestCheckHPAConflict_DifferentKind(t *testing.T) {
 	assert.Nil(t, conflict)
 }
 
+func TestCheckHPAConflict_RolloutKind(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+
+	hpas := []autoscalingv2.HorizontalPodAutoscaler{
+		cpuResourceHPA("ro-hpa", "Rollout", "checkout"),
+	}
+
+	conflict := detector.CheckHPAConflict(hpas, "checkout", "Rollout")
+	assert.NotNil(t, conflict)
+	assert.Equal(t, ConflictHPA, conflict.Type)
+	assert.Equal(t, "ro-hpa", conflict.Name)
+
+	assert.Nil(t, detector.CheckHPAConflict(hpas, "checkout", "Deployment"))
+}
+
 func TestCheckHPAConflict_ResourceMetricsOnlyNoScaleToZeroType(t *testing.T) {
 	detector := NewDetector(testr.New(t))
 
