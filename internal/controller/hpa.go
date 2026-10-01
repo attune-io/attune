@@ -341,20 +341,27 @@ func hpaContainerAnnotationKeys(container string) (targetKey, baseKey string, ok
 	return annotationHPACPUTargetPrefix + container, annotationHPACPUBasePrefix + container, true
 }
 
-func (s hpaTuneScope) capLimit(newMilli, liveLimitMilli int64, recLimit resource.Quantity) resource.Quantity {
-	if s.scalar {
-		return s.limit
+// capAtLimit is the utilization ceiling for one HPA metric. A scalar tune
+// keeps scalarLimit. Requests-only uses the live limit. RequestsAndLimits
+// uses the recommended limit, or the new request when that limit is unset.
+func capAtLimit(scalar bool, scalarLimit resource.Quantity, requestsOnly bool, newMilli, liveLimitMilli int64, recLimit resource.Quantity, qty func(int64) resource.Quantity) resource.Quantity {
+	if scalar {
+		return scalarLimit
 	}
-	if !s.requestsOnly {
+	if !requestsOnly {
 		if !recLimit.IsZero() {
 			return recLimit
 		}
-		return milliQty(newMilli)
+		return qty(newMilli)
 	}
 	if liveLimitMilli > 0 {
-		return milliQty(liveLimitMilli)
+		return qty(liveLimitMilli)
 	}
 	return resource.Quantity{}
+}
+
+func (s hpaTuneScope) capLimit(newMilli, liveLimitMilli int64, recLimit resource.Quantity, requestsOnly bool) resource.Quantity {
+	return capAtLimit(s.scalar, s.limit, requestsOnly, newMilli, liveLimitMilli, recLimit, milliQty)
 }
 
 func (s hpaTuneScope) metricBasis(m *autoscalingv2.MetricSpec) (recognized bool, b hpaMetricBasis) {
@@ -388,7 +395,8 @@ func (s hpaTuneScope) metricBasis(m *autoscalingv2.MetricSpec) (recognized bool,
 		b.ok = true
 		b.oldMilli = oldMilli
 		b.newMilli = newMilli
-		b.limit = s.capLimit(newMilli, liveLimit, recCPULimitFromRecommendation(s.rec))
+		b.limit = s.capLimit(newMilli, liveLimit, recCPULimitFromRecommendation(s.rec),
+			podResourceRequestsOnly(s.policy, s.pod, corev1.ResourceCPU, s.requestsOnly))
 		return true, b
 	case m.Type == autoscalingv2.ContainerResourceMetricSourceType && m.ContainerResource != nil &&
 		m.ContainerResource.Name == corev1.ResourceCPU &&
@@ -420,7 +428,8 @@ func (s hpaTuneScope) metricBasis(m *autoscalingv2.MetricSpec) (recognized bool,
 		b.ok = true
 		b.oldMilli = oldMilli
 		b.newMilli = newMilli
-		b.limit = s.capLimit(newMilli, liveLimit, recContainerCPULimit(s.rec, b.container))
+		b.limit = s.capLimit(newMilli, liveLimit, recContainerCPULimit(s.rec, b.container),
+			containerControlledRequestsOnly(s.policy, b.container, corev1.ResourceCPU))
 		b.targetKey = targetKey
 		b.baseKey = baseKey
 		return true, b

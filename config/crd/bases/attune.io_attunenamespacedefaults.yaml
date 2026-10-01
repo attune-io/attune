@@ -54,8 +54,10 @@ spec:
           metadata:
             type: object
           spec:
-            description: AttuneDefaultsSpec defines cluster-scoped default values
-              for AttunePolicy resources.
+            description: |-
+              AttuneDefaultsSpec defines cluster-scoped default values for AttunePolicy resources.
+              containerPolicies is intentionally absent. AttuneNamespaceDefaults uses this
+              same spec, so per-container settings stay on AttunePolicy only.
             properties:
               costPricing:
                 description: |-

@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -358,6 +359,19 @@ func validateResourceConfigFields(prefix string, rc *attunev1alpha1.ResourceConf
 	return nil
 }
 
+// resourceCapKind classifies a ResourceConfig path. Policy fields are
+// "cpu" and "memory". Container entries use "containerPolicies[i].cpu".
+func resourceCapKind(prefix string) string {
+	switch {
+	case prefix == "cpu" || strings.HasSuffix(prefix, ".cpu"):
+		return "cpu"
+	case prefix == "memory" || strings.HasSuffix(prefix, ".memory"):
+		return "memory"
+	default:
+		return ""
+	}
+}
+
 // validateResourceMaxAllowedCap enforces the same absolute ceilings used
 // by AttunePolicy admission (256 cores CPU, 16Ti memory) so AttuneDefaults
 // cannot merge uncapped maxAllowed onto policies after admission.
@@ -366,7 +380,7 @@ func validateResourceMaxAllowedCap(prefix string, rc *attunev1alpha1.ResourceCon
 		return nil
 	}
 	var capStr, human string
-	switch prefix {
+	switch resourceCapKind(prefix) {
 	case "cpu":
 		capStr, human = "256", "256 cores"
 	case "memory":

@@ -53,8 +53,10 @@ spec:
           metadata:
             type: object
           spec:
-            description: AttuneDefaultsSpec defines cluster-scoped default values
-              for AttunePolicy resources.
+            description: |-
+              AttuneDefaultsSpec defines cluster-scoped default values for AttunePolicy resources.
+              containerPolicies is intentionally absent. AttuneNamespaceDefaults uses this
+              same spec, so per-container settings stay on AttunePolicy only.
             properties:
               costPricing:
                 description: |-
@@ -1262,8 +1264,10 @@ spec:
           metadata:
             type: object
           spec:
-            description: AttuneDefaultsSpec defines cluster-scoped default values
-              for AttunePolicy resources.
+            description: |-
+              AttuneDefaultsSpec defines cluster-scoped default values for AttunePolicy resources.
+              containerPolicies is intentionally absent. AttuneNamespaceDefaults uses this
+              same spec, so per-container settings stay on AttunePolicy only.
             properties:
               costPricing:
                 description: |-
@@ -2487,6 +2491,545 @@ spec:
           spec:
             description: AttunePolicySpec defines the desired state of AttunePolicy.
             properties:
+              containerPolicies:
+                description: |-
+                  ContainerPolicies sets honored CPU and memory fields per container.
+                  Omitted or empty keeps one shared engine from spec.cpu and spec.memory.
+                  There is no implicit "*". This list is not on AttuneDefaults or
+                  AttuneNamespaceDefaults. A literal containerName beats "*" per field.
+                  "*" beats the merged policy block per field. Percentile 0, overhead "",
+                  and nil pointers are unset. Overhead "0" is set. excludedContainers
+                  and excludeKnownSidecars win first. The default excludeKnownSidecars
+                  true keeps istio-proxy excluded. Only app containers and init
+                  containers with restartPolicy Always are managed.
+                  v1 honors percentile, overhead, minAllowed, maxAllowed,
+                  burstSensitivity, maxChangePercent, maxIncreasePercent,
+                  maxDecreasePercent, allowDecrease, and controlledValues.
+                  startupBoost, memoryFromCpuRatio, decreaseUsageMarginPercent,
+                  limitMultiplier, oomBump, and surge stay policy-wide. The webhook
+                  rejects them on a container entry. A container maxAllowed caps
+                  policy startup boost.
+                items:
+                  description: |-
+                    ContainerResourcePolicy sets honored CPU and memory fields for one
+                    container name. containerName "*" is the field-wise fallback, not a
+                    whole-block replacement. Exact case-sensitive match. Not a regular
+                    expression.
+                  properties:
+                    containerName:
+                      description: |-
+                        ContainerName is the container to configure, or "*" for the
+                        field-wise fallback. Required. At most one "*" entry is allowed.
+                        Not a regular expression. Exact case-sensitive match.
+                      maxLength: 253
+                      minLength: 1
+                      type: string
+                    cpu:
+                      description: CPU overrides honored CPU fields for this container.
+                      properties:
+                        allowDecrease:
+                          description: |-
+                            AllowDecrease controls whether the resource value can be decreased.
+                            For CPU: nil defaults to true (decreases allowed when the backend supports
+                            throttle queries, because throttle is detected by the safety monitor).
+                            CloudWatch does not support throttle queries.
+                            For memory: nil defaults to false (decreases blocked to prevent OOMKill).
+                          type: boolean
+                        burstSensitivity:
+                          description: |-
+                            BurstSensitivity controls how much burst detection inflates the
+                            recommendation. Expressed as a decimal string multiplied by
+                            log2(burstMagnitude). Default "0.1" gives ~20% boost for magnitude 4,
+                            ~30% for 8, ~40% for 16. Set "0" to disable burst boost entirely
+                            (e.g. for batch jobs). Must be >= 0, max 1.0.
+                          type: string
+                        controlledValues:
+                          description: |-
+                            ControlledValues specifies which resource values to manage.
+                            "RequestsOnly" (default) adjusts only requests. The live limit is
+                            copied through on resize and is not scaled.
+                            "RequestsAndLimits" scales the limit with the request. An omitted
+                            limitMultiplier keeps the live request-to-limit ratio. An explicit
+                            limitMultiplier replaces that ratio. For Guaranteed QoS, use
+                            "RequestsAndLimits" so a request can stay equal to its limit.
+                          enum:
+                          - RequestsOnly
+                          - RequestsAndLimits
+                          type: string
+                        decreaseUsageMarginPercent:
+                          description: |-
+                            DecreaseUsageMarginPercent is the minimum headroom above recent memory
+                            usage required when decreasing memory limits (client-side pre-check).
+                            The target limit must be at least usage * (1 + margin/100). Defaults to
+                            10. Only applied on the memory ResourceConfig when a limit decrease is
+                            attempted; ignored for CPU. Set 0 to require limit strictly above usage.
+                          format: int32
+                          maximum: 100
+                          minimum: 0
+                          type: integer
+                        limitMultiplier:
+                          description: |-
+                            LimitMultiplier sets the new limit to the new request times this
+                            multiple when controlledValues is RequestsAndLimits. Omitted keeps
+                            the live request-to-limit ratio. Explicit "1" forces the new limit
+                            equal to the new request. A container with no current limit keeps
+                            an omitted limit; this field does not invent one. RequestsOnly plus
+                            a multiplier is rejected. Maximum 100. maxAllowed caps the request,
+                            not the limit produced here.
+                          pattern: ^([0-9]+(\.[0-9]+)?)?$
+                          type: string
+                        maxAllowed:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          description: MaxAllowed is the maximum allowed resource
+                            value.
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        maxChangePercent:
+                          description: |-
+                            MaxChangePercent is the maximum allowed change percentage per
+                            reconcile cycle for this resource (both directions). Limits how
+                            aggressively the recommendation can deviate from the current value
+                            in a single step, forcing gradual convergence. Overridden by
+                            MaxIncreasePercent/MaxDecreasePercent if those are set.
+                            Defaults to 50 for CPU, 30 for memory.
+                          format: int32
+                          maximum: 100
+                          minimum: 1
+                          type: integer
+                        maxDecreasePercent:
+                          description: |-
+                            MaxDecreasePercent is the maximum allowed decrease percentage per
+                            reconcile cycle. Takes precedence over MaxChangePercent for downward
+                            changes. Memory decreases are riskier (OOM), so a lower cap is
+                            recommended. Defaults to MaxChangePercent if not set.
+                          format: int32
+                          maximum: 100
+                          minimum: 1
+                          type: integer
+                        maxIncreasePercent:
+                          description: |-
+                            MaxIncreasePercent is the maximum allowed increase percentage per
+                            reconcile cycle. Takes precedence over MaxChangePercent for upward
+                            changes. Defaults to MaxChangePercent if not set.
+                          format: int32
+                          maximum: 100
+                          minimum: 1
+                          type: integer
+                        memoryFromCpuRatio:
+                          description: |-
+                            MemoryFromCPURatio derives memory from the CPU recommendation as GiB
+                            per core, instead of the memory signal from the active source
+                            (Prometheus usage or VPA memory target). Useful for JVM, Go, and .NET
+                            workloads where heap scales linearly with CPU allocation and source
+                            memory metrics are unreliable (JVM reserves heap upfront, Go GC
+                            targets a fixed percentage of available memory).
+                            Example: "2.0" means 1 core = 2 GiB memory
+                            (e.g., 500m CPU -> 1Gi memory). The derived value still passes through
+                            minAllowed, maxAllowed, and maxChangePercent bounds.
+                            Only valid on the memory ResourceConfig; ignored on CPU.
+                          type: string
+                        minAllowed:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          description: MinAllowed is the minimum allowed resource
+                            value.
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        oomBump:
+                          description: |-
+                            OOMBump raises the memory request after an OOMKill, measured from the
+                            original request. Absent means the feature is off. An empty object
+                            turns it on and fills ratio, minBump, maxBumps, and hold. Only valid
+                            on memory; a CPU value is rejected.
+                          properties:
+                            hold:
+                              description: |-
+                                Hold is how long the applied floor stays above a lower percentile.
+                                Nil is filled with 24h when the block is set. 1m through 168h.
+                                Expiry does not clear origin or the step count.
+                              type: string
+                            maxBumps:
+                              description: |-
+                                MaxBumps is how many successful steps are allowed from the original
+                                request. Nil is filled with 3 when the block is set. 1 through 10.
+                              format: int32
+                              maximum: 10
+                              minimum: 1
+                              type: integer
+                            minBump:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              description: |-
+                                MinBump is added to the original request once per successful step.
+                                The step uses whichever of the ratio and this floor is larger.
+                                Nil is filled with 100Mi when the block is set. Must be positive.
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            ratio:
+                              description: |-
+                                Ratio multiplies the original memory request at each successful step.
+                                "1.2" means 20 percent per step. Nil is filled with "1.2" when the
+                                block is set. Must be finite and from 1 through 10.
+                              pattern: ^([0-9]+(\.[0-9]+)?)?$
+                              type: string
+                          type: object
+                        overhead:
+                          description: |-
+                            Overhead is the percentage of additional resources added on top of the
+                            percentile recommendation. Expressed as a string (e.g. "20" means 20%
+                            extra headroom above the target percentile). Must be >= 0, max 900.
+                            Defaults to "20" for CPU and "30" for memory.
+                          pattern: ^([0-9]+(\.[0-9]+)?)?$
+                          type: string
+                        percentile:
+                          description: |-
+                            Percentile is the usage percentile to target for recommendations.
+                            Supported values: 50, 90, 95, 99. Omit or set to 0 to use the default
+                            (95 for CPU, 99 for memory).
+                          enum:
+                          - 0
+                          - 50
+                          - 90
+                          - 95
+                          - 99
+                          format: int32
+                          type: integer
+                        startupBoost:
+                          description: |-
+                            StartupBoost temporarily increases CPU requests for cold starts
+                            (JVM/.NET class loading, JIT, cache warming). Applied by the CREATE
+                            webhook and in-place while pod age (CreationTimestamp) is within
+                            Duration. Expiry uses attune.io/startup-boost-at plus Duration.
+                            Ready is not checked. CPU only.
+                          properties:
+                            duration:
+                              description: |-
+                                Duration is how long the boost stays active. Apply uses pod age
+                                (CreationTimestamp). Expiry uses attune.io/startup-boost-at plus
+                                this duration. Ready is not checked. Must be >= 10s and <= 1h.
+                              type: string
+                            excludeFromHistory:
+                              description: |-
+                                ExcludeFromHistory, when true, drops CPU samples from the
+                                percentile while a pod is inside startupBoost.duration plus the
+                                rate window. The cutoff is pod CreationTimestamp plus duration
+                                plus rateWindow. Sample timestamps are the end of rate().
+                                Nil and false keep today's percentile. Memory samples are unchanged.
+                                Deleted pods stay in history until historyWindow because there is
+                                no CreationTimestamp to cut on. A series with no pod label is left
+                                unfiltered.
+                              type: boolean
+                            multiplier:
+                              description: |-
+                                Multiplier scales the recommended CPU request during startup.
+                                For example, "3.0" means 3x the steady-state recommendation.
+                                Must be > 1.0 and <= 10.0.
+                              type: string
+                          required:
+                          - duration
+                          - multiplier
+                          type: object
+                          x-kubernetes-validations:
+                          - message: startupBoost.duration must be between 10s and
+                              1h
+                            rule: duration(self.duration) >= duration('10s') && duration(self.duration)
+                              <= duration('1h')
+                        surge:
+                          description: |-
+                            Surge shortens the history window while recent usage is hot.
+                            Absent means off. An empty object turns it on and fills
+                            triggerRatio, percentile, and window. Valid on CPU and memory.
+                          properties:
+                            percentile:
+                              description: |-
+                                Percentile is the overall percentile of the short window.
+                                50, 90, 95, or 99. Nil is filled with 99 when the block is set.
+                                This does not change the long-window percentile.
+                              enum:
+                              - 50
+                              - 90
+                              - 95
+                              - 99
+                              format: int32
+                              type: integer
+                            triggerRatio:
+                              description: |-
+                                TriggerRatio is short/long. The short window is used when the
+                                ratio is at least this value. Empty is filled with "1.5" when
+                                the block is set. Must be finite and greater than 1, at most 100.
+                              pattern: ^([0-9]+(\.[0-9]+)?)?$
+                              type: string
+                            window:
+                              description: |-
+                                Window is how far back the short percentile looks.
+                                Nil is filled with 30m when the block is set. At least 5m, and
+                                not longer than metricsSource.historyWindow (168h when that is unset).
+                              type: string
+                          type: object
+                          x-kubernetes-validations:
+                          - message: surge.window must be at least 5m
+                            rule: '!has(self.window) || duration(self.window) >= duration(''5m'')'
+                      type: object
+                    memory:
+                      description: Memory overrides honored memory fields for this
+                        container.
+                      properties:
+                        allowDecrease:
+                          description: |-
+                            AllowDecrease controls whether the resource value can be decreased.
+                            For CPU: nil defaults to true (decreases allowed when the backend supports
+                            throttle queries, because throttle is detected by the safety monitor).
+                            CloudWatch does not support throttle queries.
+                            For memory: nil defaults to false (decreases blocked to prevent OOMKill).
+                          type: boolean
+                        burstSensitivity:
+                          description: |-
+                            BurstSensitivity controls how much burst detection inflates the
+                            recommendation. Expressed as a decimal string multiplied by
+                            log2(burstMagnitude). Default "0.1" gives ~20% boost for magnitude 4,
+                            ~30% for 8, ~40% for 16. Set "0" to disable burst boost entirely
+                            (e.g. for batch jobs). Must be >= 0, max 1.0.
+                          type: string
+                        controlledValues:
+                          description: |-
+                            ControlledValues specifies which resource values to manage.
+                            "RequestsOnly" (default) adjusts only requests. The live limit is
+                            copied through on resize and is not scaled.
+                            "RequestsAndLimits" scales the limit with the request. An omitted
+                            limitMultiplier keeps the live request-to-limit ratio. An explicit
+                            limitMultiplier replaces that ratio. For Guaranteed QoS, use
+                            "RequestsAndLimits" so a request can stay equal to its limit.
+                          enum:
+                          - RequestsOnly
+                          - RequestsAndLimits
+                          type: string
+                        decreaseUsageMarginPercent:
+                          description: |-
+                            DecreaseUsageMarginPercent is the minimum headroom above recent memory
+                            usage required when decreasing memory limits (client-side pre-check).
+                            The target limit must be at least usage * (1 + margin/100). Defaults to
+                            10. Only applied on the memory ResourceConfig when a limit decrease is
+                            attempted; ignored for CPU. Set 0 to require limit strictly above usage.
+                          format: int32
+                          maximum: 100
+                          minimum: 0
+                          type: integer
+                        limitMultiplier:
+                          description: |-
+                            LimitMultiplier sets the new limit to the new request times this
+                            multiple when controlledValues is RequestsAndLimits. Omitted keeps
+                            the live request-to-limit ratio. Explicit "1" forces the new limit
+                            equal to the new request. A container with no current limit keeps
+                            an omitted limit; this field does not invent one. RequestsOnly plus
+                            a multiplier is rejected. Maximum 100. maxAllowed caps the request,
+                            not the limit produced here.
+                          pattern: ^([0-9]+(\.[0-9]+)?)?$
+                          type: string
+                        maxAllowed:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          description: MaxAllowed is the maximum allowed resource
+                            value.
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        maxChangePercent:
+                          description: |-
+                            MaxChangePercent is the maximum allowed change percentage per
+                            reconcile cycle for this resource (both directions). Limits how
+                            aggressively the recommendation can deviate from the current value
+                            in a single step, forcing gradual convergence. Overridden by
+                            MaxIncreasePercent/MaxDecreasePercent if those are set.
+                            Defaults to 50 for CPU, 30 for memory.
+                          format: int32
+                          maximum: 100
+                          minimum: 1
+                          type: integer
+                        maxDecreasePercent:
+                          description: |-
+                            MaxDecreasePercent is the maximum allowed decrease percentage per
+                            reconcile cycle. Takes precedence over MaxChangePercent for downward
+                            changes. Memory decreases are riskier (OOM), so a lower cap is
+                            recommended. Defaults to MaxChangePercent if not set.
+                          format: int32
+                          maximum: 100
+                          minimum: 1
+                          type: integer
+                        maxIncreasePercent:
+                          description: |-
+                            MaxIncreasePercent is the maximum allowed increase percentage per
+                            reconcile cycle. Takes precedence over MaxChangePercent for upward
+                            changes. Defaults to MaxChangePercent if not set.
+                          format: int32
+                          maximum: 100
+                          minimum: 1
+                          type: integer
+                        memoryFromCpuRatio:
+                          description: |-
+                            MemoryFromCPURatio derives memory from the CPU recommendation as GiB
+                            per core, instead of the memory signal from the active source
+                            (Prometheus usage or VPA memory target). Useful for JVM, Go, and .NET
+                            workloads where heap scales linearly with CPU allocation and source
+                            memory metrics are unreliable (JVM reserves heap upfront, Go GC
+                            targets a fixed percentage of available memory).
+                            Example: "2.0" means 1 core = 2 GiB memory
+                            (e.g., 500m CPU -> 1Gi memory). The derived value still passes through
+                            minAllowed, maxAllowed, and maxChangePercent bounds.
+                            Only valid on the memory ResourceConfig; ignored on CPU.
+                          type: string
+                        minAllowed:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          description: MinAllowed is the minimum allowed resource
+                            value.
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        oomBump:
+                          description: |-
+                            OOMBump raises the memory request after an OOMKill, measured from the
+                            original request. Absent means the feature is off. An empty object
+                            turns it on and fills ratio, minBump, maxBumps, and hold. Only valid
+                            on memory; a CPU value is rejected.
+                          properties:
+                            hold:
+                              description: |-
+                                Hold is how long the applied floor stays above a lower percentile.
+                                Nil is filled with 24h when the block is set. 1m through 168h.
+                                Expiry does not clear origin or the step count.
+                              type: string
+                            maxBumps:
+                              description: |-
+                                MaxBumps is how many successful steps are allowed from the original
+                                request. Nil is filled with 3 when the block is set. 1 through 10.
+                              format: int32
+                              maximum: 10
+                              minimum: 1
+                              type: integer
+                            minBump:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              description: |-
+                                MinBump is added to the original request once per successful step.
+                                The step uses whichever of the ratio and this floor is larger.
+                                Nil is filled with 100Mi when the block is set. Must be positive.
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            ratio:
+                              description: |-
+                                Ratio multiplies the original memory request at each successful step.
+                                "1.2" means 20 percent per step. Nil is filled with "1.2" when the
+                                block is set. Must be finite and from 1 through 10.
+                              pattern: ^([0-9]+(\.[0-9]+)?)?$
+                              type: string
+                          type: object
+                        overhead:
+                          description: |-
+                            Overhead is the percentage of additional resources added on top of the
+                            percentile recommendation. Expressed as a string (e.g. "20" means 20%
+                            extra headroom above the target percentile). Must be >= 0, max 900.
+                            Defaults to "20" for CPU and "30" for memory.
+                          pattern: ^([0-9]+(\.[0-9]+)?)?$
+                          type: string
+                        percentile:
+                          description: |-
+                            Percentile is the usage percentile to target for recommendations.
+                            Supported values: 50, 90, 95, 99. Omit or set to 0 to use the default
+                            (95 for CPU, 99 for memory).
+                          enum:
+                          - 0
+                          - 50
+                          - 90
+                          - 95
+                          - 99
+                          format: int32
+                          type: integer
+                        startupBoost:
+                          description: |-
+                            StartupBoost temporarily increases CPU requests for cold starts
+                            (JVM/.NET class loading, JIT, cache warming). Applied by the CREATE
+                            webhook and in-place while pod age (CreationTimestamp) is within
+                            Duration. Expiry uses attune.io/startup-boost-at plus Duration.
+                            Ready is not checked. CPU only.
+                          properties:
+                            duration:
+                              description: |-
+                                Duration is how long the boost stays active. Apply uses pod age
+                                (CreationTimestamp). Expiry uses attune.io/startup-boost-at plus
+                                this duration. Ready is not checked. Must be >= 10s and <= 1h.
+                              type: string
+                            excludeFromHistory:
+                              description: |-
+                                ExcludeFromHistory, when true, drops CPU samples from the
+                                percentile while a pod is inside startupBoost.duration plus the
+                                rate window. The cutoff is pod CreationTimestamp plus duration
+                                plus rateWindow. Sample timestamps are the end of rate().
+                                Nil and false keep today's percentile. Memory samples are unchanged.
+                                Deleted pods stay in history until historyWindow because there is
+                                no CreationTimestamp to cut on. A series with no pod label is left
+                                unfiltered.
+                              type: boolean
+                            multiplier:
+                              description: |-
+                                Multiplier scales the recommended CPU request during startup.
+                                For example, "3.0" means 3x the steady-state recommendation.
+                                Must be > 1.0 and <= 10.0.
+                              type: string
+                          required:
+                          - duration
+                          - multiplier
+                          type: object
+                          x-kubernetes-validations:
+                          - message: startupBoost.duration must be between 10s and
+                              1h
+                            rule: duration(self.duration) >= duration('10s') && duration(self.duration)
+                              <= duration('1h')
+                        surge:
+                          description: |-
+                            Surge shortens the history window while recent usage is hot.
+                            Absent means off. An empty object turns it on and fills
+                            triggerRatio, percentile, and window. Valid on CPU and memory.
+                          properties:
+                            percentile:
+                              description: |-
+                                Percentile is the overall percentile of the short window.
+                                50, 90, 95, or 99. Nil is filled with 99 when the block is set.
+                                This does not change the long-window percentile.
+                              enum:
+                              - 50
+                              - 90
+                              - 95
+                              - 99
+                              format: int32
+                              type: integer
+                            triggerRatio:
+                              description: |-
+                                TriggerRatio is short/long. The short window is used when the
+                                ratio is at least this value. Empty is filled with "1.5" when
+                                the block is set. Must be finite and greater than 1, at most 100.
+                              pattern: ^([0-9]+(\.[0-9]+)?)?$
+                              type: string
+                            window:
+                              description: |-
+                                Window is how far back the short percentile looks.
+                                Nil is filled with 30m when the block is set. At least 5m, and
+                                not longer than metricsSource.historyWindow (168h when that is unset).
+                              type: string
+                          type: object
+                          x-kubernetes-validations:
+                          - message: surge.window must be at least 5m
+                            rule: '!has(self.window) || duration(self.window) >= duration(''5m'')'
+                      type: object
+                  required:
+                  - containerName
+                  type: object
+                maxItems: 100
+                type: array
               cpu:
                 description: CPU configures CPU resource recommendations.
                 properties:

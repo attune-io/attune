@@ -1392,19 +1392,27 @@ func getObservationPeriod(policy *attunev1alpha1.AttunePolicy) time.Duration {
 // policy's ControlledValues is RequestsAndLimits. This avoids duplicating the
 // ControlledValues resolution logic across prometheus.go and vpa.go.
 func scaleControlledLimits(policy *attunev1alpha1.AttunePolicy, rec *attunev1alpha1.ContainerRecommendation, currentCPUReq, currentCPULim, currentMemReq, currentMemLim resource.Quantity) {
+	if rec == nil {
+		return
+	}
+	cpuCfg := attunev1alpha1.ResourceConfig{}
+	memCfg := attunev1alpha1.ResourceConfig{}
+	if policy != nil {
+		cpuCfg, memCfg = attunev1alpha1.EffectiveContainerResources(policy, rec.Name)
+	}
 	cpuControlled := attunev1alpha1.ControlledRequestsOnly
-	if policy.Spec.CPU.ControlledValues != nil {
-		cpuControlled = *policy.Spec.CPU.ControlledValues
+	if cpuCfg.ControlledValues != nil {
+		cpuControlled = *cpuCfg.ControlledValues
 	}
 	memControlled := attunev1alpha1.ControlledRequestsOnly
-	if policy.Spec.Memory.ControlledValues != nil {
-		memControlled = *policy.Spec.Memory.ControlledValues
+	if memCfg.ControlledValues != nil {
+		memControlled = *memCfg.ControlledValues
 	}
 	if cpuControlled == attunev1alpha1.ControlledRequestsAndLimits {
-		rec.Recommended.CPULimit = scaleLimits(currentCPUReq, currentCPULim, rec.Recommended.CPURequest, limitMultiplierRatio(policy.Spec.CPU.LimitMultiplier))
+		rec.Recommended.CPULimit = scaleLimits(currentCPUReq, currentCPULim, rec.Recommended.CPURequest, limitMultiplierRatio(cpuCfg.LimitMultiplier))
 	}
 	if memControlled == attunev1alpha1.ControlledRequestsAndLimits {
-		rec.Recommended.MemoryLimit = scaleLimits(currentMemReq, currentMemLim, rec.Recommended.MemoryRequest, limitMultiplierRatio(policy.Spec.Memory.LimitMultiplier))
+		rec.Recommended.MemoryLimit = scaleLimits(currentMemReq, currentMemLim, rec.Recommended.MemoryRequest, limitMultiplierRatio(memCfg.LimitMultiplier))
 	}
 }
 

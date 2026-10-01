@@ -384,7 +384,7 @@ func TestRecordQuerySettings_StampsResolvedValues(t *testing.T) {
 		CPU:    &attunev1alpha1.ResourceRecommendationExplanation{},
 		Memory: &attunev1alpha1.ResourceRecommendationExplanation{},
 	}
-	recordQuerySettings(policy, explain)
+	recordQuerySettings(policy, "", explain)
 	assert.Contains(t, explain.CPU.FinalAdjustment, "podAggregation=Avg")
 	assert.Contains(t, explain.CPU.FinalAdjustment, "burstSensitivity=0")
 	assert.NotContains(t, explain.CPU.FinalAdjustment, "podAggregation=Max")

@@ -94,7 +94,7 @@ func (r *AttunePolicyReconciler) planContainerOOMBump(
 		excluded,
 		percentileBytes,
 		percentileOK,
-		oomBumpMaxAllowed(policy.Spec.Memory.MaxAllowed),
+		oomBumpMaxAllowed(effectiveMemoryMaxAllowed(policy, container)),
 		workloadRaw,
 		pods,
 		now,

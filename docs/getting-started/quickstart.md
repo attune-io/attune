@@ -65,6 +65,15 @@ spec:
   # minimumDataPoints: 12
 ```
 
+To give one container its own CPU ceiling, add `containerPolicies`. An omitted list keeps the shared `cpu` and `memory` blocks. Known sidecars such as `istio-proxy` stay excluded until `excludeKnownSidecars` is false.
+
+```yaml
+containerPolicies:
+  - containerName: sidecar
+    cpu:
+      maxAllowed: "200m"
+```
+
 !!! tip "Skip the Prometheus address on every policy"
     Create a cluster-scoped `AttuneDefaults` resource with the Prometheus
     address and it will apply to all policies. If only one namespace should

@@ -436,6 +436,8 @@ All fields from `AttuneDefaults` are available in
 | `metricsSource` | `prometheus.address`, `prometheus.headers`, `prometheus.queryParameters`, `prometheus.bearerTokenSecret`, `prometheus.tls`, `datadog.site`, `datadog.apiKeySecretRef`, `cloudwatch.region`, `cloudwatch.clusterName`, `cloudwatch.roleArn`, `cloudwatch.cpuUnit`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow`, `podAggregation`, `cpuRecordingMetric`, `memoryRecordingMetric` |
 | `cpu` | `percentile`, `overhead`, `minAllowed`, `maxAllowed`, `controlledValues`, `burstSensitivity`, `allowDecrease`, `startupBoost`, `surge`, `maxChangePercent`, `maxIncreasePercent`, `maxDecreasePercent` |
 | `memory` | Same as `cpu` (no `startupBoost`), plus `decreaseUsageMarginPercent`, `memoryFromCpuRatio`, `oomBump`, and `surge` |
+
+`containerPolicies` is not part of `AttuneDefaultsSpec`. `AttuneNamespaceDefaults` uses that same spec, so the list is not in this table and is not inherited. Set it on each `AttunePolicy`.
 | `updateStrategy` | `type`, `cooldown`, `autoRevert`, `resizeMethod`, `initialSizing`, `maxConcurrentResizes`, `maxStatusRecommendations`, `includeExplanationsInStatus`, `maxTotalCpuIncrease`, `maxTotalMemoryIncrease`, `maxCpuIncreasePerMinute`, `maxMemoryIncreasePerMinute`, `schedule`, `export`, `canary`, `safetyObservationPeriod`, `sloGuardrails`, `templatePersistence`, `hpaTargetBounds` |
 | `costPricing` | `cpuPerCoreHour`, `memoryPerGiBHour` |
 
@@ -533,6 +535,63 @@ Remove the annotation to resume apply on the next reconcile.
 Built-in known names include `istio-proxy`, `linkerd-proxy`, `consul-dataplane`,
 `kuma-dp`, `vault-agent`, `cloud-sql-proxy`, `cloudsql-proxy`, and `gce-proxy`.
 
+### Per-container policies
+
+`containerPolicies` is on `AttunePolicy` only. It is not a field of
+`AttuneDefaults` or `AttuneNamespaceDefaults`. An omitted or empty list
+keeps one shared CPU engine and one shared memory engine from `spec.cpu`
+and `spec.memory`. Policies that omit the list behave as they do today.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `containerPolicies` | list | omitted | Up to 100 entries. Exact case-sensitive container names. No regular expressions. |
+| `containerPolicies[].containerName` | string | required | Container name, or `*` once, as a field-wise fallback. |
+| `containerPolicies[].cpu` / `memory` | object | omitted | Optional `ResourceConfig`. Omitted `maxAllowed` inherits `*` and then the policy max. It is uncapped only when that effective value is nil. |
+
+v1 reads these fields from a container entry: `percentile`, `overhead`,
+`minAllowed`, `maxAllowed`, `burstSensitivity`, `maxChangePercent`,
+`maxIncreasePercent`, `maxDecreasePercent`, `allowDecrease`, and
+`controlledValues`.
+
+Per field, a literal container name wins over `*`, and `*` wins over the
+merged policy block. That block is already merged from the policy, then
+`AttuneNamespaceDefaults`, then `AttuneDefaults`. Percentile `0`, overhead
+`""`, and nil pointers are unset. Overhead `"0"` is set and does not
+inherit `"20"`. An unset CPU `allowDecrease` still allows decreases. An
+unset memory `allowDecrease` still blocks them. An omitted
+`maxAllowed` inherits `*` and then the policy max. A container entry
+cannot clear a policy max. The effective value is uncapped only when
+it is still nil. Same-block minAllowed above maxAllowed on a container
+entry is rejected by the webhook. The CRD quantity rule stays on
+`spec.cpu` and `spec.memory` only. Copying it onto each of the 100
+container entries exceeds the API server CEL cost budget.
+
+`excludedContainers` and `excludeKnownSidecars` win before any container
+entry. With the default `excludeKnownSidecars: true`, `istio-proxy` stays
+excluded until the policy sets `excludeKnownSidecars: false` and does not
+list the name. Only app containers and init containers with
+`restartPolicy: Always` are recommended. A normal init is not managed,
+even when it is named here.
+
+`startupBoost`, `memoryFromCpuRatio`, `decreaseUsageMarginPercent`,
+`limitMultiplier`, `oomBump`, and `surge` stay policy-wide. The webhook
+rejects them on a container entry. Policy-level copies still apply to
+every container that is not excluded. A container `maxAllowed` caps
+policy startup boost and a policy memory OOM bump. After the field-wise
+merge, `minAllowed` above `maxAllowed` is rejected. Container
+`maxAllowed` uses the same 256-core and 16Ti ceilings as `spec.cpu` and
+`spec.memory`. No extra Prometheus metric is emitted for this list.
+
+```yaml
+containerPolicies:
+  - containerName: "*"
+    cpu:
+      maxAllowed: "300m"
+  - containerName: sidecar
+    cpu:
+      maxAllowed: "200m"
+```
+
 ### Template persistence
 
 | Field | Type | Default | Description |
@@ -609,6 +668,12 @@ Temporarily increases CPU requests for newly created or restarted pods to accele
 | `startupBoost.multiplier` | string | (none) | Scales the recommended CPU request during startup. For example, `"3.0"` means 3x the steady-state recommendation. Must be > 1.0 and <= 10.0. This is not `limitMultiplier`. During the boost window the CPU limit is the greater of the boosted request and the steady multiplied limit, not the boosted request times `limitMultiplier`. Expiry restores that steady limit. |
 | `startupBoost.duration` | duration | (none) | How long the boost lasts before reducing to the steady-state recommendation. Must be >= 10s and <= 1h. CREATE and live reconcile dest-cap the boosted request at leftover dest when `controlledValues` is `RequestsOnly`. When it is `RequestsAndLimits` and a rec dest is set, dest-cap uses that rec dest (leftover dest is not a skip). Job and CronJob pods skip CREATE boost because expiry cannot run. |
 | `startupBoost.excludeFromHistory` | bool | omitted (false) | When true, drop CPU samples from the percentile while the pod is inside startup. The cutoff is pod `CreationTimestamp` plus `startupBoost.duration` plus `rateWindow`. A sample at the cutoff stays. Nil and false keep today's percentile. Memory samples are unchanged. Deleted pods stay in history until `historyWindow` because there is no `CreationTimestamp` to cut on. A series with no pod label is left unfiltered. |
+
+`startupBoost` is policy-wide. A container `maxAllowed` from
+`containerPolicies` caps the boosted CPU. `memoryFromCpuRatio`,
+`decreaseUsageMarginPercent`, `limitMultiplier`, `oomBump`, and `surge`
+are policy-wide the same way. The webhook rejects those fields on a
+container entry.
 
 Example:
 

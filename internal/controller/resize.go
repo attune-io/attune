@@ -243,7 +243,7 @@ func (r *AttunePolicyReconciler) applyLiveResizeTarget(
 				if !ok || destLim.IsZero() {
 					continue
 				}
-				if resourceControlledRequestsOnly(policy, res) {
+				if containerControlledRequestsOnly(policy, containerRec.Name, res) {
 					applied.Limits[res] = destLim.DeepCopy()
 					continue
 				}
@@ -2014,8 +2014,8 @@ func (r *AttunePolicyReconciler) evaluatePodEnvelope(
 		Container:       container,
 		Target:          target,
 		InPlace:         r.inPlacePodLevelResources(),
-		RequestsOnlyCPU: resourceControlledRequestsOnly(policy, corev1.ResourceCPU),
-		RequestsOnlyMem: resourceControlledRequestsOnly(policy, corev1.ResourceMemory),
+		RequestsOnlyCPU: containerControlledRequestsOnly(policy, container, corev1.ResourceCPU),
+		RequestsOnlyMem: containerControlledRequestsOnly(policy, container, corev1.ResourceMemory),
 	})
 }
 

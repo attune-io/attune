@@ -234,6 +234,16 @@ spec:
     # Maximum change per reconciliation cycle
     maxChangePercent: 30      # default: 30
 
+  # Optional per-container overrides. Omitted or empty keeps the shared
+  # cpu and memory engines. Not on AttuneDefaults or AttuneNamespaceDefaults.
+  # containerPolicies:
+  #   - containerName: "*"
+  #     cpu:
+  #       maxAllowed: "300m"
+  #   - containerName: sidecar
+  #     cpu:
+  #       maxAllowed: "200m"
+
   # Rollout strategy
   updateStrategy:
     type: Recommend           # Observe | Recommend | OneShot | Canary | Auto
@@ -348,6 +358,9 @@ not via CEL `x-kubernetes-validations` markers. The webhook enforces:
 - `burstSensitivity` bounded between 0 and 10.0
 - All float fields (percentile, overhead, etc.) reject NaN and Inf
 - Prometheus address SSRF protection (scheme, host, and IP validation)
+- `containerPolicies` entries: duplicate `containerName`, a second `*`, and an empty `containerName` are rejected. `startupBoost`, `memoryFromCpuRatio`, `decreaseUsageMarginPercent`, `limitMultiplier`, `oomBump`, and `surge` on a container entry are rejected because they stay policy-wide in v1. `minAllowed <= maxAllowed` still applies to each container `cpu` and `memory` block in the webhook. The CRD quantity rule stays on `spec.cpu` and `spec.memory`, because copying it onto each containerPolicies entry exceeds the API server CEL cost budget.
+
+`containerPolicies` is a field-wise list on `AttunePolicySpec` only. A literal name beats `*` per field, and `*` beats the merged policy block. v1 honors `percentile`, `overhead`, `minAllowed`, `maxAllowed`, `burstSensitivity`, `maxChangePercent`, `maxIncreasePercent`, `maxDecreasePercent`, `allowDecrease`, and `controlledValues`. An omitted container `maxAllowed` inherits `*` and then the policy block, and is uncapped only when that effective value is nil. Known sidecars stay excluded by default. Normal init containers are not managed. Policy-wide `startupBoost`, `memoryFromCpuRatio`, `decreaseUsageMarginPercent`, `limitMultiplier`, `oomBump`, and `surge` still apply from the policy block to every non-excluded container, and a container max caps startup boost and a policy memory OOM bump. After the field-wise merge, minAllowed above maxAllowed is rejected, and container maxAllowed uses the same 256-core and 16Ti ceilings. There is no new Prometheus metric.
 
 #### Printer Columns
 
@@ -375,6 +388,7 @@ api-services    Canary      3           3      2         True    7d    1050m    
 ### 3.3 AttuneDefaults (Cluster-Scoped, Optional)
 
 Global defaults to avoid repetition across many AttunePolicy resources.
+`containerPolicies` is not a field of `AttuneDefaultsSpec`. `AttuneNamespaceDefaults` uses that same spec, so the list is not inherited.
 
 ### 3.4 AttuneNamespaceDefaults (Namespaced, Optional)
 

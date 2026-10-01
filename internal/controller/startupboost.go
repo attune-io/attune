@@ -182,15 +182,17 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 					}
 					boostedMillis := int64(float64(recCPU.request.MilliValue()) * multiplier)
 					boostedCPU := *resource.NewMilliQuantity(boostedMillis, resource.DecimalSI)
-					// Cap at the policy's maxAllowed to respect admin-configured
-					// ceilings even during temporary boost.
-					if policy.Spec.CPU.MaxAllowed != nil && boostedCPU.Cmp(*policy.Spec.CPU.MaxAllowed) > 0 {
-						boostedCPU = policy.Spec.CPU.MaxAllowed.DeepCopy()
+					effCPU, effMem := attunev1alpha1.EffectiveContainerResources(policy, c.Name)
+					// Cap at the container effective maxAllowed. Policy
+					// startup boost stays policy-wide; a container max
+					// still caps the boosted CPU.
+					if effCPU.MaxAllowed != nil && boostedCPU.Cmp(*effCPU.MaxAllowed) > 0 {
+						boostedCPU = effCPU.MaxAllowed.DeepCopy()
 					}
 					// RequestsAndLimits raises dest with the boosted request
 					// so Guaranteed (request==dest at rec dest) still gets
 					// headroom. RequestsOnly dest-caps leftover dest.
-					cpuCV := policy.Spec.CPU.ControlledValues
+					cpuCV := effCPU.ControlledValues
 					raiseDest := cpuCV != nil &&
 						*cpuCV == attunev1alpha1.ControlledRequestsAndLimits &&
 						!recCPU.dest.IsZero()
@@ -241,7 +243,7 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 						// this hand-built target. podsByWorkload is from
 						// before executeResizes, so the live limit can still
 						// be the pre-multiplier value.
-						if memLim, ok := boostMemoryLimit(policy.Spec.Memory.ControlledValues, c.Resources.Limits, recCPU.memoryLimit); ok {
+						if memLim, ok := boostMemoryLimit(effMem.ControlledValues, c.Resources.Limits, recCPU.memoryLimit); ok {
 							boostRec.Recommended.MemoryLimit = memLim.DeepCopy()
 							boostTarget.Limits[corev1.ResourceMemory] = memLim.DeepCopy()
 						}
@@ -356,7 +358,8 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 								corev1.ResourceMemory: c.Resources.Requests.Memory().DeepCopy(),
 							},
 						}
-						cpuCV := policy.Spec.CPU.ControlledValues
+						effCPU, effMem := attunev1alpha1.EffectiveContainerResources(policy, c.Name)
+						cpuCV := effCPU.ControlledValues
 						if cpuCV != nil &&
 							*cpuCV == attunev1alpha1.ControlledRequestsAndLimits &&
 							!recCPU.dest.IsZero() {
@@ -364,7 +367,7 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 							expireTarget.Limits = corev1.ResourceList{
 								corev1.ResourceCPU: recCPU.dest.DeepCopy(),
 							}
-							if memLim, ok := boostMemoryLimit(policy.Spec.Memory.ControlledValues, c.Resources.Limits, recCPU.memoryLimit); ok {
+							if memLim, ok := boostMemoryLimit(effMem.ControlledValues, c.Resources.Limits, recCPU.memoryLimit); ok {
 								expireRec.Recommended.MemoryLimit = memLim.DeepCopy()
 								expireTarget.Limits[corev1.ResourceMemory] = memLim.DeepCopy()
 							}

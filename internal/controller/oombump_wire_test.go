@@ -537,6 +537,25 @@ func TestSettleUnchangedOOMBump(t *testing.T) {
 	assert.Equal(t, beforeFill, oomMetric(fillPolicy.Name, oomBumpSkipped))
 }
 
+func TestPlanContainerOOMBump_ContainerMaxCaps(t *testing.T) {
+	now := oomWireNow()
+	policy := oomWirePolicy("oom-wire-container-max")
+	policy.Spec.Memory.MaxAllowed = nil
+	maxAllowed := parsedQty(t, "256Mi")
+	policy.Spec.ContainerPolicies = []attunev1alpha1.ContainerResourcePolicy{{
+		ContainerName: "app",
+		Memory:        &attunev1alpha1.ResourceConfig{MaxAllowed: &maxAllowed},
+	}}
+	r := NewAttunePolicyReconciler()
+	pod := oomBumpPod("p", "app", "200Mi", oomKilledStatus(now.Add(-time.Minute), 1), "", false)
+	plan := r.planContainerOOMBump(context.Background(), policy, oomWireDeploy("api"), "app", false, 0, false, []corev1.Pod{pod}, now)
+	assert.True(t, plan.UsePublish)
+	assert.Equal(t, maxAllowed.Value(), plan.PublishBytes)
+	require.NotEmpty(t, plan.Stamps)
+	assert.Equal(t, oomBumpClamped, plan.Stamps[0].Result)
+	assert.NotContains(t, plan.MetricNow, oomBumpClamped)
+}
+
 func TestClearOOMBumpAfterFullRevert(t *testing.T) {
 	now := oomWireNow()
 	oomAt := now.Add(-time.Minute)

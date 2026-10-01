@@ -181,6 +181,11 @@ func (e *RecommendationEngine) RecommendWithExplanation(profile metrics.UsagePro
 	// (step under minChangePercent) or only partly moved (directional
 	// cap stops short). Pull the published value back inside.
 	if reclamped, which := applyBounds(afterChangeFilter, e.minBound, e.maxBound); which != "" {
+		// Zero max is below the floor. A partial decrease is still
+		// above min, so this snap would publish 0. Keep the floor.
+		if e.maxBound != nil && e.maxBound.IsZero() && reclamped.Cmp(e.minBound) < 0 {
+			reclamped = e.minBound.DeepCopy()
+		}
 		afterChangeFilter = reclamped
 		changeFilterApplied = ""
 		if boundsApplied == "" {

@@ -194,8 +194,8 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 
 	if pod.Spec.Resources != nil {
 		dec := resize.DecideCreateEnvelope(pod,
-			createRequestsOnly(policy, corev1.ResourceCPU),
-			createRequestsOnly(policy, corev1.ResourceMemory))
+			createPodRequestsOnly(policy, pod, corev1.ResourceCPU),
+			createPodRequestsOnly(policy, pod, corev1.ResourceMemory))
 		if dec.Skip {
 			return admission.Allowed(resize.EnvelopeSkipMessage)
 		}
@@ -462,7 +462,8 @@ func (h *PodMutatingHandler) mutateContainer(
 		}
 
 		// Apply limits if controlledValues is RequestsAndLimits.
-		cpuCV := policy.Spec.CPU.ControlledValues
+		effCPU, effMem := attunev1alpha1.EffectiveContainerResources(policy, container.Name)
+		cpuCV := effCPU.ControlledValues
 		if cpuCV != nil && *cpuCV == attunev1alpha1.ControlledRequestsAndLimits {
 			if !cr.Recommended.CPULimit.IsZero() {
 				if container.Resources.Limits == nil {
@@ -477,7 +478,7 @@ func (h *PodMutatingHandler) mutateContainer(
 			boosted = applyCreateStartupBoost(container, policy, cr.Recommended.CPULimit)
 		}
 
-		memCV := policy.Spec.Memory.ControlledValues
+		memCV := effMem.ControlledValues
 		if memCV != nil && *memCV == attunev1alpha1.ControlledRequestsAndLimits {
 			if !cr.Recommended.MemoryLimit.IsZero() {
 				if container.Resources.Limits == nil {
@@ -505,7 +506,9 @@ func (h *PodMutatingHandler) mutateContainer(
 // multiplier, capped at maxAllowed. RequestsAndLimits raises dest with
 // the boosted request when rec dest is non-zero so Guaranteed pods still
 // get headroom. A zero rec dest dest-caps leftover dest only and must
-// not invent a dest. Returns true when the request was raised so Handle
+// not invent a dest. When the cap lowers a request whose limit still
+// equals that request, the limit drops with it. A limit already above
+// the request stays. Returns true when the request was raised so Handle
 // can stamp startup-boost-at.
 func applyCreateStartupBoost(container *corev1.Container, policy *attunev1alpha1.AttunePolicy, recDest resource.Quantity) bool {
 	if policy == nil || policy.Spec.CPU.StartupBoost == nil {
@@ -521,10 +524,11 @@ func applyCreateStartupBoost(container *corev1.Container, policy *attunev1alpha1
 		return false
 	}
 	boosted := *resource.NewMilliQuantity(int64(float64(cpu.MilliValue())*mult), resource.DecimalSI)
-	if policy.Spec.CPU.MaxAllowed != nil && boosted.Cmp(*policy.Spec.CPU.MaxAllowed) > 0 {
-		boosted = policy.Spec.CPU.MaxAllowed.DeepCopy()
+	effCPU, _ := attunev1alpha1.EffectiveContainerResources(policy, container.Name)
+	if effCPU.MaxAllowed != nil && boosted.Cmp(*effCPU.MaxAllowed) > 0 {
+		boosted = effCPU.MaxAllowed.DeepCopy()
 	}
-	cpuCV := policy.Spec.CPU.ControlledValues
+	cpuCV := effCPU.ControlledValues
 	raiseDest := cpuCV != nil &&
 		*cpuCV == attunev1alpha1.ControlledRequestsAndLimits &&
 		!recDest.IsZero()
@@ -541,6 +545,20 @@ func applyCreateStartupBoost(container *corev1.Container, policy *attunev1alpha1
 		boosted = lim.DeepCopy()
 	}
 	if boosted.Cmp(cpu) <= 0 {
+		// A max below the pre-boost request is still a hard cap, even when
+		// a requests-only live limit pulled boosted under that max.
+		// Returning false skips the boost-expiry stamp. Guaranteed
+		// (limit == pre-clamp request) drops the limit with the request.
+		// A limit already above that request is headroom and stays.
+		if effCPU.MaxAllowed != nil && cpu.Cmp(*effCPU.MaxAllowed) > 0 {
+			capped := effCPU.MaxAllowed.DeepCopy()
+			container.Resources.Requests[corev1.ResourceCPU] = capped
+			if raiseDest {
+				if lim, hasLim := container.Resources.Limits[corev1.ResourceCPU]; hasLim && lim.Equal(cpu) {
+					container.Resources.Limits[corev1.ResourceCPU] = capped.DeepCopy()
+				}
+			}
+		}
 		return false
 	}
 	container.Resources.Requests[corev1.ResourceCPU] = boosted
@@ -751,10 +769,62 @@ func createRequestsOnly(policy *attunev1alpha1.AttunePolicy, res corev1.Resource
 	default:
 		return true
 	}
-	if cv == nil || *cv == "" || *cv == attunev1alpha1.DefaultControlledValues || *cv == attunev1alpha1.ControlledRequestsOnly {
-		return true
+	return controlledValuesRequestsOnly(cv)
+}
+
+// controlledValuesRequestsOnly is true for unset, empty, the default, and
+// RequestsOnly. RequestsAndLimits is false.
+func controlledValuesRequestsOnly(cv *string) bool {
+	return cv == nil || *cv == "" || *cv == attunev1alpha1.DefaultControlledValues || *cv == attunev1alpha1.ControlledRequestsOnly
+}
+
+// createPodRequestsOnly is requests-only for the CREATE envelope when every
+// managed container is requests-only. Managed means app containers and
+// restartPolicy Always inits, minus excluded names. An omitted list, a nil
+// pod, or a pod with no managed container keeps createRequestsOnly. One
+// RequestsAndLimits container makes the envelope eligible to rise so the
+// request patch is not dropped.
+func createPodRequestsOnly(policy *attunev1alpha1.AttunePolicy, pod *corev1.Pod, res corev1.ResourceName) bool {
+	if policy == nil || len(policy.Spec.ContainerPolicies) == 0 || pod == nil {
+		return createRequestsOnly(policy, res)
 	}
-	return false
+	excluded := pkgdefaults.EffectiveExcludedContainers(policy)
+	saw := false
+	check := func(name string) bool {
+		if excluded[name] {
+			return true
+		}
+		saw = true
+		cpu, mem := attunev1alpha1.EffectiveContainerResources(policy, name)
+		var cv *string
+		switch res {
+		case corev1.ResourceCPU:
+			cv = cpu.ControlledValues
+		case corev1.ResourceMemory:
+			cv = mem.ControlledValues
+		default:
+			return false
+		}
+		return controlledValuesRequestsOnly(cv)
+	}
+	for i := range pod.Spec.Containers {
+		if !check(pod.Spec.Containers[i].Name) {
+			return false
+		}
+	}
+	for i := range pod.Spec.InitContainers {
+		container := &pod.Spec.InitContainers[i]
+		if container.RestartPolicy == nil || *container.RestartPolicy != corev1.ContainerRestartPolicyAlways {
+			continue
+		}
+		if !check(container.Name) {
+			return false
+		}
+	}
+	if !saw {
+		return createRequestsOnly(policy, res)
+	}
+	return true
 }
 
 // hasMinConfidence returns true if all containers meet the minimum confidence.

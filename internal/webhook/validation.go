@@ -87,6 +87,9 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 	if err := validateResourceConfigFields("memory", &policy.Spec.Memory, history); err != nil {
 		return warnings, err
 	}
+	if err := validateContainerPolicies(policy, history); err != nil {
+		return warnings, err
+	}
 
 	// Warn if memory startup boost is set (only CPU boost is implemented).
 	if policy.Spec.Memory.StartupBoost != nil {

@@ -352,7 +352,7 @@ across the capabilities that matter most.
 | **Safety system** | Minimal (PDB only) | N/A | N/A | min-diff thresholds | None | **Multi-layer (OOMKill, throttle, restart, NotReady, SLO guardrails). Memory OOM bump is off until set.** |
 | **Time-of-day aware** | No (24h half-life histogram) | No | No | No | No | **Yes (hourly profiles)** |
 | **Graduated rollout** | No (all-or-nothing) | N/A | N/A | No | No | **5 modes (Observe to Auto)** |
-| **Per-resource config** | containerPolicies[] | N/A | CLI flags | Annotations per resource | N/A | **Typed CRD (cpu/memory sections)** |
+| **Per-resource config** | containerPolicies[] | N/A | CLI flags | Annotations per resource | N/A | **Typed CRD (cpu/memory sections, optional containerPolicies)** |
 | **Confidence scaling** | Internal, not configurable | N/A | N/A | N/A | N/A | **Configurable, visible in status** |
 | **Config model** | CRD | VPA + labels | CLI flags | CRD + annotations | Annotations | **CRD + defaults hierarchy** |
 | **Cluster-wide defaults** | No | No | No | Env vars | No | **Yes (AttuneDefaults CRD)** |

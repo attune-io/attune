@@ -40,15 +40,26 @@ func (e *boundsEstimator) Estimate(profile metrics.UsageProfile, current resourc
 	return clamped
 }
 
-// applyBounds clamps q to min, then to max when max is set. A nil max
-// skips only the ceiling. A non-nil zero max is a real cap. The second
-// return is "min", "max", or empty when the value was already inside.
+// applyBounds clamps q into [min, max]. A nil max skips the ceiling.
+// Zero max still caps a value already at or above min. A value below
+// min stays at that floor when max is zero, because the recommendation
+// chain calls this again on the capped zero and would otherwise publish
+// 0. Any other max below the raised value still wins.
 func applyBounds(q, min resource.Quantity, max *resource.Quantity) (resource.Quantity, string) {
+	clamped := q
+	reason := ""
 	if q.Cmp(min) < 0 {
-		return min.DeepCopy(), "min"
+		clamped = min.DeepCopy()
+		reason = "min"
 	}
-	if max != nil && q.Cmp(*max) > 0 {
+	if max != nil && clamped.Cmp(*max) > 0 {
+		if reason == "min" && max.IsZero() {
+			return clamped, "min"
+		}
 		return max.DeepCopy(), "max"
+	}
+	if reason == "min" {
+		return clamped, "min"
 	}
 	return q, ""
 }

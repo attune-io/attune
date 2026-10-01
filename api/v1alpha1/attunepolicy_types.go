@@ -102,10 +102,32 @@ type AttunePolicySpec struct {
 	MetricsSource MetricsSource `json:"metricsSource,omitempty"`
 
 	// CPU configures CPU resource recommendations.
+	// +kubebuilder:validation:XValidation:rule="!has(self.minAllowed) || !has(self.maxAllowed) || quantity(string(self.minAllowed)).compareTo(quantity(string(self.maxAllowed))) <= 0",message="minAllowed must be less than or equal to maxAllowed"
 	CPU ResourceConfig `json:"cpu"`
 
 	// Memory configures memory resource recommendations.
+	// +kubebuilder:validation:XValidation:rule="!has(self.minAllowed) || !has(self.maxAllowed) || quantity(string(self.minAllowed)).compareTo(quantity(string(self.maxAllowed))) <= 0",message="minAllowed must be less than or equal to maxAllowed"
 	Memory ResourceConfig `json:"memory"`
+
+	// ContainerPolicies sets honored CPU and memory fields per container.
+	// Omitted or empty keeps one shared engine from spec.cpu and spec.memory.
+	// There is no implicit "*". This list is not on AttuneDefaults or
+	// AttuneNamespaceDefaults. A literal containerName beats "*" per field.
+	// "*" beats the merged policy block per field. Percentile 0, overhead "",
+	// and nil pointers are unset. Overhead "0" is set. excludedContainers
+	// and excludeKnownSidecars win first. The default excludeKnownSidecars
+	// true keeps istio-proxy excluded. Only app containers and init
+	// containers with restartPolicy Always are managed.
+	// v1 honors percentile, overhead, minAllowed, maxAllowed,
+	// burstSensitivity, maxChangePercent, maxIncreasePercent,
+	// maxDecreasePercent, allowDecrease, and controlledValues.
+	// startupBoost, memoryFromCpuRatio, decreaseUsageMarginPercent,
+	// limitMultiplier, oomBump, and surge stay policy-wide. The webhook
+	// rejects them on a container entry. A container maxAllowed caps
+	// policy startup boost.
+	// +optional
+	// +kubebuilder:validation:MaxItems=100
+	ContainerPolicies []ContainerResourcePolicy `json:"containerPolicies,omitempty"`
 
 	// Paused stops the operator from reconciling this policy. Metrics
 	// collection, recommendations, and resizes are all halted. Existing
@@ -339,7 +361,9 @@ type CloudWatchConfig struct {
 }
 
 // ResourceConfig defines resource recommendation parameters.
-// +kubebuilder:validation:XValidation:rule="!has(self.minAllowed) || !has(self.maxAllowed) || quantity(string(self.minAllowed)).compareTo(quantity(string(self.maxAllowed))) <= 0",message="minAllowed must be less than or equal to maxAllowed"
+// The minAllowed <= maxAllowed quantity rule is on the policy and defaults
+// fields, not on this type. containerPolicies repeats this struct up to
+// 100 times, and that copy of the rule exceeds the API server CEL budget.
 type ResourceConfig struct {
 	// Percentile is the usage percentile to target for recommendations.
 	// Supported values: 50, 90, 95, 99. Omit or set to 0 to use the default

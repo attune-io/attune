@@ -198,20 +198,11 @@ func recContainerMemoryLimit(rec attunev1alpha1.WorkloadRecommendation, containe
 	return resource.Quantity{}
 }
 
-// memoryCap is the memory twin of capLimit. Requests-only uses the live
-// limit. RequestsAndLimits uses the recommended limit, or the new request
-// so the cap stays 100.
-func (s hpaTuneScope) memoryCap(newMilli, liveLimitMilli int64, recLimit resource.Quantity) resource.Quantity {
-	if !s.memRequestsOnly {
-		if !recLimit.IsZero() {
-			return recLimit
-		}
-		return memoryQty(newMilli)
-	}
-	if liveLimitMilli > 0 {
-		return memoryQty(liveLimitMilli)
-	}
-	return resource.Quantity{}
+// memoryCap is the memory twin of capLimit. requestsOnly is the flag for
+// this metric: the named container, or any non-excluded app container on
+// a pod-level Resource metric.
+func (s hpaTuneScope) memoryCap(newMilli, liveLimitMilli int64, recLimit resource.Quantity, requestsOnly bool) resource.Quantity {
+	return capAtLimit(false, resource.Quantity{}, requestsOnly, newMilli, liveLimitMilli, recLimit, memoryQty)
 }
 
 // memoryMetricBasis recognizes memory utilization metrics. A scalar CPU
@@ -243,7 +234,8 @@ func (s hpaTuneScope) memoryMetricBasis(m *autoscalingv2.MetricSpec) (recognized
 		b.ok = true
 		b.oldMilli = oldMilli
 		b.newMilli = newMilli
-		b.limit = s.memoryCap(newMilli, liveLimit, recMemoryLimit(s.rec))
+		b.limit = s.memoryCap(newMilli, liveLimit, recMemoryLimit(s.rec),
+			podResourceRequestsOnly(s.policy, s.pod, corev1.ResourceMemory, s.memRequestsOnly))
 		return true, b
 	case m.Type == autoscalingv2.ContainerResourceMetricSourceType && m.ContainerResource != nil &&
 		m.ContainerResource.Name == corev1.ResourceMemory &&
@@ -262,7 +254,8 @@ func (s hpaTuneScope) memoryMetricBasis(m *autoscalingv2.MetricSpec) (recognized
 		b.ok = true
 		b.oldMilli = oldMilli
 		b.newMilli = newMilli
-		b.limit = s.memoryCap(newMilli, liveLimit, recContainerMemoryLimit(s.rec, b.container))
+		b.limit = s.memoryCap(newMilli, liveLimit, recContainerMemoryLimit(s.rec, b.container),
+			containerControlledRequestsOnly(s.policy, b.container, corev1.ResourceMemory))
 		return true, b
 	default:
 		return false, b
