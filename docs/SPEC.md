@@ -857,6 +857,16 @@ After `hold` expires, recommendations follow the normal percentile, allowDecreas
 
 `explanation.memory.finalAdjustment` can include `oomBump`. The counter is `attune_oom_bump_total` with result `applied`, `clamped`, `capped`, or `skipped`.
 
+### 7.5 Usage surge (off until set)
+
+CPU and memory each stay on the long history window unless that resource's `surge` block is set. An empty `surge: {}` turns the feature on and fills trigger ratio `1.5`, percentile `99`, and window `30m`. There is no `surge: false`. A policy that omits `surge` inherits an `AttuneDefaults` surge. To keep a workload off, omit `surge` on both.
+
+The long statistic is the published percentile: the max of the overall percentile and the 24 hour-of-day percentiles, at the parent percentile. The short statistic is the overall percentile only, at `surge.percentile`, of finite samples inside `surge.window`. Attune does not take the max across hour-of-day buckets for the short statistic. It fires when the window actually shortened, the finite count is at least 3 and at least half of `window / queryStep` (or at least 3 when `queryStep` is 0), and either the long percentile is positive and `short/long` is at least `triggerRatio`, or the long percentile is 0 and the short percentile is positive. Otherwise the long profile and the parent percentile are used. `minimumDataPoints` gates the long window only. One sample at 1.5 times the long percentile does not fire.
+
+When the short window is selected, confidence is copied from the long profile. Percentile and burst use the short profile. CPU and memory choose separately. `memoryFromCpuRatio` does not switch the memory sample set; derived memory follows the surged CPU request. `explanation.<resource>.finalAdjustment` can include `surge` on the resource that used the short window.
+
+The webhook rejects a trigger ratio that is not finite, not greater than 1, or above 100 (`100` is accepted). Empty trigger ratio is unset. Percentile must be 50, 90, 95, or 99. Window must be at least 5m and must not be longer than `metricsSource.historyWindow`, or `168h` when history is unset. A window equal to that limit is accepted. Explicit `0s` is invalid.
+
 ---
 
 <a id="metrics--observability"></a>
@@ -1448,7 +1458,7 @@ attune/
 │   ├── controller/              # Reconciler (core business logic)
 │   │   ├── attunepolicy_controller.go
 │   │   ├── attunepolicy_controller_test.go
-│   │   └── ...                  # helpers, resize, prometheus, export, etc.
+│   │   └── ...                  # helpers, resize, prometheus, surge, export, etc.
 │   ├── metrics/
 │   │   ├── collector.go         # Prometheus/Datadog/CloudWatch query client
 │   │   ├── collector_test.go

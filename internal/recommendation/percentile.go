@@ -32,6 +32,8 @@ type PercentileEstimator struct {
 	Percentile int
 	// IsCPU indicates whether this estimator handles CPU (true) or memory (false).
 	IsCPU bool
+	// OverallOnly returns the overall percentile and skips each hour.
+	OverallOnly bool
 }
 
 // Estimate returns a resource.Quantity derived from the maximum of the
@@ -56,10 +58,22 @@ func (e *PercentileEstimator) Estimate(profile metrics.UsageProfile, current res
 // real zero.
 func (e *PercentileEstimator) selectedMax(profile metrics.UsageProfile) float64 {
 	maxVal := e.selectPercentile(profile.OverallPercentiles)
+	if e.OverallOnly {
+		return maxVal
+	}
 	for h := 0; h < 24; h++ {
 		maxVal = math.Max(maxVal, e.selectPercentile(profile.HourlyPercentiles[h]))
 	}
 	return maxVal
+}
+
+// SelectedMax is the percentile RecommendWithExplanation scales.
+// OverallOnly skips the hour-of-day max. A nil estimator returns NaN.
+func (e *PercentileEstimator) SelectedMax(profile metrics.UsageProfile) float64 {
+	if e == nil {
+		return math.NaN()
+	}
+	return e.selectedMax(profile)
 }
 
 func zeroQuantity(isCPU bool) resource.Quantity {

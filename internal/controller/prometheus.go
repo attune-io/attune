@@ -484,8 +484,12 @@ func (r *AttunePolicyReconciler) recommendContainer(
 	minimumDataPoints := in.minimumDataPoints
 
 	maxSamples := r.maxProfileSamples()
-	cpuSamples = rsmetrics.DownsampleSamples(cpuSamples, maxSamples)
-	memSamples = rsmetrics.DownsampleSamples(memSamples, maxSamples)
+	// Keep the raw query series. DownsampleSamples drops points, so surge
+	// filters that series before BuildProfile.
+	rawCPUSamples := cpuSamples
+	rawMemSamples := memSamples
+	cpuSamples = rsmetrics.DownsampleSamples(rawCPUSamples, maxSamples)
+	memSamples = rsmetrics.DownsampleSamples(rawMemSamples, maxSamples)
 
 	cpuProfile := rsmetrics.BuildProfile(cpuSamples)
 	memProfile := rsmetrics.BuildProfile(memSamples)
@@ -562,9 +566,19 @@ func (r *AttunePolicyReconciler) recommendContainer(
 
 	cpuApplied := false
 	if cpuProfile.DataPoints >= int(minimumDataPoints) {
-		cpuRec, cpuExplain, _ := cpuEngine.RecommendWithExplanation(cpuProfile, rec.Current.CPURequest)
+		cpuInput := cpuProfile
+		cpuEng := cpuEngine
+		cpuSurge := applySurge(policy.Spec.CPU.Surge, cpuProfile, rawCPUSamples, now, r.getQueryStep(policy), cpuEngine.Percentile())
+		if cpuSurge.fired {
+			cpuInput = cpuSurge.profile
+			cpuEng = cpuEngine.ForSurge(cpuSurge.percentile)
+		}
+		cpuRec, cpuExplain, _ := cpuEng.RecommendWithExplanation(cpuInput, rec.Current.CPURequest)
 		cpuAllowDecrease := policy.Spec.CPU.AllowDecrease == nil || *policy.Spec.CPU.AllowDecrease
 		cpuRec = r.enforceAllowDecrease(cpuAllowDecrease, cpuRec, rec.Current.CPURequest, &cpuExplain, policy, containerName, "CPU")
+		if cpuSurge.fired {
+			cpuExplain.FinalAdjustment = appendNote(cpuExplain.FinalAdjustment, surgeNote)
+		}
 		rec.Recommended.CPURequest = cpuRec
 		explanation.CPU = toAPIRecommendationExplanation(cpuExplain)
 		cpuApplied = true
@@ -584,9 +598,19 @@ func (r *AttunePolicyReconciler) recommendContainer(
 			memApplied = true
 		}
 	} else if !memoryFromCPURatioSet(policy) && memProfile.DataPoints >= int(minimumDataPoints) {
-		memRec, memExplain, _ := memEngine.RecommendWithExplanation(memProfile, rec.Current.MemoryRequest)
+		memInput := memProfile
+		memEng := memEngine
+		memSurge := applySurge(policy.Spec.Memory.Surge, memProfile, rawMemSamples, now, r.getQueryStep(policy), memEngine.Percentile())
+		if memSurge.fired {
+			memInput = memSurge.profile
+			memEng = memEngine.ForSurge(memSurge.percentile)
+		}
+		memRec, memExplain, _ := memEng.RecommendWithExplanation(memInput, rec.Current.MemoryRequest)
 		memAllowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
 		memRec = r.enforceAllowDecrease(memAllowDecrease, memRec, rec.Current.MemoryRequest, &memExplain, policy, containerName, "memory")
+		if memSurge.fired {
+			memExplain.FinalAdjustment = appendNote(memExplain.FinalAdjustment, surgeNote)
+		}
 		rec.Recommended.MemoryRequest = memRec
 		explanation.Memory = toAPIRecommendationExplanation(memExplain)
 		memApplied = true

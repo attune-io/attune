@@ -433,8 +433,8 @@ All fields from `AttuneDefaults` are available in
 | Section | Fields |
 |---------|--------|
 | `metricsSource` | `prometheus.address`, `prometheus.headers`, `prometheus.queryParameters`, `prometheus.bearerTokenSecret`, `prometheus.tls`, `datadog.site`, `datadog.apiKeySecretRef`, `cloudwatch.region`, `cloudwatch.clusterName`, `cloudwatch.roleArn`, `cloudwatch.cpuUnit`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow`, `podAggregation`, `cpuRecordingMetric`, `memoryRecordingMetric` |
-| `cpu` | `percentile`, `overhead`, `minAllowed`, `maxAllowed`, `controlledValues`, `burstSensitivity`, `allowDecrease`, `startupBoost`, `maxChangePercent`, `maxIncreasePercent`, `maxDecreasePercent` |
-| `memory` | Same as `cpu` (no `startupBoost`), plus `decreaseUsageMarginPercent`, `memoryFromCpuRatio`, and `oomBump` |
+| `cpu` | `percentile`, `overhead`, `minAllowed`, `maxAllowed`, `controlledValues`, `burstSensitivity`, `allowDecrease`, `startupBoost`, `surge`, `maxChangePercent`, `maxIncreasePercent`, `maxDecreasePercent` |
+| `memory` | Same as `cpu` (no `startupBoost`), plus `decreaseUsageMarginPercent`, `memoryFromCpuRatio`, `oomBump`, and `surge` |
 | `updateStrategy` | `type`, `cooldown`, `autoRevert`, `resizeMethod`, `initialSizing`, `maxConcurrentResizes`, `maxStatusRecommendations`, `includeExplanationsInStatus`, `maxTotalCpuIncrease`, `maxTotalMemoryIncrease`, `maxCpuIncreasePerMinute`, `maxMemoryIncreasePerMinute`, `schedule`, `export`, `canary`, `safetyObservationPeriod`, `sloGuardrails`, `templatePersistence` |
 | `costPricing` | `cpuPerCoreHour`, `memoryPerGiBHour` |
 
@@ -626,6 +626,26 @@ See the [startup boost guide](../guides/startup-boost.md) for details.
 |-------|------|---------|-------------|
 | `burstSensitivity` | string | `"0.1"` | Controls how much burst detection inflates the recommendation. Multiplied by log2(burstMagnitude). Default `"0.1"` gives ~20% boost for magnitude 4, ~30% for 8, ~40% for 16. Set `"0"` to disable burst boost entirely. |
 
+### Usage surge
+
+Shortens the history window while recent usage is hot. The block is absent by default, so the resource stays on the long window. An empty `surge: {}` turns the feature on for that resource and fills the defaults below. CPU and memory each have their own block. There is no `surge: false`. A policy that omits `surge` inherits an `AttuneDefaults` surge. To keep a workload off, omit `surge` on both.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `cpu.surge` / `memory.surge` | object | absent | Off until this object is set. `{}` turns the feature on and fills trigger ratio, percentile, and window. |
+| `surge.triggerRatio` | string | `1.5` when the block is set | Short percentile divided by the long-window percentile. Must be greater than 1 and at most 100. Empty is filled with `1.5`. |
+| `surge.percentile` | int | `99` when the block is set | Percentile of the short window. One of 50, 90, 95, 99. This does not replace the parent percentile on the long window. |
+| `surge.window` | duration | `30m` when the block is set | How far back the short window reaches. At least 5m. Must not be longer than `metricsSource.historyWindow`, or `168h` when history is unset. A window equal to that limit is accepted. Explicit `0s` is invalid. |
+
+The long statistic is still the max of the overall percentile and the 24 hour-of-day percentiles, at the parent percentile. The short statistic is the overall percentile only, of finite samples inside the window. Attune fires when the window drops older finite samples, at least 3 finite samples remain (and at least half of `window / queryStep` when the step is positive), and the short percentile is at least `triggerRatio` times the long percentile. A long percentile of 0 fires when the short percentile is positive. One spike in the short window does not fire. `minimumDataPoints` still gates the long window only. When the short window is selected, confidence stays the long window's confidence. Burst still runs on the chosen profile. `explanation.<resource>.finalAdjustment` includes `surge` on the resource that used the short window. `memoryFromCpuRatio` follows the CPU request and does not switch the memory sample set.
+
+Example:
+
+```yaml
+cpu:
+  surge: {}
+```
+
 ### Memory-from-CPU Derivation
 
 | Field | Type | Default | Description |
@@ -727,6 +747,8 @@ The controller sets these conditions on each `AttunePolicy`:
 | `GitOpsPullRequest` | `PullRequestOpen`, `PullRequestFailed`, `GitOpsEndpointBlocked`, `NoDrift`, `PullRequestUnchanged`, `PullRequestCooldown`, `PullRequestDryRun`, `PullRequestDisabled` | Opt-in `export.pullRequest` automation status (see [GitOps integration](../guides/gitops-integration.md)) |
 
 `explanation.memory.finalAdjustment` can include `oomBump` when the published memory request was raised or held by `memory.oomBump`. The block is absent by default, so this note is not written until `oomBump` is set.
+
+`explanation.cpu.finalAdjustment` or `explanation.memory.finalAdjustment` can include `surge` when that resource used the short window. The block is absent by default, so this note is not written until `surge` is set. A memory request derived with `memoryFromCpuRatio` does not add `surge` to the memory note.
 
 `status.workloads.resized` counts workloads with a successful in-place resize in the latest reconcile: this cycle's apply, plus a successful in-place row a concurrent reconcile wrote during this reconcile. Rows already in the snapshot do not count, and neither does a success from an earlier hour. `status.resizeHistory` is the retained list (capped at 50 entries, not a time window). It is not the source of `workloads.resized`. An idle reconcile stores `resized: 0` even when older successes are still in that list.
 

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
@@ -179,15 +180,19 @@ func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec) (admission.War
 
 	// Validate CPU resource config fields.
 	var warnings admission.Warnings
+	var history *metav1.Duration
+	if spec.MetricsSource != nil {
+		history = spec.MetricsSource.HistoryWindow
+	}
 	if spec.CPU != nil {
-		if err := validateResourceConfigFields("cpu", spec.CPU); err != nil {
+		if err := validateResourceConfigFields("cpu", spec.CPU, history); err != nil {
 			return warnings, err
 		}
 	}
 
 	// Validate memory resource config fields.
 	if spec.Memory != nil {
-		if err := validateResourceConfigFields("memory", spec.Memory); err != nil {
+		if err := validateResourceConfigFields("memory", spec.Memory, history); err != nil {
 			return warnings, err
 		}
 		if spec.Memory.StartupBoost != nil {
@@ -281,7 +286,7 @@ func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec) (admission.War
 // validateResourceConfigFields validates fields that are shared between
 // policy and defaults ResourceConfig. The prefix (e.g. "cpu", "memory")
 // is used in error messages.
-func validateResourceConfigFields(prefix string, rc *attunev1alpha1.ResourceConfig) error {
+func validateResourceConfigFields(prefix string, rc *attunev1alpha1.ResourceConfig, history *metav1.Duration) error {
 	// Overhead
 	if err := validateOverhead(prefix, rc.Overhead); err != nil {
 		return err
@@ -301,6 +306,9 @@ func validateResourceConfigFields(prefix string, rc *attunev1alpha1.ResourceConf
 		return err
 	}
 	if err := validateOOMBump(prefix, rc); err != nil {
+		return err
+	}
+	if err := validateSurge(prefix, rc, history); err != nil {
 		return err
 	}
 

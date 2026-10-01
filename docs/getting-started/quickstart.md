@@ -35,6 +35,7 @@ This quick start gets you to recommendations. When you are ready to go further:
 | Language runtime defaults (Java, Python, Go, Node) | [Runtime profiles](../guides/runtime-profiles.md) |
 | Cold-start CPU headroom | [Startup boost](../guides/startup-boost.md). `excludeFromHistory: true` drops CPU samples until creation plus duration plus the rate window; omitted keeps today's percentile. |
 | Memory after OOMKilled | An optional memory OOM bump can raise the request after OOMKilled and is off until set. |
+| Usage surge | Optional `cpu.surge` or `memory.surge` shortens the history window while recent usage is hot, and stays off until the block is set. |
 | Node pressure skips and reclaimed capacity | [Bin packing](../guides/bin-packing.md) and [node capacity](../architecture/node-capacity.md) |
 
 ## 1. Create an AttunePolicy in Recommend mode

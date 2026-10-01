@@ -49,6 +49,7 @@ path: canary blast-radius control, startup boost, and SLO-backed auto-revert.
 | Blast radius | All targeted pods | N/A | **Canary** with observation and optional auto-promote |
 | Cold start | None | N/A | **Startup boost**, then scale back |
 | Algorithm | Backward-looking histograms | VPA recommender | **Time-of-day-aware + burst detection + confidence** |
+| Recent surge | Full history window | N/A | **Optional short window** (`cpu.surge` / `memory.surge`), off until set |
 | Production path | <1% use in production | Manual apply | **Observe → Recommend → Canary → Auto** |
 
 ## Who Is This For?
@@ -71,6 +72,7 @@ path: canary blast-radius control, startup boost, and SLO-backed auto-revert.
 - **HPA coexistence** without death spirals
 - **Confidence scaling** for sparse data
 - **Time-of-day awareness** for bursty workloads
+- **Usage surge** shortens the history window while recent usage is hot, and stays off until `cpu.surge` or `memory.surge` is set
 - **Mandatory bounds** (no unbounded recommendations)
 - **GitOps export** (versioned recommendation ConfigMaps) and optional [PR automation](guides/gitops-integration.md#pull-request-automation-opt-in-phase-b)
 - **Multi-cluster fleet** reporting and Grafana ([multi-cluster guide](guides/multi-cluster.md#fleet-observability-with-federated-prometheus))

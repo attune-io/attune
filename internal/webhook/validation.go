@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
@@ -79,10 +80,11 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 	// Validate shared ResourceConfig fields (overhead, burstSensitivity,
 	// memoryFromCpuRatio, percentile, bounds, startupBoost) for CPU and memory.
 	// These checks are shared with AttuneDefaults validation.
-	if err := validateResourceConfigFields("cpu", &policy.Spec.CPU); err != nil {
+	history := policy.Spec.MetricsSource.HistoryWindow
+	if err := validateResourceConfigFields("cpu", &policy.Spec.CPU, history); err != nil {
 		return warnings, err
 	}
-	if err := validateResourceConfigFields("memory", &policy.Spec.Memory); err != nil {
+	if err := validateResourceConfigFields("memory", &policy.Spec.Memory, history); err != nil {
 		return warnings, err
 	}
 
@@ -465,6 +467,66 @@ func validateLimitMultiplier(prefix string, rc *attunev1alpha1.ResourceConfig) e
 		return fmt.Errorf("%s cannot be set when %s.controlledValues is RequestsOnly", field, prefix)
 	}
 	return nil
+}
+
+func validateSurge(prefix string, rc *attunev1alpha1.ResourceConfig, history *metav1.Duration) error {
+	if rc == nil || rc.Surge == nil {
+		return nil
+	}
+	if err := validateSurgeTriggerRatio(prefix, rc.Surge.TriggerRatio); err != nil {
+		return err
+	}
+	if p := rc.Surge.Percentile; p != nil {
+		switch *p {
+		case 50, 90, 95, 99:
+		default:
+			return fmt.Errorf("%s.surge.percentile %d is not supported; must be one of: 50, 90, 95, 99", prefix, *p)
+		}
+	}
+	if rc.Surge.Window == nil {
+		return nil
+	}
+	d := rc.Surge.Window.Duration
+	if d < attunev1alpha1.MinSurgeWindow {
+		if d == 0 {
+			return fmt.Errorf("%s.surge.window must be at least 5m, or omit it", prefix)
+		}
+		return fmt.Errorf("%s.surge.window must be at least 5m, got %s", prefix, d)
+	}
+	limit := surgeHistoryLimit(history)
+	if d > limit {
+		return fmt.Errorf("%s.surge.window (%s) must not exceed historyWindow (%s)", prefix, d, limit)
+	}
+	return nil
+}
+
+func validateSurgeTriggerRatio(prefix, raw string) error {
+	if raw == "" {
+		return nil
+	}
+	field := prefix + ".surge.triggerRatio"
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return fmt.Errorf("%s %q is not a valid number: %w", field, raw, err)
+	}
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return fmt.Errorf("%s must be a finite number, got %s", field, raw)
+	}
+	if v <= 1 {
+		return fmt.Errorf("%s must be greater than 1, got %s", field, raw)
+	}
+	if v > float64(attunev1alpha1.MaxSurgeTriggerRatio) {
+		return fmt.Errorf("%s must be <= %d, got %s", field, attunev1alpha1.MaxSurgeTriggerRatio, raw)
+	}
+	return nil
+}
+
+func surgeHistoryLimit(history *metav1.Duration) time.Duration {
+	maxWindow, _ := time.ParseDuration(attunev1alpha1.DefaultHistoryWindow)
+	if history != nil {
+		maxWindow = history.Duration
+	}
+	return maxWindow
 }
 
 func validateOOMBump(prefix string, rc *attunev1alpha1.ResourceConfig) error {

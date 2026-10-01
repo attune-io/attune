@@ -93,6 +93,16 @@ const (
 	// MinOOMBumpHold and MaxOOMBumpHold bound oomBump.hold.
 	MinOOMBumpHold = time.Minute
 	MaxOOMBumpHold = 168 * time.Hour
+	// DefaultSurgeTriggerRatio is used when surge is set and triggerRatio is empty.
+	DefaultSurgeTriggerRatio = "1.5"
+	// DefaultSurgePercentile is used when surge is set and percentile is nil.
+	DefaultSurgePercentile int32 = 99
+	// DefaultSurgeWindow is used when surge is set and window is nil.
+	DefaultSurgeWindow = 30 * time.Minute
+	// MinSurgeWindow is the shortest accepted surge.window.
+	MinSurgeWindow = 5 * time.Minute
+	// MaxSurgeTriggerRatio is the largest accepted surge.triggerRatio.
+	MaxSurgeTriggerRatio = 100
 	// DefaultMaxStatusRecommendations caps status.recommendations size.
 	DefaultMaxStatusRecommendations int32 = 100
 	// DefaultIncludeExplanationsInStatus keeps explanation chains in status.

@@ -192,8 +192,9 @@ primitive too. The harder problem is running **unattended** in production:
 3. **SLO + safety revert** — infrastructure signals (OOM, throttle, restarts,
    NotReady) plus application PromQL guardrails that auto-revert on breach
    ([safety architecture](architecture/safety.md)).
+4. **Usage surge** shortens the history window while recent usage is hot, and stays off until cpu.surge or memory.surge is set.
 
-Those three pillars are the production path. The rest of this page explains
+Those pillars are the production path. The rest of this page explains
 the graduated modes, recommender, and HPA coexistence that make the loop
 operable day to day.
 

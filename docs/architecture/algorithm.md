@@ -36,6 +36,26 @@ None). Nil and false keep today's percentile. Memory samples are not
 filtered. Deleted pods stay until `historyWindow`. A series with no pod
 label is left unfiltered.
 
+### Usage surge (off until set)
+
+`cpu.surge` and `memory.surge` are absent by default. An empty `surge: {}`
+turns that resource on. The long window still uses the hourly maximum
+below. When the short window is hot enough, Attune feeds the chain the
+overall percentile of finite samples inside `surge.window` (default 30m)
+at `surge.percentile` (default 99). It does not take the max across
+hour-of-day buckets for that short statistic. Confidence stays the long
+window's confidence. CPU and memory decide separately. A derived memory
+request (`memoryFromCpuRatio`) follows the CPU request and does not switch
+the memory sample set. `explanation.<resource>.finalAdjustment` includes
+`surge` on the resource that used the short window.
+
+The short window fires only when it drops older finite samples, at least
+3 finite samples remain, and at least half of `window / queryStep` are
+present when `queryStep` is positive. It fires when that short percentile
+is at least `triggerRatio` times the long-window percentile (default
+`1.5`), or when the long percentile is 0 and the short percentile is
+positive. `minimumDataPoints` still applies to the long window only.
+
 ## 1. Percentile Estimator
 
 Selects the configured percentile from the usage profile. Usage data is

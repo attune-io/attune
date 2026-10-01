@@ -467,6 +467,12 @@ type ResourceConfig struct {
 	// on memory; a CPU value is rejected.
 	// +optional
 	OOMBump *OOMBump `json:"oomBump,omitempty"`
+
+	// Surge shortens the history window while recent usage is hot.
+	// Absent means off. An empty object turns it on and fills
+	// triggerRatio, percentile, and window. Valid on CPU and memory.
+	// +optional
+	Surge *Surge `json:"surge,omitempty"`
 }
 
 // StartupBoost configures temporary CPU inflation for cold-start optimization.
@@ -526,6 +532,32 @@ type OOMBump struct {
 	// Expiry does not clear origin or the step count.
 	// +optional
 	Hold *metav1.Duration `json:"hold,omitempty"`
+}
+
+// Surge shortens the history window while recent usage is hot.
+// An empty object turns the feature on. triggerRatio, percentile, and
+// window are filled when omitted. Valid on CPU and memory.
+// +kubebuilder:validation:XValidation:rule="!has(self.window) || duration(self.window) >= duration('5m')",message="surge.window must be at least 5m"
+type Surge struct {
+	// TriggerRatio is short/long. The short window is used when the
+	// ratio is at least this value. Empty is filled with "1.5" when
+	// the block is set. Must be finite and greater than 1, at most 100.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?)?$`
+	TriggerRatio string `json:"triggerRatio,omitempty"`
+
+	// Percentile is the overall percentile of the short window.
+	// 50, 90, 95, or 99. Nil is filled with 99 when the block is set.
+	// This does not change the long-window percentile.
+	// +optional
+	// +kubebuilder:validation:Enum=50;90;95;99
+	Percentile *int32 `json:"percentile,omitempty"`
+
+	// Window is how far back the short percentile looks.
+	// Nil is filled with 30m when the block is set. At least 5m, and
+	// not longer than metricsSource.historyWindow (168h when that is unset).
+	// +optional
+	Window *metav1.Duration `json:"window,omitempty"`
 }
 
 // ResourceBounds defines the minimum and maximum resource values.
