@@ -10,6 +10,20 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### Memory HPA targets move when auto-tune is on
+
+A memory utilization HPA used to keep its percent when Attune changed the
+memory request, so a smaller request could scale the workload out. An HPA
+annotated `attune.io/auto-tune: "true"` now gets the same retune for memory
+as for CPU. The original target and the original request are stored on the
+HPA. A later resize multiplies that stored target by the stored request
+divided by the new request.
+
+`updateStrategy.hpaTargetBounds` is optional. Leave it unset to keep today's
+limit cap, including CPU targets above 90. Set `cpu` or `memory` `min` and
+`max` only when you want a tighter band. 50 and 90 are a common choice, not
+a default. The Helm chart does not turn auto-tune on.
+
 ### Usage surge is off until cpu.surge or memory.surge is set
 
 CPU and memory stay on the long history window unless that resource's

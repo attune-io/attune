@@ -243,6 +243,10 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 		}
 	}
 
+	if err := validateHPATargetBounds(us); err != nil {
+		return warnings, err
+	}
+
 	// Warn if memory decrease is enabled
 	if policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease {
 		warnings = append(warnings, "memory.allowDecrease is enabled; this carries OOMKill risk")
@@ -465,6 +469,42 @@ func validateLimitMultiplier(prefix string, rc *attunev1alpha1.ResourceConfig) e
 	}
 	if cv == attunev1alpha1.ControlledRequestsOnly {
 		return fmt.Errorf("%s cannot be set when %s.controlledValues is RequestsOnly", field, prefix)
+	}
+	return nil
+}
+
+func validateHPATargetBounds(us *attunev1alpha1.UpdateStrategy) error {
+	if us == nil || us.HPATargetBounds == nil {
+		return nil
+	}
+	if err := validateHPATargetBound("updateStrategy.hpaTargetBounds.cpu", us.HPATargetBounds.CPU); err != nil {
+		return err
+	}
+	return validateHPATargetBound("updateStrategy.hpaTargetBounds.memory", us.HPATargetBounds.Memory)
+}
+
+func validateHPATargetBound(field string, bound *attunev1alpha1.HPATargetBound) error {
+	if bound == nil {
+		return nil
+	}
+	if err := validateHPATargetPercent(field+".min", bound.Min); err != nil {
+		return err
+	}
+	if err := validateHPATargetPercent(field+".max", bound.Max); err != nil {
+		return err
+	}
+	if bound.Min != nil && bound.Max != nil && *bound.Max < *bound.Min {
+		return fmt.Errorf("%s.max (%d) must be >= min (%d)", field, *bound.Max, *bound.Min)
+	}
+	return nil
+}
+
+func validateHPATargetPercent(field string, value *int32) error {
+	if value == nil {
+		return nil
+	}
+	if *value < 1 || *value > 10000 {
+		return fmt.Errorf("%s must be from 1 to 10000, got %d", field, *value)
 	}
 	return nil
 }

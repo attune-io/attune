@@ -573,6 +573,38 @@ type ResourceBounds struct {
 	Max *resource.Quantity `json:"max,omitempty"`
 }
 
+// HPATargetBounds is an optional percent band for auto-tuned HPA
+// utilization targets. Nil, or a block with neither side set, leaves
+// the limit cap unchanged. 50 and 90 are a recommended opt-in, not a
+// default. The band does not turn auto-tune on.
+type HPATargetBounds struct {
+	// CPU applies only to CPU utilization targets.
+	// +optional
+	CPU *HPATargetBound `json:"cpu,omitempty"`
+
+	// Memory applies only to memory utilization targets.
+	// +optional
+	Memory *HPATargetBound `json:"memory,omitempty"`
+}
+
+// HPATargetBound is one resource's utilization percent band.
+// A nil min or max leaves that side open. There is no inner default.
+type HPATargetBound struct {
+	// Min is the lowest published percent. It cannot raise a target
+	// above the limit cap.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=10000
+	Min *int32 `json:"min,omitempty"`
+
+	// Max is the highest published percent. The limit cap can still
+	// publish a lower number.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=10000
+	Max *int32 `json:"max,omitempty"`
+}
+
 // UpdateStrategy configures how resource changes are applied.
 type UpdateStrategy struct {
 	// Mode determines the update behavior, graduated from safe to automated:
@@ -720,6 +752,12 @@ type UpdateStrategy struct {
 	// initialSizing in that case.
 	// +optional
 	TemplatePersistence *TemplatePersistence `json:"templatePersistence,omitempty"`
+
+	// HPATargetBounds optionally clamps auto-tuned HPA utilization
+	// percents after the limit cap. Unset means no user band. It does
+	// not turn auto-tune on. The HPA still needs attune.io/auto-tune=true.
+	// +optional
+	HPATargetBounds *HPATargetBounds `json:"hpaTargetBounds,omitempty"`
 }
 
 // TemplatePersistence configures opt-in writes of recommendations into the

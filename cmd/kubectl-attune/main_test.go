@@ -4467,3 +4467,77 @@ func TestPolicyGetErrorMessage(t *testing.T) {
 
 func ptrInt32(v int32) *int32 { return &v }
 func ptrBool(v bool) *bool    { return &v }
+
+func TestPrintEffectivePolicySummary_HPATargetBounds(t *testing.T) {
+	// Not parallel: capture swaps os.Stdout.
+	capture := func(item unstructured.Unstructured, effective *attunev1alpha1.AttunePolicy, selected selectedDefaults) string {
+		reader, writer, err := os.Pipe()
+		require.NoError(t, err)
+		old := os.Stdout
+		os.Stdout = writer
+		printEffectivePolicySummary(item, effective, selected)
+		require.NoError(t, writer.Close())
+		os.Stdout = old
+		out, err := io.ReadAll(reader)
+		require.NoError(t, err)
+		return string(out)
+	}
+	base := func() *attunev1alpha1.AttunePolicy {
+		return &attunev1alpha1.AttunePolicy{
+			Spec: attunev1alpha1.AttunePolicySpec{
+				UpdateStrategy: &attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeAuto},
+			},
+		}
+	}
+
+	t.Run("nil block prints no bounds line", func(t *testing.T) {
+		item := unstructured.Unstructured{Object: map[string]interface{}{
+			"spec": map[string]interface{}{},
+		}}
+		got := capture(item, base(), selectedDefaults{})
+		assert.NotContains(t, got, "HPA target bounds")
+	})
+
+	t.Run("policy memory max prints only that line", func(t *testing.T) {
+		policy := base()
+		policy.Spec.UpdateStrategy.HPATargetBounds = &attunev1alpha1.HPATargetBounds{
+			Memory: &attunev1alpha1.HPATargetBound{Max: ptrInt32(90)},
+		}
+		item := unstructured.Unstructured{Object: map[string]interface{}{
+			"spec": map[string]interface{}{
+				"updateStrategy": map[string]interface{}{
+					"hpaTargetBounds": map[string]interface{}{
+						"memory": map[string]interface{}{"max": int64(90)},
+					},
+				},
+			},
+		}}
+		got := capture(item, policy, selectedDefaults{})
+		assert.Contains(t, got, "HPA target bounds memory max: 90 (source: policy, configured: 90)")
+		assert.NotContains(t, got, "HPA target bounds CPU")
+		assert.NotContains(t, got, "HPA target bounds memory min")
+	})
+
+	t.Run("inherited cpu min keeps the defaults pointer", func(t *testing.T) {
+		defs := &attunev1alpha1.AttuneDefaults{
+			Spec: attunev1alpha1.AttuneDefaultsSpec{
+				UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+					HPATargetBounds: &attunev1alpha1.HPATargetBounds{
+						CPU: &attunev1alpha1.HPATargetBound{Min: ptrInt32(50)},
+					},
+				},
+			},
+		}
+		policy := base()
+		mergeDefaultsIntoPolicy(policy, defs)
+		item := unstructured.Unstructured{Object: map[string]interface{}{
+			"spec": map[string]interface{}{},
+		}}
+		got := capture(item, policy, selectedDefaults{defaults: defs, source: sourceCluster})
+		assert.Contains(t, got, "HPA target bounds CPU min: 50 (source: cluster default, configured: <unset>)")
+		assert.NotContains(t, got, "HPA target bounds memory")
+		*policy.Spec.UpdateStrategy.HPATargetBounds.CPU.Min = 10
+		assert.Equal(t, int32(50), *defs.Spec.UpdateStrategy.HPATargetBounds.CPU.Min)
+		assert.NotSame(t, defs.Spec.UpdateStrategy.HPATargetBounds.CPU.Min, policy.Spec.UpdateStrategy.HPATargetBounds.CPU.Min)
+	})
+}

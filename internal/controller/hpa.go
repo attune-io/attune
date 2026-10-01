@@ -30,10 +30,10 @@ import (
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
 
-// retuneHPAAfterResize rebases auto-tune HPA CPU targets from this-cycle
-// successful in-place CPU apply (history To), not the raw recommendation.
-// Resource metrics use one pod's CPU total. ContainerResource metrics use
-// only the named container.
+// retuneHPAAfterResize rebases auto-tune HPA CPU and memory targets from
+// this-cycle successful in-place applies (history To), not the raw
+// recommendation. Resource metrics use one pod's request total.
+// ContainerResource metrics use only the named container.
 func (r *AttunePolicyReconciler) retuneHPAAfterResize(
 	ctx context.Context,
 	policy *attunev1alpha1.AttunePolicy,
@@ -51,19 +51,28 @@ func (r *AttunePolicyReconciler) retuneHPAAfterResize(
 			continue
 		}
 		rows, badCPU := hpaCPURowsFromHistory(history, rec.Workload)
-		if !hpaCPURowsChanged(rows) {
+		memRows, badMem := hpaMemoryRowsFromHistory(history, rec.Workload)
+		if !hpaCPURowsChanged(rows) && !hpaMemoryRowsChanged(memRows) {
 			continue
 		}
 		var pods []corev1.Pod
 		if podsByWorkload != nil {
 			pods = podsByWorkload[rec.Workload]
 		}
+		pod := firstPodWithPositiveCPURequest(pods)
+		if pod == nil {
+			pod = firstPodWithPositiveMemoryRequest(pods)
+		}
 		r.tuneHPAs(ctx, hpas, rec.Workload, rec.Kind, hpaTuneScope{
-			rows:         rows,
-			badCPU:       badCPU,
-			pod:          firstPodWithPositiveCPURequest(pods),
-			requestsOnly: resourceControlledRequestsOnly(policy, corev1.ResourceCPU),
-			rec:          rec,
+			rows:            rows,
+			badCPU:          badCPU,
+			memRows:         memRows,
+			badMem:          badMem,
+			pod:             pod,
+			requestsOnly:    resourceControlledRequestsOnly(policy, corev1.ResourceCPU),
+			memRequestsOnly: resourceControlledRequestsOnly(policy, corev1.ResourceMemory),
+			rec:             rec,
+			policy:          policy,
 		})
 	}
 }
@@ -140,21 +149,27 @@ type hpaCPURow struct {
 // hpaTuneScope is either one precomputed pair (scalar) or per-metric ratios
 // from history plus one live pod (retune).
 type hpaTuneScope struct {
-	scalar       bool
-	old, neu     resource.Quantity
-	limit        resource.Quantity
-	rows         map[string]hpaCPURow
-	badCPU       bool
-	pod          *corev1.Pod
-	requestsOnly bool
-	rec          attunev1alpha1.WorkloadRecommendation
+	scalar          bool
+	old, neu        resource.Quantity
+	limit           resource.Quantity
+	rows            map[string]hpaCPURow
+	badCPU          bool
+	memRows         map[string]hpaCPURow
+	badMem          bool
+	pod             *corev1.Pod
+	requestsOnly    bool
+	memRequestsOnly bool
+	rec             attunev1alpha1.WorkloadRecommendation
+	policy          *attunev1alpha1.AttunePolicy
 }
 
 type hpaMetricBasis struct {
 	ok                 bool
 	longKey            bool
 	resource           bool
+	containerMemory    bool
 	container          string
+	resName            string
 	oldMilli, newMilli int64
 	limit              resource.Quantity
 	targetKey, baseKey string
@@ -164,6 +179,7 @@ type hpaPendingTarget struct {
 	index     int
 	resource  bool
 	container string
+	resName   string
 	target    int32
 }
 
@@ -348,6 +364,7 @@ func (s hpaTuneScope) metricBasis(m *autoscalingv2.MetricSpec) (recognized bool,
 		m.Resource.Target.Type == autoscalingv2.UtilizationMetricType &&
 		m.Resource.Target.AverageUtilization != nil:
 		b.resource = true
+		b.resName = string(corev1.ResourceCPU)
 		b.targetKey = annotationHPAOriginalCPU
 		b.baseKey = annotationHPAOriginalCPURequest
 		if s.scalar {
@@ -378,6 +395,7 @@ func (s hpaTuneScope) metricBasis(m *autoscalingv2.MetricSpec) (recognized bool,
 		m.ContainerResource.Target.Type == autoscalingv2.UtilizationMetricType &&
 		m.ContainerResource.Target.AverageUtilization != nil:
 		b.container = m.ContainerResource.Container
+		b.resName = string(corev1.ResourceCPU)
 		if s.scalar {
 			b.ok = true
 			b.oldMilli = s.old.MilliValue()
@@ -407,7 +425,7 @@ func (s hpaTuneScope) metricBasis(m *autoscalingv2.MetricSpec) (recognized bool,
 		b.baseKey = baseKey
 		return true, b
 	default:
-		return false, b
+		return s.memoryMetricBasis(m)
 	}
 }
 
@@ -445,21 +463,6 @@ func capHPATarget(newTarget int32, limit, newRequest resource.Quantity) int32 {
 	return newTarget
 }
 
-func cpuMetricMatches(m *autoscalingv2.MetricSpec, resource bool, container string) bool {
-	if resource {
-		return m.Type == autoscalingv2.ResourceMetricSourceType && m.Resource != nil &&
-			m.Resource.Name == corev1.ResourceCPU && m.Resource.Target.AverageUtilization != nil
-	}
-	if m.Type != autoscalingv2.ContainerResourceMetricSourceType || m.ContainerResource == nil ||
-		m.ContainerResource.Name != corev1.ResourceCPU || m.ContainerResource.Target.AverageUtilization == nil {
-		return false
-	}
-	if container != "" && m.ContainerResource.Container != container {
-		return false
-	}
-	return true
-}
-
 func setAverageUtilization(m *autoscalingv2.MetricSpec, target int32) {
 	v := target
 	switch m.Type {
@@ -474,13 +477,32 @@ func setAverageUtilization(m *autoscalingv2.MetricSpec, target int32) {
 	}
 }
 
-func applyHPAMetricTarget(hpa *autoscalingv2.HorizontalPodAutoscaler, index int, resource bool, container string, target int32) {
-	if index >= 0 && index < len(hpa.Spec.Metrics) && cpuMetricMatches(&hpa.Spec.Metrics[index], resource, container) {
+func utilizationMetricMatches(m *autoscalingv2.MetricSpec, resName string, resource bool, container string) bool {
+	if resName == "" {
+		resName = string(corev1.ResourceCPU)
+	}
+	name := corev1.ResourceName(resName)
+	if resource {
+		return m.Type == autoscalingv2.ResourceMetricSourceType && m.Resource != nil &&
+			m.Resource.Name == name && m.Resource.Target.AverageUtilization != nil
+	}
+	if m.Type != autoscalingv2.ContainerResourceMetricSourceType || m.ContainerResource == nil ||
+		m.ContainerResource.Name != name || m.ContainerResource.Target.AverageUtilization == nil {
+		return false
+	}
+	if container != "" && m.ContainerResource.Container != container {
+		return false
+	}
+	return true
+}
+
+func applyHPAMetricTarget(hpa *autoscalingv2.HorizontalPodAutoscaler, index int, resName string, resource bool, container string, target int32) {
+	if index >= 0 && index < len(hpa.Spec.Metrics) && utilizationMetricMatches(&hpa.Spec.Metrics[index], resName, resource, container) {
 		setAverageUtilization(&hpa.Spec.Metrics[index], target)
 		return
 	}
 	for i := range hpa.Spec.Metrics {
-		if cpuMetricMatches(&hpa.Spec.Metrics[i], resource, container) {
+		if utilizationMetricMatches(&hpa.Spec.Metrics[i], resName, resource, container) {
 			setAverageUtilization(&hpa.Spec.Metrics[i], target)
 			return
 		}
@@ -491,7 +513,14 @@ func copyHPATuneAnnotations(dst, src map[string]string) {
 	if src == nil {
 		return
 	}
-	for _, k := range []string{annotationHPAAutoTune, annotationHPAOriginalCPU, annotationHPAOriginalCPURequest} {
+	for _, k := range []string{
+		annotationHPAAutoTune,
+		annotationHPAOriginalCPU,
+		annotationHPAOriginalCPURequest,
+		annotationHPAOriginalMemory,
+		annotationHPAOriginalMemoryRequest,
+		annotationHPAOriginalContainerMemory,
+	} {
 		if v, ok := src[k]; ok {
 			dst[k] = v
 		}
@@ -522,15 +551,16 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 			continue
 		}
 
-		foundCPU := false
+		foundAdjustable := false
 		pending := make([]hpaPendingTarget, 0, len(hpa.Spec.Metrics))
+		var clamps []hpaClampNote
 		for j := range hpa.Spec.Metrics {
 			m := &hpa.Spec.Metrics[j]
 			recognized, basis := scope.metricBasis(m)
 			if !recognized {
 				continue
 			}
-			foundCPU = true
+			foundAdjustable = true
 			if basis.longKey {
 				logger.Info("Skipping HPA ContainerResource auto-tune because the annotation name exceeds 63 characters",
 					"hpa", hpa.Name, "workload", workloadName, "container", basis.container)
@@ -551,40 +581,60 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 			// currentTarget * (old / new) and do not gain a request annotation.
 			baseTarget := currentTarget
 			baseRequestMilli := basis.oldMilli
-			if storedTarget, storedMilli, ok := storedHPABase(hpa.Annotations, basis.targetKey, basis.baseKey); ok {
+			if basis.containerMemory {
+				if storedTarget, storedMilli, ok := storedContainerMemory(hpa.Annotations, basis.container); ok {
+					baseTarget = storedTarget
+					baseRequestMilli = storedMilli
+				}
+			} else if storedTarget, storedMilli, ok := storedHPABase(hpa.Annotations, basis.targetKey, basis.baseKey); ok {
 				baseTarget = storedTarget
 				baseRequestMilli = storedMilli
 			}
-			newTarget := int32(float64(baseTarget) * float64(baseRequestMilli) / float64(basis.newMilli))
-			oldQ := milliQty(basis.oldMilli)
-			newQ := milliQty(basis.newMilli)
-			newTarget = capHPATarget(newTarget, basis.limit, newQ)
+			rawTarget := int32(float64(baseTarget) * float64(baseRequestMilli) / float64(basis.newMilli))
+			oldQ := hpaRequestQuantity(basis.resName, basis.oldMilli)
+			newQ := hpaRequestQuantity(basis.resName, basis.newMilli)
+			newTarget, computed, emit := publishHPATarget(rawTarget, basis.limit, newQ, bandFor(scope.policy, basis.resName))
 			if newTarget == currentTarget {
 				continue
 			}
 			// First write only. A stored base that differs from this cycle's
 			// sum is the usual second resize, not a cue to rewrite it.
-			if hpa.Annotations[basis.targetKey] == "" {
-				if hpa.Annotations == nil {
-					hpa.Annotations = make(map[string]string)
-				}
+			if hpa.Annotations == nil {
+				hpa.Annotations = make(map[string]string)
+			}
+			if basis.containerMemory {
+				rememberContainerMemory(hpa.Annotations, basis.container, currentTarget, basis.oldMilli)
+			} else if basis.targetKey != "" && hpa.Annotations[basis.targetKey] == "" {
 				hpa.Annotations[basis.targetKey] = strconv.FormatInt(int64(currentTarget), 10)
 				hpa.Annotations[basis.baseKey] = oldQ.String()
 			}
-			logger.Info("Auto-tuning HPA CPU target after resize",
-				"hpa", hpa.Name, "workload", workloadName, "container", basis.container,
-				"currentTarget", currentTarget, "newTarget", newTarget,
-				"oldRequest", oldQ.String(), "newRequest", newQ.String())
-			applyHPAMetricTarget(hpa, j, basis.resource, basis.container, newTarget)
+			if basis.resName == string(corev1.ResourceMemory) {
+				logger.Info("Auto-tuning HPA memory target after resize",
+					"hpa", hpa.Name, "workload", workloadName, "container", basis.container,
+					"currentTarget", currentTarget, "newTarget", newTarget,
+					"oldRequest", oldQ.String(), "newRequest", newQ.String())
+			} else {
+				logger.Info("Auto-tuning HPA CPU target after resize",
+					"hpa", hpa.Name, "workload", workloadName, "container", basis.container,
+					"currentTarget", currentTarget, "newTarget", newTarget,
+					"oldRequest", oldQ.String(), "newRequest", newQ.String())
+			}
+			applyHPAMetricTarget(hpa, j, basis.resName, basis.resource, basis.container, newTarget)
 			pending = append(pending, hpaPendingTarget{
 				index:     j,
 				resource:  basis.resource,
 				container: basis.container,
+				resName:   basis.resName,
 				target:    newTarget,
 			})
+			if emit {
+				clamps = append(clamps, hpaClampNote{
+					message: hpaClampMessage(hpa.Namespace, hpa.Name, basis.resName, basis.container, computed, newTarget),
+				})
+			}
 		}
 		if len(pending) == 0 {
-			if !foundCPU {
+			if !foundAdjustable {
 				logger.Info("HPA has auto-tune annotation but no adjustable CPU utilization metric",
 					"hpa", hpa.Name, "workload", workloadName)
 			}
@@ -609,11 +659,14 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 		}
 		copyHPATuneAnnotations(fresh.Annotations, hpa.Annotations)
 		for _, upd := range pending {
-			applyHPAMetricTarget(&fresh, upd.index, upd.resource, upd.container, upd.target)
+			applyHPAMetricTarget(&fresh, upd.index, upd.resName, upd.resource, upd.container, upd.target)
 		}
 		if err := r.Update(ctx, &fresh); err != nil {
 			logger.Error(err, "Failed to update HPA target", "hpa", hpa.Name)
 			continue
+		}
+		for _, note := range clamps {
+			r.emitEventOnce(scope.policy, corev1.EventTypeNormal, "HPATargetClamped", "hpa", "%s", note.message)
 		}
 	}
 }

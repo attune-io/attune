@@ -1313,6 +1313,7 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 	fmt.Println("Effective values:")
 	printEffectiveField("Type", getNestedString(item, "spec", "updateStrategy", "type"), string(effective.Spec.UpdateStrategy.Type), selected, updateDefaults != nil && updateDefaults.Type != "")
 	printEffectiveField("Cooldown", getNestedString(item, "spec", "updateStrategy", "cooldown"), effectiveCooldown(effective), selected, updateDefaults != nil && updateDefaults.Cooldown != nil)
+	printHPATargetBounds(item, effective.Spec.UpdateStrategy, updateDefaults, selected)
 	printEffectiveField("Query step", getNestedString(item, "spec", "metricsSource", "queryStep"), formatDurationPtr(effective.Spec.MetricsSource.QueryStep), selected, metricsDefaults != nil && metricsDefaults.QueryStep != nil)
 	providerConfigured := metricsProviderConfigured(item)
 	providerEffective := metricsProviderLabel(effective.Spec.MetricsSource)
@@ -1637,6 +1638,33 @@ func metricsProviderConfigured(item unstructured.Unstructured) string {
 		return "prometheus"
 	default:
 		return unsetValue
+	}
+}
+
+// printHPATargetBounds prints a line per set min or max. A nil block
+// prints nothing. There is no built-in 50 or 90.
+func printHPATargetBounds(item unstructured.Unstructured, strategy, defaults *attunev1alpha1.UpdateStrategy, selected selectedDefaults) {
+	if strategy == nil || strategy.HPATargetBounds == nil {
+		return
+	}
+	var defCPU, defMem *attunev1alpha1.HPATargetBound
+	if defaults != nil && defaults.HPATargetBounds != nil {
+		defCPU = defaults.HPATargetBounds.CPU
+		defMem = defaults.HPATargetBounds.Memory
+	}
+	printBound := func(label, side, field string, value *int32, fromDefaults bool) {
+		if value == nil {
+			return
+		}
+		printEffectiveField(label, formatInt64Field(item, "spec", "updateStrategy", "hpaTargetBounds", side, field), formatInt32Ptr(value), selected, fromDefaults)
+	}
+	if cpu := strategy.HPATargetBounds.CPU; cpu != nil {
+		printBound("HPA target bounds CPU min", "cpu", "min", cpu.Min, defCPU != nil && defCPU.Min != nil)
+		printBound("HPA target bounds CPU max", "cpu", "max", cpu.Max, defCPU != nil && defCPU.Max != nil)
+	}
+	if mem := strategy.HPATargetBounds.Memory; mem != nil {
+		printBound("HPA target bounds memory min", "memory", "min", mem.Min, defMem != nil && defMem.Min != nil)
+		printBound("HPA target bounds memory max", "memory", "max", mem.Max, defMem != nil && defMem.Max != nil)
 	}
 }
 

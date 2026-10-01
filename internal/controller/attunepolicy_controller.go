@@ -90,6 +90,14 @@ const (
 	annotationHPACPUTargetPrefix    = "attune.io/hpa-cpu-target."
 	annotationHPACPUBasePrefix      = "attune.io/hpa-cpu-base."
 
+	// Memory HPA baselines. Pod Resource metrics use the two bare keys.
+	// Every ContainerResource baseline shares one JSON object so a
+	// 63-character container name still fits in the annotation name.
+	// These are not the pod rollback prefix annotationOriginalMemoryPrefix.
+	annotationHPAOriginalMemory          = "attune.io/original-target-memory"
+	annotationHPAOriginalMemoryRequest   = "attune.io/original-memory-request"
+	annotationHPAOriginalContainerMemory = "attune.io/original-container-memory"
+
 	// Startup boost annotation.
 	annotationStartupBoostAt = "attune.io/startup-boost-at"
 

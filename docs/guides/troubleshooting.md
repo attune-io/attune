@@ -1026,6 +1026,25 @@ cannot be loaded (API/RBAC failure). Decreases still proceed.
 sum by (namespace, policy, reason) (rate(attune_capacity_skip_total[1h]))
 ```
 
+### Memory HPA scaled out after a memory decrease
+
+**Symptom**: Attune lowered a memory request and the HorizontalPodAutoscaler
+added replicas. The HPA memory utilization target is still the old percent.
+
+**Cause**: Auto-tune is off for that HPA. Attune retunes memory utilization
+targets only when the annotation `attune.io/auto-tune` is `"true"`. Without
+it, usage divided by the smaller request crosses the old target and the HPA
+scales out.
+
+**Fix**:
+
+1. Annotate the HPA with `attune.io/auto-tune: "true"`.
+2. Confirm the metric is Utilization, not AverageValue. Object and External
+   metrics are left unchanged.
+3. Optional: set `updateStrategy.hpaTargetBounds.memory.max` when the retuned
+   percent should stay under a ceiling. This does not turn auto-tune on.
+   50 and 90 are a common choice, not a default.
+
 ### OOM after memory limit decrease
 
 **Symptom**: After enabling memory decreases (`memory.allowDecrease: true`

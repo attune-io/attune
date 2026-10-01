@@ -867,6 +867,14 @@ When the short window is selected, confidence is copied from the long profile. P
 
 The webhook rejects a trigger ratio that is not finite, not greater than 1, or above 100 (`100` is accepted). Empty trigger ratio is unset. Percentile must be 50, 90, 95, or 99. Window must be at least 5m and must not be longer than `metricsSource.historyWindow`, or `168h` when history is unset. A window equal to that limit is accepted. Explicit `0s` is invalid.
 
+### 7.6 Memory HPA retune (annotation still required)
+
+Auto-tune stays off unless the HPA annotation `attune.io/auto-tune` is `"true"`. A successful in-place memory resize then retunes memory utilization targets with the same truncation as CPU. A Resource metric uses one pod's container memory request sum, including unchanged containers and off-pod history rows, and excluding init containers. A ContainerResource metric uses that container only, including a named init container. The limit cap matches that scope. Requests-only uses the live limit. No limit, or a limit at or below the new request, caps the percent at 100.
+
+Pod Resource baselines are `attune.io/original-target-memory` and `attune.io/original-memory-request`. ContainerResource baselines share `attune.io/original-container-memory`, a JSON object keyed by container name. A second resize multiplies the stored original target by the stored request divided by the new request. Corrupt JSON is not rewritten. The percent for that cycle still uses this cycle's old and new request.
+
+`updateStrategy.hpaTargetBounds` is optional. Nil or an empty object applies no user band and does not fill 50 or 90. CPU and memory bands are separate. When a side is set, Attune truncates, floors at 1, applies the limit cap, then `max`, then `min`, and publishes the limit cap again if `min` would exceed it. `HPATargetClamped` is a Normal event emitted after the HPA update succeeds, and only when the user band changes the post-limit percent. `min` and `max` are integers from 1 to 10000. `max` must be greater than or equal to `min` when both are set. AttuneDefaults may supply the block. There is no Helm value that turns the annotation or the band on.
+
 ---
 
 <a id="metrics--observability"></a>

@@ -353,6 +353,11 @@ Before resizing, the controller checks for potential conflicts:
   Guaranteed pods, requests must stay equal to limits.
 - **HPA coexistence**: an informational notice is logged but resizing proceeds.
   See [HPA Coexistence](../guides/hpa-coexistence.md).
+- **HPA memory targets**: when `attune.io/auto-tune` is `"true"`, a successful
+  in-place memory resize retunes memory utilization targets on that HPA in
+  the same update as CPU. The original target and request are stored on the
+  HPA. `hpaTargetBounds` can clamp the published percent. It stays unset
+  unless the policy or AttuneDefaults sets it.
 
 ## High revert rate
 

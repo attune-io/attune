@@ -178,6 +178,8 @@ The operator detects:
   workload (`updateMode` other than `Off`, or unset). `Off` is
   recommend-only coexistence.
 - **HPA coexistence**: logs a notice and adjusts only requests (not replicas).
+  An HPA annotated `attune.io/auto-tune: "true"` also has its CPU and memory
+  utilization targets retuned after a resize.
 - **Policy overlap**: higher-weight policies take precedence when multiple
   AttunePolicies match the same workload.
 - **Active rollouts**: skips resizing during an in-progress deployment rollout.
