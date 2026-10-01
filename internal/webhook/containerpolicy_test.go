@@ -32,10 +32,10 @@ import (
 
 // Not parallel: ValidateCreate and mutateContainer increment metrics.
 //
-// Percentile 75 is also rejected by the ResourceConfig CRD enum
-// Enum=0;50;90;95;99. minAllowed greater than maxAllowed is the existing
-// ResourceConfig CEL rule on cpu and memory, including entries under
-// containerPolicies.
+// Percentile 75 is rejected by the ResourceConfig CRD enum
+// Enum=0;50;90;95;99. A container minAllowed above maxAllowed is
+// webhook-only. The CRD quantity rule stays on policy and defaults
+// spec.cpu and spec.memory.
 
 func TestValidateCreate_ContainerPolicyWideFields(t *testing.T) {
 	validator := &AttunePolicyValidator{}
