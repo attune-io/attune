@@ -76,13 +76,13 @@ const (
 // SupportedTargetKindsCSV is the canonical runtime list of workload kinds
 // accepted by AttunePolicy targetRef.kind. Keep it in sync with the
 // kubebuilder enum on TargetRef.Kind.
-const SupportedTargetKindsCSV = "Deployment, StatefulSet, DaemonSet, CronJob, Job, ReplicaSet"
+const SupportedTargetKindsCSV = "Deployment, StatefulSet, DaemonSet, CronJob, Job, ReplicaSet, Rollout"
 
 // IsSupportedTargetKind reports whether kind is a supported targetRef.kind
 // value at runtime.
 func IsSupportedTargetKind(kind string) bool {
 	switch kind {
-	case "Deployment", "StatefulSet", "DaemonSet", "CronJob", "Job", "ReplicaSet":
+	case "Deployment", "StatefulSet", "DaemonSet", "CronJob", "Job", "ReplicaSet", "Rollout":
 		return true
 	default:
 		return false
@@ -176,7 +176,7 @@ type AttunePolicySpec struct {
 // TargetRef identifies the target workload(s).
 type TargetRef struct {
 	// Kind is the kind of the target resource.
-	// +kubebuilder:validation:Enum=Deployment;StatefulSet;DaemonSet;CronJob;Job;ReplicaSet
+	// +kubebuilder:validation:Enum=Deployment;StatefulSet;DaemonSet;CronJob;Job;ReplicaSet;Rollout
 	Kind string `json:"kind"`
 
 	// Name is the name of a specific target resource.

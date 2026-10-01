@@ -488,6 +488,12 @@ Bound fields (`minAllowed`, `maxAllowed`) and their admission caps
 caps apply to `AttunePolicy`, `AttuneDefaults`, and
 `AttuneNamespaceDefaults`.
 
+### spec.targetRef.kind
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `targetRef.kind` | string | `Deployment` | Workload kind. One of `Deployment`, `StatefulSet`, `DaemonSet`, `CronJob`, `Job`, `ReplicaSet`, or `Rollout`. `Rollout` is `argoproj.io/v1alpha1` from Argo Rollouts. Attune does not install that CRD and does not watch it. A policy that sets `kind: Rollout` before the CRD exists becomes Ready False with reason `WorkloadCRDMissing` and retries. Other policies are unchanged. Pods are selected with `spec.selector`, including `matchExpressions`. The pod owner is the child ReplicaSet. Resize waits while the Rollout phase is `Paused` or `Progressing`, while `status.abort` is true, or while `status.updatedReplicas` is behind `spec.replicas` (a nil `spec.replicas` counts as 1). Recommendations are still stored. Template persistence patches the Rollout `spec.template`, not the child ReplicaSet. If `spec.workloadRef` is set, the template is left alone and `TemplatePersistence` explains why. CREATE initial sizing does not resolve a Rollout owner. |
+
 ### spec.paused
 
 | Field | Type | Default | Description |
@@ -804,12 +810,13 @@ The controller sets these conditions on each `AttunePolicy`:
 
 | Condition | Reasons | Description |
 |-----------|---------|-------------|
-| `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `MetricsUnavailable` (alias `PrometheusUnavailable`), `InvalidConfig`, `WorkloadDiscoveryFailed`, `ConflictCheckFailed`, `Paused`, `PrometheusSeriesCapped` | Overall health. `PrometheusSeriesCapped` keeps Ready True: the reconcile succeeded and the query result is partial. See [Ready reason: PrometheusSeriesCapped](../guides/scaling.md#ready-reason-prometheusseriescapped). |
+| `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `MetricsUnavailable` (alias `PrometheusUnavailable`), `InvalidConfig`, `WorkloadDiscoveryFailed`, `WorkloadCRDMissing`, `ConflictCheckFailed`, `Paused`, `PrometheusSeriesCapped` | Overall health. `PrometheusSeriesCapped` keeps Ready True: the reconcile succeeded and the query result is partial. See [Ready reason: PrometheusSeriesCapped](../guides/scaling.md#ready-reason-prometheusseriescapped). `WorkloadCRDMissing` means `targetRef.kind` is `Rollout` and `argoproj.io/v1alpha1` Rollout is not installed. Reconcile succeeds and retries. This is not `InvalidConfig`. |
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Latest reconcile (only in resize modes). `InProgress` means this cycle resized at least one workload in place. `CooldownActive` means every workload that has a recommendation this cycle is still cooling and this cycle resized nothing. `Idle` means this cycle resized nothing and cooldown is not active. |
 | `Degraded` | `HighRevertRate` | Set when 3+ of the last 5 resizes were reverted |
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Set when `updateStrategy.schedule` is configured; indicates whether the current time is within an allowed resize window |
 | `ResizeBlocked` | `NamespaceFrozen`, `HPAListUnavailable`, `VPAListUnavailable`, `PodsDeferred`, `PodsInfeasible`, `PodsDeferredAndInfeasible` | Namespace freeze kill-switch, HPA or VPA list failure (in-place resize, persist, boost, and CREATE skipped), or pods stuck Deferred or Infeasible; see troubleshooting "NamespaceFrozen", "HPAListUnavailable", "VPAListUnavailable", and "Deferred or Infeasible resize" |
 | `SafetyObservation` | `Observing`, `Evaluating`, `RestorePending`, `Incomplete` | True while pods still carry `attune.io` resize-tracking annotations. Derived from those annotations each reconcile; not a second in-memory store. Removed when no tracked pods remain. |
+| `TemplatePersistence` | `TemplateWorkloadRef` | False when a Rollout `spec.workloadRef` is set. Attune does not patch that template and does not follow the reference. Ready stays independent, and pod resize still proceeds. Removed when no targeted Rollout has `spec.workloadRef`. |
 | `GitOpsPullRequest` | `PullRequestOpen`, `PullRequestFailed`, `GitOpsEndpointBlocked`, `NoDrift`, `PullRequestUnchanged`, `PullRequestCooldown`, `PullRequestDryRun`, `PullRequestDisabled` | Opt-in `export.pullRequest` automation status (see [GitOps integration](../guides/gitops-integration.md)) |
 
 `explanation.memory.finalAdjustment` can include `oomBump` when the published memory request was raised or held by `memory.oomBump`. The block is absent by default, so this note is not written until `oomBump` is set.

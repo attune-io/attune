@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/argorollout"
 	rsmetrics "github.com/attune-io/attune/internal/metrics"
 	"github.com/attune-io/attune/internal/operatormetrics"
 )
@@ -40,6 +41,15 @@ import (
 // discoverWorkloads finds workloads matching the policy's targetRef.
 func (r *AttunePolicyReconciler) discoverWorkloads(ctx context.Context, policy *attunev1alpha1.AttunePolicy) ([]client.Object, error) {
 	targetRef := policy.Spec.TargetRef
+	if targetRef.Kind == argorollout.Kind {
+		missing, err := r.rolloutCRDMissing()
+		if err != nil {
+			return nil, err
+		}
+		if missing {
+			return nil, errRolloutCRDMissing
+		}
+	}
 	namespace := policy.Namespace
 
 	// If a specific name is set, get that workload directly.
@@ -72,9 +82,12 @@ func (r *AttunePolicyReconciler) getWorkloadByName(ctx context.Context, namespac
 	if err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, obj); err != nil {
 		return nil, err
 	}
-	// Reject Deployment-owned ReplicaSets to prevent double-resizing.
+	// Reject owned ReplicaSets to prevent double-resizing.
 	if kind == "ReplicaSet" && isDeploymentOwned(obj) {
 		return nil, fmt.Errorf("ReplicaSet %s/%s is owned by a Deployment; target the Deployment instead", namespace, name)
+	}
+	if kind == "ReplicaSet" && isRolloutOwned(obj) {
+		return nil, fmt.Errorf("ReplicaSet %s/%s is owned by a Rollout; target the Rollout instead", namespace, name)
 	}
 	return obj, nil
 }
@@ -101,7 +114,7 @@ func (r *AttunePolicyReconciler) listWorkloadsBySelector(ctx context.Context, na
 		return nil, err
 	}
 	extracted := wk.extract(list)
-	// Filter out Deployment-owned ReplicaSets to prevent double-resizing.
+	// Filter out ReplicaSets owned by a Deployment or a Rollout.
 	if kind == "ReplicaSet" {
 		extracted = filterStandaloneReplicaSets(extracted)
 	}
@@ -197,6 +210,7 @@ func (r *AttunePolicyReconciler) isRollingOut(workload client.Object) bool {
 //
 // Patterns by kind:
 //   - Deployment: <name>-<replicaset-hash>-<pod-hash>
+//   - Rollout: same suffix as Deployment (pods are owned by ReplicaSets)
 //   - StatefulSet: <name>-<ordinal>
 //   - DaemonSet: <name>-<pod-hash>
 //   - Job: <name>-<pod-hash>
@@ -292,9 +306,20 @@ func statefulSetTemplateMidReplacement(s *appsv1.StatefulSet) bool {
 	return int64(s.Status.UpdatedReplicas) < target
 }
 
-func (r *AttunePolicyReconciler) emitRolloutInProgress(policy *attunev1alpha1.AttunePolicy, workloadName string) {
-	r.emitEventOnce(policy, corev1.EventTypeNormal, "RolloutInProgress", "resize",
-		"Resize deferred for workload %s: rollout in progress", workloadName)
+func (r *AttunePolicyReconciler) emitRolloutInProgress(policy *attunev1alpha1.AttunePolicy, workload client.Object) {
+	name := workload.GetName()
+	messageFmt := "Resize deferred for workload %s: rollout in progress"
+	args := []any{name}
+	if ro, ok := workload.(*argorollout.Rollout); ok {
+		if ro.Status.Abort {
+			messageFmt = "Resize deferred for workload %s: rollout in progress (phase %s, abort true)"
+			args = []any{name, ro.Status.Phase}
+		} else {
+			messageFmt = "Resize deferred for workload %s: rollout in progress (phase %s)"
+			args = []any{name, ro.Status.Phase}
+		}
+	}
+	r.emitEventOnce(policy, corev1.EventTypeNormal, "RolloutInProgress", "resize", messageFmt, args...)
 }
 
 // podSkippedForRollout reports a per-pod resize skip. currentHash is the
@@ -388,7 +413,7 @@ func (r *AttunePolicyReconciler) filterRolloutPods(
 		kept = append(kept, pods[i])
 	}
 	if skipped > 0 {
-		r.emitRolloutInProgress(policy, workloadName)
+		r.emitRolloutInProgress(policy, workload)
 	}
 	return kept
 }
@@ -557,7 +582,7 @@ func queryMetricsGrouped(ctx context.Context, collector rsmetrics.MetricsCollect
 }
 
 // isDeploymentOwned returns true if the object has an ownerReference with
-// kind=Deployment in the apps/v1 group.
+// kind=Deployment in the apps/v1 group. Controller is not required.
 func isDeploymentOwned(obj client.Object) bool {
 	for _, ref := range obj.GetOwnerReferences() {
 		if ref.Kind == "Deployment" && (ref.APIVersion == "apps/v1" || ref.APIVersion == "apps/v1beta1" || ref.APIVersion == "apps/v1beta2") {
@@ -567,14 +592,29 @@ func isDeploymentOwned(obj client.Object) bool {
 	return false
 }
 
-// filterStandaloneReplicaSets removes Deployment-owned ReplicaSets from the list,
-// returning only standalone ReplicaSets that are directly managed by users.
+// isRolloutOwned returns true when the controller owner is an
+// argoproj.io/v1alpha1 Rollout. A non-controller reference is kept.
+func isRolloutOwned(obj client.Object) bool {
+	for _, ref := range obj.GetOwnerReferences() {
+		if ref.Controller == nil || !*ref.Controller {
+			continue
+		}
+		if ref.Kind == argorollout.Kind && ref.APIVersion == argorollout.Group+"/"+argorollout.Version {
+			return true
+		}
+	}
+	return false
+}
+
+// filterStandaloneReplicaSets removes ReplicaSets owned by a Deployment
+// or a Rollout. A standalone ReplicaSet is kept.
 func filterStandaloneReplicaSets(objects []client.Object) []client.Object {
 	result := make([]client.Object, 0, len(objects))
 	for _, obj := range objects {
-		if !isDeploymentOwned(obj) {
-			result = append(result, obj)
+		if isDeploymentOwned(obj) || isRolloutOwned(obj) {
+			continue
 		}
+		result = append(result, obj)
 	}
 	return result
 }

@@ -2264,8 +2264,11 @@ func printStructured(ctx context.Context, dynClient dynamic.Interface, namespace
 
 // filterPolicies returns items matching the given filter keyword based on the
 // Ready condition reason and message. Supported filters: degraded, pending,
-// collecting, ready, noworkloads, conflictcheckfailed, invalidconfig.
-// Empty filter returns all items.
+// collecting, ready, noworkloads, conflictcheckfailed, invalidconfig,
+// workloadcrdmissing. Empty filter returns all items. The default branch
+// matches any other reason or message substring, so workloadcrdmissing
+// needs no special case. "ready" matches Monitoring and does not match
+// WorkloadCRDMissing.
 func filterPolicies(items []unstructured.Unstructured, filterFlag string) []unstructured.Unstructured {
 	if filterFlag == "" {
 		return items

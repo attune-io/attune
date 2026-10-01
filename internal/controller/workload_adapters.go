@@ -23,6 +23,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/attune-io/attune/internal/argorollout"
 )
 
 // WorkloadAdapter provides kind-specific behavior for a concrete workload instance.
@@ -118,6 +120,13 @@ var workloadKinds = map[string]workloadKind{
 			return extractItems[appsv1.ReplicaSet](list.(*appsv1.ReplicaSetList).Items)
 		},
 	},
+	argorollout.Kind: {
+		newObject: func() client.Object { return &argorollout.Rollout{} },
+		newList:   func() client.ObjectList { return &argorollout.RolloutList{} },
+		extract: func(list client.ObjectList) []client.Object {
+			return extractItems[argorollout.Rollout](list.(*argorollout.RolloutList).Items)
+		},
+	},
 }
 
 // newWorkloadAdapter wraps a client.Object in the appropriate WorkloadAdapter.
@@ -136,6 +145,8 @@ func newWorkloadAdapter(obj client.Object) WorkloadAdapter {
 		return &jobAdapter{Job: w}
 	case *appsv1.ReplicaSet:
 		return &replicaSetAdapter{ReplicaSet: w}
+	case *argorollout.Rollout:
+		return &rolloutAdapter{Rollout: w}
 	default:
 		return nil
 	}
@@ -362,3 +373,53 @@ func (a *replicaSetAdapter) IsRollingOut() bool {
 func (a *replicaSetAdapter) PodNameRegexSuffix() string { return "-[a-z0-9]{5}" }
 
 func (a *replicaSetAdapter) IsBatch() bool { return false }
+
+// --- Rollout ---
+
+// rolloutAdapter reads a local argoproj.io/v1alpha1 Rollout.
+// Pods are selected by spec.selector. Their controller owner is a
+// ReplicaSet, not the Rollout.
+type rolloutAdapter struct{ *argorollout.Rollout }
+
+func (a *rolloutAdapter) Object() client.Object { return a.Rollout }
+
+func (a *rolloutAdapter) PodSelectorLabels() map[string]string {
+	if a.Spec.Selector != nil {
+		return a.Spec.Selector.MatchLabels
+	}
+	return nil
+}
+
+func (a *rolloutAdapter) PodSelector() (labels.Selector, error) {
+	return selectorFrom(a.Spec.Selector, nil)
+}
+
+func (a *rolloutAdapter) PodSpec() *corev1.PodSpec {
+	return &a.Spec.Template.Spec
+}
+
+func (a *rolloutAdapter) IsRollingOut() bool {
+	// Abort is status.abort, not a phase. Phases are Healthy, Degraded,
+	// Progressing, and Paused. A held blue-green preview can be Paused
+	// with updatedReplicas already equal to spec.replicas. A 100% canary
+	// still in analysis is Progressing with the same replica match.
+	if a.Status.Abort {
+		return true
+	}
+	switch a.Status.Phase {
+	case "Paused", "Progressing":
+		return true
+	}
+	desired := int32(1)
+	if a.Spec.Replicas != nil {
+		desired = *a.Spec.Replicas
+	}
+	return a.Status.UpdatedReplicas < desired
+}
+
+// PodNameRegexSuffix matches the Deployment pod suffix. Rollout pods are
+// ReplicaSet pods, so a shorter suffix would also match a Deployment of
+// the same name.
+func (a *rolloutAdapter) PodNameRegexSuffix() string { return "-[a-z0-9]+-[a-z0-9]{5}" }
+
+func (a *rolloutAdapter) IsBatch() bool { return false }

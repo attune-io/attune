@@ -35,12 +35,12 @@ kubectl attune savings --sort-by savings -A
 |------|-------------|
 | `-w`, `--watch` | Continuously refresh the status table every 10 seconds. Press Ctrl+C to stop. Useful during initial data collection to track progress without manually re-running the command. |
 | `--sort-by` | Sort output by field: `name`, `namespace`, `savings`, or `age`. |
-| `--filter` | Filter policies by Ready condition reason or message: `degraded`, `pending`, `collecting`, `ready`, `noworkloads`, `conflictcheckfailed`, or `invalidconfig`. `collecting` matches `InsufficientData` only, not `ConflictCheckFailed`. |
+| `--filter` | Filter policies by Ready condition reason or message: `degraded`, `pending`, `collecting`, `ready`, `noworkloads`, `conflictcheckfailed`, `invalidconfig`, or `workloadcrdmissing`. `collecting` matches `InsufficientData` only, not `ConflictCheckFailed`. `ready` matches `Monitoring` and does not match `WorkloadCRDMissing`. |
 
 | Column | Description |
 |--------|-------------|
 | PENDING | Workloads with active recommendations that are still awaiting resize |
-| READY | Current `Ready` reason (`Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `MetricsUnavailable` (alias `PrometheusUnavailable`), `InvalidConfig`, `WorkloadDiscoveryFailed`, `ConflictCheckFailed`, `PrometheusSeriesCapped`, or `Paused`), or the current `Ready` condition message when `Ready=False` includes actionable details. `PrometheusSeriesCapped` is Ready True with a partial query result. |
+| READY | Current `Ready` reason (`Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `MetricsUnavailable` (alias `PrometheusUnavailable`), `InvalidConfig`, `WorkloadDiscoveryFailed`, `WorkloadCRDMissing`, `ConflictCheckFailed`, `PrometheusSeriesCapped`, or `Paused`), or the current `Ready` condition message when `Ready=False` includes actionable details. `PrometheusSeriesCapped` is Ready True with a partial query result. `WorkloadCRDMissing` means a Rollout policy's CRD is not installed. |
 | RESIZING | `InProgress`, `Idle`, `CooldownActive`, `NamespaceFrozen`, `HPAListUnavailable`, `VPAListUnavailable`, or `-` (non-resize modes). Those last three reasons are copied from `ResizeBlocked`; `READY` can stay `Monitoring`. |
 | DEGRADED | `HighRevertRate` or `-` |
 | CANARY | Canary phase. With per-app rows: `CanaryInProgress (1/2 apps)`. Legacy: `CanaryInProgress (2 pods)`. `-` when mode is not Canary |
@@ -315,7 +315,7 @@ with `kubectl get attunepolicy -o json|yaml`.
 | `--output` | `-o` | `status`: raw `AttunePolicy` objects as `json` or `yaml`. `diff`: YAML patch manifests (`-o yaml` only). `savings` and `recommendations`: `csv` |
 | `--watch` | `-w` | Continuously refresh status every 10 seconds (`status` only) |
 | `--sort-by` | | Sort output: `name`, `namespace`, `savings`, `age` (`status` and `savings` only) |
-| `--filter` | | Filter by Ready reason or message: `degraded`, `pending`, `collecting`, `ready`, `noworkloads`, `conflictcheckfailed`, `invalidconfig` (`status` only) |
+| `--filter` | | Filter by Ready reason or message: `degraded`, `pending`, `collecting`, `ready`, `noworkloads`, `conflictcheckfailed`, `invalidconfig`, `workloadcrdmissing` (`status` only) |
 | `--all-contexts` | | Query all kubeconfig contexts and merge results (`status`, `savings`, `recommendations`, `history`, `diff`) |
 | `--contexts` | | Comma-separated list of specific kubeconfig contexts to query (same commands as `--all-contexts`) |
 

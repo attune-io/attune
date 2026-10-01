@@ -34,7 +34,7 @@ metadata:
 spec:
   # Target workload(s) to right-size.
   targetRef:
-    kind: Deployment            # Deployment | StatefulSet | DaemonSet | CronJob | Job | ReplicaSet
+    kind: Deployment            # Deployment | StatefulSet | DaemonSet | CronJob | Job | ReplicaSet | Rollout
     name: my-app                # optional: target a specific workload
     selector:                   # optional: target by label selector
       matchLabels:
@@ -214,7 +214,8 @@ the estimator chain: `rawPercentile`, `overhead`, `afterOverhead`,
 
 | Type | Reasons | Description |
 |------|---------|-------------|
-| `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `MetricsUnavailable` (alias `PrometheusUnavailable`), `InvalidConfig`, `WorkloadDiscoveryFailed`, `ConflictCheckFailed`, `Paused`, `PrometheusSeriesCapped` | Overall health. `PrometheusSeriesCapped` keeps Ready True: the reconcile succeeded and the query result is partial. See [Ready reason: PrometheusSeriesCapped](../guides/scaling.md#ready-reason-prometheusseriescapped). |
+| `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `MetricsUnavailable` (alias `PrometheusUnavailable`), `InvalidConfig`, `WorkloadDiscoveryFailed`, `WorkloadCRDMissing`, `ConflictCheckFailed`, `Paused`, `PrometheusSeriesCapped` | Overall health. `PrometheusSeriesCapped` keeps Ready True: the reconcile succeeded and the query result is partial. See [Ready reason: PrometheusSeriesCapped](../guides/scaling.md#ready-reason-prometheusseriescapped). `WorkloadCRDMissing` means `targetRef.kind` is `Rollout` and the `argoproj.io/v1alpha1` Rollout CRD is not installed. |
+| `TemplatePersistence` | `TemplateWorkloadRef` | False when a Rollout `spec.workloadRef` is set, so Attune does not patch that template. Ready is unchanged. |
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Latest reconcile, only in resize modes. `InProgress` means this cycle resized at least one workload in place, or a conflict retry merged a successful in-place row written during this reconcile. A success from an earlier hour does not count. `CooldownActive` means every workload that has a recommendation this cycle is still cooling and this cycle resized nothing. `Idle` means this cycle resized nothing and cooldown is not active. |
 | `Degraded` | `HighRevertRate` | High revert rate detected (3+ of last 5 reverted) |
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Whether the current time is within the configured resize schedule window |
@@ -267,7 +268,7 @@ View them with `kubectl describe attunepolicy <name>` or
 | `RestartOnResize` | Normal | Container will restart on resize due to `RestartContainer` resize policy |
 | `MemoryLimitClamped` | Normal | Memory limit decrease skipped due to K8s v1.33 restriction |
 | `PolicyConflict` | Warning | Multiple policies target the same workload |
-| `RolloutInProgress` | Normal | Resize skip for Auto, OneShot, and Canary during a real replacement. Recommendations are still computed. OnDelete is not a rollout. A Deployment with availableReplicas behind, or a ReplicaSet with readyReplicas behind, is not a rollout when generation is observed and no old pods remain. |
+| `RolloutInProgress` | Normal | Resize skip for Auto, OneShot, and Canary during a real replacement. Recommendations are still computed. OnDelete is not a rollout. A Deployment with availableReplicas behind, or a ReplicaSet with readyReplicas behind, is not a rollout when generation is observed and no old pods remain. A Rollout message includes the phase, and `abort true` when `status.abort` is set. |
 | `WorkloadOptOut` | Normal | Workload opted out via annotation |
 
 Events use 1-hour deduplication to prevent log spam. Identical events are emitted at most once per hour; condition changes produce new events immediately. Specific events can be suppressed per-policy using the `attune.io/suppress-warnings` annotation (comma-separated list of event reasons).

@@ -23,6 +23,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
@@ -30,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/argorollout"
 	"github.com/attune-io/attune/internal/operatormetrics"
 	"github.com/attune-io/attune/internal/resize"
 	"github.com/attune-io/attune/internal/safety"
@@ -267,12 +269,16 @@ func (r *AttunePolicyReconciler) restoreTemplateAfterSafetyRevert(
 			continue
 		}
 		switch workloadKindName(w) {
-		case "Deployment", "StatefulSet":
+		case "Deployment", "StatefulSet", argorollout.Kind:
 			workload = w
 		}
 		break
 	}
 	if workload == nil {
+		return nil
+	}
+	if rolloutTemplateSkipped(workload) {
+		markTemplateWorkloadRef(policy)
 		return nil
 	}
 
@@ -339,6 +345,11 @@ func (r *AttunePolicyReconciler) applyTemplatePersistence(
 
 	var history []attunev1alpha1.ResizeHistoryEntry
 	now := metav1.NewTime(r.now())
+	if anyRolloutWorkloadRef(workloads) {
+		markTemplateWorkloadRef(policy)
+	} else {
+		meta.RemoveStatusCondition(&policy.Status.Conditions, attunev1alpha1.ConditionTemplatePersistence)
+	}
 
 	for _, rec := range recommendations {
 		if onlyWorkloads != nil && !onlyWorkloads[rec.Workload] {
@@ -363,10 +374,15 @@ func (r *AttunePolicyReconciler) applyTemplatePersistence(
 			kind = rec.Kind
 		}
 		switch kind {
-		case "Deployment", "StatefulSet":
+		case "Deployment", "StatefulSet", argorollout.Kind:
 		default:
 			logger.V(1).Info("Template persistence skips unsupported kind",
 				"workload", rec.Workload, "kind", kind)
+			continue
+		}
+		if rolloutTemplateSkipped(w) {
+			logger.Info("Skipping Rollout template patch because spec.workloadRef is set",
+				"workload", rec.Workload)
 			continue
 		}
 		if templatePersistenceBlockedByRollout(w) {
@@ -510,6 +526,20 @@ func (r *AttunePolicyReconciler) patchWorkloadTemplateResources(
 			}
 			changed = true
 			return r.Patch(ctx, &sts, client.MergeFrom(original))
+		case *argorollout.Rollout:
+			var ro argorollout.Rollout
+			if err := r.liveReader().Get(ctx, key, &ro); err != nil {
+				return err
+			}
+			if ro.Spec.WorkloadRef != nil {
+				return nil
+			}
+			original := ro.DeepCopy()
+			if !applyResourcesToPodSpec(&ro.Spec.Template.Spec, desired, replace, liveEnvelope) {
+				return nil
+			}
+			changed = true
+			return r.Patch(ctx, &ro, client.MergeFrom(original))
 		default:
 			return fmt.Errorf("unsupported workload type %T", workload)
 		}
@@ -686,6 +716,8 @@ func workloadPodSpec(w client.Object) *corev1.PodSpec {
 		return &o.Spec.Template.Spec
 	case *appsv1.StatefulSet:
 		return &o.Spec.Template.Spec
+	case *argorollout.Rollout:
+		return &o.Spec.Template.Spec
 	default:
 		return nil
 	}
@@ -724,9 +756,44 @@ func workloadKindName(w client.Object) string {
 		return "Job"
 	case *batchv1.CronJob:
 		return "CronJob"
+	case *argorollout.Rollout:
+		return argorollout.Kind
 	default:
 		return w.GetObjectKind().GroupVersionKind().Kind
 	}
+}
+
+const templateWorkloadRefMessage = "Rollout spec.workloadRef is set, so Attune does not patch that template"
+
+// rolloutTemplateSkipped reports a Rollout whose pod template lives on
+// another workload. Attune does not follow spec.workloadRef.
+func rolloutTemplateSkipped(w client.Object) bool {
+	ro, ok := w.(*argorollout.Rollout)
+	return ok && ro.Spec.WorkloadRef != nil
+}
+
+func anyRolloutWorkloadRef(workloads []client.Object) bool {
+	for _, w := range workloads {
+		if rolloutTemplateSkipped(w) {
+			return true
+		}
+	}
+	return false
+}
+
+// markTemplateWorkloadRef records why the Rollout template was left alone.
+// It does not change Ready. Resize of the Rollout's pods still proceeds.
+func markTemplateWorkloadRef(policy *attunev1alpha1.AttunePolicy) {
+	if policy == nil {
+		return
+	}
+	meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+		Type:               attunev1alpha1.ConditionTemplatePersistence,
+		Status:             metav1.ConditionFalse,
+		Reason:             attunev1alpha1.ReasonTemplateWorkloadRef,
+		Message:            templateWorkloadRefMessage,
+		ObservedGeneration: policy.Generation,
+	})
 }
 
 // isSuccessfulResizeForPersist reports whether history should trigger

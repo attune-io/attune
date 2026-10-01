@@ -23,6 +23,8 @@ import (
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/attune-io/attune/internal/argorollout"
 )
 
 // workloadScaleState is whether apply should run for a workload.
@@ -74,6 +76,8 @@ func workloadSpecReplicas(obj client.Object) *int32 {
 	case *appsv1.StatefulSet:
 		return w.Spec.Replicas
 	case *appsv1.ReplicaSet:
+		return w.Spec.Replicas
+	case *argorollout.Rollout:
 		return w.Spec.Replicas
 	default:
 		return nil

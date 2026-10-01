@@ -632,7 +632,7 @@ func (r *AttunePolicyReconciler) executeResizes(
 
 		if r.isRollingOut(matchedWorkload) {
 			logger.Info("Skipping resize mid-rollout", "workload", rec.Workload)
-			r.emitRolloutInProgress(policy, rec.Workload)
+			r.emitRolloutInProgress(policy, matchedWorkload)
 			continue
 		}
 

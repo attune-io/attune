@@ -275,3 +275,18 @@ tests:
             verbs:
               - patch
               - update
+  - it: should include argoproj.io rollouts get list watch patch and update
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - argoproj.io
+            resources:
+              - rollouts
+            verbs:
+              - get
+              - list
+              - watch
+              - patch
+              - update

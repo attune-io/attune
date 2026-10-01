@@ -180,7 +180,7 @@ namespace. This is usually a typo in the workload name or an incorrect
     ```
 
 3. Ensure the `targetRef.kind` matches the workload type (`Deployment`,
-   `StatefulSet`, `DaemonSet`, `ReplicaSet`, `Job`, or `CronJob`).
+   `StatefulSet`, `DaemonSet`, `ReplicaSet`, `Job`, `CronJob`, or `Rollout`).
 
 ### ConflictCheckFailed
 
@@ -326,13 +326,36 @@ for example an unsupported kind, an invalid selector, or a client/list error.
 **Fix**:
 
 1. Verify `spec.targetRef.kind` is one of `Deployment`, `StatefulSet`,
-   `DaemonSet`, `CronJob`, `Job`, or `ReplicaSet`.
+   `DaemonSet`, `CronJob`, `Job`, `ReplicaSet`, or `Rollout`.
 2. If you use `targetRef.name`, confirm the workload exists in the same
    namespace as the policy.
 3. If you use `targetRef.selector`, confirm it matches at least one workload
    and includes real `matchLabels` or `matchExpressions` entries.
 4. Check operator logs for the exact discovery error if the target still
    looks correct.
+
+### WorkloadCRDMissing
+
+**Symptom**: Ready condition is `False` with reason `WorkloadCRDMissing`
+and message `argoproj.io/v1alpha1 Rollout CRD is not installed`.
+
+**Cause**: `spec.targetRef.kind` is `Rollout`, and the Argo Rollouts CRD
+is not installed in this cluster. This is cluster state, not a bad policy.
+Attune does not watch Rollout and does not install the CRD. Reconcile
+succeeds and retries every couple of minutes. A missing Rollout object
+uses `NoWorkloadsFound` instead. A mapper error that is not "kind not
+found" uses `WorkloadDiscoveryFailed`.
+
+**Fix**:
+
+1. Install Argo Rollouts, or point the policy at a kind that exists.
+2. Confirm the CRD:
+
+    ```bash
+    kubectl get crd rollouts.argoproj.io
+    ```
+
+3. Policies that do not set `kind: Rollout` do not take this path.
 
 ### New pods still start at template size
 
