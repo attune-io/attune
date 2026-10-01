@@ -17,6 +17,7 @@ limitations under the License.
 package recommendation
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -546,4 +547,29 @@ func TestRecommendationEngine_ZeroCurrentBypassesChangeFilter(t *testing.T) {
 		"recommendation should not exceed max bound")
 	assert.GreaterOrEqual(t, recommended.MilliValue(), int64(50),
 		"recommendation should not go below min bound")
+}
+
+func TestForSurge_UsesOverallPercentileOnly(t *testing.T) {
+	profile := metrics.UsageProfile{
+		OverallPercentiles: metrics.PercentileSet{P50: 0.1, P95: 0.15, P99: 0.2},
+		DataPoints:         100,
+		Confidence:         1,
+	}
+	profile.HourlyPercentiles[4] = metrics.PercentileSet{P50: 5, P95: 5, P99: 5}
+	base := NewEngine(50, 0, resource.MustParse("1m"), resource.Quantity{}, 500, 500, EngineOpts{IsCPU: true, NoMax: true})
+	assert.Nil(t, (*RecommendationEngine)(nil).ForSurge(99))
+	assert.Equal(t, 0, (*RecommendationEngine)(nil).Percentile())
+
+	surged := base.ForSurge(99)
+	assert.Equal(t, 99, surged.Percentile())
+	_, expl, _ := surged.RecommendWithExplanation(profile, resource.MustParse("100m"))
+	assert.Equal(t, int64(200), expl.RawPercentile.MilliValue(), "overall p99 is 200m")
+
+	_, parentExpl, _ := base.RecommendWithExplanation(profile, resource.MustParse("100m"))
+	assert.Equal(t, int64(5000), parentExpl.RawPercentile.MilliValue(), "hour 4 p50 is 5 cores")
+
+	profile.HourlyPercentiles[1] = metrics.PercentileSet{P99: math.NaN()}
+	_, nanExpl, _ := surged.RecommendWithExplanation(profile, resource.MustParse("100m"))
+	assert.Equal(t, int64(200), nanExpl.RawPercentile.MilliValue(), "a NaN hour must not reach the short percentile")
+	assert.False(t, math.IsNaN(nanExpl.RawPercentile.AsApproximateFloat64()))
 }

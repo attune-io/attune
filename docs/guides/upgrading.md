@@ -10,6 +10,21 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### Usage surge is off until cpu.surge or memory.surge is set
+
+CPU and memory stay on the long history window unless that resource's
+`surge` block is set. An empty `surge: {}` turns the feature on for that
+resource and fills trigger ratio `1.5`, percentile `99`, and window `30m`.
+There is no cluster default unless an `AttuneDefaults` object sets `surge`.
+A policy that omits `surge` inherits a defaults surge. To keep a workload
+off, omit `surge` on both the policy and `AttuneDefaults`.
+
+When recent usage is hot, Attune shortens the history window for that
+resource. The parent percentile still describes the long window. The short
+window uses its own percentile and only the samples inside `surge.window`.
+One spike does not switch the window. `minimumDataPoints` still gates the
+long window.
+
 ### OOM bump is off until memory.oomBump is set
 
 Memory requests stay on the percentile path unless `memory.oomBump` is set.

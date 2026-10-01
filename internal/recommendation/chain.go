@@ -40,6 +40,9 @@ type RecommendationEngine struct {
 	confidenceMultiplier float64
 	confidenceExponent   float64
 	isCPU                bool
+	// overallOnly limits the percentile to the overall profile.
+	// The hour-of-day max stays on for the long window.
+	overallOnly bool
 }
 
 // EngineOpts holds optional parameters for NewEngine.
@@ -95,6 +98,27 @@ func NewEngine(percentile int, overhead float64, minBound, maxBound resource.Qua
 	}
 }
 
+// Percentile returns the percentile baked into the engine.
+// A nil engine returns 0.
+func (e *RecommendationEngine) Percentile() int {
+	if e == nil {
+		return 0
+	}
+	return e.percentile
+}
+
+// ForSurge copies the engine and reads percentile from the overall
+// profile only. A nil engine returns nil. The max bound pointer is shared.
+func (e *RecommendationEngine) ForSurge(percentile int) *RecommendationEngine {
+	if e == nil {
+		return nil
+	}
+	copied := *e
+	copied.percentile = percentile
+	copied.overallOnly = true
+	return &copied
+}
+
 // Recommend produces a resource recommendation for the given usage profile
 // and current allocation. It returns the recommended quantity and whether
 // the recommendation differs from the current value.
@@ -106,7 +130,7 @@ func (e *RecommendationEngine) Recommend(profile metrics.UsageProfile, current r
 // RecommendWithExplanation produces a resource recommendation and returns the
 // estimator-chain intermediate values that led to it.
 func (e *RecommendationEngine) RecommendWithExplanation(profile metrics.UsageProfile, current resource.Quantity) (recommended resource.Quantity, explanation RecommendationExplanation, changed bool) {
-	percentileEstimator := &PercentileEstimator{Percentile: e.percentile, IsCPU: e.isCPU}
+	percentileEstimator := &PercentileEstimator{Percentile: e.percentile, IsCPU: e.isCPU, OverallOnly: e.overallOnly}
 	selected := percentileEstimator.selectedMax(profile)
 	// A positive percentile is a real sample, even when DataPoints was left
 	// unset. Hold only when there is nothing to scale: non-finite values,

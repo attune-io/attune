@@ -3208,6 +3208,77 @@ func TestPrintEffectivePolicySummary_OOMBump(t *testing.T) {
 	})
 }
 
+func TestPrintEffectivePolicySummary_Surge(t *testing.T) {
+	// Not parallel: capture swaps os.Stdout.
+	capture := func(item unstructured.Unstructured, effective *attunev1alpha1.AttunePolicy, selected selectedDefaults) string {
+		r, w, err := os.Pipe()
+		require.NoError(t, err)
+		old := os.Stdout
+		os.Stdout = w
+		printEffectivePolicySummary(item, effective, selected)
+		require.NoError(t, w.Close())
+		os.Stdout = old
+		out, err := io.ReadAll(r)
+		require.NoError(t, err)
+		return string(out)
+	}
+	base := func() *attunev1alpha1.AttunePolicy {
+		return &attunev1alpha1.AttunePolicy{
+			Spec: attunev1alpha1.AttunePolicySpec{
+				UpdateStrategy: &attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeAuto},
+			},
+		}
+	}
+
+	t.Run("nil block prints no surge line", func(t *testing.T) {
+		item := unstructured.Unstructured{Object: map[string]interface{}{
+			"spec": map[string]interface{}{},
+		}}
+		got := capture(item, base(), selectedDefaults{})
+		assert.NotContains(t, got, "Surge")
+	})
+
+	t.Run("empty blocks after defaults show built-in values", func(t *testing.T) {
+		policy := base()
+		policy.Spec.CPU.Surge = &attunev1alpha1.Surge{}
+		policy.Spec.Memory.Surge = &attunev1alpha1.Surge{}
+		applyBuiltInDefaults(policy)
+		item := unstructured.Unstructured{Object: map[string]interface{}{
+			"spec": map[string]interface{}{
+				"cpu":    map[string]interface{}{"surge": map[string]interface{}{}},
+				"memory": map[string]interface{}{"surge": map[string]interface{}{}},
+			},
+		}}
+		got := capture(item, policy, selectedDefaults{})
+		assert.Contains(t, got, "Surge trigger ratio: 1.5 (source: built-in default, configured: <unset>)")
+		assert.Contains(t, got, "Surge percentile: 99 (source: built-in default, configured: <unset>)")
+		assert.Contains(t, got, "Surge window: 30m0s (source: built-in default, configured: <unset>)")
+	})
+
+	t.Run("inherited ratio keeps built-in inners labeled built-in", func(t *testing.T) {
+		defs := &attunev1alpha1.AttuneDefaults{
+			Spec: attunev1alpha1.AttuneDefaultsSpec{
+				CPU: &attunev1alpha1.ResourceConfig{
+					Surge: &attunev1alpha1.Surge{TriggerRatio: "2"},
+				},
+			},
+		}
+		policy := base()
+		mergeDefaultsIntoPolicy(policy, defs)
+		applyBuiltInDefaults(policy)
+		item := unstructured.Unstructured{Object: map[string]interface{}{
+			"spec": map[string]interface{}{},
+		}}
+		got := capture(item, policy, selectedDefaults{defaults: defs, source: sourceCluster})
+		assert.Contains(t, got, "Surge trigger ratio: 2 (source: cluster default, configured: <unset>)")
+		assert.Contains(t, got, "Surge percentile: 99 (source: built-in default, configured: <unset>)")
+		assert.Contains(t, got, "Surge window: 30m0s (source: built-in default, configured: <unset>)")
+		assert.Equal(t, "2", defs.Spec.CPU.Surge.TriggerRatio)
+		assert.Nil(t, defs.Spec.CPU.Surge.Percentile)
+		assert.Nil(t, defs.Spec.CPU.Surge.Window)
+	})
+}
+
 func TestPrintEffectivePolicySummary_NamespaceFreezeHelp(t *testing.T) {
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{

@@ -1532,6 +1532,11 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 			printEffectiveField("  Exclude from history", configuredExclude, effectiveExclude, selected, boostFromDefaults)
 		}
 	}
+	var cpuSurge *attunev1alpha1.Surge
+	if cpuDefaults != nil {
+		cpuSurge = cpuDefaults.Surge
+	}
+	printSurgeFields(item, "cpu", effective.Spec.CPU.Surge, cpuSurge, selected)
 
 	fmt.Println("  Memory:")
 	printEffectiveField("  Percentile", formatInt64Field(item, "spec", "memory", "percentile"), formatInt32Val(effective.Spec.Memory.Percentile), selected, memDefaults != nil && memDefaults.Percentile != 0)
@@ -1547,6 +1552,11 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 	printEffectiveField("  Max decrease", formatPercentInt64Ptr(rawInt64Field(item, "spec", "memory", "maxDecreasePercent")), formatPercentPtr(effective.Spec.Memory.MaxDecreasePercent), selected, memDefaults != nil && memDefaults.MaxDecreasePercent != nil)
 	printEffectiveField("  Decrease usage margin", formatPercentInt64Ptr(rawInt64Field(item, "spec", "memory", "decreaseUsageMarginPercent")), formatPercentPtr(effective.Spec.Memory.DecreaseUsageMarginPercent), selected, memDefaults != nil && memDefaults.DecreaseUsageMarginPercent != nil)
 	printEffectiveField("  Memory from CPU ratio", getNestedString(item, "spec", "memory", "memoryFromCpuRatio"), formatStringPtr(effective.Spec.Memory.MemoryFromCPURatio), selected, memDefaults != nil && memDefaults.MemoryFromCPURatio != nil)
+	var memSurge *attunev1alpha1.Surge
+	if memDefaults != nil {
+		memSurge = memDefaults.Surge
+	}
+	printSurgeFields(item, "memory", effective.Spec.Memory.Surge, memSurge, selected)
 	// A nil block stays off and prints nothing. Nil inners show the
 	// built-in default because ApplyBuiltInDefaults fills them when the
 	// block is set. This printer does not fill the block itself.
@@ -1628,6 +1638,30 @@ func metricsProviderConfigured(item unstructured.Unstructured) string {
 	default:
 		return unsetValue
 	}
+}
+
+// printSurgeFields prints surge inners when the block is set.
+// A nil block prints nothing. ApplyBuiltInDefaults fills empty inners first.
+func printSurgeFields(item unstructured.Unstructured, resourceName string, block, defaultsBlock *attunev1alpha1.Surge, selected selectedDefaults) {
+	if block == nil {
+		return
+	}
+	ratio := block.TriggerRatio
+	if ratio == "" {
+		ratio = attunev1alpha1.DefaultSurgeTriggerRatio
+	}
+	pct := strconv.FormatInt(int64(attunev1alpha1.DefaultSurgePercentile), 10)
+	if block.Percentile != nil {
+		pct = strconv.FormatInt(int64(*block.Percentile), 10)
+	}
+	window := attunev1alpha1.DefaultSurgeWindow.String()
+	if block.Window != nil && block.Window.Duration > 0 {
+		window = block.Window.Duration.String()
+	}
+	fromDefaults := defaultsBlock != nil
+	printEffectiveField("  Surge trigger ratio", getNestedString(item, "spec", resourceName, "surge", "triggerRatio"), ratio, selected, fromDefaults && defaultsBlock.TriggerRatio != "")
+	printEffectiveField("  Surge percentile", formatInt64Field(item, "spec", resourceName, "surge", "percentile"), pct, selected, fromDefaults && defaultsBlock.Percentile != nil)
+	printEffectiveField("  Surge window", getNestedString(item, "spec", resourceName, "surge", "window"), window, selected, fromDefaults && defaultsBlock.Window != nil)
 }
 
 func printEffectiveField(label, configured, effective string, selected selectedDefaults, inherited bool) {

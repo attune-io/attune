@@ -36,7 +36,8 @@ import (
 // BurstSensitivity, LimitMultiplier) are NOT set here. LimitMultiplier has
 // no built-in default: omitted keeps the live request-to-limit ratio.
 // The other fields are handled at their usage sites in
-// buildRecommendationEngines.
+// buildRecommendationEngines. A set oomBump or surge block is the
+// exception: unset inners are filled, and a nil block stays nil.
 func ApplyBuiltInDefaults(policy *attunev1alpha1.AttunePolicy) {
 	if policy.Spec.UpdateStrategy == nil {
 		policy.Spec.UpdateStrategy = &attunev1alpha1.UpdateStrategy{}
@@ -99,7 +100,27 @@ func ApplyBuiltInDefaults(policy *attunev1alpha1.AttunePolicy) {
 		policy.Spec.ExcludeKnownSidecars = &v
 	}
 	applyRuntimeProfileDefaults(policy)
+	applySurgeDefaults(policy.Spec.CPU.Surge)
+	applySurgeDefaults(policy.Spec.Memory.Surge)
 	applyOOMBumpDefaults(policy.Spec.Memory.OOMBump)
+}
+
+// applySurgeDefaults fills empty inners on a surge block.
+// A nil block stays nil, so the feature stays off. CPU and memory both fill.
+func applySurgeDefaults(block *attunev1alpha1.Surge) {
+	if block == nil {
+		return
+	}
+	if block.TriggerRatio == "" {
+		block.TriggerRatio = attunev1alpha1.DefaultSurgeTriggerRatio
+	}
+	if block.Percentile == nil {
+		v := attunev1alpha1.DefaultSurgePercentile
+		block.Percentile = &v
+	}
+	if block.Window == nil {
+		block.Window = &metav1.Duration{Duration: attunev1alpha1.DefaultSurgeWindow}
+	}
 }
 
 // applyOOMBumpDefaults fills nil fields on a memory oomBump block.
@@ -392,6 +413,37 @@ func MergeResourceConfig(policy *attunev1alpha1.ResourceConfig, defaults *attune
 		inherited = append(inherited, prefix+".decreaseUsageMarginPercent")
 	}
 	inherited = append(inherited, mergeOOMBump(policy, defaults, prefix)...)
+	inherited = append(inherited, mergeSurge(policy, defaults, prefix)...)
+	return inherited
+}
+
+// mergeSurge copies a defaults block when the policy omits surge.
+// An empty policy block stays on and fills only unset fields from defaults.
+func mergeSurge(policy, defaults *attunev1alpha1.ResourceConfig, prefix string) []string {
+	if defaults == nil || defaults.Surge == nil {
+		return nil
+	}
+	if policy.Surge == nil {
+		// Copy. ApplyBuiltInDefaults fills empty inners on this block, and
+		// explain reads the defaults object to decide which inners were set.
+		policy.Surge = defaults.Surge.DeepCopy()
+		return []string{prefix + ".surge"}
+	}
+	var inherited []string
+	dst := policy.Surge
+	src := defaults.Surge
+	if dst.TriggerRatio == "" && src.TriggerRatio != "" {
+		dst.TriggerRatio = src.TriggerRatio
+		inherited = append(inherited, prefix+".surge.triggerRatio")
+	}
+	if dst.Percentile == nil && src.Percentile != nil {
+		dst.Percentile = src.Percentile
+		inherited = append(inherited, prefix+".surge.percentile")
+	}
+	if dst.Window == nil && src.Window != nil {
+		dst.Window = src.Window
+		inherited = append(inherited, prefix+".surge.window")
+	}
 	return inherited
 }
 

@@ -686,6 +686,28 @@ startup can still count. A series with no pod label is not filtered
 **What it is not**: Setting `excludeFromHistory` to false. False keeps
 today's percentile and is not the fix for a stuck high recommendation.
 
+### Throttling while the long window still looks idle
+
+**Symptom**: The pod is CPU throttled now, but the long-window percentile
+still looks idle, so the recommendation does not rise.
+
+**Cause**: The parent percentile uses the full `historyWindow` (default
+168h) and the busiest hour. A short hot stretch is diluted. Burst
+detection is a multiplier on that same profile (`max > 3 * p95`), not a
+shorter window.
+
+**Fix**: Set `cpu.surge: {}` (or `memory.surge: {}` for memory). That
+turns the short window on and fills trigger ratio `1.5`, percentile `99`,
+and window `30m`. The feature stays off until the block is set. A policy
+that omits `surge` still inherits `surge` from `AttuneDefaults`. To keep
+a workload off, omit `surge` on both.
+
+When the short window is in use, `explanation.cpu.finalAdjustment` (or
+`explanation.memory.finalAdjustment`) contains `surge`. One spike does
+not switch the window. If the note is absent, the short percentile did
+not clear the trigger ratio, the short window did not contain enough
+finite samples, or the long window is still below `minimumDataPoints`.
+
 ### SafetyObservation stuck True
 
 **Symptom**: `SafetyObservation` stays True after resizes should have
