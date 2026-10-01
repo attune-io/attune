@@ -305,11 +305,10 @@ jobs:
       - name: Load cert-manager images into cluster
         shell: bash -Eeuo pipefail -x {0}
         run: |
-          k3d image import \
+          bash hack/k3d-image-import.sh "$CLUSTER_NAME" \
             /tmp/cert-manager-controller.tar \
             /tmp/cert-manager-webhook.tar \
-            /tmp/cert-manager-cainjector.tar \
-            -c "$CLUSTER_NAME"
+            /tmp/cert-manager-cainjector.tar
 
       - name: Download cert-manager manifest
         shell: bash -Eeuo pipefail -x {0}
@@ -324,7 +323,8 @@ jobs:
       - name: Load Prometheus and test images into cluster
         shell: bash -Eeuo pipefail -x {0}
         run: |
-          k3d image import /tmp/prometheus.tar /tmp/stress-ng.tar /tmp/busybox.tar -c "$CLUSTER_NAME"
+          bash hack/k3d-image-import.sh "$CLUSTER_NAME" \
+            /tmp/prometheus.tar /tmp/stress-ng.tar /tmp/busybox.tar
           bash hack/e2e-install-cert-manager.sh --wait-only
 
       - name: Install Prometheus
@@ -390,7 +390,7 @@ jobs:
             KO_DOCKER_REPO=attune ko build ./cmd/manager/ \
             --bare --tags=e2e --platform="linux/$(go env GOARCH)" \
             --tarball=/tmp/attune-e2e.tar --push=false
-          k3d image import /tmp/attune-e2e.tar -c "$CLUSTER_NAME"
+          bash hack/k3d-image-import.sh "$CLUSTER_NAME" /tmp/attune-e2e.tar
 
       - name: Verify operator image inside cluster
         shell: bash -Eeuo pipefail -x {0}
@@ -407,7 +407,7 @@ jobs:
             fi
             echo "::warning::attune:e2e not found inside cluster (attempt $attempt), re-importing..."
             sleep 5
-            k3d image import /tmp/attune-e2e.tar -c "$CLUSTER_NAME"
+            bash hack/k3d-image-import.sh "$CLUSTER_NAME" /tmp/attune-e2e.tar
             if (( attempt == 3 )); then
               echo "::error::attune:e2e image not available after 3 import attempts"
               docker exec "k3d-${CLUSTER_NAME}-server-0" crictl images || true

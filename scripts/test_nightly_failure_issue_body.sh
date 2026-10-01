@@ -34,4 +34,43 @@ body2=$("$SCRIPT" \
 echo "$body2" | grep -q 'Fuzz result: `failure`'
 echo "$body2" | grep -q 'Check the workflow run'
 
+# A cancelled matrix leg must name the step that was still running.
+# Post cleanup and the report job itself are not that step.
+FAKE="${TMP}/bin"
+mkdir -p "$FAKE"
+cat >"$FAKE/gh" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "api" ]]; then
+  cat <<'JSON'
+{"jobs":[
+  {"name":"E2E (K8s v1.34)","conclusion":"cancelled","steps":[
+    {"name":"Create k3d cluster","conclusion":"success"},
+    {"name":"Load Prometheus and test images into cluster","conclusion":"cancelled"},
+    {"name":"Post Run step-security/harden-runner","conclusion":"failure"}
+  ]},
+  {"name":"E2E (K8s v1.32)","conclusion":"success","steps":[]},
+  {"name":"Nightly Results","conclusion":"failure","steps":[
+    {"name":"Summary","conclusion":"failure"}
+  ]}
+]}
+JSON
+  exit 0
+fi
+echo "unexpected gh $*" >&2
+exit 1
+EOF
+chmod +x "$FAKE/gh"
+body3=$(PATH="$FAKE:$PATH" "$SCRIPT" \
+  --run-url 'https://example.com/actions/runs/907' \
+  --run-id 907 \
+  --repo attune-io/attune \
+  --e2e-result cancelled \
+  --fuzz-result success)
+echo "$body3" | grep -F -q 'Load Prometheus and test images into cluster' \
+  || { echo "$body3"; echo "missing cancelled step"; exit 1; }
+echo "$body3" | grep -F -q 'Post Run step-security/harden-runner' \
+  && { echo "$body3"; echo "post step leaked into the issue"; exit 1; }
+echo "$body3" | grep -F -q 'Nightly Results' \
+  && { echo "$body3"; echo "report job leaked into the issue"; exit 1; }
+
 echo "OK: nightly-failure-issue-body tests passed"
