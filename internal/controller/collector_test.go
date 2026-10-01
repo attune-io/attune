@@ -811,6 +811,83 @@ func TestCollectorCacheKey_DifferentQueryParametersDifferentKeys(t *testing.T) {
 	assert.NotEqual(t, key1, key2)
 }
 
+func TestCollectorCacheKey_SigV4RegionAndRole(t *testing.T) {
+	config := &attunev1alpha1.PrometheusConfig{Address: "https://aps.example/workspaces/ws"}
+	unsigned := collectorCacheKey(config, nil)
+	east := collectorCacheKey(config, &rsmetrics.CollectorOptions{
+		SigV4: &rsmetrics.SigV4Options{Region: "us-east-1", RoleARN: "arn:aws:iam::123456789012:role/a"},
+	})
+	west := collectorCacheKey(config, &rsmetrics.CollectorOptions{
+		SigV4: &rsmetrics.SigV4Options{Region: "us-west-2", RoleARN: "arn:aws:iam::123456789012:role/a"},
+	})
+	otherRole := collectorCacheKey(config, &rsmetrics.CollectorOptions{
+		SigV4: &rsmetrics.SigV4Options{Region: "us-east-1", RoleARN: "arn:aws:iam::123456789012:role/b"},
+	})
+	emptyRole := collectorCacheKey(config, &rsmetrics.CollectorOptions{
+		SigV4: &rsmetrics.SigV4Options{Region: "us-east-1"},
+	})
+	assert.NotEqual(t, unsigned, east)
+	assert.NotEqual(t, east, west)
+	assert.NotEqual(t, east, otherRole)
+	assert.NotEqual(t, east, emptyRole)
+	assert.Contains(t, east, "|sigv4:us-east-1|role:arn:aws:iam::123456789012:role/a")
+	assert.Contains(t, emptyRole, "|sigv4:us-east-1|role:")
+	assert.NotContains(t, unsigned, "|sigv4:")
+}
+
+func TestResolvePrometheusConfig_DefaultsCopySigV4(t *testing.T) {
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec:       attunev1alpha1.AttunePolicySpec{MetricsSource: attunev1alpha1.MetricsSource{}},
+	}
+	defaults := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{
+					Address: "https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-example",
+					SigV4: &attunev1alpha1.SigV4Config{
+						Region:  "us-east-1",
+						RoleARN: "arn:aws:iam::123456789012:role/attune-amp",
+					},
+				},
+			},
+		},
+	}
+	reconciler := newReconcilerWithClient(defaults)
+	config, discovered, err := reconciler.resolvePrometheusConfig(context.Background(), policy, defaults)
+	require.NoError(t, err)
+	assert.False(t, discovered)
+	require.NotNil(t, config.SigV4)
+	assert.Equal(t, "us-east-1", config.SigV4.Region)
+	assert.Equal(t, "arn:aws:iam::123456789012:role/attune-amp", config.SigV4.RoleARN)
+}
+
+func TestBuildCollectorOptions_SigV4SkipsOperatorBearer(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+	r.PrometheusUseServiceAccountToken = true
+	r.PrometheusBearerTokenSecretName = "attune-thanos-token"
+	r.Client = nil
+	r.readServiceAccountTokenFn = func() (string, error) {
+		t.Fatal("service account token must not be read when sigv4 is set")
+		return "", nil
+	}
+	config := &attunev1alpha1.PrometheusConfig{
+		Address: "https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-example",
+		SigV4: &attunev1alpha1.SigV4Config{
+			Region:  "us-east-1",
+			RoleARN: "arn:aws:iam::123456789012:role/attune-amp",
+		},
+	}
+	opts, err := r.buildCollectorOptions(context.Background(), "default", config, prometheusAuthContext{})
+	require.NoError(t, err)
+	require.NotNil(t, opts)
+	assert.Empty(t, opts.BearerToken)
+	require.NotNil(t, opts.SigV4)
+	assert.Equal(t, "us-east-1", opts.SigV4.Region)
+	assert.Equal(t, "arn:aws:iam::123456789012:role/attune-amp", opts.SigV4.RoleARN)
+}
+
 func TestCollectorCacheKey_QueryParametersDeterministic(t *testing.T) {
 	config := &attunev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
 	opts := &rsmetrics.CollectorOptions{

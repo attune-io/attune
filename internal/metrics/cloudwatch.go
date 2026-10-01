@@ -70,15 +70,9 @@ func NewCloudWatchCollector(ctx context.Context, region, clusterName, roleARN st
 	if err := validation.CloudWatchRoleARN(roleARN); err != nil {
 		return nil, fmt.Errorf("cloudwatch roleArn: %w", err)
 	}
-	cfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(region))
+	cfg, err := loadAWSConfig(ctx, region, roleARN)
 	if err != nil {
-		return nil, fmt.Errorf("loading AWS config: %w", err)
-	}
-
-	if roleARN != "" {
-		stsClient := sts.NewFromConfig(cfg)
-		creds := stscreds.NewAssumeRoleProvider(stsClient, roleARN)
-		cfg.Credentials = aws.NewCredentialsCache(creds)
+		return nil, err
 	}
 
 	return &CloudWatchCollector{
@@ -86,6 +80,27 @@ func NewCloudWatchCollector(ctx context.Context, region, clusterName, roleARN st
 		clusterName: clusterName,
 		logger:      logger,
 	}, nil
+}
+
+// loadAWSConfig loads the default credential chain for region.
+// An empty region is rejected before LoadDefaultConfig so AWS_REGION is not
+// used in place of the policy region. A set roleARN assumes that role.
+func loadAWSConfig(ctx context.Context, region, roleARN string) (aws.Config, error) {
+	if strings.TrimSpace(region) == "" {
+		return aws.Config{}, fmt.Errorf("AWS region is required")
+	}
+	cfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(region))
+	if err != nil {
+		return aws.Config{}, fmt.Errorf("loading AWS config: %w", err)
+	}
+	if roleARN != "" {
+		cfg.Credentials = assumeRoleProvider(sts.NewFromConfig(cfg), roleARN)
+	}
+	return cfg, nil
+}
+
+func assumeRoleProvider(client stscreds.AssumeRoleAPIClient, roleARN string) aws.CredentialsProvider {
+	return aws.NewCredentialsCache(stscreds.NewAssumeRoleProvider(client, roleARN))
 }
 
 // NewCloudWatchCollectorWithClient creates a collector with a pre-configured

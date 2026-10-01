@@ -129,6 +129,8 @@ restart cycle, is no longer necessary. A smart operator can now:
 
 All without a single pod restart.
 
+Amazon Managed Prometheus is a supported Prometheus auth mode and stays off unless sigv4 is set.
+
 ## Enter Attune
 
 **Attune is a Kubernetes operator built exclusively for in-place pod

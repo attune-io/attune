@@ -223,6 +223,9 @@ func collectorCacheKey(config *attunev1alpha1.PrometheusConfig, opts *rsmetrics.
 			key += fmt.Sprintf("|qp:%s=%s", k, opts.QueryParameters[k])
 		}
 	}
+	if opts != nil && opts.SigV4 != nil {
+		key += fmt.Sprintf("|sigv4:%s|role:%s", opts.SigV4.Region, opts.SigV4.RoleARN)
+	}
 	return key
 }
 
@@ -971,6 +974,7 @@ func (r *AttunePolicyReconciler) buildCollectorOptions(ctx context.Context, name
 	}
 	// MaxSeries: 0 on flag = collector default; negative = unlimited.
 	needOpts := config.Headers != nil || config.QueryParameters != nil || config.BearerTokenSecret != nil ||
+		config.SigV4 != nil ||
 		(config.TLS != nil && config.TLS.InsecureSkipVerify) || r.MaxPrometheusSeries != 0 ||
 		r.prometheusOperatorAuthConfigured()
 	if !needOpts {
@@ -984,6 +988,13 @@ func (r *AttunePolicyReconciler) buildCollectorOptions(ctx context.Context, name
 	}
 	if config.TLS != nil {
 		opts.InsecureSkipVerify = config.TLS.InsecureSkipVerify
+	}
+	if config.SigV4 != nil {
+		opts.SigV4 = &rsmetrics.SigV4Options{
+			Region:  config.SigV4.Region,
+			RoleARN: config.SigV4.RoleARN,
+		}
+		return opts, nil
 	}
 	token, err := r.resolvePrometheusBearerToken(ctx, namespace, config, auth)
 	if err != nil {

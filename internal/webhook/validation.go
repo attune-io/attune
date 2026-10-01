@@ -810,9 +810,12 @@ func validateMetricsSourceProviderFields(ms *attunev1alpha1.MetricsSource) error
 			return fmt.Errorf("metricsSource.vpa.name is required")
 		}
 	}
-	if prometheus := ms.Prometheus; prometheus != nil && prometheus.BearerTokenSecret != nil {
-		if strings.Contains(prometheus.BearerTokenSecret.Name, "/") {
+	if prometheus := ms.Prometheus; prometheus != nil {
+		if prometheus.BearerTokenSecret != nil && strings.Contains(prometheus.BearerTokenSecret.Name, "/") {
 			return fmt.Errorf("metricsSource.prometheus.bearerTokenSecret.name must not contain '/'; secrets are read from the policy's namespace")
+		}
+		if err := validatePrometheusSigV4(prometheus); err != nil {
+			return err
 		}
 	}
 	if dd := ms.Datadog; dd != nil {
@@ -858,6 +861,30 @@ func validateMetricsSourceProviderFields(ms *attunev1alpha1.MetricsSource) error
 	case "", "Max", "Avg", "None":
 	default:
 		return fmt.Errorf("metricsSource.podAggregation: must be Max, Avg, or None, got %q", ms.PodAggregation)
+	}
+	return nil
+}
+
+func validatePrometheusSigV4(prometheus *attunev1alpha1.PrometheusConfig) error {
+	if prometheus == nil || prometheus.SigV4 == nil {
+		return nil
+	}
+	if strings.TrimSpace(prometheus.SigV4.Region) == "" {
+		return fmt.Errorf("metricsSource.prometheus.sigv4.region is required")
+	}
+	if prometheus.BearerTokenSecret != nil {
+		return fmt.Errorf("metricsSource.prometheus.sigv4 cannot be combined with bearerTokenSecret")
+	}
+	for name := range prometheus.Headers {
+		if strings.EqualFold(name, "Authorization") {
+			return fmt.Errorf("metricsSource.prometheus.sigv4 cannot be combined with an Authorization header")
+		}
+		if strings.HasPrefix(strings.ToLower(name), "x-amz-") {
+			return fmt.Errorf("metricsSource.prometheus.sigv4 cannot be combined with header %q", name)
+		}
+	}
+	if err := validation.CloudWatchRoleARN(prometheus.SigV4.RoleARN); err != nil {
+		return fmt.Errorf("metricsSource.prometheus.sigv4.roleArn: %w", err)
 	}
 	return nil
 }

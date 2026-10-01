@@ -191,6 +191,12 @@ spec:
       bearerTokenSecret:
         name: prometheus-token
         key: token
+      # Amazon Managed Prometheus replaces bearerTokenSecret with sigv4.
+      # Do not set both. The address is the workspace root. Attune appends
+      # /api/v1/query. region is required. roleArn is optional.
+      # sigv4:
+      #   region: us-east-1
+      #   roleArn: arn:aws:iam::123456789012:role/attune-amp
       tls:
         insecureSkipVerify: false
     # How far back to look for usage patterns

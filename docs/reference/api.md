@@ -52,6 +52,7 @@ spec:
       bearerTokenSecret:                  # optional: Secret in the policy namespace (deprecated on AttuneDefaults)
         name: prometheus-token
         key: token
+      # Amazon Managed Prometheus uses sigv4 instead of bearerTokenSecret. Do not set both.
       tls:                                # optional: TLS settings
         insecureSkipVerify: false
     # Alternative: consume VPA recommendations instead of querying Prometheus.
