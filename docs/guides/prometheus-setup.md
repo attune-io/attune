@@ -537,7 +537,7 @@ This creates 15 alerts covering the key operational signals:
 | `AttuneDegraded` | High revert rate sustained for 5m | critical |
 | `AttuneHighRevertRate` | More than 50% of resizes reverted in 15m | critical |
 | `AttuneReconcileStale` | No reconcile completes within 30m | warning |
-| `AttuneBudgetExhausted` | Resize budget exhausted for 30m | warning |
+| `AttuneBudgetExhausted` | Increase budget refused a resize in the last hour, for 30m: `BudgetExhausted` (retried later) or `IncreaseExceedsBudget` (larger than a per-minute or per-cycle cap) | warning |
 | `AttunePodsInfeasible` | Pods stuck Infeasible for in-place resize for 30m | warning |
 | `AttunePodsDeferred` | Pods stuck Deferred for in-place resize for 1h | warning |
 | `AttuneDataQuality` | NaN/Inf values from Prometheus for 30m | warning |

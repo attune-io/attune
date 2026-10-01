@@ -91,13 +91,16 @@ spec:
           labels:
             severity: {{ .Values.metrics.prometheusRule.rules.budgetExhausted.severity }}
           annotations:
-            summary: attune per-cycle budget repeatedly exhausted
+            summary: attune resize budget is blocking resizes
             description: >-
               Policy {{ "{{ $labels.namespace }}" }}/{{ "{{ $labels.policy }}" }}
-              has exhausted its per-cycle resize budget for over 30 minutes.
-              Resizes are being deferred. Consider increasing
-              maxTotalCPUIncrease/maxTotalMemoryIncrease or reducing the
-              number of targeted workloads.
+              had resizes refused by its increase budget in the last hour.
+              Check the policy events. BudgetExhausted: retried on a later cycle.
+              IncreaseExceedsBudget: one increase is larger than
+              maxCpuIncreasePerMinute, maxMemoryIncreasePerMinute,
+              maxTotalCpuIncrease, or maxTotalMemoryIncrease; waiting does not
+              help and this alert keeps firing until that cap is raised or the
+              target lowered. See troubleshooting "Budget exhausted".
         {{- end }}
         {{- if .Values.metrics.prometheusRule.rules.podsInfeasible.enabled }}
         - alert: AttunePodsInfeasible

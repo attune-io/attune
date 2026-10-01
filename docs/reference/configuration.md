@@ -96,7 +96,7 @@ Each alert rule supports `enabled`, `for`, and `severity`. Some rules have addit
 | `degraded` | critical | 5m | | Fires when workloads are in Degraded state |
 | `highRevertRate` | critical | 15m | `threshold` (default `"0.5"`) | Fires when revert rate exceeds 50% |
 | `reconcileStale` | warning | 5m | `staleDuration` (default `30m`) | Fires when no reconcile completes within the stale duration |
-| `budgetExhausted` | warning | 30m | | Fires when a policy's resize budget is exhausted |
+| `budgetExhausted` | warning | 30m | | Fires when a policy's increase budget refuses resizes, either deferred (`BudgetExhausted`) or blocked by a cap smaller than one increase (`IncreaseExceedsBudget`) |
 | `dataQuality` | warning | 30m | | Fires when NaN/Inf values are detected in Prometheus data |
 | `requestsClamped` | info | 1h | | Fires when recommended requests are clamped to limits |
 | `staleRecommendations` | warning | 1h | | Fires when recommendations are marked stale due to Prometheus data gaps |
