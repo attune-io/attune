@@ -107,13 +107,14 @@ func materializeContainerResources(
 	reqs := corev1.ResourceList{}
 	limits := corev1.ResourceList{}
 
+	cpuCfg, memCfg := attunev1alpha1.EffectiveContainerResources(policy, c.Name)
 	cpuAllowDec := true
-	if policy.Spec.CPU.AllowDecrease != nil {
-		cpuAllowDec = *policy.Spec.CPU.AllowDecrease
+	if cpuCfg.AllowDecrease != nil {
+		cpuAllowDec = *cpuCfg.AllowDecrease
 	}
 	memAllowDec := false
-	if policy.Spec.Memory.AllowDecrease != nil {
-		memAllowDec = *policy.Spec.Memory.AllowDecrease
+	if memCfg.AllowDecrease != nil {
+		memAllowDec = *memCfg.AllowDecrease
 	}
 
 	cpuReq := c.Recommended.CPURequest.DeepCopy()
@@ -132,12 +133,12 @@ func materializeContainerResources(
 	}
 
 	cpuCV := attunev1alpha1.DefaultControlledValues
-	if policy.Spec.CPU.ControlledValues != nil {
-		cpuCV = *policy.Spec.CPU.ControlledValues
+	if cpuCfg.ControlledValues != nil {
+		cpuCV = *cpuCfg.ControlledValues
 	}
 	memCV := attunev1alpha1.DefaultControlledValues
-	if policy.Spec.Memory.ControlledValues != nil {
-		memCV = *policy.Spec.Memory.ControlledValues
+	if memCfg.ControlledValues != nil {
+		memCV = *memCfg.ControlledValues
 	}
 
 	// Include recommended limits for clamp parity with buildResizeTarget.

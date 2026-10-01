@@ -91,3 +91,27 @@ func TestApplyBounds_ZeroMaxIsACap(t *testing.T) {
 	assert.True(t, zero.Equal(got), got.String())
 	assert.Equal(t, "max", which)
 }
+
+func TestApplyBounds_MaxAppliesAfterMin(t *testing.T) {
+	q, err := resource.ParseQuantity("100m")
+	assert.NoError(t, err)
+	min, err := resource.ParseQuantity("500m")
+	assert.NoError(t, err)
+	max, err := resource.ParseQuantity("200m")
+	assert.NoError(t, err)
+	got, which := applyBounds(q, min, &max)
+	assert.Equal(t, "max", which)
+	assert.True(t, max.Equal(got), got.String())
+}
+
+func TestApplyBounds_ZeroMaxKeepsFloorWhenRaised(t *testing.T) {
+	q, err := resource.ParseQuantity("0")
+	assert.NoError(t, err)
+	min, err := resource.ParseQuantity("1m")
+	assert.NoError(t, err)
+	max, err := resource.ParseQuantity("0")
+	assert.NoError(t, err)
+	got, which := applyBounds(q, min, &max)
+	assert.Equal(t, "min", which)
+	assert.True(t, min.Equal(got), got.String())
+}

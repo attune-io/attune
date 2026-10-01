@@ -52,8 +52,11 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 	}
 
 	// Build engines if not pre-built (used in tests).
-	if cpuEngine == nil || memEngine == nil {
-		cpuEngine, memEngine = buildRecommendationEngines(policy)
+	// A non-empty containerPolicies list builds per container below.
+	if policy == nil || len(policy.Spec.ContainerPolicies) == 0 {
+		if cpuEngine == nil || memEngine == nil {
+			cpuEngine, memEngine = buildRecommendationEngines(policy)
+		}
 	}
 	if excludeSet == nil {
 		excludeSet = pkgdefaults.EffectiveExcludedContainers(policy)
@@ -125,6 +128,8 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 			safeInt32(points),
 			1.0, // VPA does its own confidence internally
 			now)
+		cpuForContainer, memForContainer := enginesForContainer(policy, containerName, cpuEngine, memEngine)
+		cpuAllowDecrease, memAllowDecrease := containerDecreaseAllowed(policy, containerName)
 
 		explanation := &attunev1alpha1.ContainerRecommendationExplanation{}
 		cpuApplied := false
@@ -133,8 +138,7 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 		// Compute CPU recommendation through the standard engine pipeline.
 		if vpaRec.CPUSet {
 			var cpuExplain recommendation.RecommendationExplanation
-			cpuRec, cpuExplain, _ = cpuEngine.RecommendWithExplanation(cpuProfile, cRec.Current.CPURequest)
-			cpuAllowDecrease := policy.Spec.CPU.AllowDecrease == nil || *policy.Spec.CPU.AllowDecrease
+			cpuRec, cpuExplain, _ = cpuForContainer.RecommendWithExplanation(cpuProfile, cRec.Current.CPURequest)
 			cpuRec = r.enforceAllowDecrease(cpuAllowDecrease, cpuRec, cRec.Current.CPURequest, &cpuExplain, policy, containerName, "CPU")
 			cRec.Recommended.CPURequest = cpuRec
 			explanation.CPU = toAPIRecommendationExplanation(cpuExplain)
@@ -144,12 +148,11 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 		// Compute memory recommendation. When memoryFromCpuRatio is set,
 		// derive memory from the CPU recommendation instead of the VPA
 		// memory target (same as the Prometheus path).
-		memAllowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
 		ratioSet := memoryFromCPURatioSet(policy)
 		if cpuApplied && ratioSet && explanation.CPU != nil {
 			ratio := parseFloat64Ratio(*policy.Spec.Memory.MemoryFromCPURatio)
 			memRec, memExplain, applied := deriveMemoryFromCPU(
-				cpuRec, ratio, memEngine, vpaDataPoints, cRec.Current.MemoryRequest, memAllowDecrease)
+				cpuRec, ratio, memForContainer, vpaDataPoints, cRec.Current.MemoryRequest, memAllowDecrease)
 			if applied {
 				cRec.Recommended.MemoryRequest = memRec
 				memExplain.FinalAdjustment = appendNote(memExplain.FinalAdjustment,
@@ -175,7 +178,7 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 			continue
 		}
 		if explanation.Memory == nil && vpaRec.MemorySet && !ratioSet {
-			memRec, memExplain, _ := memEngine.RecommendWithExplanation(memProfile, cRec.Current.MemoryRequest)
+			memRec, memExplain, _ := memForContainer.RecommendWithExplanation(memProfile, cRec.Current.MemoryRequest)
 			memRec = r.enforceAllowDecrease(memAllowDecrease, memRec, cRec.Current.MemoryRequest, &memExplain, policy, containerName, "memory")
 			cRec.Recommended.MemoryRequest = memRec
 			explanation.Memory = toAPIRecommendationExplanation(memExplain)

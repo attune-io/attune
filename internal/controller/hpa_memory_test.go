@@ -852,3 +852,77 @@ func TestHPAMemoryAnnotationNames(t *testing.T) {
 	assert.Equal(t, "attune.io/original-container-memory", annotationHPAOriginalContainerMemory)
 	assert.NotEqual(t, annotationOriginalMemoryPrefix, annotationHPAOriginalMemoryRequest)
 }
+
+func TestRetuneHPAMemory_ContainerRequestsAndLimitsCapsBothMetrics(t *testing.T) {
+	t.Parallel()
+	both := attunev1alpha1.ControlledRequestsAndLimits
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.ContainerPolicies = []attunev1alpha1.ContainerResourcePolicy{{
+		ContainerName: "app",
+		Memory:        &attunev1alpha1.ResourceConfig{ControlledValues: &both},
+	}}
+	recommended := qty(t, "2Gi")
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", nil,
+		memoryResourceMetric(80),
+		memoryContainerMetric("app", 80),
+	)
+	pod := workloadPod("api-server", memContainer(t, "app", "512Mi", "512Mi"))
+	cl, _ := runMemoryRetune(t, memoryRetuneOpts{
+		policy: policy,
+		hpas:   []autoscalingv2.HorizontalPodAutoscaler{hpa},
+		pod:    &pod,
+		history: []attunev1alpha1.ResizeHistoryEntry{
+			memoryHistory("app", "1Gi", "512Mi"),
+		},
+		recs: []attunev1alpha1.WorkloadRecommendation{{
+			Workload: "api-server",
+			Kind:     "Deployment",
+			Containers: []attunev1alpha1.ContainerRecommendation{{
+				Name: "app",
+				Recommended: attunev1alpha1.ResourceValues{
+					MemoryLimit: recommended,
+				},
+			}},
+		}},
+	})
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(160), metricUtil(t, updated, 0), "pod metric uses the app RequestsAndLimits cap")
+	assert.Equal(t, int32(160), metricUtil(t, updated, 1), "container metric uses the app RequestsAndLimits cap")
+}
+
+func TestRetuneHPAMemory_ContainerRequestsOnlyOverridesPolicy(t *testing.T) {
+	t.Parallel()
+	both := attunev1alpha1.ControlledRequestsAndLimits
+	only := attunev1alpha1.ControlledRequestsOnly
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.Memory.ControlledValues = &both
+	policy.Spec.ContainerPolicies = []attunev1alpha1.ContainerResourcePolicy{{
+		ContainerName: "app",
+		Memory:        &attunev1alpha1.ResourceConfig{ControlledValues: &only},
+	}}
+	recommended := qty(t, "2Gi")
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", nil, memoryContainerMetric("app", 80))
+	pod := workloadPod("api-server", memContainer(t, "app", "512Mi", "512Mi"))
+	cl, _ := runMemoryRetune(t, memoryRetuneOpts{
+		policy: policy,
+		hpas:   []autoscalingv2.HorizontalPodAutoscaler{hpa},
+		pod:    &pod,
+		history: []attunev1alpha1.ResizeHistoryEntry{
+			memoryHistory("app", "1Gi", "512Mi"),
+		},
+		recs: []attunev1alpha1.WorkloadRecommendation{{
+			Workload: "api-server",
+			Kind:     "Deployment",
+			Containers: []attunev1alpha1.ContainerRecommendation{{
+				Name: "app",
+				Recommended: attunev1alpha1.ResourceValues{
+					MemoryLimit: recommended,
+				},
+			}},
+		}},
+	})
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(100), metricUtil(t, updated, 0), "container RequestsOnly keeps the live 512Mi cap")
+}

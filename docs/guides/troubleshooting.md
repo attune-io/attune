@@ -1552,6 +1552,29 @@ spec:
 `kubectl attune explain <policy>` prints `Exclude known sidecars` and the
 **effective** excluded set (known list union user list).
 
+### Sidecar and app share one max
+
+When `containerPolicies` is omitted, the sidecar and the app use the same
+`spec.cpu.maxAllowed` and `spec.memory.maxAllowed`. That is unchanged.
+Set `containerPolicies` when those containers need different ceilings.
+`excludedContainers` and `excludeKnownSidecars` still win: a named entry
+does not manage an excluded container. `istio-proxy` stays excluded while
+`excludeKnownSidecars` is unset. It is managed only when that field is
+`false` and the name is not listed in `excludedContainers`. A normal init
+container is not managed. A native sidecar (`restartPolicy: Always`) is.
+`startupBoost`, `limitMultiplier`, `oomBump`, and `surge` stay
+policy-wide. A container `maxAllowed` caps the boosted CPU.
+
+```yaml
+spec:
+  cpu:
+    maxAllowed: "4000m"
+  containerPolicies:
+    - containerName: sidecar
+      cpu:
+        maxAllowed: "200m"
+```
+
 ## Template persistence not updating the workload template
 
 Opt-in `updateStrategy.templatePersistence` patches Deployment/StatefulSet

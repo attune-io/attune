@@ -21,6 +21,8 @@ import (
 )
 
 // AttuneDefaultsSpec defines cluster-scoped default values for AttunePolicy resources.
+// containerPolicies is intentionally absent. AttuneNamespaceDefaults uses this
+// same spec, so per-container settings stay on AttunePolicy only.
 type AttuneDefaultsSpec struct {
 	// MetricsSource configures default metrics source settings.
 	// +optional

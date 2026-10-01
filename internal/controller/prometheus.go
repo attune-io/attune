@@ -244,8 +244,11 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 	}
 
 	// Fallback: build engines if not pre-built (used in tests).
-	if cpuEngine == nil || memEngine == nil {
-		cpuEngine, memEngine = buildRecommendationEngines(policy)
+	// A non-empty containerPolicies list builds per container below.
+	if policy == nil || len(policy.Spec.ContainerPolicies) == 0 {
+		if cpuEngine == nil || memEngine == nil {
+			cpuEngine, memEngine = buildRecommendationEngines(policy)
+		}
 	}
 	if excludeSet == nil {
 		excludeSet = pkgdefaults.EffectiveExcludedContainers(policy)
@@ -379,14 +382,15 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 			startupExcluded = startupDropped[sampleKey]
 			startupExcludeSkipped = startupSkipped[sampleKey]
 		}
+		cpuForContainer, memForContainer := enginesForContainer(policy, container.Name, cpuEngine, memEngine)
 		crec, ok, unfilled, pts := r.recommendContainer(ctx, recommendContainerInput{
 			policy:                policy,
 			workload:              workload,
 			container:             container,
 			cpuSamples:            samplesForContainer(cpuSamplesByContainer, container.Name),
 			memSamples:            samplesForContainer(memSamplesByContainer, container.Name),
-			cpuEngine:             cpuEngine,
-			memEngine:             memEngine,
+			cpuEngine:             cpuForContainer,
+			memEngine:             memForContainer,
 			pods:                  pods,
 			now:                   now,
 			minimumDataPoints:     minimumDataPoints,
@@ -563,6 +567,7 @@ func (r *AttunePolicyReconciler) recommendContainer(
 		(cpuProfile.Confidence+memProfile.Confidence)/2.0, now)
 
 	explanation := &attunev1alpha1.ContainerRecommendationExplanation{}
+	cpuAllowDecrease, memAllowDecrease := containerDecreaseAllowed(policy, containerName)
 
 	cpuApplied := false
 	if cpuProfile.DataPoints >= int(minimumDataPoints) {
@@ -574,7 +579,6 @@ func (r *AttunePolicyReconciler) recommendContainer(
 			cpuEng = cpuEngine.ForSurge(cpuSurge.percentile)
 		}
 		cpuRec, cpuExplain, _ := cpuEng.RecommendWithExplanation(cpuInput, rec.Current.CPURequest)
-		cpuAllowDecrease := policy.Spec.CPU.AllowDecrease == nil || *policy.Spec.CPU.AllowDecrease
 		cpuRec = r.enforceAllowDecrease(cpuAllowDecrease, cpuRec, rec.Current.CPURequest, &cpuExplain, policy, containerName, "CPU")
 		if cpuSurge.fired {
 			cpuExplain.FinalAdjustment = appendNote(cpuExplain.FinalAdjustment, surgeNote)
@@ -587,7 +591,7 @@ func (r *AttunePolicyReconciler) recommendContainer(
 	memApplied := false
 	if memoryFromCPURatioSet(policy) && explanation.CPU != nil {
 		ratio := parseFloat64Ratio(*policy.Spec.Memory.MemoryFromCPURatio)
-		allowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
+		allowDecrease := memAllowDecrease
 		memRec, memExplain, applied := deriveMemoryFromCPU(
 			rec.Recommended.CPURequest, ratio, memEngine, minimumDataPoints, rec.Current.MemoryRequest, allowDecrease)
 		if applied {
@@ -606,7 +610,6 @@ func (r *AttunePolicyReconciler) recommendContainer(
 			memEng = memEngine.ForSurge(memSurge.percentile)
 		}
 		memRec, memExplain, _ := memEng.RecommendWithExplanation(memInput, rec.Current.MemoryRequest)
-		memAllowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
 		memRec = r.enforceAllowDecrease(memAllowDecrease, memRec, rec.Current.MemoryRequest, &memExplain, policy, containerName, "memory")
 		if memSurge.fired {
 			memExplain.FinalAdjustment = appendNote(memExplain.FinalAdjustment, surgeNote)
@@ -641,7 +644,7 @@ func (r *AttunePolicyReconciler) recommendContainer(
 			partialUnfilled = true
 		}
 	}
-	recordQuerySettings(policy, explanation)
+	recordQuerySettings(policy, containerName, explanation)
 	if in.startupExcluded || in.startupExcludeSkipped {
 		if explanation.CPU != nil {
 			explanation.CPU.FinalAdjustment = appendStartupExcludeNotes(explanation.CPU.FinalAdjustment, in.startupExcluded, in.startupExcludeSkipped)
@@ -1182,18 +1185,19 @@ func burstSensitivityNote(raw *string) string {
 
 // recordQuerySettings stamps the PromQL aggregation and the burst
 // sensitivity that buildRecommendationEngines passed into the estimator.
-func recordQuerySettings(policy *attunev1alpha1.AttunePolicy, explanation *attunev1alpha1.ContainerRecommendationExplanation) {
+func recordQuerySettings(policy *attunev1alpha1.AttunePolicy, containerName string, explanation *attunev1alpha1.ContainerRecommendationExplanation) {
 	if explanation == nil {
 		return
 	}
+	cpuCfg, memCfg := attunev1alpha1.EffectiveContainerResources(policy, containerName)
 	agg := podAggregationNote(policy)
 	if explanation.CPU != nil {
 		explanation.CPU.FinalAdjustment = appendNote(explanation.CPU.FinalAdjustment, agg)
-		explanation.CPU.FinalAdjustment = appendNote(explanation.CPU.FinalAdjustment, burstSensitivityNote(policy.Spec.CPU.BurstSensitivity))
+		explanation.CPU.FinalAdjustment = appendNote(explanation.CPU.FinalAdjustment, burstSensitivityNote(cpuCfg.BurstSensitivity))
 	}
 	if explanation.Memory != nil {
 		explanation.Memory.FinalAdjustment = appendNote(explanation.Memory.FinalAdjustment, agg)
-		explanation.Memory.FinalAdjustment = appendNote(explanation.Memory.FinalAdjustment, burstSensitivityNote(policy.Spec.Memory.BurstSensitivity))
+		explanation.Memory.FinalAdjustment = appendNote(explanation.Memory.FinalAdjustment, burstSensitivityNote(memCfg.BurstSensitivity))
 	}
 }
 
@@ -1652,52 +1656,60 @@ func toAPIRecommendationExplanation(explanation recommendation.RecommendationExp
 // buildRecommendationEngines creates CPU and memory recommendation engines
 // from the policy's configuration, falling back to defaults.
 func buildRecommendationEngines(policy *attunev1alpha1.AttunePolicy) (cpuEngine, memEngine *recommendation.RecommendationEngine) {
-	cpuPercentile := int(policy.Spec.CPU.Percentile)
+	return buildEnginesFromResourceConfig(policy.Spec.CPU, policy.Spec.Memory)
+}
+
+// buildEnginesFromResourceConfig creates CPU and memory engines from already
+// resolved resource configs. Percentile 0 and empty overhead fall back to
+// built-in defaults here. Callers must not write those defaults onto a
+// container struct before this call. An omitted maxAllowed stays uncapped.
+func buildEnginesFromResourceConfig(cpuCfg, memCfg attunev1alpha1.ResourceConfig) (cpuEngine, memEngine *recommendation.RecommendationEngine) {
+	cpuPercentile := int(cpuCfg.Percentile)
 	if cpuPercentile == 0 {
 		cpuPercentile = int(attunev1alpha1.DefaultCPUPercentile)
 	}
-	memPercentile := int(policy.Spec.Memory.Percentile)
+	memPercentile := int(memCfg.Percentile)
 	if memPercentile == 0 {
 		memPercentile = int(attunev1alpha1.DefaultMemoryPercentile)
 	}
 
-	cpuOverhead := parseOverheadPercent(policy.Spec.CPU.Overhead, defaultCPUOverhead)
-	memOverhead := parseOverheadPercent(policy.Spec.Memory.Overhead, defaultMemoryOverhead)
+	cpuOverhead := parseOverheadPercent(cpuCfg.Overhead, defaultCPUOverhead)
+	memOverhead := parseOverheadPercent(memCfg.Overhead, defaultMemoryOverhead)
 
 	cpuBoundsMin := attunev1alpha1.DefaultCPUBoundsMin.DeepCopy()
 	var cpuBoundsMax k8sresource.Quantity
-	if policy.Spec.CPU.MinAllowed != nil {
-		cpuBoundsMin = policy.Spec.CPU.MinAllowed.DeepCopy()
+	if cpuCfg.MinAllowed != nil {
+		cpuBoundsMin = cpuCfg.MinAllowed.DeepCopy()
 	}
-	if policy.Spec.CPU.MaxAllowed != nil {
-		cpuBoundsMax = policy.Spec.CPU.MaxAllowed.DeepCopy()
+	if cpuCfg.MaxAllowed != nil {
+		cpuBoundsMax = cpuCfg.MaxAllowed.DeepCopy()
 	}
 
 	memBoundsMin := attunev1alpha1.DefaultMemoryBoundsMin.DeepCopy()
 	var memBoundsMax k8sresource.Quantity
-	if policy.Spec.Memory.MinAllowed != nil {
-		memBoundsMin = policy.Spec.Memory.MinAllowed.DeepCopy()
+	if memCfg.MinAllowed != nil {
+		memBoundsMin = memCfg.MinAllowed.DeepCopy()
 	}
-	if policy.Spec.Memory.MaxAllowed != nil {
-		memBoundsMax = policy.Spec.Memory.MaxAllowed.DeepCopy()
+	if memCfg.MaxAllowed != nil {
+		memBoundsMax = memCfg.MaxAllowed.DeepCopy()
 	}
 
 	// Resolve directional change caps with precedence:
 	// maxIncreasePercent/maxDecreasePercent > maxChangePercent > built-in default.
-	cpuIncrease, cpuDecrease := resolveChangeCaps(policy.Spec.CPU,
+	cpuIncrease, cpuDecrease := resolveChangeCaps(cpuCfg,
 		attunev1alpha1.DefaultCPUMaxChangePercent)
-	memIncrease, memDecrease := resolveChangeCaps(policy.Spec.Memory,
+	memIncrease, memDecrease := resolveChangeCaps(memCfg,
 		attunev1alpha1.DefaultMemoryMaxChangePercent)
 
 	// Parse per-resource burst sensitivity; nil means default (0.1).
-	cpuOpts := recommendation.EngineOpts{IsCPU: true, NoMax: policy.Spec.CPU.MaxAllowed == nil}
-	if policy.Spec.CPU.BurstSensitivity != nil {
-		bs := parseFloat64NonNeg(*policy.Spec.CPU.BurstSensitivity, recommendation.DefaultBurstSensitivity)
+	cpuOpts := recommendation.EngineOpts{IsCPU: true, NoMax: cpuCfg.MaxAllowed == nil}
+	if cpuCfg.BurstSensitivity != nil {
+		bs := parseFloat64NonNeg(*cpuCfg.BurstSensitivity, recommendation.DefaultBurstSensitivity)
 		cpuOpts.BurstSensitivity = &bs
 	}
-	memOpts := recommendation.EngineOpts{NoMax: policy.Spec.Memory.MaxAllowed == nil}
-	if policy.Spec.Memory.BurstSensitivity != nil {
-		bs := parseFloat64NonNeg(*policy.Spec.Memory.BurstSensitivity, recommendation.DefaultBurstSensitivity)
+	memOpts := recommendation.EngineOpts{NoMax: memCfg.MaxAllowed == nil}
+	if memCfg.BurstSensitivity != nil {
+		bs := parseFloat64NonNeg(*memCfg.BurstSensitivity, recommendation.DefaultBurstSensitivity)
 		memOpts.BurstSensitivity = &bs
 	}
 

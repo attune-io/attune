@@ -1585,6 +1585,8 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 		printEffectiveField("  OOM bump hold", getNestedString(item, "spec", "memory", "oomBump", "hold"), hold, selected, defaultsBump && memDefaults.OOMBump.Hold != nil)
 	}
 
+	printContainerPolicies(effective)
+
 	if blocked := resizeBlockedCLIReason(item); blocked != "" {
 		msg := getConditionMessage(item, "ResizeBlocked")
 		if msg == "" {
@@ -1804,6 +1806,60 @@ func formatInt64Field(obj unstructured.Unstructured, fields ...string) string {
 		return ""
 	}
 	return strconv.FormatInt(val, 10)
+}
+
+func printContainerPolicies(policy *attunev1alpha1.AttunePolicy) {
+	rows := attunev1alpha1.ExplainContainerPolicies(policy)
+	if len(rows) == 0 {
+		return
+	}
+	fmt.Println("  Container policies:")
+	for _, row := range rows {
+		fmt.Printf("    %s:\n", row.ContainerName)
+		printContainerPolicySide("CPU", row.CPU, row.CPUSources, attunev1alpha1.DefaultCPUPercentile)
+		printContainerPolicySide("Memory", row.Memory, row.MemorySources, attunev1alpha1.DefaultMemoryPercentile)
+	}
+}
+
+func printContainerPolicySide(label string, rc attunev1alpha1.ResourceConfig, sources attunev1alpha1.ContainerPolicyFieldSources, builtinPercentile int32) {
+	pctValue, pctSource, pctConfigured := formatContainerPercentile(rc.Percentile, sources.Percentile, builtinPercentile)
+	fmt.Printf("      %s percentile: %s (source: %s, configured: %s)\n", label, pctValue, pctSource, pctConfigured)
+	maxValue, maxSource, maxConfigured := formatContainerMax(rc.MaxAllowed, sources.MaxAllowed)
+	fmt.Printf("      %s max allowed: %s (source: %s, configured: %s)\n", label, maxValue, maxSource, maxConfigured)
+	cvValue, cvSource, cvConfigured := formatContainerControlledValues(rc.ControlledValues, sources.ControlledValues)
+	fmt.Printf("      %s controlled values: %s (source: %s, configured: %s)\n", label, cvValue, cvSource, cvConfigured)
+}
+
+func formatContainerPercentile(value int32, source attunev1alpha1.ContainerPolicySource, builtin int32) (effective, src, configured string) {
+	if value == 0 {
+		return strconv.FormatInt(int64(builtin), 10), sourceBuiltIn, unsetValue
+	}
+	shown := strconv.FormatInt(int64(value), 10)
+	if source == "" || source == attunev1alpha1.ContainerPolicySourcePolicy {
+		return shown, sourcePolicy, unsetValue
+	}
+	return shown, string(source), shown
+}
+
+func formatContainerMax(value *resource.Quantity, source attunev1alpha1.ContainerPolicySource) (effective, src, configured string) {
+	if value == nil {
+		return "none", sourcePolicy, unsetValue
+	}
+	shown := value.String()
+	if source == "" || source == attunev1alpha1.ContainerPolicySourcePolicy {
+		return shown, sourcePolicy, unsetValue
+	}
+	return shown, string(source), shown
+}
+
+func formatContainerControlledValues(value *string, source attunev1alpha1.ContainerPolicySource) (effective, src, configured string) {
+	if value == nil || *value == "" {
+		return attunev1alpha1.DefaultControlledValues, sourceBuiltIn, unsetValue
+	}
+	if source == "" || source == attunev1alpha1.ContainerPolicySourcePolicy {
+		return *value, sourcePolicy, unsetValue
+	}
+	return *value, string(source), *value
 }
 
 func formatInt32Val(value int32) string {

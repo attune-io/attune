@@ -47,9 +47,9 @@ to AttunePolicy fields:
 | VPA field | AttunePolicy field |
 |-----------|----------------------|
 | `targetRef` | `spec.targetRef` (same structure) |
-| `resourcePolicy.containerPolicies[].minAllowed` | `spec.cpu.minAllowed`, `spec.memory.minAllowed` |
-| `resourcePolicy.containerPolicies[].maxAllowed` | `spec.cpu.maxAllowed`, `spec.memory.maxAllowed` |
-| `resourcePolicy.containerPolicies[].controlledValues` | `spec.cpu.controlledValues`, `spec.memory.controlledValues` |
+| `resourcePolicy.containerPolicies[].minAllowed` | `spec.containerPolicies[].cpu.minAllowed` and `memory.minAllowed`, or `spec.cpu.minAllowed` / `spec.memory.minAllowed` when every container shares one bound |
+| `resourcePolicy.containerPolicies[].maxAllowed` | `spec.containerPolicies[].cpu.maxAllowed` and `memory.maxAllowed`, or the policy `cpu` / `memory` blocks for one shared bound |
+| `resourcePolicy.containerPolicies[].controlledValues` | `spec.containerPolicies[].cpu.controlledValues` and `memory.controlledValues`, or the policy blocks when every container shares one mode |
 | `updatePolicy.updateMode` | `spec.updateStrategy.type` |
 
 Example VPA:
@@ -108,6 +108,32 @@ spec:
     type: Recommend
     cooldown: 1h
     autoRevert: true
+```
+
+A single VPA `containerName: "*"` with shared bounds can stay on
+`spec.cpu` and `spec.memory`, as in the example above. When a sidecar
+and the app need different ceilings, map each VPA container policy onto
+`spec.containerPolicies`. `*` is a field-wise fallback. A literal name
+wins per field. `containerPolicies` is not set on `AttuneDefaults` or
+`AttuneNamespaceDefaults`. Known sidecars such as `istio-proxy` stay
+excluded until `excludeKnownSidecars` is false and the name is not
+listed. A normal init container is not managed. `startupBoost`,
+`memoryFromCpuRatio`, `decreaseUsageMarginPercent`, `limitMultiplier`,
+`oomBump`, and `surge` stay policy-wide, and a container `maxAllowed`
+caps startup boost.
+
+```yaml
+containerPolicies:
+  - containerName: "*"
+    cpu:
+      maxAllowed: "300m"
+  - containerName: sidecar
+    cpu:
+      maxAllowed: "200m"
+      controlledValues: RequestsOnly
+  - containerName: app
+    cpu:
+      controlledValues: RequestsAndLimits
 ```
 
 ### 3. Compare recommendations
