@@ -252,6 +252,9 @@ func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec) (admission.War
 		if err := validateSLOGuardrails(spec.UpdateStrategy.SLOGuardrails); err != nil {
 			return warnings, err
 		}
+		if err := validateHPATargetBounds(spec.UpdateStrategy); err != nil {
+			return warnings, err
+		}
 	}
 
 	// Validate historyWindow bounds.

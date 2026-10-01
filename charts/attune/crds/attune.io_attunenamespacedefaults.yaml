@@ -904,6 +904,53 @@ spec:
                             type: object
                         type: object
                     type: object
+                  hpaTargetBounds:
+                    description: |-
+                      HPATargetBounds optionally clamps auto-tuned HPA utilization
+                      percents after the limit cap. Unset means no user band. It does
+                      not turn auto-tune on. The HPA still needs attune.io/auto-tune=true.
+                    properties:
+                      cpu:
+                        description: CPU applies only to CPU utilization targets.
+                        properties:
+                          max:
+                            description: |-
+                              Max is the highest published percent. The limit cap can still
+                              publish a lower number.
+                            format: int32
+                            maximum: 10000
+                            minimum: 1
+                            type: integer
+                          min:
+                            description: |-
+                              Min is the lowest published percent. It cannot raise a target
+                              above the limit cap.
+                            format: int32
+                            maximum: 10000
+                            minimum: 1
+                            type: integer
+                        type: object
+                      memory:
+                        description: Memory applies only to memory utilization targets.
+                        properties:
+                          max:
+                            description: |-
+                              Max is the highest published percent. The limit cap can still
+                              publish a lower number.
+                            format: int32
+                            maximum: 10000
+                            minimum: 1
+                            type: integer
+                          min:
+                            description: |-
+                              Min is the lowest published percent. It cannot raise a target
+                              above the limit cap.
+                            format: int32
+                            maximum: 10000
+                            minimum: 1
+                            type: integer
+                        type: object
+                    type: object
                   includeExplanationsInStatus:
                     description: |-
                       IncludeExplanationsInStatus controls whether recommendation explanation

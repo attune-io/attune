@@ -115,10 +115,31 @@ actual usage.
 
 A memory HPA that uses utilization scales on usage divided by the request.
 Shrinking the memory request raises that percentage, so the HPA can add
-replicas. Attune does not retune memory targets. `memory.allowDecrease`
-defaults to false, so a default policy does not shrink memory requests.
-Do not turn that field on for a workload that also has a memory
-utilization HPA unless extra scale-ups are acceptable.
+replicas. When the HPA annotation `attune.io/auto-tune` is `"true"`, Attune
+retunes memory utilization targets in the same update as CPU.
+
+The new percent is the original target times the original request divided
+by the new request, truncated toward zero, then capped by the memory limit.
+A Resource metric uses the sum of container memory requests, so an unchanged
+container dilutes the ratio. A ContainerResource metric uses only that
+container. Object metrics and AverageValue targets are left unchanged.
+
+The original Resource target and request are stored on the HPA as
+`attune.io/original-target-memory` and `attune.io/original-memory-request`.
+ContainerResource baselines share one JSON annotation,
+`attune.io/original-container-memory`, keyed by container name. A later
+resize multiplies the stored original target by the stored request divided
+by the new request.
+
+`updateStrategy.hpaTargetBounds.memory` is an optional percent band. It is
+not filled with 50 and 90. Set `min` or `max` when you want a tighter range
+than the limit cap. 50 and 90 are a common choice. The limit cap still wins
+over a user minimum. CPU bounds do not apply to memory.
+
+`memory.allowDecrease` still defaults to false, so a default policy does
+not shrink memory requests. With auto-tune, a decrease moves the utilization
+target with the request instead of leaving the HPA to scale out. Nothing
+in the Helm chart turns the annotation on.
 
 ## Monitoring coexistence
 

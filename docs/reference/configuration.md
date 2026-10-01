@@ -333,6 +333,7 @@ that do not set them explicitly. Policy-level values always take precedence.
 | `sloGuardrails` | list | `[]` | Application-level SLO PromQL checks after resize |
 | `canary` | object | (none) | Canary rollout (percentage, observationPeriod). Omitted or `0s` `observationPeriod` uses the built-in observation period, not a rejected value. CREATE sizing, startup boost, and HPA stay off for an app until that app is promoted. |
 | `initialSizing` | bool | `false` | Enable mutating webhook for pod creation |
+| `hpaTargetBounds` | object | (none) | Optional percent band for auto-tuned HPA utilization targets. `cpu` and `memory` each have optional `min` and `max` from 1 to 10000. Unset means no band, so today's limit cap stays, including CPU targets above 90. 50 and 90 are a recommended opt-in, not a default. The band does not turn auto-tune on. |
 
 Request increases also skip when this pod plus other pods on the same
 node would exceed allocatable. That gate is always on and is not a
@@ -435,7 +436,7 @@ All fields from `AttuneDefaults` are available in
 | `metricsSource` | `prometheus.address`, `prometheus.headers`, `prometheus.queryParameters`, `prometheus.bearerTokenSecret`, `prometheus.tls`, `datadog.site`, `datadog.apiKeySecretRef`, `cloudwatch.region`, `cloudwatch.clusterName`, `cloudwatch.roleArn`, `cloudwatch.cpuUnit`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow`, `podAggregation`, `cpuRecordingMetric`, `memoryRecordingMetric` |
 | `cpu` | `percentile`, `overhead`, `minAllowed`, `maxAllowed`, `controlledValues`, `burstSensitivity`, `allowDecrease`, `startupBoost`, `surge`, `maxChangePercent`, `maxIncreasePercent`, `maxDecreasePercent` |
 | `memory` | Same as `cpu` (no `startupBoost`), plus `decreaseUsageMarginPercent`, `memoryFromCpuRatio`, `oomBump`, and `surge` |
-| `updateStrategy` | `type`, `cooldown`, `autoRevert`, `resizeMethod`, `initialSizing`, `maxConcurrentResizes`, `maxStatusRecommendations`, `includeExplanationsInStatus`, `maxTotalCpuIncrease`, `maxTotalMemoryIncrease`, `maxCpuIncreasePerMinute`, `maxMemoryIncreasePerMinute`, `schedule`, `export`, `canary`, `safetyObservationPeriod`, `sloGuardrails`, `templatePersistence` |
+| `updateStrategy` | `type`, `cooldown`, `autoRevert`, `resizeMethod`, `initialSizing`, `maxConcurrentResizes`, `maxStatusRecommendations`, `includeExplanationsInStatus`, `maxTotalCpuIncrease`, `maxTotalMemoryIncrease`, `maxCpuIncreasePerMinute`, `maxMemoryIncreasePerMinute`, `schedule`, `export`, `canary`, `safetyObservationPeriod`, `sloGuardrails`, `templatePersistence`, `hpaTargetBounds` |
 | `costPricing` | `cpuPerCoreHour`, `memoryPerGiBHour` |
 
 ## Alternative Metrics Sources

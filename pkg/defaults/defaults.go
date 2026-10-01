@@ -615,5 +615,47 @@ func MergeUpdateStrategy(policy *attunev1alpha1.UpdateStrategy, defaults *attune
 		policy.TemplatePersistence = defaults.TemplatePersistence
 		inherited = append(inherited, "templatePersistence")
 	}
+	inherited = append(inherited, mergeHPATargetBounds(policy, defaults)...)
+	return inherited
+}
+
+// mergeHPATargetBounds copies a defaults band when the policy omits it.
+// An empty policy band stays empty and fills only unset sides and pointers.
+// Copies do not share min or max pointers with the defaults object.
+func mergeHPATargetBounds(policy, defaults *attunev1alpha1.UpdateStrategy) []string {
+	if defaults == nil || defaults.HPATargetBounds == nil {
+		return nil
+	}
+	if policy.HPATargetBounds == nil {
+		policy.HPATargetBounds = defaults.HPATargetBounds.DeepCopy()
+		return []string{"hpaTargetBounds"}
+	}
+	cpu := mergeHPATargetBound(&policy.HPATargetBounds.CPU, defaults.HPATargetBounds.CPU, "hpaTargetBounds.cpu")
+	memory := mergeHPATargetBound(&policy.HPATargetBounds.Memory, defaults.HPATargetBounds.Memory, "hpaTargetBounds.memory")
+	inherited := make([]string, 0, len(cpu)+len(memory))
+	inherited = append(inherited, cpu...)
+	inherited = append(inherited, memory...)
+	return inherited
+}
+
+func mergeHPATargetBound(dst **attunev1alpha1.HPATargetBound, src *attunev1alpha1.HPATargetBound, prefix string) []string {
+	if src == nil {
+		return nil
+	}
+	if *dst == nil {
+		*dst = src.DeepCopy()
+		return []string{prefix}
+	}
+	var inherited []string
+	if (*dst).Min == nil && src.Min != nil {
+		v := *src.Min
+		(*dst).Min = &v
+		inherited = append(inherited, prefix+".min")
+	}
+	if (*dst).Max == nil && src.Max != nil {
+		v := *src.Max
+		(*dst).Max = &v
+		inherited = append(inherited, prefix+".max")
+	}
 	return inherited
 }
