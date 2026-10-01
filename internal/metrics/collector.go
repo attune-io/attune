@@ -269,7 +269,11 @@ type CollectorOptions struct {
 	// (e.g. "dedup=true" for Thanos Query).
 	QueryParameters map[string]string
 	// BearerToken is sent as "Authorization: Bearer <token>".
+	// Ignored when SigV4 is set.
 	BearerToken string
+	// SigV4 signs Amazon Managed Prometheus queries (service aps).
+	// Nil means do not sign.
+	SigV4 *SigV4Options
 	// InsecureSkipVerify disables TLS certificate verification.
 	InsecureSkipVerify bool
 	// TLSMinVersion is the minimum TLS version to accept (e.g. tls.VersionTLS12).
@@ -341,11 +345,14 @@ func NewPrometheusCollector(address string, logger logr.Logger, transport ...htt
 }
 
 // NewPrometheusCollectorWithOptions creates a collector with custom headers,
-// bearer token auth, and TLS settings for Prometheus-compatible backends.
+// bearer token auth, SigV4 for Amazon Managed Prometheus, and TLS settings.
+// When SigV4 is set the bearer token is not attached. Signing runs only for
+// the configured host, and only after the production SSRF check.
 func NewPrometheusCollectorWithOptions(address string, logger logr.Logger, opts *CollectorOptions, transport ...http.RoundTripper) (*PrometheusCollector, error) {
 	var rt http.RoundTripper
 	var httpTransport *http.Transport
-	if len(transport) > 0 && transport[0] != nil {
+	callerTransport := len(transport) > 0 && transport[0] != nil
+	if callerTransport {
 		rt = transport[0]
 		httpTransport, _ = rt.(*http.Transport)
 	} else {
@@ -367,13 +374,28 @@ func NewPrometheusCollectorWithOptions(address string, logger logr.Logger, opts 
 		rt = base
 	}
 
-	// Wrap with header/token injection if needed.
-	if opts != nil && (len(opts.Headers) > 0 || opts.BearerToken != "") {
+	// Outer RoundTrip order when SigV4 is set: query params, non-auth headers,
+	// signer, then the base transport. Bearer is not added on that path.
+	sigv4 := opts != nil && opts.SigV4 != nil
+	var headers map[string]string
+	bearer := ""
+	if opts != nil {
+		headers = opts.Headers
+		if !sigv4 {
+			bearer = opts.BearerToken
+		}
+	}
+	if sigv4 || len(headers) > 0 || bearer != "" {
 		parsedAddress, err := url.Parse(address)
 		if err != nil {
 			return nil, fmt.Errorf("parsing prometheus address: %w", err)
 		}
-		rt = &headerTransport{base: rt, headers: opts.Headers, bearerToken: opts.BearerToken, baseURL: parsedAddress}
+		if sigv4 {
+			rt = newSigV4Transport(rt, parsedAddress, opts.SigV4, !callerTransport, logger)
+		}
+		if len(headers) > 0 || bearer != "" {
+			rt = &headerTransport{base: rt, headers: headers, bearerToken: bearer, baseURL: parsedAddress}
+		}
 	}
 
 	// Wrap with query parameter injection if needed (Thanos, VictoriaMetrics).

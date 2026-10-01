@@ -1094,6 +1094,97 @@ func TestValidate_PrometheusQueryParametersReservedRejected(t *testing.T) {
 	assert.Contains(t, err.Error(), "reserved")
 }
 
+func TestValidate_PrometheusSigV4(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	role := "arn:aws:iam::123456789012:role/attune-amp"
+	address := "https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-example"
+	tests := []struct {
+		name    string
+		prom    *attunev1alpha1.PrometheusConfig
+		wantErr string
+	}{
+		{
+			name: "region alone",
+			prom: &attunev1alpha1.PrometheusConfig{
+				Address: address,
+				SigV4:   &attunev1alpha1.SigV4Config{Region: "us-east-1"},
+			},
+		},
+		{
+			name: "region role and non-auth header",
+			prom: &attunev1alpha1.PrometheusConfig{
+				Address: address,
+				Headers: map[string]string{"X-Scope-OrgID": "tenant-a"},
+				SigV4:   &attunev1alpha1.SigV4Config{Region: "us-east-1", RoleARN: role},
+			},
+		},
+		{
+			name: "empty sigv4",
+			prom: &attunev1alpha1.PrometheusConfig{
+				Address: address,
+				SigV4:   &attunev1alpha1.SigV4Config{},
+			},
+			wantErr: "metricsSource.prometheus.sigv4.region is required",
+		},
+		{
+			name: "whitespace region",
+			prom: &attunev1alpha1.PrometheusConfig{
+				Address: address,
+				SigV4:   &attunev1alpha1.SigV4Config{Region: " "},
+			},
+			wantErr: "metricsSource.prometheus.sigv4.region is required",
+		},
+		{
+			name: "bearer",
+			prom: &attunev1alpha1.PrometheusConfig{
+				Address:           address,
+				SigV4:             &attunev1alpha1.SigV4Config{Region: "us-east-1"},
+				BearerTokenSecret: &attunev1alpha1.SecretKeyRef{Name: "tok", Key: "token"},
+			},
+			wantErr: "metricsSource.prometheus.sigv4 cannot be combined with bearerTokenSecret",
+		},
+		{
+			name: "authorization header",
+			prom: &attunev1alpha1.PrometheusConfig{
+				Address: address,
+				SigV4:   &attunev1alpha1.SigV4Config{Region: "us-east-1"},
+				Headers: map[string]string{"authorization": "Bearer x"},
+			},
+			wantErr: "metricsSource.prometheus.sigv4 cannot be combined with an Authorization header",
+		},
+		{
+			name: "x-amz header",
+			prom: &attunev1alpha1.PrometheusConfig{
+				Address: address,
+				SigV4:   &attunev1alpha1.SigV4Config{Region: "us-east-1"},
+				Headers: map[string]string{"X-Amz-Date": "20261001T000000Z"},
+			},
+			wantErr: `metricsSource.prometheus.sigv4 cannot be combined with header "X-Amz-Date"`,
+		},
+		{
+			name: "bad role",
+			prom: &attunev1alpha1.PrometheusConfig{
+				Address: address,
+				SigV4:   &attunev1alpha1.SigV4Config{Region: "us-east-1", RoleARN: "not-an-arn"},
+			},
+			wantErr: "metricsSource.prometheus.sigv4.roleArn:",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			policy := validPolicy()
+			policy.Spec.MetricsSource.Prometheus = tt.prom
+			_, err := validator.ValidateCreate(context.Background(), policy)
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
 func TestValidate_PrometheusAddressValid(t *testing.T) {
 	tests := []struct {
 		name    string

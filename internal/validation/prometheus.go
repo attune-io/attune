@@ -55,7 +55,7 @@ func PrometheusAddress(address string) error {
 		return fmt.Errorf("host is required")
 	}
 
-	// Auth belongs on bearerTokenSecret / headers, not the URL.
+	// Auth belongs on bearerTokenSecret, headers, or sigv4, not the URL.
 	if parsed.User != nil {
 		return fmt.Errorf("must not include userinfo")
 	}

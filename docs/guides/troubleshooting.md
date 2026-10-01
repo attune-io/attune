@@ -218,6 +218,21 @@ and `--prometheus-query-service-account=attune-prometheus-query`. Bind
 ServiceAccount. Keep the Thanos address and TLS on `AttuneDefaults`. See
 [OpenShift: Thanos Querier](openshift.md#thanos-querier).
 
+### Amazon Managed Prometheus returns 403
+
+**Symptom**: Ready `MetricsUnavailable` and a Prometheus query to an
+`aps-workspaces` host returns HTTP 403.
+
+**Cause**: The policy has no `sigv4` block, `sigv4.region` does not match
+the workspace, or the pod identity / assumed role cannot call
+`aps:QueryMetrics`.
+
+**Fix**: Set `metricsSource.prometheus.sigv4.region` to the workspace
+region. Use the workspace root as `address` (no `/api/v1/query` suffix).
+Confirm the IAM role allows `aps:QueryMetrics`. Operator logs record the
+workspace host and the status code. They do not record `Authorization`
+or `X-Amz-Security-Token`.
+
 ### Datadog API key secret not found
 
 **Symptom**: Ready `MetricsUnavailable` with

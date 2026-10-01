@@ -1329,6 +1329,14 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 		cpuUnitInherited := providerConfigured == unsetValue && metricsDefaults != nil && metricsDefaults.CloudWatch != nil
 		printEffectiveField("CloudWatch CPU unit", getNestedString(item, "spec", "metricsSource", "cloudwatch", "cpuUnit"), unit, selected, cpuUnitInherited)
 	}
+	if prom := effective.Spec.MetricsSource.Prometheus; prom != nil && prom.SigV4 != nil {
+		configuredRegion := getNestedString(item, "spec", "metricsSource", "prometheus", "sigv4", "region")
+		printEffectiveField("Prometheus SigV4 region", configuredRegion, prom.SigV4.Region, selected, configuredRegion == "" && selected.defaults != nil)
+		if prom.SigV4.RoleARN != "" {
+			configuredRole := getNestedString(item, "spec", "metricsSource", "prometheus", "sigv4", "roleArn")
+			printEffectiveField("Prometheus SigV4 role ARN", configuredRole, prom.SigV4.RoleARN, selected, configuredRole == "" && selected.defaults != nil)
+		}
+	}
 	printEffectiveField("Minimum data points", formatInt64Ptr(rawInt64Field(item, "spec", "metricsSource", "minimumDataPoints")), formatInt32Ptr(effective.Spec.MetricsSource.MinimumDataPoints), selected, metricsDefaults != nil && metricsDefaults.MinimumDataPoints != nil)
 	printEffectiveField("Paused", formatBoolField(item, "spec", "paused"), formatBoolPtr(effective.Spec.Paused), selected, false)
 	printEffectiveField("Weight", formatInt64Field(item, "spec", "weight"), formatInt32Val(effective.Spec.Weight), selected, false)

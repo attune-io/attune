@@ -69,6 +69,24 @@ func TestDefaultsValidator_NoPricing(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestDefaultsValidator_SigV4RegionRequired(t *testing.T) {
+	v := &AttuneDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{
+					Address: "https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-example",
+					SigV4:   &attunev1alpha1.SigV4Config{},
+				},
+			},
+		},
+	}
+	_, err := v.ValidateCreate(context.Background(), defaults)
+	require.Error(t, err)
+	assert.EqualError(t, err, "metricsSource.prometheus.sigv4.region is required")
+}
+
 func TestDefaultsValidator_ValidPricing(t *testing.T) {
 	v := &AttuneDefaultsValidator{}
 	defaults := &attunev1alpha1.AttuneDefaults{

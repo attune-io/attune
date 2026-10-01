@@ -3514,6 +3514,62 @@ func TestPrintEffectivePolicySummary_CloudWatchCPUUnitDefault(t *testing.T) {
 	assert.Contains(t, s, "Millicores")
 }
 
+func TestPrintEffectivePolicySummary_PrometheusSigV4(t *testing.T) {
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeAuto},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{
+					Address: "https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-example",
+					SigV4: &attunev1alpha1.SigV4Config{
+						Region:  "us-east-1",
+						RoleARN: "arn:aws:iam::123456789012:role/attune-amp",
+					},
+				},
+			},
+		},
+	}
+	item := unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{
+			"metricsSource": map[string]interface{}{
+				"prometheus": map[string]interface{}{
+					"address": "https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-example",
+					"sigv4": map[string]interface{}{
+						"region":  "us-east-1",
+						"roleArn": "arn:aws:iam::123456789012:role/attune-amp",
+					},
+				},
+			},
+		},
+	}}
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	old := os.Stdout
+	os.Stdout = w
+	printEffectivePolicySummary(item, policy, selectedDefaults{})
+	_ = w.Close()
+	os.Stdout = old
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	s := string(out)
+	assert.Contains(t, s, "Prometheus SigV4 region")
+	assert.Contains(t, s, "us-east-1")
+	assert.Contains(t, s, "Prometheus SigV4 role ARN")
+	assert.Contains(t, s, "arn:aws:iam::123456789012:role/attune-amp")
+
+	policy.Spec.MetricsSource.Prometheus.SigV4.RoleARN = ""
+	r, w, err = os.Pipe()
+	require.NoError(t, err)
+	old = os.Stdout
+	os.Stdout = w
+	printEffectivePolicySummary(item, policy, selectedDefaults{})
+	_ = w.Close()
+	os.Stdout = old
+	out, err = io.ReadAll(r)
+	require.NoError(t, err)
+	assert.NotContains(t, string(out), "Prometheus SigV4 role ARN")
+}
+
 func TestPrintEffectivePolicySummary_PodAggregationDefault(t *testing.T) {
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{

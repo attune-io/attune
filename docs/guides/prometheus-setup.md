@@ -176,6 +176,46 @@ the cluster address.
 
 Worked YAML is in `examples/prometheus-auth/`.
 
+## Amazon Managed Prometheus
+
+Amazon Managed Prometheus does not accept a bearer token. Set `sigv4` on
+the Prometheus address. Attune signs each query with AWS SigV4 for service
+`aps`. Omitted `sigv4` does not sign. There is no Helm value and no
+environment variable that turns signing on.
+
+The address is the workspace root. Attune appends `/api/v1/query`. If you
+copy the console query URL, remove the `/api/v1/query` suffix. Leaving it
+on sends the query to `/api/v1/query/api/v1/query`.
+
+```yaml
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
+metadata:
+  name: payments
+  namespace: payments
+spec:
+  targetRef:
+    kind: Deployment
+    name: payments
+  metricsSource:
+    prometheus:
+      address: https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-example
+      sigv4:
+        region: us-east-1
+        roleArn: arn:aws:iam::123456789012:role/attune-amp
+```
+
+`region` is required when `sigv4` is set. It does not default from the AWS
+SDK environment. `roleArn` is optional. Leave it unset to use the pod
+identity chain (IRSA or Pod Identity). A set `roleArn` is assumed through
+STS. The role needs `aps:QueryMetrics`. See the
+[AMP QueryMetrics API](https://docs.aws.amazon.com/prometheus/latest/userguide/AMP-APIReference-QueryMetrics.html).
+
+Do not set `bearerTokenSecret`, an `Authorization` header, or an `X-Amz-*`
+header together with `sigv4`. The webhook rejects that combination. When
+`sigv4` is set, Attune does not attach `prometheusAuth`, the operator
+ServiceAccount token, or the operator bearer Secret.
+
 ## Required Prometheus metrics
 
 The operator queries these metrics, all scraped automatically by cadvisor
@@ -255,7 +295,7 @@ OpenShift Thanos steps are in [Thanos Querier](openshift.md#thanos-querier).
     hostnames are rejected, including a trailing dot on those names and
     other spellings of the same addresses. Addresses with URL userinfo
     (`http://user:password@host`) are also rejected; use
-    `bearerTokenSecret` or `headers`. Do not point a policy at a local
+    `bearerTokenSecret`, `headers`, or `sigv4`. Do not point a policy at a local
     port-forward or a workstation URL. Use a Service DNS name or
     ClusterIP that the operator can reach from inside the cluster, such as
     `http://prometheus-server.monitoring:80`. Private cluster IPs are

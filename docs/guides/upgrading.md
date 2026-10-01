@@ -10,6 +10,13 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### Amazon Managed Prometheus signing
+
+Policies that omit `metricsSource.prometheus.sigv4` stay unsigned. There
+is no Helm default and no environment variable that turns signing on.
+Set `sigv4.region` on a policy, or on `AttuneDefaults`, when that
+Prometheus address is an Amazon Managed Prometheus workspace.
+
 ### Argo Rollout workloads
 
 `targetRef.kind` accepts `Rollout` (`argoproj.io/v1alpha1`). Helm upgrades

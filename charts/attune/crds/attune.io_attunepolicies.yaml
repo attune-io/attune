@@ -1251,8 +1251,10 @@ spec:
                         type: string
                       bearerTokenSecret:
                         description: |-
-                          BearerTokenSecret references a Kubernetes Secret containing a bearer
-                          token for authenticating with managed Prometheus services.
+                          BearerTokenSecret references a Secret with a bearer token
+                          (Google Managed Prometheus, Mimir, and other bearer front ends).
+                          Do not set this for Amazon Managed Prometheus; use sigv4.
+                          Webhook rejects both together.
                         properties:
                           key:
                             description: Key within the Secret.
@@ -1282,6 +1284,26 @@ spec:
                           (e.g. {"dedup": "true", "partial_response": "true"}). Reserved
                           query keys controlled by the operator (`query`, `start`, `end`, `step`,
                           `time`, `timeout`) are rejected.
+                        type: object
+                      sigv4:
+                        description: |-
+                          SigV4 signs queries for Amazon Managed Prometheus (service aps).
+                          Do not combine with BearerTokenSecret, an Authorization header,
+                          or X-Amz-* headers. Omitted means do not sign.
+                        properties:
+                          region:
+                            description: |-
+                              Region is the AWS region of the AMP workspace, for example us-east-1.
+                              Required when sigv4 is set. There is no default.
+                            minLength: 1
+                            type: string
+                          roleArn:
+                            description: |-
+                              RoleARN is an optional IAM role to assume. Empty uses the pod
+                              identity credential chain (IRSA or Pod Identity).
+                            type: string
+                        required:
+                        - region
                         type: object
                       tls:
                         description: TLS configures TLS settings for the connection.

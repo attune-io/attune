@@ -267,9 +267,26 @@ type MetricsSource struct {
 	MemoryRecordingMetric string `json:"memoryRecordingMetric,omitempty"`
 }
 
-// PrometheusConfig configures a Prometheus-compatible metrics source.
-// Works with Thanos, VictoriaMetrics, Grafana Mimir, and managed
-// Prometheus services (AMP, GMP) that implement the Prometheus HTTP API.
+// SigV4Config signs Prometheus queries for Amazon Managed Prometheus.
+// The service name is aps. Omitted sigv4 means do not sign.
+type SigV4Config struct {
+	// Region is the AWS region of the AMP workspace, for example us-east-1.
+	// Required when sigv4 is set. There is no default.
+	// +kubebuilder:validation:MinLength=1
+	Region string `json:"region"`
+
+	// RoleARN is an optional IAM role to assume. Empty uses the pod
+	// identity credential chain (IRSA or Pod Identity).
+	// +optional
+	RoleARN string `json:"roleArn,omitempty"`
+}
+
+// PrometheusConfig configures a Prometheus-compatible metrics source
+// (Thanos, VictoriaMetrics, Grafana Mimir, and other servers that
+// implement the Prometheus HTTP API).
+// Google Managed Prometheus uses bearerTokenSecret.
+// Amazon Managed Prometheus uses sigv4 (service aps). A workspace URL
+// alone is not enough for AMP. Omitted sigv4 means do not sign.
 type PrometheusConfig struct {
 	// Address is the URL of the Prometheus-compatible query endpoint.
 	Address string `json:"address"`
@@ -289,10 +306,18 @@ type PrometheusConfig struct {
 	// +optional
 	QueryParameters map[string]string `json:"queryParameters,omitempty"`
 
-	// BearerTokenSecret references a Kubernetes Secret containing a bearer
-	// token for authenticating with managed Prometheus services.
+	// BearerTokenSecret references a Secret with a bearer token
+	// (Google Managed Prometheus, Mimir, and other bearer front ends).
+	// Do not set this for Amazon Managed Prometheus; use sigv4.
+	// Webhook rejects both together.
 	// +optional
 	BearerTokenSecret *SecretKeyRef `json:"bearerTokenSecret,omitempty"`
+
+	// SigV4 signs queries for Amazon Managed Prometheus (service aps).
+	// Do not combine with BearerTokenSecret, an Authorization header,
+	// or X-Amz-* headers. Omitted means do not sign.
+	// +optional
+	SigV4 *SigV4Config `json:"sigv4,omitempty"`
 
 	// TLS configures TLS settings for the connection.
 	// +optional

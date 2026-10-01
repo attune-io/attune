@@ -433,7 +433,7 @@ All fields from `AttuneDefaults` are available in
 
 | Section | Fields |
 |---------|--------|
-| `metricsSource` | `prometheus.address`, `prometheus.headers`, `prometheus.queryParameters`, `prometheus.bearerTokenSecret`, `prometheus.tls`, `datadog.site`, `datadog.apiKeySecretRef`, `cloudwatch.region`, `cloudwatch.clusterName`, `cloudwatch.roleArn`, `cloudwatch.cpuUnit`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow`, `podAggregation`, `cpuRecordingMetric`, `memoryRecordingMetric` |
+| `metricsSource` | `prometheus.address`, `prometheus.headers`, `prometheus.queryParameters`, `prometheus.bearerTokenSecret`, `prometheus.sigv4`, `prometheus.tls`, `datadog.site`, `datadog.apiKeySecretRef`, `cloudwatch.region`, `cloudwatch.clusterName`, `cloudwatch.roleArn`, `cloudwatch.cpuUnit`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow`, `podAggregation`, `cpuRecordingMetric`, `memoryRecordingMetric` |
 | `cpu` | `percentile`, `overhead`, `minAllowed`, `maxAllowed`, `controlledValues`, `burstSensitivity`, `allowDecrease`, `startupBoost`, `surge`, `maxChangePercent`, `maxIncreasePercent`, `maxDecreasePercent` |
 | `memory` | Same as `cpu` (no `startupBoost`), plus `decreaseUsageMarginPercent`, `memoryFromCpuRatio`, `oomBump`, and `surge` |
 
@@ -461,7 +461,9 @@ operator queries. The wizard inherit option uses that omit shape.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `metricsSource.prometheus.bearerTokenSecret` | object | (optional) | Secret `name` + `key` for a bearer token in the **policy** namespace (`AttunePolicy` or `AttuneNamespaceDefaults`). Deprecated on cluster `AttuneDefaults`: the name is still inherited and read in each policy namespace; use `prometheusAuth` or `openshift.bindClusterMonitoringView` instead. |
+| `metricsSource.prometheus.bearerTokenSecret` | object | (optional) | Secret `name` + `key` for a bearer token in the **policy** namespace (`AttunePolicy` or `AttuneNamespaceDefaults`). Deprecated on cluster `AttuneDefaults`: the name is still inherited and read in each policy namespace; use `prometheusAuth` or `openshift.bindClusterMonitoringView` instead. Amazon Managed Prometheus does not use this Secret. |
+| `metricsSource.prometheus.sigv4.region` | string | (required when `sigv4` is set) | AWS region of the Amazon Managed Prometheus workspace, for example `us-east-1`. There is no default. Attune signs queries with SigV4 service `aps`. Omitted `sigv4` does not sign. Do not combine with `bearerTokenSecret`, an `Authorization` header, or an `X-Amz-*` header. |
+| `metricsSource.prometheus.sigv4.roleArn` | string | (optional) | IAM role ARN to assume. Empty uses the pod identity chain (IRSA or Pod Identity). The role needs `aps:QueryMetrics`. |
 
 ### Datadog
 
