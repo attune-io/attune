@@ -251,6 +251,10 @@ type AttunePolicyReconciler struct {
 	// Always initialized by NewAttunePolicyReconciler.
 	eventDedup *eventDedup
 
+	// oomBumps holds this reconcile's planned OOM bump stamps until resize
+	// stores them. Nil in tests that build the reconciler as a struct literal.
+	oomBumps *oomBumpPending
+
 	// evictionLocks serializes last-replica List+Evict per workload so two
 	// concurrent resize goroutines cannot both observe running==2 and evict.
 	// Key is namespace+"/"+workloadName. Entries are deleted on release.
@@ -280,6 +284,7 @@ type AttunePolicyReconciler struct {
 func NewAttunePolicyReconciler() *AttunePolicyReconciler {
 	return &AttunePolicyReconciler{
 		eventDedup: newEventDedup(time.Hour),
+		oomBumps:   newOOMBumpPending(),
 	}
 }
 
@@ -356,6 +361,9 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 		operatormetrics.ReconcileErrorsTotal.WithLabelValues("fetch").Inc()
 		return ctrl.Result{}, fmt.Errorf("fetching AttunePolicy: %w", err)
+	}
+	if r.oomBumps != nil {
+		r.oomBumps.ResetUID(string(policy.UID))
 	}
 	if normalizeResizeHistoryMethods(policy.Status.ResizeHistory) {
 		logger.V(1).Info("Normalized legacy resize history methods", "entries", len(policy.Status.ResizeHistory))
@@ -604,6 +612,13 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	var cycleResizeHistory []attunev1alpha1.ResizeHistoryEntry
+	// Annotation-only OOM stamps are not resizes. Record them even when
+	// cooldown, the schedule, or a freeze skips executeResizes.
+	if isResizeMode(mode) && policy.Spec.Memory.OOMBump != nil {
+		for _, w := range workloads {
+			r.persistPendingAnnotationOnlyOOMBumps(ctx, &policy, w)
+		}
+	}
 	// Re-check freeze immediately before apply. processWorkloads can run
 	// until prometheusTimeout; a freeze set during that window must still
 	// skip resize. Do not abort mid-PromQL.
@@ -1419,6 +1434,9 @@ func (r *AttunePolicyReconciler) forgetPolicyRuntimeState(namespace, name string
 	}
 	r.increaseRates.Delete(policyKey)
 	r.lastBlockerRefresh.Delete(types.NamespacedName{Namespace: namespace, Name: name})
+	if r.oomBumps != nil {
+		r.oomBumps.ForgetPolicy(namespace, name)
+	}
 }
 
 func progressPercent(collected, required int) int {

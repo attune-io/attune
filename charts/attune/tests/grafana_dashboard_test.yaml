@@ -50,3 +50,9 @@ tests:
       - matchRegex:
           path: data["attune.json"]
           pattern: "Memory limit decrease outcomes"
+      - matchRegex:
+          path: data["attune.json"]
+          pattern: "attune_oom_bump_total"
+      - matchRegex:
+          path: data["attune.json"]
+          pattern: "OOM bump outcomes"

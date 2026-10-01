@@ -117,6 +117,18 @@ func (r *AttunePolicyReconciler) firstOneShotPodNeedingResize(
 	rec attunev1alpha1.WorkloadRecommendation,
 	checks *resizePreChecks,
 ) []corev1.Pod {
+	return r.firstOneShotPodNeedingResizePinned(ctx, policy, pods, rec, checks, false)
+}
+
+func (r *AttunePolicyReconciler) firstOneShotPodNeedingResizePinned(
+	ctx context.Context,
+	policy *attunev1alpha1.AttunePolicy,
+	pods []corev1.Pod,
+	rec attunev1alpha1.WorkloadRecommendation,
+	checks *resizePreChecks,
+	pinLive bool,
+) []corev1.Pod {
+	pods = preferPendingOOMBumpPods(r, policy, pods, rec)
 	var firstBlocked *corev1.Pod
 	for i := range pods {
 		p := &pods[i]
@@ -125,7 +137,7 @@ func (r *AttunePolicyReconciler) firstOneShotPodNeedingResize(
 		}
 		// Screen the listed snapshot first so a converged OneShot
 		// fleet does not live-Get every replica every reconcile.
-		if r.oneShotPodAlreadyAtTarget(policy, p, rec) {
+		if r.oneShotPodAlreadyAtTargetPinned(policy, p, rec, pinLive) {
 			continue
 		}
 		// Live Get before Infeasible / shouldSkipResize, matching apply.
@@ -139,10 +151,10 @@ func (r *AttunePolicyReconciler) firstOneShotPodNeedingResize(
 		if live != nil {
 			p = live
 		}
-		if r.oneShotPodAlreadyAtTarget(policy, p, rec) {
+		if r.oneShotPodAlreadyAtTargetPinned(policy, p, rec, pinLive) {
 			continue
 		}
-		if r.oneShotPodAllNeedingContainersBlocked(ctx, policy, p, rec, checks) {
+		if r.oneShotPodAllNeedingContainersBlockedPinned(ctx, policy, p, rec, checks, pinLive) {
 			if firstBlocked == nil {
 				firstBlocked = p
 			}
@@ -267,31 +279,37 @@ func resourceControlledRequestsOnly(policy *attunev1alpha1.AttunePolicy, res cor
 	return false
 }
 
-// appliedResizeTarget is the clamp + Guaranteed QoS raise + usage floor that
-// resizeContainer applies before shouldSkipResize. OneShot selection must
-// compare and skip against this same applied target.
-func (r *AttunePolicyReconciler) appliedResizeTarget(
+// appliedResizeTargetPinned is the clamp + Guaranteed QoS raise + usage floor
+// that resizeContainer applies before shouldSkipResize. OneShot selection
+// must compare and skip against this same applied target. pinLive keeps CPU
+// and the memory limit on the live container for a stale OOM bump.
+func (r *AttunePolicyReconciler) appliedResizeTargetPinned(
 	policy *attunev1alpha1.AttunePolicy,
 	pod *corev1.Pod,
 	containerRec attunev1alpha1.ContainerRecommendation,
+	pinLive bool,
 ) corev1.ResourceRequirements {
+	if pinLive {
+		containerRec = pinStaleOOMToLiveRequest(pod, containerRec)
+	}
 	target, _ := buildResizeTarget(containerRec)
 	applied, _ := r.applyLiveResizeTarget(policy, pod, containerRec, target)
 	return applied
 }
 
-// oneShotPodAlreadyAtTarget is true when every recommended container already
-// matches the applied (clamped/floored) target from applyLiveResizeTarget.
-func (r *AttunePolicyReconciler) oneShotPodAlreadyAtTarget(
+// oneShotPodAlreadyAtTargetPinned is true when every recommended container
+// already matches the applied (clamped/floored) target from applyLiveResizeTarget.
+func (r *AttunePolicyReconciler) oneShotPodAlreadyAtTargetPinned(
 	policy *attunev1alpha1.AttunePolicy,
 	pod *corev1.Pod,
 	rec attunev1alpha1.WorkloadRecommendation,
+	pinLive bool,
 ) bool {
 	if len(rec.Containers) == 0 {
 		return true
 	}
 	for _, containerRec := range rec.Containers {
-		target := r.appliedResizeTarget(policy, pod, containerRec)
+		target := r.appliedResizeTargetPinned(policy, pod, containerRec, pinLive)
 		c := findContainerByName(pod, containerRec.Name)
 		if c == nil || !containerMatchesAppliedTarget(c, target) {
 			return false
@@ -314,22 +332,23 @@ func containerMatchesAppliedTarget(c *corev1.Container, target corev1.ResourceRe
 		targetLimitsMatchLive(c.Resources.Limits, target.Limits)
 }
 
-// oneShotPodAllNeedingContainersBlocked is true when every container that
-// still differs from the applied target would no-op in resizeContainer
+// oneShotPodAllNeedingContainersBlockedPinned is true when every container
+// that still differs from the applied target would no-op in resizeContainer
 // (Infeasible+InPlaceOnly, or shouldSkipResize with a non-empty reason).
 // A pod with any unblocked needing container is still selected.
-func (r *AttunePolicyReconciler) oneShotPodAllNeedingContainersBlocked(
+func (r *AttunePolicyReconciler) oneShotPodAllNeedingContainersBlockedPinned(
 	ctx context.Context,
 	policy *attunev1alpha1.AttunePolicy,
 	pod *corev1.Pod,
 	rec attunev1alpha1.WorkloadRecommendation,
 	checks *resizePreChecks,
+	pinLive bool,
 ) bool {
 	infeasibleBlocked := resize.IsResizeInfeasible(pod) && resizeMethodIsInPlaceOnly(policy)
 	needing := 0
 	blocked := 0
 	for _, containerRec := range rec.Containers {
-		target := r.appliedResizeTarget(policy, pod, containerRec)
+		target := r.appliedResizeTargetPinned(policy, pod, containerRec, pinLive)
 		c := findContainerByName(pod, containerRec.Name)
 		if c != nil && containerMatchesAppliedTarget(c, target) {
 			continue
@@ -543,6 +562,9 @@ func (r *AttunePolicyReconciler) executeResizes(
 		if matchedWorkload == nil {
 			continue
 		}
+		// Capped and timestamp-fill stamps are not resizes. Write them
+		// before cooldown, rollout, and selection can skip the pod.
+		r.persistPendingAnnotationOnlyOOMBumps(ctx, policy, matchedWorkload)
 
 		// Batch workloads (Job/CronJob) are recommend-only; skip resize.
 		if isBatchWorkload(matchedWorkload) {
@@ -569,9 +591,38 @@ func (r *AttunePolicyReconciler) executeResizes(
 			continue
 		}
 
-		// Skip workloads with stale recommendations to avoid resizing
-		// based on outdated data.
-		if rec.Stale {
+		// Skip workloads with stale recommendations. A pending OOM bump,
+		// or an in-hold floor still above a live memory request, still
+		// applies. That path pins CPU and memory limits to the live pod.
+		var (
+			pods       []corev1.Pod
+			podsLoaded bool
+			pinLiveCPU bool
+		)
+		if rec.Stale && policy.Spec.Memory.OOMBump != nil {
+			if podsByWorkload != nil {
+				if stored, ok := podsByWorkload[rec.Workload]; ok && stored != nil {
+					pods = stored
+					podsLoaded = true
+				}
+			}
+			if !podsLoaded {
+				loaded, err := r.getPodsForWorkload(ctx, matchedWorkload)
+				if err != nil {
+					logger.Error(err, "Failed to get pods for workload", "workload", rec.Workload)
+					operatormetrics.ReconcileErrorsTotal.WithLabelValues("get_pods").Inc()
+					continue
+				}
+				pods = loaded
+				podsLoaded = true
+			}
+			if filtered, qualify := r.staleOOMBumpRecommendation(policy, matchedWorkload, pods, rec); qualify {
+				logger.V(1).Info("Applying OOM bump from a stale recommendation", "workload", rec.Workload)
+				rec = filtered
+				pinLiveCPU = true
+			}
+		}
+		if rec.Stale && !pinLiveCPU {
 			logger.Info("Skipping resize for workload with stale recommendation", "workload", rec.Workload)
 			operatormetrics.StaleRecommendationsTotal.WithLabelValues(policy.Namespace, policy.Name).Inc()
 			r.emitEventOnce(policy, corev1.EventTypeWarning, "StaleRecommendation", "resize",
@@ -585,14 +636,18 @@ func (r *AttunePolicyReconciler) executeResizes(
 			continue
 		}
 
-		pods := podsByWorkload[rec.Workload]
-		if pods == nil {
-			var err error
-			pods, err = r.getPodsForWorkload(ctx, matchedWorkload)
-			if err != nil {
-				logger.Error(err, "Failed to get pods for workload", "workload", rec.Workload)
-				operatormetrics.ReconcileErrorsTotal.WithLabelValues("get_pods").Inc()
-				continue
+		if !podsLoaded {
+			if podsByWorkload != nil {
+				pods = podsByWorkload[rec.Workload]
+			}
+			if pods == nil {
+				var err error
+				pods, err = r.getPodsForWorkload(ctx, matchedWorkload)
+				if err != nil {
+					logger.Error(err, "Failed to get pods for workload", "workload", rec.Workload)
+					operatormetrics.ReconcileErrorsTotal.WithLabelValues("get_pods").Inc()
+					continue
+				}
 			}
 		}
 		if len(pods) == 0 {
@@ -611,7 +666,7 @@ func (r *AttunePolicyReconciler) executeResizes(
 		if wlMode == attunev1alpha1.UpdateTypeOneShot {
 			// OneShot walks remaining replicas; selectPodsForResize OneShot
 			// is eligible[:1] and would pin the first replica forever (#682).
-			selectedPods = r.firstOneShotPodNeedingResize(ctx, policy, pods, rec, checks)
+			selectedPods = r.firstOneShotPodNeedingResizePinned(ctx, policy, pods, rec, checks, pinLiveCPU)
 		} else {
 			selectedPods = selectPodsForResize(pods, wlMode, canaryPct)
 		}
@@ -638,7 +693,7 @@ func (r *AttunePolicyReconciler) executeResizes(
 		var workloadResized int32 // atomic for concurrent access
 		var planned []plannedPod
 		for _, pod := range selectedPods {
-			item, err := r.observeAndPlanPod(ctx, policy, pod, rec, matchedWorkload)
+			item, err := r.observeAndPlanPodWithLivePin(ctx, policy, pod, rec, matchedWorkload, pinLiveCPU)
 			if err != nil {
 				reason := "pod status unavailable; skipping resize"
 				for _, containerRec := range rec.Containers {
@@ -658,9 +713,21 @@ func (r *AttunePolicyReconciler) executeResizes(
 		snapCPU, snapMem := cpuBudget, memBudget
 		budgetMu.Unlock()
 		var deferred []resizeAction
+		observed := planned
 		planned, deferred = filterPlannedByBudget(planned, snapCPU, snapMem)
 		for _, d := range deferred {
 			r.recordBudgetBlock(logger, policy, d.PodName, d.Container, d.CPUIncrease, d.MemIncrease, cpuCap, memCap, rateBucket)
+			podNS := ""
+			if matchedWorkload != nil {
+				podNS = matchedWorkload.GetNamespace()
+			}
+			for _, item := range observed {
+				if item.Pod.Name == d.PodName {
+					podNS = item.Pod.Namespace
+					break
+				}
+			}
+			r.dropOOMBumpStamp(policy, matchedWorkload, d.Container, podNS, d.PodName, true)
 		}
 
 		for _, item := range planned {
@@ -694,6 +761,7 @@ func (r *AttunePolicyReconciler) executeResizes(
 					r.emitLiveResizeApply(ctx, policy, &pod, action.ContainerRec, action.ApplyMeta)
 					if action.AtTarget {
 						r.emitResizeUnchangedIfFilteredOrClamped(ctx, policy, &pod, action.ContainerRec, action.Target, action.ApplyMeta.PreClamped)
+						r.settleUnchangedOOMBump(ctx, policy, &pod, matchedWorkload, action.Container, action.Target)
 						continue
 					}
 					cpuIncrease, memIncrease := action.CPUIncrease, action.MemIncrease
@@ -702,6 +770,7 @@ func (r *AttunePolicyReconciler) executeResizes(
 					// overspend the cap. Refund it below if the resize did not stick.
 					if !reserveBudget(cpuIncrease, memIncrease) {
 						r.recordBudgetBlock(logger, policy, pod.Name, action.Container, cpuIncrease, memIncrease, cpuCap, memCap, rateBucket)
+						r.dropOOMBumpStamp(policy, matchedWorkload, action.Container, pod.Namespace, pod.Name, true)
 						continue
 					}
 
@@ -771,6 +840,7 @@ func (r *AttunePolicyReconciler) executeResizes(
 			}()
 		}
 		wg.Wait() // wait for all pods in this workload before moving to the next
+		r.storeAppliedOOMBumps(ctx, policy, matchedWorkload, rec)
 		if atomic.LoadInt32(&workloadResized) > 0 {
 			totalResized++
 		}
@@ -883,8 +953,12 @@ func (r *AttunePolicyReconciler) resizeContainer(
 			r.emitEventOnce(policy, corev1.EventTypeWarning, "ResizeSkipped", "resize",
 				"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, reason)
 			recordCapacitySkip(policy, reason)
+			if strings.Contains(reason, "QoS class") {
+				r.dropOOMBumpStamp(policy, workload, containerRec.Name, pod.Namespace, pod.Name, true)
+			}
 		} else {
 			r.emitResizeUnchangedIfFilteredOrClamped(ctx, policy, pod, containerRec, target, preClamped)
+			r.settleUnchangedOOMBump(ctx, policy, pod, workload, containerRec.Name, target)
 		}
 		return nil, resizeOutcomeNone
 	}
@@ -1082,7 +1156,16 @@ func (r *AttunePolicyReconciler) resizeContainer(
 			Container:         containerRec.Name,
 			OriginalResources: originalResources,
 			WorkloadName:      workloadName,
+			ResizedAt:         now.Time,
 		}
+		adjusted, suppress := r.oomBumpRevertGate(ctx, policy, pod, revertRecord, reason, r.now())
+		if suppress {
+			logger.Info("OOM bump hold suppresses revert",
+				"pod", pod.Name, "container", containerRec.Name, "reason", reason)
+			// The bumped request stays. Callers must not refund the cycle budget.
+			return true
+		}
+		revertRecord = adjusted
 		revertFailed := false
 		revertCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), safetyRevertTimeout)
 		revertErr := monitor.RevertPod(revertCtx, revertRecord)
@@ -1107,6 +1190,11 @@ func (r *AttunePolicyReconciler) resizeContainer(
 				logger.Error(err, "Failed to stamp last-resize-time after apply revert",
 					"pod", pod.Name, "workload", workloadName)
 			}
+			// A non-OOM full revert must not keep the floor. Drop the new
+			// stamp before storeApplied. baseHeld still rewrites the previous hold.
+			if oomBumpShouldClearAfterRevert(pod, containerRec.Name, reason, now.Time, r.now(), oomBumpMaxBumps(policy)) {
+				r.clearOOMBumpAfterFullRevert(ctx, policy, workload, pod, containerRec.Name, nil, false)
+			}
 		}
 		// Always mark history entries regardless of whether the revert succeeded.
 		// On revert failure, mark as Failed so the resize is not recorded as Success.
@@ -1123,7 +1211,17 @@ func (r *AttunePolicyReconciler) resizeContainer(
 		return revertFailed
 	}
 
-	if reason, err := r.persistResizeAnnotations(ctx, pod, containerRec, policy.Name, workloadName, now, restartCount); err != nil {
+	oomStamp := ""
+	if pending, ok := r.peekOOMBump(policy, workload, containerRec.Name, pod); ok {
+		// A limit clamp can leave memory at the live request while CPU
+		// still changes. That resize must not spend a maxBumps step.
+		if !pending.AnnotationOnly && !memoryTargetRaisesLive(pod, containerRec.Name, target) {
+			r.dropOOMBumpStamp(policy, workload, containerRec.Name, pod.Namespace, pod.Name, true)
+		} else if raw, fmtErr := formatOOMBumpRecord(pending.Stamp); fmtErr == nil {
+			oomStamp = raw
+		}
+	}
+	if reason, err := r.persistResizeAnnotations(ctx, pod, containerRec, policy.Name, workloadName, now, restartCount, oomStamp); err != nil {
 		if revert(reason) {
 			return history, resizeOutcomeInPlace
 		}
@@ -1140,14 +1238,25 @@ func (r *AttunePolicyReconciler) resizeContainer(
 		RestartCount:      restartCount,
 		WorkloadName:      workloadName,
 	}
+	// Count the bump only when this resize is still the live request.
+	// A successful immediate revert drops the stamp and must not increment.
+	stuck := func() {
+		if oomStamp == "" {
+			return
+		}
+		r.finishStoredOOMBump(policy, workload, containerRec.Name, pod)
+	}
 	if reason, err := r.runImmediateSafetyCheck(ctx, policy, record); err != nil {
+		stuck()
 		return history, resizeOutcomeInPlace
 	} else if reason != "" {
 		if revert(reason) {
+			stuck()
 			return history, resizeOutcomeInPlace
 		}
 		return history, resizeOutcomeNone
 	}
+	stuck()
 
 	return history, resizeOutcomeInPlace
 }
@@ -1174,6 +1283,7 @@ func (r *AttunePolicyReconciler) persistResizeAnnotations(
 	workloadName string,
 	now metav1.Time,
 	restartCount int32,
+	oomStamp string,
 ) (revertReason string, err error) {
 	logger := log.FromContext(ctx)
 
@@ -1208,6 +1318,11 @@ func (r *AttunePolicyReconciler) persistResizeAnnotations(
 			freshPod.Annotations[annotationOriginalMemoryLimitPrefix+containerRec.Name] = current.MemoryLimit.String()
 		}
 		freshPod.Annotations[annotationOriginalRestartCountPrefix+containerRec.Name] = strconv.FormatInt(int64(restartCount), 10)
+		if oomStamp != "" {
+			if key, keyOK := oomBumpKey(containerRec.Name); keyOK {
+				freshPod.Annotations[key] = oomStamp
+			}
+		}
 
 		updateErr := r.Update(ctx, freshPod)
 		if updateErr == nil {
@@ -1317,6 +1432,11 @@ func trackingAnnotationsApplied(got, intended *corev1.Pod, container string) boo
 			return false
 		}
 	}
+	if key, keyOK := oomBumpKey(container); keyOK {
+		if want := intended.Annotations[key]; want != "" && got.Annotations[key] != want {
+			return false
+		}
+	}
 	if lim := intended.Annotations[annotationOriginalCPULimitPrefix+container]; lim != "" &&
 		got.Annotations[annotationOriginalCPULimitPrefix+container] != lim {
 		return false
@@ -1341,6 +1461,29 @@ func resizedContainersContains(list, container string) bool {
 		}
 	}
 	return false
+}
+
+// pinStaleOOMToLiveRequest keeps CPU request, CPU limit, and memory limit
+// on the live container. A live memory request already at or above the
+// recommendation is kept so the bump does not decrease it. A missing
+// memory request counts as zero and can still be raised.
+func pinStaleOOMToLiveRequest(pod *corev1.Pod, containerRec attunev1alpha1.ContainerRecommendation) attunev1alpha1.ContainerRecommendation {
+	live := liveContainerCurrent(pod, containerRec)
+	containerRec.Recommended.CPURequest = live.CPURequest.DeepCopy()
+	containerRec.Recommended.CPULimit = live.CPULimit.DeepCopy()
+	containerRec.Recommended.MemoryLimit = live.MemoryLimit.DeepCopy()
+	var liveMem resource.Quantity
+	if pod != nil {
+		if c := findContainerByName(pod, containerRec.Name); c != nil && c.Resources.Requests != nil {
+			if q, ok := c.Resources.Requests[corev1.ResourceMemory]; ok {
+				liveMem = q
+			}
+		}
+	}
+	if liveMem.Cmp(containerRec.Recommended.MemoryRequest) >= 0 {
+		containerRec.Recommended.MemoryRequest = liveMem.DeepCopy()
+	}
+	return containerRec
 }
 
 // liveContainerCurrent returns the live container's requests/limits when

@@ -99,6 +99,30 @@ func ApplyBuiltInDefaults(policy *attunev1alpha1.AttunePolicy) {
 		policy.Spec.ExcludeKnownSidecars = &v
 	}
 	applyRuntimeProfileDefaults(policy)
+	applyOOMBumpDefaults(policy.Spec.Memory.OOMBump)
+}
+
+// applyOOMBumpDefaults fills nil fields on a memory oomBump block.
+// A nil block stays nil, so the feature stays off. CPU is not filled.
+func applyOOMBumpDefaults(block *attunev1alpha1.OOMBump) {
+	if block == nil {
+		return
+	}
+	if block.Ratio == nil {
+		v := attunev1alpha1.DefaultOOMBumpRatio
+		block.Ratio = &v
+	}
+	if block.MinBump == nil {
+		q := attunev1alpha1.DefaultOOMBumpMinBump.DeepCopy()
+		block.MinBump = &q
+	}
+	if block.MaxBumps == nil {
+		v := attunev1alpha1.DefaultOOMBumpMaxBumps
+		block.MaxBumps = &v
+	}
+	if block.Hold == nil {
+		block.Hold = &metav1.Duration{Duration: attunev1alpha1.DefaultOOMBumpHold}
+	}
 }
 
 // applyRuntimeProfileDefaults fills unset resource fields from the optional
@@ -366,6 +390,39 @@ func MergeResourceConfig(policy *attunev1alpha1.ResourceConfig, defaults *attune
 	if policy.DecreaseUsageMarginPercent == nil && defaults.DecreaseUsageMarginPercent != nil {
 		policy.DecreaseUsageMarginPercent = defaults.DecreaseUsageMarginPercent
 		inherited = append(inherited, prefix+".decreaseUsageMarginPercent")
+	}
+	inherited = append(inherited, mergeOOMBump(policy, defaults, prefix)...)
+	return inherited
+}
+
+// mergeOOMBump copies a defaults block when the policy omits oomBump.
+// An empty policy block stays on and fills only nil fields from defaults.
+func mergeOOMBump(policy, defaults *attunev1alpha1.ResourceConfig, prefix string) []string {
+	if defaults == nil || defaults.OOMBump == nil {
+		return nil
+	}
+	if policy.OOMBump == nil {
+		policy.OOMBump = defaults.OOMBump
+		return []string{prefix + ".oomBump"}
+	}
+	var inherited []string
+	dst := policy.OOMBump
+	src := defaults.OOMBump
+	if dst.Ratio == nil && src.Ratio != nil && *src.Ratio != "" {
+		dst.Ratio = src.Ratio
+		inherited = append(inherited, prefix+".oomBump.ratio")
+	}
+	if dst.MinBump == nil && src.MinBump != nil {
+		dst.MinBump = src.MinBump
+		inherited = append(inherited, prefix+".oomBump.minBump")
+	}
+	if dst.MaxBumps == nil && src.MaxBumps != nil {
+		dst.MaxBumps = src.MaxBumps
+		inherited = append(inherited, prefix+".oomBump.maxBumps")
+	}
+	if dst.Hold == nil && src.Hold != nil {
+		dst.Hold = src.Hold
+		inherited = append(inherited, prefix+".oomBump.hold")
 	}
 	return inherited
 }

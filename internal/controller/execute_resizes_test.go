@@ -27,6 +27,7 @@ import (
 	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,6 +38,7 @@ import (
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	"github.com/attune-io/attune/internal/operatormetrics"
@@ -199,6 +201,341 @@ func TestExecuteResizes_SkipsStaleRecommendation(t *testing.T) {
 	assert.Empty(t, history)
 	after := promtestutil.ToFloat64(operatormetrics.StaleRecommendationsTotal.WithLabelValues("default", "test-policy"))
 	assert.Equal(t, before+1, after, "StaleRecommendationsTotal should increment with policy labels")
+}
+
+func TestExecuteResizes_StaleOOMBumpStillResizes(t *testing.T) {
+	fixed := time.Date(2026, 9, 30, 15, 0, 0, 0, time.UTC)
+
+	t.Run("in-hold floor pins live cpu and ignores percentile", func(t *testing.T) {
+		pod := newResizePod("stale-oom-floor", "100m", "200Mi", "200m", "1Gi")
+		raw := oomHoldAnnotation(t, "200Mi", "300Mi", fixed.Add(time.Hour))
+		key, ok := oomBumpKey("main")
+		require.True(t, ok)
+		pod.Annotations = map[string]string{key: raw}
+		deploy := newTestDeployment("stale-oom-floor", "default", map[string]string{"app": "stale-oom-floor"})
+		reconciler, _ := newResizeReconciler(pod, deploy)
+		reconciler.SetNowFunc(func() time.Time { return fixed })
+		policy := newStaleOOMPolicy("stale-oom-floor")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeOneShot
+		rec := newResizeRecommendation("stale-oom-floor", "500m", "200Mi", "1000m", "1Gi", "800m", "400Mi", "1600m", "2Gi")
+		rec.Stale = true
+		rec.Containers[0].Explanation = &attunev1alpha1.ContainerRecommendationExplanation{
+			Memory: &attunev1alpha1.ResourceRecommendationExplanation{FinalAdjustment: "oomBump"},
+		}
+
+		before := staleCount(policy)
+		count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+			[]attunev1alpha1.WorkloadRecommendation{rec}, podMap("stale-oom-floor", pod), nil, nil)
+		assert.Equal(t, 1, count)
+		assert.Equal(t, before, staleCount(policy))
+
+		resized := resizeUpdatePods(reconciler.Clientset.(*kubefake.Clientset))
+		require.Len(t, resized, 1)
+		assertResizeResources(t, resized[0], "100m", "200m", "300Mi", "1Gi")
+	})
+
+	t.Run("note only does not bypass staleness", func(t *testing.T) {
+		pod := newResizePod("stale-oom-note", "100m", "200Mi", "200m", "1Gi")
+		deploy := newTestDeployment("stale-oom-note", "default", map[string]string{"app": "stale-oom-note"})
+		reconciler, _ := newResizeReconciler(pod, deploy)
+		reconciler.SetNowFunc(func() time.Time { return fixed })
+		policy := newStaleOOMPolicy("stale-oom-note")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeOneShot
+		rec := newResizeRecommendation("stale-oom-note", "500m", "200Mi", "1000m", "1Gi", "800m", "400Mi", "1600m", "2Gi")
+		rec.Stale = true
+		rec.Containers[0].Explanation = &attunev1alpha1.ContainerRecommendationExplanation{
+			Memory: &attunev1alpha1.ResourceRecommendationExplanation{FinalAdjustment: "oomBump"},
+		}
+
+		before := staleCount(policy)
+		count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+			[]attunev1alpha1.WorkloadRecommendation{rec}, podMap("stale-oom-note", pod), nil, nil)
+		assert.Equal(t, 0, count)
+		assert.Equal(t, before+1, staleCount(policy))
+		assert.Empty(t, resizeUpdatePods(reconciler.Clientset.(*kubefake.Clientset)))
+	})
+
+	t.Run("pending stamp applies origin math not the percentile", func(t *testing.T) {
+		pod := newResizePod("stale-oom-pending", "100m", "200Mi", "200m", "1Gi")
+		deploy := newTestDeployment("stale-oom-pending", "default", map[string]string{"app": "stale-oom-pending"})
+		reconciler, _ := newResizeReconciler(pod, deploy)
+		reconciler.SetNowFunc(func() time.Time { return fixed })
+		policy := newStaleOOMPolicy("stale-oom-pending")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeOneShot
+		bump, err := resource.ParseQuantity("300Mi")
+		require.NoError(t, err)
+		decoy, err := resource.ParseQuantity("400Mi")
+		require.NoError(t, err)
+		origin, err := resource.ParseQuantity("200Mi")
+		require.NoError(t, err)
+		reconciler.oomBumps.Put(
+			string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "main",
+			[]oomBumpPodStamp{{
+				Namespace: pod.Namespace,
+				PodName:   pod.Name,
+				Stamp: oomBumpRecord{
+					Count: 1, Origin: origin.Value(), Floor: decoy.Value(),
+					OOMAt: fixed.Add(-time.Minute), Restart: 1, HoldUntil: fixed.Add(time.Hour),
+				},
+				Result:    oomBumpApplied,
+				bumpBytes: bump.Value(),
+			}}, nil,
+		)
+		rec := newResizeRecommendation("stale-oom-pending", "500m", "200Mi", "1000m", "1Gi", "800m", "400Mi", "1600m", "2Gi")
+		rec.Stale = true
+
+		before := staleCount(policy)
+		count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+			[]attunev1alpha1.WorkloadRecommendation{rec}, podMap("stale-oom-pending", pod), nil, nil)
+		assert.Equal(t, 1, count)
+		assert.Equal(t, before, staleCount(policy))
+		resized := resizeUpdatePods(reconciler.Clientset.(*kubefake.Clientset))
+		require.Len(t, resized, 1)
+		assertResizeResources(t, resized[0], "100m", "200m", "300Mi", "1Gi")
+	})
+
+	t.Run("higher live memory is not decreased", func(t *testing.T) {
+		low := newResizePod("stale-oom-pair", "100m", "200Mi", "200m", "1Gi")
+		raw := oomHoldAnnotation(t, "200Mi", "300Mi", fixed.Add(time.Hour))
+		key, ok := oomBumpKey("main")
+		require.True(t, ok)
+		low.Annotations = map[string]string{key: raw}
+		high := low.DeepCopy()
+		high.Name = "stale-oom-pair-abc-2"
+		highMem, err := resource.ParseQuantity("400Mi")
+		require.NoError(t, err)
+		high.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory] = highMem
+		delete(high.Annotations, key)
+		deploy := newTestDeployment("stale-oom-pair", "default", map[string]string{"app": "stale-oom-pair"})
+		scheme := testScheme()
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, low.DeepCopy(), high.DeepCopy()).Build()
+		clientset := kubefake.NewSimpleClientset(low.DeepCopy(), high.DeepCopy())
+		reconciler := NewAttunePolicyReconciler()
+		reconciler.Client = fakeClient
+		reconciler.Scheme = scheme
+		reconciler.Clientset = clientset
+		reconciler.SetNowFunc(func() time.Time { return fixed })
+		policy := newStaleOOMPolicy("stale-oom-pair")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+		rec := newResizeRecommendation("stale-oom-pair", "500m", "200Mi", "1000m", "1Gi", "800m", "400Mi", "1600m", "2Gi")
+		rec.Stale = true
+
+		before := staleCount(policy)
+		count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+			[]attunev1alpha1.WorkloadRecommendation{rec},
+			map[string][]corev1.Pod{"stale-oom-pair": {*low, *high}}, nil, nil)
+		assert.Equal(t, 1, count)
+		assert.Equal(t, before, staleCount(policy))
+		resized := resizeUpdatePods(clientset)
+		require.Len(t, resized, 1)
+		assert.Equal(t, low.Name, resized[0].Name)
+		assertResizeResources(t, resized[0], "100m", "200m", "300Mi", "1Gi")
+	})
+}
+
+func TestResizeContainer_ImmediateRevertDoesNotCountOOMBump(t *testing.T) {
+	fixed := time.Date(2026, 9, 30, 15, 0, 0, 0, time.UTC)
+	listed := newResizePod("oom-revert", "100m", "200Mi", "200m", "1Gi")
+	listed.Status.ContainerStatuses = []corev1.ContainerStatus{{
+		Name:         "main",
+		RestartCount: 1,
+	}}
+	apiPod := listed.DeepCopy()
+	apiPod.Status.ContainerStatuses[0].RestartCount = 4
+	apiPod.Status.ContainerStatuses[0].LastTerminationState = corev1.ContainerState{
+		Terminated: &corev1.ContainerStateTerminated{
+			Reason:     "Error",
+			FinishedAt: metav1.NewTime(fixed.Add(time.Minute)),
+		},
+	}
+	deploy := newTestDeployment("oom-revert", "default", map[string]string{"app": "oom-revert"})
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, listed.DeepCopy()).Build()
+	clientset := kubefake.NewSimpleClientset(apiPod)
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
+	reconciler.SetNowFunc(func() time.Time { return fixed })
+
+	policy := newStaleOOMPolicy("oom-revert-nocount")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeOneShot
+	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
+	origin, err := resource.ParseQuantity("200Mi")
+	require.NoError(t, err)
+	floor, err := resource.ParseQuantity("300Mi")
+	require.NoError(t, err)
+	reconciler.oomBumps.Put(
+		string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "main",
+		[]oomBumpPodStamp{{
+			Namespace: listed.Namespace,
+			PodName:   listed.Name,
+			Stamp: oomBumpRecord{
+				Count: 1, Origin: origin.Value(), Floor: floor.Value(),
+				OOMAt: fixed.Add(-time.Minute), Restart: 1, HoldUntil: fixed.Add(time.Hour),
+			},
+			Result:    oomBumpApplied,
+			bumpBytes: floor.Value(),
+		}}, nil,
+	)
+	rec := newResizeRecommendation("oom-revert", "100m", "200Mi", "200m", "1Gi", "100m", "300Mi", "200m", "1Gi")
+	target, _ := buildResizeTarget(rec.Containers[0])
+	ctx := context.Background()
+	logger := log.FromContext(ctx)
+	before := promtestutil.ToFloat64(operatormetrics.OOMBumpTotal.WithLabelValues(policy.Namespace, policy.Name, oomBumpApplied))
+	history, outcome := reconciler.resizeContainer(ctx, resizeParams{
+		Policy:       policy,
+		Pod:          listed,
+		Workload:     deploy,
+		WorkloadName: deploy.Name,
+		ContainerRec: rec.Containers[0],
+		Target:       target,
+		Resizer:      resize.NewPodResizer(clientset, logger),
+		Monitor:      reconciler.newSafetyMonitor(logger, nil),
+		Now:          metav1.NewTime(fixed),
+		LiveApplied:  true,
+	})
+	after := promtestutil.ToFloat64(operatormetrics.OOMBumpTotal.WithLabelValues(policy.Namespace, policy.Name, oomBumpApplied))
+	assert.Equal(t, before, after, "a successful immediate revert must not count applied")
+	assert.Equal(t, resizeOutcomeNone, outcome)
+	require.NotEmpty(t, history)
+	for _, entry := range history {
+		assert.Equal(t, attunev1alpha1.ResizeResultReverted, entry.Result)
+	}
+}
+
+func TestResizeContainer_UnraisedMemoryDoesNotCountOOMBump(t *testing.T) {
+	fixed := time.Date(2026, 9, 30, 15, 0, 0, 0, time.UTC)
+	pod := newResizePod("unraised-mem", "100m", "300Mi", "200m", "300Mi")
+	deploy := newTestDeployment("unraised-mem", "default", map[string]string{"app": "unraised-mem"})
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod.DeepCopy()).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
+	reconciler.SetNowFunc(func() time.Time { return fixed })
+
+	policy := newStaleOOMPolicy("oom-unraised-nocount")
+	origin, err := resource.ParseQuantity("300Mi")
+	require.NoError(t, err)
+	floor, err := resource.ParseQuantity("360Mi")
+	require.NoError(t, err)
+	reconciler.oomBumps.Put(
+		string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "main",
+		[]oomBumpPodStamp{{
+			Namespace: pod.Namespace,
+			PodName:   pod.Name,
+			Stamp: oomBumpRecord{
+				Count: 1, Origin: origin.Value(), Floor: floor.Value(),
+				OOMAt: fixed.Add(-time.Minute), Restart: 1, HoldUntil: fixed.Add(time.Hour),
+			},
+			Result:    oomBumpApplied,
+			bumpBytes: floor.Value(),
+		}}, nil,
+	)
+	rec := newResizeRecommendation("unraised-mem", "100m", "300Mi", "200m", "300Mi", "150m", "300Mi", "200m", "300Mi")
+	target, _ := buildResizeTarget(rec.Containers[0])
+	ctx := context.Background()
+	logger := log.FromContext(ctx)
+	metric := func(result string) float64 {
+		return promtestutil.ToFloat64(operatormetrics.OOMBumpTotal.WithLabelValues(policy.Namespace, policy.Name, result))
+	}
+	beforeSkipped := metric(oomBumpSkipped)
+	beforeApplied := metric(oomBumpApplied)
+	beforeClamped := metric(oomBumpClamped)
+
+	history, outcome := reconciler.resizeContainer(ctx, resizeParams{
+		Policy:       policy,
+		Pod:          pod,
+		Workload:     deploy,
+		WorkloadName: deploy.Name,
+		ContainerRec: rec.Containers[0],
+		Target:       target,
+		Resizer:      resize.NewPodResizer(clientset, logger),
+		Monitor:      reconciler.newSafetyMonitor(logger, nil),
+		Now:          metav1.NewTime(fixed),
+		LiveApplied:  true,
+	})
+
+	assert.Equal(t, beforeSkipped+1, metric(oomBumpSkipped))
+	assert.Equal(t, beforeApplied, metric(oomBumpApplied))
+	assert.Equal(t, beforeClamped, metric(oomBumpClamped))
+	assert.Equal(t, resizeOutcomeInPlace, outcome)
+	require.NotEmpty(t, history)
+	_, still := reconciler.peekOOMBump(policy, deploy, "main", pod)
+	assert.False(t, still)
+	key, ok := oomBumpKey("main")
+	require.True(t, ok)
+	_, has := pod.Annotations[key]
+	assert.False(t, has)
+	resized := resizeUpdatePods(clientset)
+	require.Len(t, resized, 1)
+	assertResizeResources(t, resized[0], "150m", "200m", "300Mi", "300Mi")
+}
+
+func newStaleOOMPolicy(name string) *attunev1alpha1.AttunePolicy {
+	policy := newTestPolicy(name, "default")
+	policy.UID = types.UID(name)
+	policy.Spec.Memory.OOMBump = &attunev1alpha1.OOMBump{}
+	cv := attunev1alpha1.ControlledRequestsAndLimits
+	policy.Spec.CPU.ControlledValues = &cv
+	policy.Spec.Memory.ControlledValues = &cv
+	return policy
+}
+
+func oomHoldAnnotation(t *testing.T, origin, floor string, holdUntil time.Time) string {
+	t.Helper()
+	originQ, err := resource.ParseQuantity(origin)
+	require.NoError(t, err)
+	floorQ, err := resource.ParseQuantity(floor)
+	require.NoError(t, err)
+	raw, err := formatOOMBumpRecord(oomBumpRecord{
+		Count:     1,
+		Origin:    originQ.Value(),
+		Floor:     floorQ.Value(),
+		OOMAt:     holdUntil.Add(-time.Hour),
+		Restart:   1,
+		HoldUntil: holdUntil,
+	})
+	require.NoError(t, err)
+	return raw
+}
+
+func staleCount(policy *attunev1alpha1.AttunePolicy) float64 {
+	return promtestutil.ToFloat64(operatormetrics.StaleRecommendationsTotal.WithLabelValues(policy.Namespace, policy.Name))
+}
+
+func resizeUpdatePods(cs *kubefake.Clientset) []*corev1.Pod {
+	var out []*corev1.Pod
+	for _, action := range cs.Actions() {
+		if action.GetVerb() == "update" && action.GetSubresource() == "resize" {
+			out = append(out, action.(k8stesting.UpdateAction).GetObject().(*corev1.Pod))
+		}
+	}
+	return out
+}
+
+func assertResizeResources(t *testing.T, pod *corev1.Pod, cpuReq, cpuLim, memReq, memLim string) {
+	t.Helper()
+	main := pod.Spec.Containers[0].Resources
+	wantCPU, err := resource.ParseQuantity(cpuReq)
+	require.NoError(t, err)
+	wantCPULim, err := resource.ParseQuantity(cpuLim)
+	require.NoError(t, err)
+	wantMem, err := resource.ParseQuantity(memReq)
+	require.NoError(t, err)
+	wantMemLim, err := resource.ParseQuantity(memLim)
+	require.NoError(t, err)
+	gotCPU := main.Requests[corev1.ResourceCPU]
+	gotCPULim := main.Limits[corev1.ResourceCPU]
+	gotMem := main.Requests[corev1.ResourceMemory]
+	gotMemLim := main.Limits[corev1.ResourceMemory]
+	assert.Equal(t, wantCPU.MilliValue(), gotCPU.MilliValue(), "cpu request")
+	assert.Equal(t, wantCPULim.MilliValue(), gotCPULim.MilliValue(), "cpu limit")
+	assert.Equal(t, wantMem.Value(), gotMem.Value(), "memory request")
+	assert.Equal(t, wantMemLim.Value(), gotMemLim.Value(), "memory limit")
 }
 
 func TestExecuteResizes_SkipsQoSChange(t *testing.T) {
@@ -2461,4 +2798,150 @@ done437:
 		}
 	}
 	assert.Equal(t, 2, resizeCalls, "should have 2 UpdateResize calls: original resize + revert")
+}
+
+func annotationOnlyCappedStamp(t *testing.T, pod *corev1.Pod, now time.Time) (oomBumpPodStamp, string) {
+	t.Helper()
+	origin, err := resource.ParseQuantity("200Mi")
+	require.NoError(t, err)
+	floor, err := resource.ParseQuantity("300Mi")
+	require.NoError(t, err)
+	record := oomBumpRecord{
+		Count: 3, Origin: origin.Value(), Floor: floor.Value(),
+		OOMAt: now, Restart: 4, HoldUntil: now.Add(24 * time.Hour),
+	}
+	raw, err := formatOOMBumpRecord(record)
+	require.NoError(t, err)
+	return oomBumpPodStamp{
+		Namespace: pod.Namespace, PodName: pod.Name,
+		Stamp: record, AnnotationOnly: true, Result: oomBumpCapped,
+	}, raw
+}
+
+func newOOMSkipPolicy(name string, mode attunev1alpha1.UpdateType) *attunev1alpha1.AttunePolicy {
+	policy := newTestPolicy(name, "default")
+	policy.UID = types.UID(name)
+	policy.Spec.Memory.OOMBump = &attunev1alpha1.OOMBump{}
+	policy.Spec.UpdateStrategy.Type = mode
+	return policy
+}
+
+func oomSkipCount(policy *attunev1alpha1.AttunePolicy, result string) float64 {
+	return promtestutil.ToFloat64(operatormetrics.OOMBumpTotal.WithLabelValues(policy.Namespace, policy.Name, result))
+}
+
+func assertPodOOMBump(t *testing.T, r *AttunePolicyReconciler, pod *corev1.Pod, raw string) {
+	t.Helper()
+	key, ok := oomBumpKey("main")
+	require.True(t, ok)
+	var got corev1.Pod
+	require.NoError(t, r.Get(context.Background(), types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}, &got))
+	assert.Equal(t, raw, got.Annotations[key])
+}
+
+func assertWorkloadOOMCount(t *testing.T, r *AttunePolicyReconciler, deploy *appsv1.Deployment) {
+	t.Helper()
+	key, ok := oomBumpKey("main")
+	require.True(t, ok)
+	var got appsv1.Deployment
+	require.NoError(t, r.Get(context.Background(), types.NamespacedName{Namespace: deploy.Namespace, Name: deploy.Name}, &got))
+	assert.Contains(t, got.Annotations[key], "count=3")
+}
+
+func TestExecuteResizes_AnnotationOnlySurvivesQoSSkip(t *testing.T) {
+	now := time.Date(2026, 9, 30, 16, 0, 0, 0, time.UTC)
+	pod := newResizePod("oom-skip-qos", "500m", "512Mi", "500m", "512Mi")
+	pod.Status.QOSClass = corev1.PodQOSGuaranteed
+	deploy := newTestDeployment("oom-skip-qos", "default", map[string]string{"app": "oom-skip-qos"})
+	reconciler, _ := newResizeReconciler(pod, deploy)
+	reconciler.SetNowFunc(func() time.Time { return now })
+	policy := newOOMSkipPolicy("oom-skip-qos", attunev1alpha1.UpdateTypeAuto)
+	stamp, raw := annotationOnlyCappedStamp(t, pod, now)
+	reconciler.oomBumps.Put(string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "main", []oomBumpPodStamp{stamp}, nil)
+	beforeSkipped := oomSkipCount(policy, oomBumpSkipped)
+	beforeApplied := oomSkipCount(policy, oomBumpApplied)
+
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("oom-skip-qos", "500m", "512Mi", "500m", "512Mi", "750m", "384Mi", "1500m", "768Mi"),
+	}
+	count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy}, recs, podMap("oom-skip-qos", pod), nil, nil)
+	assert.Equal(t, 0, count)
+	assert.Equal(t, beforeSkipped, oomSkipCount(policy, oomBumpSkipped))
+	assert.Equal(t, beforeApplied, oomSkipCount(policy, oomBumpApplied))
+	assertPodOOMBump(t, reconciler, pod, raw)
+	assertWorkloadOOMCount(t, reconciler, deploy)
+}
+
+func TestExecuteResizes_AnnotationOnlySurvivesBudgetSkip(t *testing.T) {
+	now := time.Date(2026, 9, 30, 16, 0, 0, 0, time.UTC)
+	pod := newResizePod("oom-skip-budget", "200m", "256Mi", "800m", "256Mi")
+	deploy := newTestDeployment("oom-skip-budget", "default", map[string]string{"app": "oom-skip-budget"})
+	reconciler, _ := newResizeReconciler(pod, deploy)
+	reconciler.SetNowFunc(func() time.Time { return now })
+	policy := newOOMSkipPolicy("oom-skip-budget", attunev1alpha1.UpdateTypeAuto)
+	cpuBudget := resource.MustParse("500m")
+	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpuBudget
+	stamp, raw := annotationOnlyCappedStamp(t, pod, now)
+	reconciler.oomBumps.Put(string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "main", []oomBumpPodStamp{stamp}, nil)
+	beforeSkipped := oomSkipCount(policy, oomBumpSkipped)
+
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("oom-skip-budget", "200m", "256Mi", "0", "0", "800m", "256Mi", "0", "0"),
+	}
+	count, history := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy}, recs, podMap("oom-skip-budget", pod), nil, nil)
+	assert.Equal(t, 0, count)
+	assert.Empty(t, history)
+	assert.Equal(t, beforeSkipped, oomSkipCount(policy, oomBumpSkipped))
+	assertPodOOMBump(t, reconciler, pod, raw)
+	assertWorkloadOOMCount(t, reconciler, deploy)
+}
+
+func TestExecuteResizes_AnnotationOnlySurvivesCooldown(t *testing.T) {
+	now := time.Date(2026, 9, 30, 16, 0, 0, 0, time.UTC)
+	pod := newResizePod("oom-skip-cooldown", "100m", "256Mi", "200m", "256Mi")
+	deploy := newTestDeployment("oom-skip-cooldown", "default", map[string]string{"app": "oom-skip-cooldown"})
+	reconciler, _ := newResizeReconciler(pod, deploy)
+	reconciler.SetNowFunc(func() time.Time { return now })
+	policy := newOOMSkipPolicy("oom-skip-cooldown", attunev1alpha1.UpdateTypeAuto)
+	policy.Annotations = map[string]string{lastResizeAnnotation: now.Format(time.RFC3339)}
+	stamp, raw := annotationOnlyCappedStamp(t, pod, now)
+	reconciler.oomBumps.Put(string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "main", []oomBumpPodStamp{stamp}, nil)
+
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("oom-skip-cooldown", "100m", "256Mi", "200m", "256Mi", "150m", "256Mi", "200m", "256Mi"),
+	}
+	count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy}, recs, podMap("oom-skip-cooldown", pod), nil, nil)
+	assert.Equal(t, 0, count)
+	assertPodOOMBump(t, reconciler, pod, raw)
+}
+
+func TestExecuteResizes_AnnotationOnlyOneShotWritesUnselectedPod(t *testing.T) {
+	now := time.Date(2026, 9, 30, 16, 0, 0, 0, time.UTC)
+	pod1 := newResizePod("oneshot-oom", "100m", "256Mi", "200m", "256Mi")
+	pod2 := pod1.DeepCopy()
+	pod2.Name = "oneshot-oom-abc-2"
+	deploy := newTestDeployment("oneshot-oom", "default", map[string]string{"app": "oneshot-oom"})
+	scheme := testScheme()
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Scheme = scheme
+	reconciler.Client = fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod1.DeepCopy(), pod2.DeepCopy()).Build()
+	reconciler.Clientset = kubefake.NewSimpleClientset(pod1.DeepCopy(), pod2.DeepCopy())
+	reconciler.SetNowFunc(func() time.Time { return now })
+	policy := newOOMSkipPolicy("oom-skip-oneshot", attunev1alpha1.UpdateTypeOneShot)
+	stamp1, raw := annotationOnlyCappedStamp(t, pod1, now)
+	stamp2, _ := annotationOnlyCappedStamp(t, pod2, now)
+	reconciler.oomBumps.Put(string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "main", []oomBumpPodStamp{stamp1, stamp2}, nil)
+	beforeSkipped := oomSkipCount(policy, oomBumpSkipped)
+	beforeApplied := oomSkipCount(policy, oomBumpApplied)
+
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("oneshot-oom", "100m", "256Mi", "200m", "256Mi", "150m", "256Mi", "200m", "256Mi"),
+	}
+	count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy}, recs, podMap("oneshot-oom", pod1, pod2), nil, nil)
+	assert.Equal(t, 1, count)
+	assert.Equal(t, beforeSkipped, oomSkipCount(policy, oomBumpSkipped))
+	assert.Equal(t, beforeApplied, oomSkipCount(policy, oomBumpApplied))
+	assertPodOOMBump(t, reconciler, pod1, raw)
+	assertPodOOMBump(t, reconciler, pod2, raw)
+	assertWorkloadOOMCount(t, reconciler, deploy)
 }

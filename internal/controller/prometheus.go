@@ -365,6 +365,7 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 			logger.Info("Skipping excluded container",
 				"container", container.Name,
 				"reason", pkgdefaults.ExclusionReason(policy, container.Name))
+			r.planContainerOOMBump(ctx, policy, workload, container.Name, true, 0, false, pods, now)
 			continue
 		}
 		eligibleContainers++
@@ -513,6 +514,11 @@ func (r *AttunePolicyReconciler) recommendContainer(
 			"container", containerName,
 			"cpuPoints", cpuProfile.DataPoints,
 			"minimum", minimumDataPoints)
+		if planRec, published := r.oomBumpFallbackRec(ctx, in); published {
+			planRec = r.finishOOMBumpFallback(in, planRec)
+			planRec.DataPoints = safeInt32(cpuProfile.DataPoints)
+			return planRec, true, false, cpuProfile.DataPoints
+		}
 		return rec, false, false, cpuProfile.DataPoints
 	}
 
@@ -529,6 +535,11 @@ func (r *AttunePolicyReconciler) recommendContainer(
 			"cpuPoints", cpuProfile.DataPoints,
 			"memPoints", memProfile.DataPoints,
 			"minimum", minimumDataPoints)
+		if planRec, published := r.oomBumpFallbackRec(ctx, in); published {
+			planRec = r.finishOOMBumpFallback(in, planRec)
+			planRec.DataPoints = safeInt32(dataPoints)
+			return planRec, true, false, dataPoints
+		}
 		return rec, false, false, dataPoints
 	}
 
@@ -578,6 +589,16 @@ func (r *AttunePolicyReconciler) recommendContainer(
 		memRec = r.enforceAllowDecrease(memAllowDecrease, memRec, rec.Current.MemoryRequest, &memExplain, policy, containerName, "memory")
 		rec.Recommended.MemoryRequest = memRec
 		explanation.Memory = toAPIRecommendationExplanation(memExplain)
+		memApplied = true
+	}
+
+	percentileBytes := int64(0)
+	percentileOK := memApplied && rec.Recommended.MemoryRequest.Value() > 0
+	if percentileOK {
+		percentileBytes = rec.Recommended.MemoryRequest.Value()
+	}
+	memPlan := r.planContainerOOMBump(ctx, policy, workload, containerName, false, percentileBytes, percentileOK, pods, now)
+	if applyOOMBumpToRecommendation(&rec, explanation, memPlan) {
 		memApplied = true
 	}
 

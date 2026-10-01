@@ -20,7 +20,7 @@ tests:
           path: spec.groups[0].name
           value: attune
 
-  - it: should include all fourteen default alerts
+  - it: should include all fifteen default alerts
     set:
       metrics:
         enabled: true
@@ -29,7 +29,7 @@ tests:
     asserts:
       - lengthEqual:
           path: spec.groups[0].rules
-          count: 14
+          count: 15
 
   - it: should disable individual rules
     set:
@@ -45,7 +45,7 @@ tests:
     asserts:
       - lengthEqual:
           path: spec.groups[0].rules
-          count: 12
+          count: 13
 
   - it: should include AttuneGitOpsPRFailures by default
     set:
@@ -96,7 +96,7 @@ tests:
     asserts:
       - lengthEqual:
           path: spec.groups[0].rules
-          count: 13
+          count: 14
       - equal:
           path: spec.groups[0].rules[12].alert
           value: AttuneMemoryLimitUnsafe
@@ -113,7 +113,7 @@ tests:
     asserts:
       - lengthEqual:
           path: spec.groups[0].rules
-          count: 13
+          count: 14
       - equal:
           path: spec.groups[0].rules[12].alert
           value: AttuneGitOpsPRFailures

@@ -1186,6 +1186,24 @@
           "refId": "A"
         }
       ]
+    },
+    {
+      "id": 129,
+      "type": "timeseries",
+      "title": "OOM bump outcomes",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 128
+      },
+      "targets": [
+        {
+          "expr": "sum by (result) (rate(attune_oom_bump_total[5m]))",
+          "legendFormat": "{{result}}",
+          "refId": "A"
+        }
+      ]
     }
   ],
   "schemaVersion": 39,

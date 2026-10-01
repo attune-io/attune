@@ -50,7 +50,7 @@ func TestPersistResizeAnnotations_TimeoutAfterCommitTreatsAsSuccess(t *testing.T
 	now := metav1.NewTime(time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC))
 	working := pod.DeepCopy()
 	reason, err := r.persistResizeAnnotations(context.Background(), working, persistMainRec(t),
-		"test-policy", "api-server", now, 3)
+		"test-policy", "api-server", now, 3, "")
 	require.NoError(t, err, "committed persist plus client timeout must be treated as success")
 	assert.Empty(t, reason)
 	assert.Equal(t, 1, wrapped.timeoutsSeen)
@@ -92,7 +92,7 @@ func TestPersistResizeAnnotations_ConfirmGetRetryThenSuccess(t *testing.T) {
 	now := metav1.NewTime(time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC))
 	working := pod.DeepCopy()
 	reason, err := r.persistResizeAnnotations(context.Background(), working, persistMainRec(t),
-		"test-policy", "api-server", now, 3)
+		"test-policy", "api-server", now, 3, "")
 	require.NoError(t, err, "confirm Get timeout then success must not revert")
 	assert.Empty(t, reason)
 	assert.GreaterOrEqual(t, confirmGets.Load(), int32(3), "re-fetch plus failed confirm plus retry")
@@ -118,7 +118,7 @@ func TestPersistResizeAnnotations_ConfirmUsesDetachedContext(t *testing.T) {
 	now := metav1.NewTime(time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC))
 	working := pod.DeepCopy()
 	reason, err := r.persistResizeAnnotations(ctx, working, persistMainRec(t),
-		"test-policy", "api-server", now, 3)
+		"test-policy", "api-server", now, 3, "")
 	require.NoError(t, err, "cancelled parent ctx must not skip confirm after a committed write")
 	assert.Empty(t, reason)
 	assert.Equal(t, now.UTC().Format(time.RFC3339), working.Annotations[annotationResizedAt])
@@ -162,7 +162,7 @@ func TestPersistResizeAnnotations_ConfirmGetAlwaysErrorsReverts(t *testing.T) {
 	now := metav1.NewTime(time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC))
 	working := pod.DeepCopy()
 	reason, err := r.persistResizeAnnotations(context.Background(), working, persistMainRec(t),
-		"test-policy", "api-server", now, 3)
+		"test-policy", "api-server", now, 3, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "injected timeout after committed annotation persist",
 		"must return the write error, not the confirm Get error")

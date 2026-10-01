@@ -480,6 +480,95 @@ func TestMergeResourceConfig_LimitMultiplier(t *testing.T) {
 	assert.NotContains(t, inherited, "cpu.limitMultiplier")
 }
 
+func TestApplyBuiltInDefaults_OOMBumpStaysNilUntilSet(t *testing.T) {
+	t.Parallel()
+	bare := &attunev1alpha1.AttunePolicy{}
+	ApplyBuiltInDefaults(bare)
+	assert.Nil(t, bare.Spec.Memory.OOMBump)
+	assert.Nil(t, bare.Spec.CPU.OOMBump)
+
+	cpuBlock := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{OOMBump: &attunev1alpha1.OOMBump{}},
+		},
+	}
+	ApplyBuiltInDefaults(cpuBlock)
+	require.NotNil(t, cpuBlock.Spec.CPU.OOMBump)
+	assert.Nil(t, cpuBlock.Spec.CPU.OOMBump.Ratio, "CPU oomBump is rejected by the webhook and is not filled")
+
+	empty := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			Memory: attunev1alpha1.ResourceConfig{OOMBump: &attunev1alpha1.OOMBump{}},
+		},
+	}
+	ApplyBuiltInDefaults(empty)
+	block := empty.Spec.Memory.OOMBump
+	require.NotNil(t, block)
+	require.NotNil(t, block.Ratio)
+	assert.Equal(t, attunev1alpha1.DefaultOOMBumpRatio, *block.Ratio)
+	require.NotNil(t, block.MinBump)
+	assert.Equal(t, 0, block.MinBump.Cmp(attunev1alpha1.DefaultOOMBumpMinBump))
+	require.NotNil(t, block.MaxBumps)
+	assert.Equal(t, attunev1alpha1.DefaultOOMBumpMaxBumps, *block.MaxBumps)
+	require.NotNil(t, block.Hold)
+	assert.Equal(t, attunev1alpha1.DefaultOOMBumpHold, block.Hold.Duration)
+
+	ratio := "1.5"
+	explicit := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			Memory: attunev1alpha1.ResourceConfig{OOMBump: &attunev1alpha1.OOMBump{Ratio: &ratio}},
+		},
+	}
+	ApplyBuiltInDefaults(explicit)
+	assert.Equal(t, "1.5", *explicit.Spec.Memory.OOMBump.Ratio)
+}
+
+func TestMergeDefaults_OOMBump(t *testing.T) {
+	t.Parallel()
+	ratio := "1.5"
+	defaults := &attunev1alpha1.AttuneDefaults{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			Memory: &attunev1alpha1.ResourceConfig{
+				OOMBump: &attunev1alpha1.OOMBump{Ratio: &ratio},
+			},
+		},
+	}
+
+	omitted := &attunev1alpha1.AttunePolicy{}
+	MergeDefaults(omitted, defaults)
+	require.NotNil(t, omitted.Spec.Memory.OOMBump)
+	require.NotNil(t, omitted.Spec.Memory.OOMBump.Ratio)
+	assert.Equal(t, "1.5", *omitted.Spec.Memory.OOMBump.Ratio)
+	ApplyBuiltInDefaults(omitted)
+	require.NotNil(t, omitted.Spec.Memory.OOMBump.MinBump)
+	assert.Equal(t, attunev1alpha1.DefaultOOMBumpMaxBumps, *omitted.Spec.Memory.OOMBump.MaxBumps)
+
+	emptyBlock := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			Memory: attunev1alpha1.ResourceConfig{OOMBump: &attunev1alpha1.OOMBump{}},
+		},
+	}
+	inherited := MergeDefaults(emptyBlock, defaults)
+	require.NotNil(t, emptyBlock.Spec.Memory.OOMBump.Ratio)
+	assert.Equal(t, "1.5", *emptyBlock.Spec.Memory.OOMBump.Ratio)
+	assert.Contains(t, inherited, "memory.oomBump.ratio")
+
+	policyRatio := "2"
+	wins := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			Memory: attunev1alpha1.ResourceConfig{OOMBump: &attunev1alpha1.OOMBump{Ratio: &policyRatio}},
+		},
+	}
+	inherited = MergeDefaults(wins, defaults)
+	assert.Equal(t, "2", *wins.Spec.Memory.OOMBump.Ratio)
+	assert.NotContains(t, inherited, "memory.oomBump.ratio")
+
+	neither := &attunev1alpha1.AttunePolicy{}
+	MergeDefaults(neither, &attunev1alpha1.AttuneDefaults{})
+	ApplyBuiltInDefaults(neither)
+	assert.Nil(t, neither.Spec.Memory.OOMBump)
+}
+
 // ---------- Direct MergeMetricsSource tests ----------
 
 func TestMergeMetricsSource_AllFields(t *testing.T) {

@@ -1547,6 +1547,32 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 	printEffectiveField("  Max decrease", formatPercentInt64Ptr(rawInt64Field(item, "spec", "memory", "maxDecreasePercent")), formatPercentPtr(effective.Spec.Memory.MaxDecreasePercent), selected, memDefaults != nil && memDefaults.MaxDecreasePercent != nil)
 	printEffectiveField("  Decrease usage margin", formatPercentInt64Ptr(rawInt64Field(item, "spec", "memory", "decreaseUsageMarginPercent")), formatPercentPtr(effective.Spec.Memory.DecreaseUsageMarginPercent), selected, memDefaults != nil && memDefaults.DecreaseUsageMarginPercent != nil)
 	printEffectiveField("  Memory from CPU ratio", getNestedString(item, "spec", "memory", "memoryFromCpuRatio"), formatStringPtr(effective.Spec.Memory.MemoryFromCPURatio), selected, memDefaults != nil && memDefaults.MemoryFromCPURatio != nil)
+	// A nil block stays off and prints nothing. Nil inners show the
+	// built-in default because ApplyBuiltInDefaults fills them when the
+	// block is set. This printer does not fill the block itself.
+	if bump := effective.Spec.Memory.OOMBump; bump != nil {
+		ratio := attunev1alpha1.DefaultOOMBumpRatio
+		if bump.Ratio != nil && *bump.Ratio != "" {
+			ratio = *bump.Ratio
+		}
+		minBump := attunev1alpha1.DefaultOOMBumpMinBump.String()
+		if bump.MinBump != nil {
+			minBump = bump.MinBump.String()
+		}
+		maxBumps := strconv.FormatInt(int64(attunev1alpha1.DefaultOOMBumpMaxBumps), 10)
+		if bump.MaxBumps != nil {
+			maxBumps = strconv.FormatInt(int64(*bump.MaxBumps), 10)
+		}
+		hold := attunev1alpha1.DefaultOOMBumpHold.String()
+		if bump.Hold != nil && bump.Hold.Duration > 0 {
+			hold = bump.Hold.Duration.String()
+		}
+		defaultsBump := memDefaults != nil && memDefaults.OOMBump != nil
+		printEffectiveField("  OOM bump ratio", getNestedString(item, "spec", "memory", "oomBump", "ratio"), ratio, selected, defaultsBump && memDefaults.OOMBump.Ratio != nil)
+		printEffectiveField("  OOM bump min bump", getNestedString(item, "spec", "memory", "oomBump", "minBump"), minBump, selected, defaultsBump && memDefaults.OOMBump.MinBump != nil)
+		printEffectiveField("  OOM bump max bumps", formatInt64Field(item, "spec", "memory", "oomBump", "maxBumps"), maxBumps, selected, defaultsBump && memDefaults.OOMBump.MaxBumps != nil)
+		printEffectiveField("  OOM bump hold", getNestedString(item, "spec", "memory", "oomBump", "hold"), hold, selected, defaultsBump && memDefaults.OOMBump.Hold != nil)
+	}
 
 	if blocked := resizeBlockedCLIReason(item); blocked != "" {
 		msg := getConditionMessage(item, "ResizeBlocked")

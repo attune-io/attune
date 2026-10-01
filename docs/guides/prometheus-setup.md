@@ -488,7 +488,7 @@ helm upgrade attune oci://ghcr.io/attune-io/charts/attune \
   --set metrics.prometheusRule.enabled=true
 ```
 
-This creates 10 alerts covering the key operational signals:
+This creates 15 alerts covering the key operational signals:
 
 | Alert | Fires when | Default severity |
 |-------|-----------|-----------------|
@@ -498,10 +498,15 @@ This creates 10 alerts covering the key operational signals:
 | `AttuneHighRevertRate` | More than 50% of resizes reverted in 15m | critical |
 | `AttuneReconcileStale` | No reconcile completes within 30m | warning |
 | `AttuneBudgetExhausted` | Resize budget exhausted for 30m | warning |
+| `AttunePodsInfeasible` | Pods stuck Infeasible for in-place resize for 30m | warning |
+| `AttunePodsDeferred` | Pods stuck Deferred for in-place resize for 1h | warning |
 | `AttuneDataQuality` | NaN/Inf values from Prometheus for 30m | warning |
 | `AttuneRequestsClamped` | Recommendations capped at limits for 1h | info |
 | `AttuneStaleRecommendations` | Recommendations stale due to data gaps for 1h | warning |
 | `AttuneRevertFailures` | Resize revert failed for 5m | critical |
+| `AttuneGitOpsPRFailures` | GitOps pull request automation failed for 5m | warning |
+| `AttuneMemoryLimitUnsafe` | Memory limit decrease floored or skipped as unsafe for 1h | info |
+| `AttuneOOMBumpCapped` | OOM bump capped at maxBumps or clamped to maxAllowed for 1h | info |
 
 Individual alerts can be disabled or tuned:
 

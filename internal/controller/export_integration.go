@@ -38,5 +38,5 @@ func (r *AttunePolicyReconciler) PersistResizeAnnotationsForTest(
 	now metav1.Time,
 	restartCount int32,
 ) (string, error) {
-	return r.persistResizeAnnotations(ctx, pod, containerRec, policyName, workloadName, now, restartCount)
+	return r.persistResizeAnnotations(ctx, pod, containerRec, policyName, workloadName, now, restartCount, "")
 }

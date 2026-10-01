@@ -297,6 +297,29 @@ sum by (namespace, policy) (
 
 See [Troubleshooting: OOM after memory limit decrease](../guides/troubleshooting.md#oom-after-memory-limit-decrease).
 
+### attune_oom_bump_total
+
+Memory request steps after `OOMKilled` when `memory.oomBump` is set. The feature is off until that block is set. An empty `oomBump: {}` turns it on. The counter increments for a planned outcome. `applied` and `clamped` are recorded only after the resize succeeds, which is also when the annotation count increments. `capped` and `skipped` are recorded without a resize.
+
+| Label | Description |
+|-------|-------------|
+| `namespace` | Policy namespace |
+| `policy` | Policy name |
+| `result` | `applied`, `clamped`, `capped`, or `skipped` |
+
+| `result` | Meaning |
+|----------|---------|
+| `applied` | In-place resize applied the next step from the original request |
+| `clamped` | The step was above `maxAllowed`, so the request was clamped to that cap |
+| `capped` | `maxBumps` is already reached. When `maxAllowed` is omitted, `maxBumps` is the only cap |
+| `skipped` | No bump was applied (already at the target, excluded container, budget skip, or a Guaranteed pod with `RequestsOnly`). A container name that does not fit the annotation key is logged and not counted |
+
+```promql
+sum by (namespace, policy, result) (rate(attune_oom_bump_total[1h]))
+```
+
+See [Troubleshooting: Memory request rose after OOMKilled](../guides/troubleshooting.md#memory-request-rose-after-oomkilled).
+
 ### attune_nan_inf_samples_total
 
 Total times every sample in a series was unusable, so that series could

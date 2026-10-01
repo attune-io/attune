@@ -101,6 +101,7 @@ Each alert rule supports `enabled`, `for`, and `severity`. Some rules have addit
 | `requestsClamped` | info | 1h | | Fires when recommended requests are clamped to limits |
 | `staleRecommendations` | warning | 1h | | Fires when recommendations are marked stale due to Prometheus data gaps |
 | `revertFailures` | critical | 5m | | Fires when resize revert operations fail |
+| `oomBumpCapped` | info | 1h | | Fires when an OOM bump is capped at `maxBumps` or clamped to `maxAllowed`. The whole PrometheusRule stays off until `metrics.prometheusRule.enabled` is true. This alert does not turn `memory.oomBump` on. |
 
 To disable a specific rule:
 
@@ -433,7 +434,7 @@ All fields from `AttuneDefaults` are available in
 |---------|--------|
 | `metricsSource` | `prometheus.address`, `prometheus.headers`, `prometheus.queryParameters`, `prometheus.bearerTokenSecret`, `prometheus.tls`, `datadog.site`, `datadog.apiKeySecretRef`, `cloudwatch.region`, `cloudwatch.clusterName`, `cloudwatch.roleArn`, `cloudwatch.cpuUnit`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow`, `podAggregation`, `cpuRecordingMetric`, `memoryRecordingMetric` |
 | `cpu` | `percentile`, `overhead`, `minAllowed`, `maxAllowed`, `controlledValues`, `burstSensitivity`, `allowDecrease`, `startupBoost`, `maxChangePercent`, `maxIncreasePercent`, `maxDecreasePercent` |
-| `memory` | Same as `cpu` (no `startupBoost`), plus `decreaseUsageMarginPercent` and `memoryFromCpuRatio` |
+| `memory` | Same as `cpu` (no `startupBoost`), plus `decreaseUsageMarginPercent`, `memoryFromCpuRatio`, and `oomBump` |
 | `updateStrategy` | `type`, `cooldown`, `autoRevert`, `resizeMethod`, `initialSizing`, `maxConcurrentResizes`, `maxStatusRecommendations`, `includeExplanationsInStatus`, `maxTotalCpuIncrease`, `maxTotalMemoryIncrease`, `maxCpuIncreasePerMinute`, `maxMemoryIncreasePerMinute`, `schedule`, `export`, `canary`, `safetyObservationPeriod`, `sloGuardrails`, `templatePersistence` |
 | `costPricing` | `cpuPerCoreHour`, `memoryPerGiBHour` |
 
@@ -631,6 +632,29 @@ See the [startup boost guide](../guides/startup-boost.md) for details.
 |-------|------|---------|-------------|
 | `memory.memoryFromCpuRatio` | string | (none) | Derives memory from the CPU recommendation (GiB per core) instead of the memory signal from the active source (Prometheus usage or VPA memory target). For example, `"2.0"` means 1 core = 2 GiB memory. Useful for JVM and heap-bound workloads where memory is proportional to CPU. The derived value still goes through min/max/change caps. When a valid ratio is set and CPU samples are below `minimumDataPoints` (or the VPA CPU target is unset), Attune does not fall back to the memory signal: Ready stays `InsufficientData` and reconcile retries at `min(cooldown, queryStep)` until a CPU recommendation exists. A CPU query error sets Ready to `MetricsUnavailable` and uses the same short requeue (no `requeueJitter`). An invalid ratio (non-numeric, non-positive, or above 1000) is ignored and Attune uses the memory signal; the webhook rejects these when admission is enabled. A prior rec whose memory explanation contains `memoryFromCpuRatio` is kept as Stale across a CPU-only gap. |
 
+### OOM bump
+
+Raises the memory request after `OOMKilled`. The block is absent by default, so memory requests stay on the percentile path. An empty `oomBump: {}` turns the feature on and fills the defaults below. A `cpu.oomBump` block is rejected. The count increments only after a successful resize.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `memory.oomBump` | object | absent | Off until this object is set. `{}` turns the feature on and fills ratio, minBump, maxBumps, and hold. |
+| `oomBump.ratio` | string | `1.2` when the block is set | Multiplies the original memory request at each successful step. Minimum 1. Maximum 10. `"1.2"` means 20 percent per step. |
+| `oomBump.minBump` | quantity | `100Mi` when the block is set | Added to the original request once per successful step. Must be positive. The step uses whichever of the ratio and this floor is larger. |
+| `oomBump.maxBumps` | int32 | `3` when the block is set | Integer from 1 through 10. How many successful steps are allowed from the original request. When `maxAllowed` is omitted, this is the only cap. |
+| `oomBump.hold` | duration | `24h` when the block is set | How long the applied floor stays above a lower percentile. Minimum `1m`. Maximum `168h`. Expiry does not clear the original request stored on the pod. |
+
+The step is `max(ceil(origin * ratio^count), origin + minBump * count)`, then `maxAllowed`. Origin is the live memory request before the first bump of the streak, not the latest live request and not the pod template. After `hold` expires, recommendations follow the normal percentile, `allowDecrease`, and template rules. A later OOM can step again from that same origin until `maxBumps`.
+
+Attune stores the streak on the pod annotation `attune.io/oom-bump.<container>`. The container name must fit so the name segment `oom-bump.<container>` is at most 63 characters. The name is not truncated. The value is `count=<n>,origin=<qty>,floor=<qty>,oomAt=<RFC3339>,restart=<n>,holdUntil=<RFC3339>`.
+
+Example:
+
+```yaml
+memory:
+  oomBump: {}
+```
+
 ### SLO Guardrails
 
 Application-level PromQL checks evaluated after each resize during the safety observation period.
@@ -701,6 +725,8 @@ The controller sets these conditions on each `AttunePolicy`:
 | `ResizeBlocked` | `NamespaceFrozen`, `HPAListUnavailable`, `VPAListUnavailable`, `PodsDeferred`, `PodsInfeasible`, `PodsDeferredAndInfeasible` | Namespace freeze kill-switch, HPA or VPA list failure (in-place resize, persist, boost, and CREATE skipped), or pods stuck Deferred or Infeasible; see troubleshooting "NamespaceFrozen", "HPAListUnavailable", "VPAListUnavailable", and "Deferred or Infeasible resize" |
 | `SafetyObservation` | `Observing`, `Evaluating`, `RestorePending`, `Incomplete` | True while pods still carry `attune.io` resize-tracking annotations. Derived from those annotations each reconcile; not a second in-memory store. Removed when no tracked pods remain. |
 | `GitOpsPullRequest` | `PullRequestOpen`, `PullRequestFailed`, `GitOpsEndpointBlocked`, `NoDrift`, `PullRequestUnchanged`, `PullRequestCooldown`, `PullRequestDryRun`, `PullRequestDisabled` | Opt-in `export.pullRequest` automation status (see [GitOps integration](../guides/gitops-integration.md)) |
+
+`explanation.memory.finalAdjustment` can include `oomBump` when the published memory request was raised or held by `memory.oomBump`. The block is absent by default, so this note is not written until `oomBump` is set.
 
 `status.workloads.resized` counts workloads with a successful in-place resize in the latest reconcile: this cycle's apply, plus a successful in-place row a concurrent reconcile wrote during this reconcile. Rows already in the snapshot do not count, and neither does a success from an earlier hour. `status.resizeHistory` is the retained list (capped at 50 entries, not a time window). It is not the source of `workloads.resized`. An idle reconcile stores `resized: 0` even when older successes are still in that list.
 

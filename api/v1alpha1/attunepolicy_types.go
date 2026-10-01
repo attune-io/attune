@@ -460,6 +460,13 @@ type ResourceConfig struct {
 	// +kubebuilder:validation:Maximum=100
 	// +optional
 	DecreaseUsageMarginPercent *int32 `json:"decreaseUsageMarginPercent,omitempty"`
+
+	// OOMBump raises the memory request after an OOMKill, measured from the
+	// original request. Absent means the feature is off. An empty object
+	// turns it on and fills ratio, minBump, maxBumps, and hold. Only valid
+	// on memory; a CPU value is rejected.
+	// +optional
+	OOMBump *OOMBump `json:"oomBump,omitempty"`
 }
 
 // StartupBoost configures temporary CPU inflation for cold-start optimization.
@@ -487,6 +494,38 @@ type StartupBoost struct {
 	// unfiltered.
 	// +optional
 	ExcludeFromHistory *bool `json:"excludeFromHistory,omitempty"`
+}
+
+// OOMBump raises memory after an OOMKill. The step is
+// max(ceil(origin * ratio^count), origin + minBump * count), then maxAllowed.
+// Origin stays after hold expires. maxBumps is the only cap when maxAllowed
+// is omitted.
+type OOMBump struct {
+	// Ratio multiplies the original memory request at each successful step.
+	// "1.2" means 20 percent per step. Nil is filled with "1.2" when the
+	// block is set. Must be finite and from 1 through 10.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?)?$`
+	Ratio *string `json:"ratio,omitempty"`
+
+	// MinBump is added to the original request once per successful step.
+	// The step uses whichever of the ratio and this floor is larger.
+	// Nil is filled with 100Mi when the block is set. Must be positive.
+	// +optional
+	MinBump *resource.Quantity `json:"minBump,omitempty"`
+
+	// MaxBumps is how many successful steps are allowed from the original
+	// request. Nil is filled with 3 when the block is set. 1 through 10.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=10
+	MaxBumps *int32 `json:"maxBumps,omitempty"`
+
+	// Hold is how long the applied floor stays above a lower percentile.
+	// Nil is filled with 24h when the block is set. 1m through 168h.
+	// Expiry does not clear origin or the step count.
+	// +optional
+	Hold *metav1.Duration `json:"hold,omitempty"`
 }
 
 // ResourceBounds defines the minimum and maximum resource values.

@@ -168,6 +168,12 @@ metrics:
         enabled: true
         for: 1h
         severity: info
+      oomBumpCapped:
+        # -- Fire when an OOM bump is capped at maxBumps or clamped to maxAllowed.
+        # Does not set memory.oomBump. The PrometheusRule stays off until metrics.prometheusRule.enabled is true.
+        enabled: true
+        for: 1h
+        severity: info
     # -- Recording rules for multi-cluster / federated Prometheus rollups.
     # Safe to enable on single-cluster installs (cluster label may be empty).
     fleetRecordingRules:

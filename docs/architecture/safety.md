@@ -128,6 +128,10 @@ message rather than triggering a false revert.
 For configuration examples, template variables, and operational tips, see the
 [SLO guardrails guide](../guides/slo-guardrails.md).
 
+### Memory OOM bump hold
+
+`memory.oomBump` is off until the block is set. An empty `oomBump: {}` turns it on. While the pod annotation `holdUntil` is still in the future, the bump floor blocks a memory revert below that floor. An OOMKill verdict does not undo the bump. A non-OOM termination still reverts, including memory. Throttle, NotReady, and SLO still revert CPU, and those verdicts keep memory at or above the floor for the rest of hold. Hold expiry does not clear the original request stored on the pod. Attune does not evict a pod to change QoS. A Guaranteed pod with `RequestsOnly` is skipped.
+
 ## Observation period
 
 After a resize, the operator observes the pod for a configurable period

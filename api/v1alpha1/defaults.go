@@ -80,6 +80,19 @@ const (
 	// MaxLimitMultiplier is the largest accepted limitMultiplier.
 	// memoryFromCpuRatio uses 1000; a limit multiple does not need that.
 	MaxLimitMultiplier = 100
+	// DefaultOOMBumpRatio is used when memory.oomBump is set and ratio is nil.
+	DefaultOOMBumpRatio = "1.2"
+	// DefaultOOMBumpMaxBumps is used when memory.oomBump is set and maxBumps is nil.
+	DefaultOOMBumpMaxBumps int32 = 3
+	// DefaultOOMBumpHold is used when memory.oomBump is set and hold is nil.
+	DefaultOOMBumpHold = 24 * time.Hour
+	// MaxOOMBumpRatio is the largest accepted oomBump.ratio.
+	MaxOOMBumpRatio = 10
+	// MaxOOMBumpMaxBumps matches the CRD maximum on oomBump.maxBumps.
+	MaxOOMBumpMaxBumps int32 = 10
+	// MinOOMBumpHold and MaxOOMBumpHold bound oomBump.hold.
+	MinOOMBumpHold = time.Minute
+	MaxOOMBumpHold = 168 * time.Hour
 	// DefaultMaxStatusRecommendations caps status.recommendations size.
 	DefaultMaxStatusRecommendations int32 = 100
 	// DefaultIncludeExplanationsInStatus keeps explanation chains in status.
@@ -107,4 +120,6 @@ var KnownSidecarContainers = []string{
 var (
 	DefaultCPUBoundsMin    = resource.MustParse("1m")
 	DefaultMemoryBoundsMin = resource.MustParse("4Mi")
+	// DefaultOOMBumpMinBump is used when memory.oomBump is set and minBump is nil.
+	DefaultOOMBumpMinBump = resource.MustParse("100Mi")
 )
