@@ -1038,7 +1038,9 @@ scales out.
 
 **Fix**:
 
-1. Annotate the HPA with `attune.io/auto-tune: "true"`.
+1. Annotate the HPA with `attune.io/auto-tune: "true"`. Attune writes the
+   new percent on the next successful in-place resize. If replicas already
+   grew, set the current utilization percent on the HPA now.
 2. Confirm the metric is Utilization, not AverageValue. Object and External
    metrics are left unchanged.
 3. Optional: set `updateStrategy.hpaTargetBounds.memory.max` when the retuned
