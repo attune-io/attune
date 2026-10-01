@@ -115,6 +115,33 @@ func TestUnsetMax_ExplicitZeroMaxStaysACap(t *testing.T) {
 	assert.True(t, resource.MustParse("0").Equal(*expl.MaxBound))
 }
 
+func TestUnsetMax_ExplicitZeroMaxDecreaseCapPublishesFloor(t *testing.T) {
+	policy := unsetMaxPolicy()
+	policy.Spec.CPU.MaxAllowed = quantityPtr("0")
+	policy.Spec.CPU.MaxDecreasePercent = int32Ptr(50)
+	policy.Spec.Memory.MaxAllowed = quantityPtr("0")
+	policy.Spec.Memory.MaxDecreasePercent = int32Ptr(50)
+	cpuEngine, memEngine := buildRecommendationEngines(policy)
+
+	cpuFloor, err := resource.ParseQuantity("1m")
+	require.NoError(t, err)
+	cpuGot, cpuExpl, _ := cpuEngine.RecommendWithExplanation(cpuProfile(10), resource.MustParse("10"))
+	assert.True(t, cpuFloor.Equal(cpuGot), "published %s", cpuGot.String())
+	assert.Equal(t, "max", cpuExpl.BoundsApplied)
+	require.NotNil(t, cpuExpl.MaxBound)
+	assert.True(t, resource.MustParse("0").Equal(*cpuExpl.MaxBound))
+
+	memFloor, err := resource.ParseQuantity("4Mi")
+	require.NoError(t, err)
+	memCurrent, err := resource.ParseQuantity("128Mi")
+	require.NoError(t, err)
+	memGot, memExpl, _ := memEngine.RecommendWithExplanation(memoryProfile(128*1024*1024), memCurrent)
+	assert.True(t, memFloor.Equal(memGot), "published %s", memGot.String())
+	assert.Equal(t, "max", memExpl.BoundsApplied)
+	require.NotNil(t, memExpl.MaxBound)
+	assert.True(t, resource.MustParse("0").Equal(*memExpl.MaxBound))
+}
+
 func TestUnsetMax_NilMinFloorsAtOneMillicoreAndFourMi(t *testing.T) {
 	policy := unsetMaxPolicy()
 	cpuEngine, memEngine := buildRecommendationEngines(policy)
