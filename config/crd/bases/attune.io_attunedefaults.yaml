@@ -185,6 +185,45 @@ spec:
                     description: MinAllowed is the minimum allowed resource value.
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
+                  oomBump:
+                    description: |-
+                      OOMBump raises the memory request after an OOMKill, measured from the
+                      original request. Absent means the feature is off. An empty object
+                      turns it on and fills ratio, minBump, maxBumps, and hold. Only valid
+                      on memory; a CPU value is rejected.
+                    properties:
+                      hold:
+                        description: |-
+                          Hold is how long the applied floor stays above a lower percentile.
+                          Nil is filled with 24h when the block is set. 1m through 168h.
+                          Expiry does not clear origin or the step count.
+                        type: string
+                      maxBumps:
+                        description: |-
+                          MaxBumps is how many successful steps are allowed from the original
+                          request. Nil is filled with 3 when the block is set. 1 through 10.
+                        format: int32
+                        maximum: 10
+                        minimum: 1
+                        type: integer
+                      minBump:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: |-
+                          MinBump is added to the original request once per successful step.
+                          The step uses whichever of the ratio and this floor is larger.
+                          Nil is filled with 100Mi when the block is set. Must be positive.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      ratio:
+                        description: |-
+                          Ratio multiplies the original memory request at each successful step.
+                          "1.2" means 20 percent per step. Nil is filled with "1.2" when the
+                          block is set. Must be finite and from 1 through 10.
+                        pattern: ^([0-9]+(\.[0-9]+)?)?$
+                        type: string
+                    type: object
                   overhead:
                     description: |-
                       Overhead is the percentage of additional resources added on top of the
@@ -371,6 +410,45 @@ spec:
                     description: MinAllowed is the minimum allowed resource value.
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
+                  oomBump:
+                    description: |-
+                      OOMBump raises the memory request after an OOMKill, measured from the
+                      original request. Absent means the feature is off. An empty object
+                      turns it on and fills ratio, minBump, maxBumps, and hold. Only valid
+                      on memory; a CPU value is rejected.
+                    properties:
+                      hold:
+                        description: |-
+                          Hold is how long the applied floor stays above a lower percentile.
+                          Nil is filled with 24h when the block is set. 1m through 168h.
+                          Expiry does not clear origin or the step count.
+                        type: string
+                      maxBumps:
+                        description: |-
+                          MaxBumps is how many successful steps are allowed from the original
+                          request. Nil is filled with 3 when the block is set. 1 through 10.
+                        format: int32
+                        maximum: 10
+                        minimum: 1
+                        type: integer
+                      minBump:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: |-
+                          MinBump is added to the original request once per successful step.
+                          The step uses whichever of the ratio and this floor is larger.
+                          Nil is filled with 100Mi when the block is set. Must be positive.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      ratio:
+                        description: |-
+                          Ratio multiplies the original memory request at each successful step.
+                          "1.2" means 20 percent per step. Nil is filled with "1.2" when the
+                          block is set. Must be finite and from 1 through 10.
+                        pattern: ^([0-9]+(\.[0-9]+)?)?$
+                        type: string
+                    type: object
                   overhead:
                     description: |-
                       Overhead is the percentage of additional resources added on top of the

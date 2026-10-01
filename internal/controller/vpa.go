@@ -80,6 +80,7 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 			logger.Info("Skipping excluded container",
 				"container", containerName,
 				"reason", pkgdefaults.ExclusionReason(policy, containerName))
+			r.planContainerOOMBump(ctx, policy, workload, containerName, true, 0, false, pods, now)
 			continue
 		}
 		eligibleContainers++
@@ -161,6 +162,16 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 			// target would otherwise report 1/N Collecting data.
 			logger.V(1).Info("memoryFromCpuRatio waiting for VPA CPU target",
 				"container", containerName)
+			oomPlan := r.planContainerOOMBump(ctx, policy, workload, containerName, false, 0, false, pods, now)
+			if oomPlan.UsePublish && applyOOMBumpToRecommendation(&cRec, explanation, oomPlan) {
+				cRec.Explanation = explanation
+				scaleControlledLimits(policy, &cRec, cRec.Current.CPURequest, cRec.Current.CPULimit, cRec.Current.MemoryRequest, cRec.Current.MemoryLimit)
+				setRecommendationGauges(policy.Namespace, workload.GetName(), containerName, &cRec)
+				if vpaDataPoints > maxDataPoints {
+					maxDataPoints = vpaDataPoints
+				}
+				containerRecs = append(containerRecs, cRec)
+			}
 			continue
 		}
 		if explanation.Memory == nil && vpaRec.MemorySet && !ratioSet {
@@ -169,6 +180,13 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 			cRec.Recommended.MemoryRequest = memRec
 			explanation.Memory = toAPIRecommendationExplanation(memExplain)
 		}
+		percentileBytes := int64(0)
+		percentileOK := explanation.Memory != nil && cRec.Recommended.MemoryRequest.Value() > 0
+		if percentileOK {
+			percentileBytes = cRec.Recommended.MemoryRequest.Value()
+		}
+		memPlan := r.planContainerOOMBump(ctx, policy, workload, containerName, false, percentileBytes, percentileOK, pods, now)
+		applyOOMBumpToRecommendation(&cRec, explanation, memPlan)
 		if !cpuApplied || explanation.Memory == nil {
 			prior := priorContainerRecommendation(policy, workloadKindName(workload), workload.GetName(), containerName)
 			if !cpuApplied && !holdMissingResourceRequest(&cRec, corev1.ResourceCPU, pods, prior) {

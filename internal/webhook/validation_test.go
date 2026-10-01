@@ -936,6 +936,69 @@ func TestValidate_LimitMultiplier(t *testing.T) {
 	}
 }
 
+func TestValidate_OOMBump(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	q := func(raw string) *resource.Quantity {
+		t.Helper()
+		parsed, err := resource.ParseQuantity(raw)
+		require.NoError(t, err)
+		return &parsed
+	}
+	n := func(v int32) *int32 { return &v }
+	hold := func(d time.Duration) *metav1.Duration {
+		return &metav1.Duration{Duration: d}
+	}
+	tests := []struct {
+		name    string
+		onCPU   bool
+		block   *attunev1alpha1.OOMBump
+		wantErr string
+	}{
+		{name: "nil block"},
+		{name: "empty block", block: &attunev1alpha1.OOMBump{}},
+		{name: "ratio 1", block: &attunev1alpha1.OOMBump{Ratio: limitMultPtr("1")}},
+		{name: "ratio 10", block: &attunev1alpha1.OOMBump{Ratio: limitMultPtr("10")}},
+		{name: "ratio 1.2", block: &attunev1alpha1.OOMBump{Ratio: limitMultPtr("1.2")}},
+		{name: "ratio 10.1", block: &attunev1alpha1.OOMBump{Ratio: limitMultPtr("10.1")}, wantErr: "must be <= 10"},
+		{name: "ratio 0", block: &attunev1alpha1.OOMBump{Ratio: limitMultPtr("0")}, wantErr: "must be positive"},
+		{name: "ratio negative", block: &attunev1alpha1.OOMBump{Ratio: limitMultPtr("-1")}, wantErr: "must be positive"},
+		{name: "ratio below 1", block: &attunev1alpha1.OOMBump{Ratio: limitMultPtr("0.5")}, wantErr: "must be >= 1"},
+		{name: "ratio empty", block: &attunev1alpha1.OOMBump{Ratio: limitMultPtr("")}, wantErr: "must not be empty"},
+		{name: "ratio NaN", block: &attunev1alpha1.OOMBump{Ratio: limitMultPtr("NaN")}, wantErr: "must be a finite number"},
+		{name: "ratio Inf", block: &attunev1alpha1.OOMBump{Ratio: limitMultPtr("Inf")}, wantErr: "must be a finite number"},
+		{name: "minBump 1", block: &attunev1alpha1.OOMBump{MinBump: q("1")}},
+		{name: "minBump 100Mi", block: &attunev1alpha1.OOMBump{MinBump: q("100Mi")}},
+		{name: "minBump 0", block: &attunev1alpha1.OOMBump{MinBump: q("0")}, wantErr: "must be positive"},
+		{name: "minBump negative", block: &attunev1alpha1.OOMBump{MinBump: q("-1Mi")}, wantErr: "must be positive"},
+		{name: "maxBumps 1", block: &attunev1alpha1.OOMBump{MaxBumps: n(1)}},
+		{name: "maxBumps 10", block: &attunev1alpha1.OOMBump{MaxBumps: n(10)}},
+		{name: "maxBumps 0", block: &attunev1alpha1.OOMBump{MaxBumps: n(0)}, wantErr: "between 1 and 10"},
+		{name: "maxBumps 11", block: &attunev1alpha1.OOMBump{MaxBumps: n(11)}, wantErr: "between 1 and 10"},
+		{name: "hold 1m", block: &attunev1alpha1.OOMBump{Hold: hold(time.Minute)}},
+		{name: "hold 168h", block: &attunev1alpha1.OOMBump{Hold: hold(168 * time.Hour)}},
+		{name: "hold 30s", block: &attunev1alpha1.OOMBump{Hold: hold(30 * time.Second)}, wantErr: "between 1m and 168h"},
+		{name: "hold 169h", block: &attunev1alpha1.OOMBump{Hold: hold(169 * time.Hour)}, wantErr: "between 1m and 168h"},
+		{name: "cpu block", onCPU: true, block: &attunev1alpha1.OOMBump{}, wantErr: "only valid on memory"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			policy := validPolicy()
+			if tt.onCPU {
+				policy.Spec.CPU.OOMBump = tt.block
+			} else {
+				policy.Spec.Memory.OOMBump = tt.block
+			}
+			_, err := validator.ValidateCreate(context.Background(), policy)
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
 func TestValidate_MemoryLimitMultiplierFieldPath(t *testing.T) {
 	validator := &AttunePolicyValidator{}
 	policy := validPolicy()

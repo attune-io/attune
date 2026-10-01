@@ -65,6 +65,11 @@ func (r *AttunePolicyReconciler) runImmediateSafetyCheck(
 		return "", getErr
 	}
 	if v := safety.CheckCriticalStatuses(pod, record); v != nil {
+		if _, suppress := r.oomBumpRevertGate(ctx, policy, pod, record, v.Reason, r.now()); suppress {
+			logger.Info("OOM bump hold suppresses revert",
+				"pod", record.PodName, "container", record.Container, "reason", v.Reason)
+			return "", nil
+		}
 		logger.Info("Safety violation detected, reverting",
 			"pod", record.PodName, "reason", v.Reason)
 		return v.Reason, nil
@@ -342,15 +347,22 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 								continue
 							}
 							v = confirmed
+							adjusted, suppress := r.oomBumpRevertGate(ctx, policy, pod, record, v.Reason, r.now())
+							if suppress {
+								logger.Info("OOM bump hold suppresses revert",
+									"pod", pod.Name, "container", record.Container, "reason", v.Reason)
+								continue
+							}
 							logger.Info("Critical safety event detected during observation period, reverting early",
 								"pod", pod.Name, "container", record.Container, "reason", v.Reason)
-							if err := r.revertAndRestoreAfterSafety(ctx, revertPod, policy, workloads, record, pod, trackedWorkload,
+							if err := r.revertAndRestoreAfterSafety(ctx, revertPod, policy, workloads, adjusted, pod, trackedWorkload,
 								v.Reason, v.Message,
 								"Failed to revert pod during early critical check",
 								"Early safety detection reverted resize on pod %s/%s: %s"); err != nil {
 								// Period has not elapsed; the branch sets observationsPending below.
 								continue
 							}
+							r.maybeClearOOMBumpAfterRevert(ctx, policy, workloads, pod, podList.Items, adjusted, v.Reason, trackedWorkload)
 						}
 					}
 				}
@@ -396,15 +408,22 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 					continue
 				}
 				verdict = confirmed
+				adjusted, suppress := r.oomBumpRevertGate(ctx, policy, pod, record, verdict.Reason, r.now())
+				if suppress {
+					logger.Info("OOM bump hold suppresses revert",
+						"pod", pod.Name, "container", record.Container, "reason", verdict.Reason)
+					continue
+				}
 				logger.Info("Deferred safety violation detected, reverting",
 					"pod", pod.Name, "container", record.Container, "reason", verdict.Reason)
-				if err := r.revertAndRestoreAfterSafety(ctx, revertPod, policy, workloads, record, pod, trackedWorkload,
+				if err := r.revertAndRestoreAfterSafety(ctx, revertPod, policy, workloads, adjusted, pod, trackedWorkload,
 					verdict.Reason, verdict.Message,
 					"Failed to revert pod during safety observation",
 					"Safety observation reverted resize on pod %s/%s: %s"); err != nil {
 					revertFailed = true
 					continue
 				}
+				r.maybeClearOOMBumpAfterRevert(ctx, policy, workloads, pod, podList.Items, adjusted, verdict.Reason, trackedWorkload)
 				restoredThisPass[record.Container] = struct{}{}
 			}
 		}

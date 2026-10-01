@@ -58,11 +58,26 @@ func (r *AttunePolicyReconciler) planPodActions(
 	pod *corev1.Pod,
 	rec attunev1alpha1.WorkloadRecommendation,
 ) []resizeAction {
+	return r.planPodActionsWithLivePin(policy, pod, rec, false)
+}
+
+// planPodActionsWithLivePin is planPodActions. pinLive copies CPU request,
+// CPU limit, and memory limit from the live container, and does not lower
+// a memory request that is already at or above the recommendation.
+func (r *AttunePolicyReconciler) planPodActionsWithLivePin(
+	policy *attunev1alpha1.AttunePolicy,
+	pod *corev1.Pod,
+	rec attunev1alpha1.WorkloadRecommendation,
+	pinLive bool,
+) []resizeAction {
 	if pod == nil {
 		return nil
 	}
 	var actions []resizeAction
 	for _, containerRec := range rec.Containers {
+		if pinLive {
+			containerRec = pinStaleOOMToLiveRequest(pod, containerRec)
+		}
 		target, clamped := buildResizeTarget(containerRec)
 		target, applyMeta := r.applyLiveResizeTarget(policy, pod, containerRec, target)
 		if len(applyMeta.DestClamped) > 0 {
@@ -102,8 +117,21 @@ func (r *AttunePolicyReconciler) observeAndPlanPod(
 	rec attunev1alpha1.WorkloadRecommendation,
 	workload client.Object,
 ) (plannedPod, error) {
+	return r.observeAndPlanPodWithLivePin(ctx, policy, pod, rec, workload, false)
+}
+
+// observeAndPlanPodWithLivePin is observeAndPlanPod. pinLive keeps CPU and
+// memory limits on the live container for a stale OOM bump.
+func (r *AttunePolicyReconciler) observeAndPlanPodWithLivePin(
+	ctx context.Context,
+	policy *attunev1alpha1.AttunePolicy,
+	pod corev1.Pod,
+	rec attunev1alpha1.WorkloadRecommendation,
+	workload client.Object,
+	pinLive bool,
+) (plannedPod, error) {
 	out := plannedPod{Rec: rec, Workload: workload, Name: rec.Workload}
-	if !r.oneShotPodAlreadyAtTarget(policy, &pod, rec) {
+	if !r.oneShotPodAlreadyAtTargetPinned(policy, &pod, rec, pinLive) {
 		live, err := r.fetchLivePodForResize(ctx, &pod)
 		if err != nil {
 			return plannedPod{}, err
@@ -113,7 +141,7 @@ func (r *AttunePolicyReconciler) observeAndPlanPod(
 		}
 	}
 	out.Pod = pod
-	out.Actions = r.planPodActions(policy, &pod, rec)
+	out.Actions = r.planPodActionsWithLivePin(policy, &pod, rec, pinLive)
 	return out, nil
 }
 

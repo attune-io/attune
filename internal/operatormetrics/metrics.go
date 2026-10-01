@@ -338,6 +338,17 @@ var (
 		},
 		[]string{"namespace", "policy"},
 	)
+
+	// OOMBumpTotal counts memory request steps after OOMKilled when memory.oomBump is set.
+	// result: applied, clamped, capped, or skipped.
+	// applied and clamped increment only after the resize annotation is stored.
+	OOMBumpTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "attune_oom_bump_total",
+			Help: "Memory request steps after an OOMKill when memory.oomBump is set (applied, clamped, capped, skipped)",
+		},
+		[]string{"namespace", "policy", "result"},
+	)
 )
 
 // WebhookTimer tracks webhook operation duration and result.
@@ -403,5 +414,6 @@ func init() {
 		CapacitySkipTotal,
 		ReclaimedRequestCPU,
 		ReclaimedRequestMemory,
+		OOMBumpTotal,
 	)
 }

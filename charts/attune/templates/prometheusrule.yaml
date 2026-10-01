@@ -210,6 +210,21 @@ spec:
               or review allowDecrease on 1.35+. See troubleshooting "OOM after memory
               limit decrease".
         {{- end }}
+        {{- if .Values.metrics.prometheusRule.rules.oomBumpCapped.enabled }}
+        - alert: AttuneOOMBumpCapped
+          expr: sum by (namespace, policy) (rate(attune_oom_bump_total{result=~"capped|clamped"}[1h])) > 0
+          for: {{ .Values.metrics.prometheusRule.rules.oomBumpCapped.for }}
+          labels:
+            severity: {{ .Values.metrics.prometheusRule.rules.oomBumpCapped.severity }}
+          annotations:
+            summary: attune OOM bump capped or clamped
+            description: >-
+              Policy {{ "{{ $labels.namespace }}" }}/{{ "{{ $labels.policy }}" }} has
+              OOM bump results capped at maxBumps or clamped to maxAllowed.
+              When maxAllowed is omitted, maxBumps is the only cap. This alert
+              does not turn memory.oomBump on. See troubleshooting
+              "Memory request rose after OOMKilled".
+        {{- end }}
     {{- if .Values.metrics.prometheusRule.fleetRecordingRules.enabled }}
 
     - name: attune-fleet.rules

@@ -1034,6 +1034,32 @@ sum by (namespace, policy, result) (
 )
 ```
 
+### Memory request rose after OOMKilled
+
+**Symptom**: A container memory request increased after `OOMKilled`. This happens only when `memory.oomBump` is set. An empty `oomBump: {}` is enough to turn it on. Omitting the block leaves memory on the percentile path.
+
+**Read the annotation**:
+
+```bash
+kubectl get pod <name> -n <ns> -o jsonpath='{.metadata.annotations}' | jq .
+```
+
+The key is `attune.io/oom-bump.<container>`. The container name must fit so the name segment `oom-bump.<container>` is at most 63 characters. The value is `count=<n>,origin=<qty>,floor=<qty>,oomAt=<RFC3339>,restart=<n>,holdUntil=<RFC3339>`. `origin` is the live memory request before the first bump of the streak. `count` increments only after a successful resize. When `holdUntil` passes, the percentile path resumes, but `origin` stays.
+
+**Which event**:
+
+| Event | Meaning |
+|-------|---------|
+| `OOMBumpCapped` | `count` is already `maxBumps`. No further step. If `maxAllowed` is omitted, `maxBumps` is the only cap. |
+| `OOMBumpClamped` | The step was above `maxAllowed`, so the request was clamped to `maxAllowed`. |
+| `IncreaseExceedsBudget` | One container's increase is larger than `maxMemoryIncreasePerMinute` or `maxTotalMemoryIncrease`. Waiting does not help. The bump annotation is not written. Raise the cap or lower the step. |
+
+A Guaranteed pod with `controlledValues: RequestsOnly` is skipped (`ResizeSkipped`, metric `result="skipped"`) instead of evicted. Attune does not evict to change QoS.
+
+```promql
+sum by (namespace, policy, result) (rate(attune_oom_bump_total[1h]))
+```
+
 ### Revert failures
 
 **Symptom**: Entries in `.status.resizeHistory` show `result: Failed`, or

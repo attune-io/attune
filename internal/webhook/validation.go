@@ -467,6 +467,61 @@ func validateLimitMultiplier(prefix string, rc *attunev1alpha1.ResourceConfig) e
 	return nil
 }
 
+func validateOOMBump(prefix string, rc *attunev1alpha1.ResourceConfig) error {
+	if rc == nil || rc.OOMBump == nil {
+		return nil
+	}
+	if prefix != "memory" {
+		return fmt.Errorf("%s.oomBump is only valid on memory", prefix)
+	}
+	block := rc.OOMBump
+	if block.Ratio != nil {
+		if err := validateOOMBumpRatio(prefix, *block.Ratio); err != nil {
+			return err
+		}
+	}
+	if block.MinBump != nil && block.MinBump.Sign() <= 0 {
+		return fmt.Errorf("%s.oomBump.minBump must be positive, got %s", prefix, block.MinBump.String())
+	}
+	if block.MaxBumps != nil {
+		n := *block.MaxBumps
+		if n < 1 || n > attunev1alpha1.MaxOOMBumpMaxBumps {
+			return fmt.Errorf("%s.oomBump.maxBumps must be between 1 and %d, got %d", prefix, attunev1alpha1.MaxOOMBumpMaxBumps, n)
+		}
+	}
+	if block.Hold != nil {
+		d := block.Hold.Duration
+		if d < attunev1alpha1.MinOOMBumpHold || d > attunev1alpha1.MaxOOMBumpHold {
+			return fmt.Errorf("%s.oomBump.hold must be between 1m and 168h, got %s", prefix, d)
+		}
+	}
+	return nil
+}
+
+func validateOOMBumpRatio(prefix, raw string) error {
+	field := prefix + ".oomBump.ratio"
+	if raw == "" {
+		return fmt.Errorf("%s must not be empty", field)
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return fmt.Errorf("%s %q is not a valid number: %w", field, raw, err)
+	}
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return fmt.Errorf("%s must be a finite number, got %s", field, raw)
+	}
+	if v <= 0 {
+		return fmt.Errorf("%s must be positive, got %s", field, raw)
+	}
+	if v < 1 {
+		return fmt.Errorf("%s must be >= 1, got %s", field, raw)
+	}
+	if v > float64(attunev1alpha1.MaxOOMBumpRatio) {
+		return fmt.Errorf("%s must be <= %d, got %s", field, attunev1alpha1.MaxOOMBumpRatio, raw)
+	}
+	return nil
+}
+
 func validateMemoryFromCPURatio(fieldPath string, ratio *string) error {
 	if ratio == nil || *ratio == "" {
 		return nil

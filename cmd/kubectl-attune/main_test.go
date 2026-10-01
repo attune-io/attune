@@ -3158,6 +3158,56 @@ func TestPrintEffectivePolicySummary_ExcludeFromHistorySource(t *testing.T) {
 	})
 }
 
+func TestPrintEffectivePolicySummary_OOMBump(t *testing.T) {
+	// Not parallel: capture swaps os.Stdout.
+	capture := func(item unstructured.Unstructured, effective *attunev1alpha1.AttunePolicy, selected selectedDefaults) string {
+		r, w, err := os.Pipe()
+		require.NoError(t, err)
+		old := os.Stdout
+		os.Stdout = w
+		printEffectivePolicySummary(item, effective, selected)
+		require.NoError(t, w.Close())
+		os.Stdout = old
+		out, err := io.ReadAll(r)
+		require.NoError(t, err)
+		return string(out)
+	}
+	base := func() *attunev1alpha1.AttunePolicy {
+		return &attunev1alpha1.AttunePolicy{
+			Spec: attunev1alpha1.AttunePolicySpec{
+				UpdateStrategy: &attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeAuto},
+			},
+		}
+	}
+
+	t.Run("nil block prints no OOM bump line", func(t *testing.T) {
+		item := unstructured.Unstructured{Object: map[string]interface{}{
+			"spec": map[string]interface{}{},
+		}}
+		got := capture(item, base(), selectedDefaults{})
+		assert.NotContains(t, got, "OOM bump")
+	})
+
+	t.Run("empty block after defaults shows built-in values", func(t *testing.T) {
+		policy := base()
+		policy.Spec.Memory.OOMBump = &attunev1alpha1.OOMBump{}
+		applyBuiltInDefaults(policy)
+		item := unstructured.Unstructured{Object: map[string]interface{}{
+			"spec": map[string]interface{}{
+				"memory": map[string]interface{}{
+					"oomBump": map[string]interface{}{},
+				},
+			},
+		}}
+		got := capture(item, policy, selectedDefaults{})
+		assert.Contains(t, got, "OOM bump ratio: 1.2 (source: built-in default, configured: <unset>)")
+		assert.Contains(t, got, "OOM bump min bump: 100Mi (source: built-in default, configured: <unset>)")
+		assert.Contains(t, got, "OOM bump max bumps: 3 (source: built-in default, configured: <unset>)")
+		assert.Contains(t, got, "OOM bump hold: "+attunev1alpha1.DefaultOOMBumpHold.String()+" (source: built-in default, configured: <unset>)")
+		assert.Contains(t, got, "24h")
+	})
+}
+
 func TestPrintEffectivePolicySummary_NamespaceFreezeHelp(t *testing.T) {
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{

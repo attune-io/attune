@@ -10,6 +10,19 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### OOM bump is off until memory.oomBump is set
+
+Memory requests stay on the percentile path unless `memory.oomBump` is set.
+An empty `oomBump: {}` turns the feature on and fills ratio `1.2`,
+minBump `100Mi`, maxBumps `3`, and hold `24h`. The step is
+`max(ceil(origin * ratio^count), origin + minBump * count)`, then
+`maxAllowed`. Origin is the live memory request before the first bump of
+the streak, not the latest live request and not the pod template. When
+`maxAllowed` is omitted, `maxBumps` is the only cap. After `hold` expires,
+recommendations follow the normal percentile, allowDecrease, and template
+rules. Hold expiry does not clear the original request stored on the pod.
+A later OOM can step again from that same origin until `maxBumps`.
+
 ### Startup history exclusion is opt-in
 
 `cpu.startupBoost.excludeFromHistory` drops CPU samples from the percentile
