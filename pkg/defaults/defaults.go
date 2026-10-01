@@ -454,7 +454,9 @@ func mergeOOMBump(policy, defaults *attunev1alpha1.ResourceConfig, prefix string
 		return nil
 	}
 	if policy.OOMBump == nil {
-		policy.OOMBump = defaults.OOMBump
+		// Copy. ApplyBuiltInDefaults fills nil inners on this block, and
+		// explain reads the defaults object to decide which inners were set.
+		policy.OOMBump = defaults.OOMBump.DeepCopy()
 		return []string{prefix + ".oomBump"}
 	}
 	var inherited []string
