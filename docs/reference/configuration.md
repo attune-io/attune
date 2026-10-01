@@ -561,7 +561,10 @@ inherit `"20"`. An unset CPU `allowDecrease` still allows decreases. An
 unset memory `allowDecrease` still blocks them. An omitted
 `maxAllowed` inherits `*` and then the policy max. A container entry
 cannot clear a policy max. The effective value is uncapped only when
-it is still nil.
+it is still nil. Same-block minAllowed above maxAllowed on a container
+entry is rejected by the webhook. The CRD quantity rule stays on
+`spec.cpu` and `spec.memory` only. Copying it onto each of the 100
+container entries exceeds the API server CEL cost budget.
 
 `excludedContainers` and `excludeKnownSidecars` win before any container
 entry. With the default `excludeKnownSidecars: true`, `istio-proxy` stays

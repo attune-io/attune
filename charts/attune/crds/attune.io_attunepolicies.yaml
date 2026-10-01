@@ -353,10 +353,6 @@ spec:
                           - message: surge.window must be at least 5m
                             rule: '!has(self.window) || duration(self.window) >= duration(''5m'')'
                       type: object
-                      x-kubernetes-validations:
-                      - message: minAllowed must be less than or equal to maxAllowed
-                        rule: '!has(self.minAllowed) || !has(self.maxAllowed) || quantity(string(self.minAllowed)).compareTo(quantity(string(self.maxAllowed)))
-                          <= 0'
                     memory:
                       description: Memory overrides honored memory fields for this
                         container.
@@ -608,10 +604,6 @@ spec:
                           - message: surge.window must be at least 5m
                             rule: '!has(self.window) || duration(self.window) >= duration(''5m'')'
                       type: object
-                      x-kubernetes-validations:
-                      - message: minAllowed must be less than or equal to maxAllowed
-                        rule: '!has(self.minAllowed) || !has(self.maxAllowed) || quantity(string(self.minAllowed)).compareTo(quantity(string(self.maxAllowed)))
-                          <= 0'
                   required:
                   - containerName
                   type: object

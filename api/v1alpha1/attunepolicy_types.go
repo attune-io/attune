@@ -102,9 +102,11 @@ type AttunePolicySpec struct {
 	MetricsSource MetricsSource `json:"metricsSource,omitempty"`
 
 	// CPU configures CPU resource recommendations.
+	// +kubebuilder:validation:XValidation:rule="!has(self.minAllowed) || !has(self.maxAllowed) || quantity(string(self.minAllowed)).compareTo(quantity(string(self.maxAllowed))) <= 0",message="minAllowed must be less than or equal to maxAllowed"
 	CPU ResourceConfig `json:"cpu"`
 
 	// Memory configures memory resource recommendations.
+	// +kubebuilder:validation:XValidation:rule="!has(self.minAllowed) || !has(self.maxAllowed) || quantity(string(self.minAllowed)).compareTo(quantity(string(self.maxAllowed))) <= 0",message="minAllowed must be less than or equal to maxAllowed"
 	Memory ResourceConfig `json:"memory"`
 
 	// ContainerPolicies sets honored CPU and memory fields per container.
@@ -359,7 +361,9 @@ type CloudWatchConfig struct {
 }
 
 // ResourceConfig defines resource recommendation parameters.
-// +kubebuilder:validation:XValidation:rule="!has(self.minAllowed) || !has(self.maxAllowed) || quantity(string(self.minAllowed)).compareTo(quantity(string(self.maxAllowed))) <= 0",message="minAllowed must be less than or equal to maxAllowed"
+// The minAllowed <= maxAllowed quantity rule is on the policy and defaults
+// fields, not on this type. containerPolicies repeats this struct up to
+// 100 times, and that copy of the rule exceeds the API server CEL budget.
 type ResourceConfig struct {
 	// Percentile is the usage percentile to target for recommendations.
 	// Supported values: 50, 90, 95, 99. Omit or set to 0 to use the default

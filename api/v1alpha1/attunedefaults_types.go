@@ -30,10 +30,12 @@ type AttuneDefaultsSpec struct {
 
 	// CPU configures default CPU resource recommendation parameters.
 	// +optional
+	// +kubebuilder:validation:XValidation:rule="!has(self.minAllowed) || !has(self.maxAllowed) || quantity(string(self.minAllowed)).compareTo(quantity(string(self.maxAllowed))) <= 0",message="minAllowed must be less than or equal to maxAllowed"
 	CPU *ResourceConfig `json:"cpu,omitempty"`
 
 	// Memory configures default memory resource recommendation parameters.
 	// +optional
+	// +kubebuilder:validation:XValidation:rule="!has(self.minAllowed) || !has(self.maxAllowed) || quantity(string(self.minAllowed)).compareTo(quantity(string(self.maxAllowed))) <= 0",message="minAllowed must be less than or equal to maxAllowed"
 	Memory *ResourceConfig `json:"memory,omitempty"`
 
 	// UpdateStrategy configures default update strategy settings.
