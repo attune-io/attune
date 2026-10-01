@@ -105,6 +105,15 @@ func TestMergeDefaults_Surge(t *testing.T) {
 	require.NotNil(t, omitted.Spec.CPU.Surge)
 	assert.Equal(t, "2", omitted.Spec.CPU.Surge.TriggerRatio)
 	assert.Contains(t, notes, "cpu.surge")
+	assert.NotSame(t, defaults.Spec.CPU.Surge, omitted.Spec.CPU.Surge)
+	ApplyBuiltInDefaults(omitted)
+	require.NotNil(t, omitted.Spec.CPU.Surge.Percentile)
+	assert.Equal(t, int32(99), *omitted.Spec.CPU.Surge.Percentile)
+	require.NotNil(t, omitted.Spec.CPU.Surge.Window)
+	assert.Equal(t, 30*time.Minute, omitted.Spec.CPU.Surge.Window.Duration)
+	assert.Equal(t, "2", defaults.Spec.CPU.Surge.TriggerRatio)
+	assert.Nil(t, defaults.Spec.CPU.Surge.Percentile)
+	assert.Nil(t, defaults.Spec.CPU.Surge.Window)
 
 	neither := &attunev1alpha1.AttunePolicy{}
 	MergeDefaults(neither, &attunev1alpha1.AttuneDefaults{})

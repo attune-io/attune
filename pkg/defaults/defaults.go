@@ -424,7 +424,9 @@ func mergeSurge(policy, defaults *attunev1alpha1.ResourceConfig, prefix string) 
 		return nil
 	}
 	if policy.Surge == nil {
-		policy.Surge = defaults.Surge
+		// Copy. ApplyBuiltInDefaults fills empty inners on this block, and
+		// explain reads the defaults object to decide which inners were set.
+		policy.Surge = defaults.Surge.DeepCopy()
 		return []string{prefix + ".surge"}
 	}
 	var inherited []string

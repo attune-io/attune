@@ -3254,6 +3254,29 @@ func TestPrintEffectivePolicySummary_Surge(t *testing.T) {
 		assert.Contains(t, got, "Surge percentile: 99 (source: built-in default, configured: <unset>)")
 		assert.Contains(t, got, "Surge window: 30m0s (source: built-in default, configured: <unset>)")
 	})
+
+	t.Run("inherited ratio keeps built-in inners labeled built-in", func(t *testing.T) {
+		defs := &attunev1alpha1.AttuneDefaults{
+			Spec: attunev1alpha1.AttuneDefaultsSpec{
+				CPU: &attunev1alpha1.ResourceConfig{
+					Surge: &attunev1alpha1.Surge{TriggerRatio: "2"},
+				},
+			},
+		}
+		policy := base()
+		mergeDefaultsIntoPolicy(policy, defs)
+		applyBuiltInDefaults(policy)
+		item := unstructured.Unstructured{Object: map[string]interface{}{
+			"spec": map[string]interface{}{},
+		}}
+		got := capture(item, policy, selectedDefaults{defaults: defs, source: sourceCluster})
+		assert.Contains(t, got, "Surge trigger ratio: 2 (source: cluster default, configured: <unset>)")
+		assert.Contains(t, got, "Surge percentile: 99 (source: built-in default, configured: <unset>)")
+		assert.Contains(t, got, "Surge window: 30m0s (source: built-in default, configured: <unset>)")
+		assert.Equal(t, "2", defs.Spec.CPU.Surge.TriggerRatio)
+		assert.Nil(t, defs.Spec.CPU.Surge.Percentile)
+		assert.Nil(t, defs.Spec.CPU.Surge.Window)
+	})
 }
 
 func TestPrintEffectivePolicySummary_NamespaceFreezeHelp(t *testing.T) {
