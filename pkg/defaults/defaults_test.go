@@ -539,9 +539,14 @@ func TestMergeDefaults_OOMBump(t *testing.T) {
 	require.NotNil(t, omitted.Spec.Memory.OOMBump)
 	require.NotNil(t, omitted.Spec.Memory.OOMBump.Ratio)
 	assert.Equal(t, "1.5", *omitted.Spec.Memory.OOMBump.Ratio)
+	assert.NotSame(t, defaults.Spec.Memory.OOMBump, omitted.Spec.Memory.OOMBump)
 	ApplyBuiltInDefaults(omitted)
 	require.NotNil(t, omitted.Spec.Memory.OOMBump.MinBump)
 	assert.Equal(t, attunev1alpha1.DefaultOOMBumpMaxBumps, *omitted.Spec.Memory.OOMBump.MaxBumps)
+	// Built-in fills land on the policy copy, not on the defaults object.
+	assert.Nil(t, defaults.Spec.Memory.OOMBump.MinBump)
+	assert.Nil(t, defaults.Spec.Memory.OOMBump.MaxBumps)
+	assert.Nil(t, defaults.Spec.Memory.OOMBump.Hold)
 
 	emptyBlock := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
@@ -551,7 +556,7 @@ func TestMergeDefaults_OOMBump(t *testing.T) {
 	inherited := MergeDefaults(emptyBlock, defaults)
 	require.NotNil(t, emptyBlock.Spec.Memory.OOMBump.Ratio)
 	assert.Equal(t, "1.5", *emptyBlock.Spec.Memory.OOMBump.Ratio)
-	assert.Contains(t, inherited, "memory.oomBump.ratio")
+	assert.Equal(t, []string{"memory.oomBump.ratio"}, inherited)
 
 	policyRatio := "2"
 	wins := &attunev1alpha1.AttunePolicy{

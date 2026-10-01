@@ -3229,6 +3229,51 @@ func TestPrintEffectivePolicySummary_OOMBump(t *testing.T) {
 		assert.Contains(t, got, "OOM bump hold: "+attunev1alpha1.DefaultOOMBumpHold.String()+" (source: built-in default, configured: <unset>)")
 		assert.Contains(t, got, "24h")
 	})
+
+	t.Run("inherited block keeps built-in inners labeled built-in", func(t *testing.T) {
+		ratio := "1.5"
+		tests := []struct {
+			name      string
+			block     *attunev1alpha1.OOMBump
+			wantRatio string
+		}{
+			{
+				name:      "ratio set",
+				block:     &attunev1alpha1.OOMBump{Ratio: &ratio},
+				wantRatio: "OOM bump ratio: 1.5 (source: cluster default, configured: <unset>)",
+			},
+			{
+				name:      "empty block",
+				block:     &attunev1alpha1.OOMBump{},
+				wantRatio: "OOM bump ratio: 1.2 (source: built-in default, configured: <unset>)",
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				defs := &attunev1alpha1.AttuneDefaults{
+					Spec: attunev1alpha1.AttuneDefaultsSpec{
+						Memory: &attunev1alpha1.ResourceConfig{OOMBump: tt.block},
+					},
+				}
+				selected := selectedDefaults{defaults: defs, source: sourceCluster}
+				item := unstructured.Unstructured{Object: map[string]interface{}{
+					"spec": map[string]interface{}{
+						"updateStrategy": map[string]interface{}{"type": "Auto"},
+					},
+				}}
+				effective, err := resolveEffectivePolicy(&item, selected)
+				require.NoError(t, err)
+				got := capture(item, effective, selected)
+				assert.Contains(t, got, tt.wantRatio)
+				assert.Contains(t, got, "OOM bump min bump: 100Mi (source: built-in default, configured: <unset>)")
+				assert.Contains(t, got, "OOM bump max bumps: 3 (source: built-in default, configured: <unset>)")
+				assert.Contains(t, got, "OOM bump hold: "+attunev1alpha1.DefaultOOMBumpHold.String()+" (source: built-in default, configured: <unset>)")
+				assert.Nil(t, defs.Spec.Memory.OOMBump.MinBump)
+				assert.Nil(t, defs.Spec.Memory.OOMBump.MaxBumps)
+				assert.Nil(t, defs.Spec.Memory.OOMBump.Hold)
+			})
+		}
+	})
 }
 
 func TestPrintEffectivePolicySummary_Surge(t *testing.T) {
