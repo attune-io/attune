@@ -17,14 +17,22 @@ def main() -> int:
     if not isinstance(jobs, list):
         return 0
     lines: list[str] = []
+    bad = {"failure", "cancelled", "timed_out"}
     for j in jobs:
-        if not isinstance(j, dict) or j.get("conclusion") != "failure":
+        if not isinstance(j, dict) or j.get("conclusion") not in bad:
             continue
         name = j.get("name") or "unknown"
+        # The report job fails because a matrix leg failed. Naming its
+        # Summary step hides the leg that was still running.
+        if name == "Nightly Results":
+            continue
         steps = [
             s.get("name")
             for s in (j.get("steps") or [])
-            if isinstance(s, dict) and s.get("conclusion") == "failure" and s.get("name")
+            if isinstance(s, dict)
+            and s.get("conclusion") in bad
+            and s.get("name")
+            and not str(s.get("name")).startswith("Post ")
         ]
         if steps:
             lines.append(f"- **{name}** (steps: {', '.join(steps)})")
