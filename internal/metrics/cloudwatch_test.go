@@ -88,10 +88,10 @@ func TestCloudWatchCollector_QueryRangeGrouped_CPU(t *testing.T) {
 	assert.Len(t, grouped["web"], 2)
 	assert.Len(t, grouped["sidecar"], 1)
 
-	// Omitted cpuUnit is millicores: 500 -> 0.5 cores.
-	assert.InDelta(t, 0.5, grouped["web"][0].Value, 0.001)
-	assert.InDelta(t, 1.0, grouped["web"][1].Value, 0.001)
-	assert.InDelta(t, 0.1, grouped["sidecar"][0].Value, 0.001)
+	// Omitted cpuUnit is nanocores: 500 -> 5e-7 cores.
+	assert.InDelta(t, 500.0/1e9, grouped["web"][0].Value, 1e-12)
+	assert.InDelta(t, 1000.0/1e9, grouped["web"][1].Value, 1e-12)
+	assert.InDelta(t, 100.0/1e9, grouped["sidecar"][0].Value, 1e-12)
 }
 
 func cloudWatchOneSample(t *testing.T, metric, cpuUnit string, raw float64) float64 {
@@ -141,7 +141,7 @@ func TestCloudWatchCPUUnit_Millicores(t *testing.T) {
 
 func TestCloudWatchCPUUnit_Omitted(t *testing.T) {
 	got := cloudWatchOneSample(t, "container_cpu_usage_total", "", 500)
-	assert.InDelta(t, 0.5, got, 0.001)
+	assert.InDelta(t, 500.0/1e9, got, 1e-12)
 }
 
 func TestCloudWatchCPUUnit_Cores(t *testing.T) {

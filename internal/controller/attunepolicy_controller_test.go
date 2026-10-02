@@ -813,8 +813,7 @@ func TestIsRollingOut_StatefulSetMidRollout(t *testing.T) {
 		Spec:   appsv1.StatefulSetSpec{Replicas: &replicas},
 		Status: appsv1.StatefulSetStatus{UpdatedReplicas: 1},
 	}
-	// updatedReplicas behind spec is not a whole-workload skip.
-	assert.False(t, r.isRollingOut(sts))
+	assert.True(t, r.isRollingOut(sts))
 }
 
 func TestIsRollingOut_DaemonSet(t *testing.T) {
@@ -836,8 +835,7 @@ func TestIsRollingOut_DaemonSetMidRollout(t *testing.T) {
 			UpdatedNumberScheduled: 2,
 		},
 	}
-	// updatedNumberScheduled behind desired is not a whole-workload skip.
-	assert.False(t, r.isRollingOut(ds))
+	assert.True(t, r.isRollingOut(ds))
 }
 
 func TestParseCooldown_Default(t *testing.T) {

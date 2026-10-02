@@ -434,15 +434,15 @@ func (r *AttunePolicyReconciler) getRateWindow(policy *attunev1alpha1.AttunePoli
 }
 
 // parseCooldown returns the cooldown duration from the policy's update strategy.
-// Zero and negative values are not waits. Admission rejects them. An object
-// already stored with those values, or one that bypassed the webhook, falls
-// back to the 1h default. A positive duration under the floor is raised to
-// that floor (1m unless MinCooldown is set).
+// An omitted cooldown is the 1h default. A stored zero or negative value is
+// not a wait: RequeueAfter stays 0, so the controller does not start an
+// hourly resize loop. A positive duration under the floor is raised to that
+// floor (1m unless MinCooldown is set).
 func (r *AttunePolicyReconciler) parseCooldown(policy *attunev1alpha1.AttunePolicy) time.Duration {
 	if policy.Spec.UpdateStrategy != nil && policy.Spec.UpdateStrategy.Cooldown != nil {
 		cd := policy.Spec.UpdateStrategy.Cooldown.Duration
 		if cd <= 0 {
-			return defaultCooldown
+			return 0
 		}
 		minCooldown := r.MinCooldown
 		if minCooldown == 0 {

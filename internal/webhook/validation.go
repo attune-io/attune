@@ -667,12 +667,10 @@ func validateBurstSensitivity(resource string, value *string) error {
 	return nil
 }
 
-// validateDurationFloor rejects a zero, negative, or sub-minute duration.
-// Zero is not a wait: omit the field to keep the built-in default.
+// validateDurationFloor rejects a negative or sub-minute duration.
+// Zero is accepted. A stored cooldown of 0s does not schedule the next
+// reconcile, and a stored safety or SLO window of 0s stays unset.
 func validateDurationFloor(field string, d time.Duration) error {
-	if d == 0 {
-		return fmt.Errorf("%s must be at least 1m, or omit the field for the default", field)
-	}
 	return validatePositiveDurationFloor(field, d)
 }
 
@@ -846,7 +844,7 @@ func validateMetricsSourceProviderFields(ms *attunev1alpha1.MetricsSource) error
 			return fmt.Errorf("metricsSource.cloudwatch.roleArn: %w", err)
 		}
 		switch cw.CPUUnit {
-		case "", attunev1alpha1.DefaultCloudWatchCPUUnit, "Cores", "Nanocores":
+		case "", "Millicores", "Cores", "Nanocores":
 		default:
 			return fmt.Errorf("metricsSource.cloudwatch.cpuUnit must be Millicores, Cores, or Nanocores, got %q", cw.CPUUnit)
 		}

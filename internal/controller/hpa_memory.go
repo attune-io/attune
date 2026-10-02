@@ -205,10 +205,20 @@ func (s hpaTuneScope) memoryCap(newMilli, liveLimitMilli int64, recLimit resourc
 	return capAtLimit(false, resource.Quantity{}, requestsOnly, newMilli, liveLimitMilli, recLimit, memoryQty)
 }
 
+// memoryHPARetuneEnabled is true only when the policy sets
+// updateStrategy.hpaTargetBounds.memory. An HPA that already has
+// attune.io/auto-tune keeps its memory percent until that block is set.
+func memoryHPARetuneEnabled(policy *attunev1alpha1.AttunePolicy) bool {
+	if policy == nil || policy.Spec.UpdateStrategy == nil || policy.Spec.UpdateStrategy.HPATargetBounds == nil {
+		return false
+	}
+	return policy.Spec.UpdateStrategy.HPATargetBounds.Memory != nil
+}
+
 // memoryMetricBasis recognizes memory utilization metrics. A scalar CPU
 // tune returns not-recognized so that CPU pair is not applied to memory.
 func (s hpaTuneScope) memoryMetricBasis(m *autoscalingv2.MetricSpec) (recognized bool, b hpaMetricBasis) {
-	if s.scalar || m == nil {
+	if s.scalar || m == nil || !memoryHPARetuneEnabled(s.policy) {
 		return false, b
 	}
 	switch {

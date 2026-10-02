@@ -41,8 +41,8 @@ func TestParseCooldown_ZeroAndNegativeUseDefault(t *testing.T) {
 		cd   time.Duration
 		want time.Duration
 	}{
-		{name: "zero", cd: 0, want: time.Hour},
-		{name: "negative", cd: -5 * time.Minute, want: time.Hour},
+		{name: "zero", cd: 0, want: 0},
+		{name: "negative", cd: -5 * time.Minute, want: 0},
 		{name: "one hour", cd: time.Hour, want: time.Hour},
 	}
 	for _, tc := range tests {
@@ -54,7 +54,7 @@ func TestParseCooldown_ZeroAndNegativeUseDefault(t *testing.T) {
 	}
 }
 
-func TestReconcile_NoWorkloads_ZeroCooldownRequeuesAtDefault(t *testing.T) {
+func TestReconcile_NoWorkloads_ZeroCooldownDoesNotRequeue(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	policy.Finalizers = []string{finalizerName}
 	policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 0}
@@ -65,7 +65,7 @@ func TestReconcile_NoWorkloads_ZeroCooldownRequeuesAtDefault(t *testing.T) {
 		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, time.Hour, result.RequeueAfter)
+	assert.Equal(t, time.Duration(0), result.RequeueAfter)
 }
 
 func TestReconcile_Paused_ZeroCooldownDoesNotRequeue(t *testing.T) {
@@ -112,42 +112,42 @@ func TestReconcile_ZeroCooldown_ObservationAndMonitoring(t *testing.T) {
 		Timestamp: metav1.Now(),
 	}}
 
-	t.Run("auto safety zero uses 5m not query step", func(t *testing.T) {
+	t.Run("auto safety zero does not schedule", func(t *testing.T) {
 		policy := zeroCooldownAutoPolicy(30*time.Minute, &metav1.Duration{Duration: 0})
 		policy.Status.ResizeHistory = successHistory
 		result, updated := reconcileZeroCooldown(t, policy, 20, true)
-		assert.Equal(t, 5*time.Minute, result.RequeueAfter)
+		assert.Equal(t, time.Duration(0), result.RequeueAfter)
 		cond := meta.FindStatusCondition(updated.Status.Conditions, attunev1alpha1.ConditionReady)
 		require.NotNil(t, cond)
 		assert.Equal(t, attunev1alpha1.ReasonInsufficientData, cond.Reason)
 		assert.Equal(t, int32(0), updated.Status.Workloads.Resized)
 	})
 
-	t.Run("auto safety 30s floors to 1m", func(t *testing.T) {
+	t.Run("auto safety 30s does not schedule when cooldown is zero", func(t *testing.T) {
 		policy := zeroCooldownAutoPolicy(30*time.Minute, &metav1.Duration{Duration: 30 * time.Second})
 		policy.Status.ResizeHistory = successHistory
 		result, updated := reconcileZeroCooldown(t, policy, 20, true)
-		assert.Equal(t, time.Minute, result.RequeueAfter)
+		assert.Equal(t, time.Duration(0), result.RequeueAfter)
 		assert.Equal(t, int32(0), updated.Status.Workloads.Resized)
 	})
 
-	t.Run("recommend with data requeues at 1h", func(t *testing.T) {
+	t.Run("recommend with data does not schedule", func(t *testing.T) {
 		policy := newTestPolicy("test-policy", "default")
 		policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 0}
 		policy.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: 30 * time.Minute}
 		result, updated := reconcileZeroCooldown(t, policy, 200, false)
-		assert.Equal(t, time.Hour, result.RequeueAfter)
+		assert.Equal(t, time.Duration(0), result.RequeueAfter)
 		cond := meta.FindStatusCondition(updated.Status.Conditions, attunev1alpha1.ConditionReady)
 		require.NotNil(t, cond)
 		assert.Equal(t, attunev1alpha1.ReasonMonitoring, cond.Reason)
 	})
 
-	t.Run("auto revert off with data requeues at 1h", func(t *testing.T) {
+	t.Run("auto revert off with data does not schedule", func(t *testing.T) {
 		policy := zeroCooldownAutoPolicy(30*time.Minute, nil)
 		policy.Spec.UpdateStrategy.AutoRevert = boolPtr(false)
 		policy.Status.ResizeHistory = successHistory
 		result, updated := reconcileZeroCooldown(t, policy, 200, false)
-		assert.Equal(t, time.Hour, result.RequeueAfter)
+		assert.Equal(t, time.Duration(0), result.RequeueAfter)
 		cond := meta.FindStatusCondition(updated.Status.Conditions, attunev1alpha1.ConditionReady)
 		require.NotNil(t, cond)
 		assert.NotEqual(t, attunev1alpha1.ReasonInsufficientData, cond.Reason)

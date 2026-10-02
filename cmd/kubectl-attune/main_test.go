@@ -2789,10 +2789,10 @@ func TestEffectiveCooldown_ZeroAndSubMinute(t *testing.T) {
 			},
 		},
 	}
-	assert.Equal(t, time.Hour.String(), effectiveCooldown(policy))
+	assert.Equal(t, "0s", effectiveCooldown(policy))
 
 	policy.Spec.UpdateStrategy.Cooldown.Duration = -time.Minute
-	assert.Equal(t, time.Hour.String(), effectiveCooldown(policy))
+	assert.Equal(t, "0s", effectiveCooldown(policy))
 
 	policy.Spec.UpdateStrategy.Cooldown.Duration = 30 * time.Second
 	assert.Equal(t, time.Minute.String(), effectiveCooldown(policy))
@@ -2871,7 +2871,7 @@ func TestPrintExplain_ZeroCooldownShowsDefaultHour(t *testing.T) {
 	require.NoError(t, err)
 	output := buf.String()
 
-	assert.Contains(t, output, "Cooldown: 1h0m0s (source: policy, configured: 0s)")
+	assert.Contains(t, output, "Cooldown: 0s (source: policy, configured: 0s)")
 	assert.Contains(t, output, "Observation period: 1m0s (source: policy, configured: 30s)")
 }
 
@@ -3601,7 +3601,7 @@ func TestPrintEffectivePolicySummary_CloudWatchCPUUnitDefault(t *testing.T) {
 	require.NoError(t, err)
 	s := string(out)
 	assert.Contains(t, s, "CloudWatch CPU unit")
-	assert.Contains(t, s, "Millicores")
+	assert.Contains(t, s, "Nanocores")
 }
 
 func TestPrintEffectivePolicySummary_PrometheusSigV4(t *testing.T) {
