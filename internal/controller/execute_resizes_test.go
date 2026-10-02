@@ -1400,6 +1400,8 @@ func TestExecuteResizes_RateCapDefersUntilRefill(t *testing.T) {
 	reconciler.Client = fakeClient
 	reconciler.Scheme = scheme
 	reconciler.Clientset = clientset
+	recorder := events.NewFakeRecorder(10)
+	reconciler.Recorder = recorder
 
 	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
 	reconciler.SetNowFunc(func() time.Time { return now })
@@ -1419,6 +1421,19 @@ func TestExecuteResizes_RateCapDefersUntilRefill(t *testing.T) {
 	count, _ = reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
 		recs, podMap("api-server", pod2), nil, nil)
 	assert.Equal(t, 0, count, "same minute must not allow a second 300m increase")
+	foundRate := false
+	for {
+		select {
+		case event := <-recorder.Events:
+			if strings.Contains(event, "remaining per-cycle or per-minute budget exhausted") {
+				foundRate = true
+			}
+		default:
+			goto rateEvents
+		}
+	}
+rateEvents:
+	assert.True(t, foundRate, "a per-minute refill block must not be described as only the per-cycle cap")
 
 	now = now.Add(time.Minute)
 	count, _ = reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
