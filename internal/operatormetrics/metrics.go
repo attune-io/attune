@@ -169,7 +169,7 @@ var (
 	BudgetExhaustedTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "attune_budget_exhausted_total",
-			Help: "Total resize operations deferred due to per-cycle budget caps",
+			Help: "Total resizes blocked by a per-cycle or per-minute budget, including one increase larger than a cap",
 		},
 		[]string{"namespace", "policy"},
 	)

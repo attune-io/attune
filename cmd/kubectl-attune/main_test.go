@@ -2518,6 +2518,51 @@ func TestPrintExplain_NoRecommendations(t *testing.T) {
 	assert.Contains(t, output, "Metrics source: prometheus (auto-discover)")
 }
 
+func TestPrintExplain_MaxTotalCpuIncreaseUsesJSONKey(t *testing.T) {
+	policy := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "attune.io/v1alpha1",
+		"kind":       "AttunePolicy",
+		"metadata": map[string]interface{}{
+			"name":      "budget-policy",
+			"namespace": "default",
+		},
+		"spec": map[string]interface{}{
+			"updateStrategy": map[string]interface{}{
+				"maxTotalCpuIncrease": "2000m",
+			},
+		},
+		"status": map[string]interface{}{
+			"conditions": []interface{}{
+				map[string]interface{}{
+					"type":   "Ready",
+					"status": "True",
+					"reason": "Monitoring",
+				},
+			},
+		},
+	}}
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:                  "AttunePolicyList",
+			namespaceDefaultsGVR: "AttuneNamespaceDefaultsList",
+			defaultsGVR:          "AttuneDefaultsList",
+		}, policy)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	printExplain(context.Background(), dynClient, "default", "budget-policy")
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	assert.Contains(t, buf.String(), "Max total CPU increase: 2 (source: policy, configured: 2000m)")
+}
+
 func TestPrintExplain_ConflictCheckFailedEmptyRecs(t *testing.T) {
 	policy := conflictCheckFailedPolicy("web", "default", nil, nil)
 	scheme := runtime.NewScheme()

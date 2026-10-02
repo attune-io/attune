@@ -22,6 +22,12 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestBudgetExhaustedHelpNamesBothBudgets(t *testing.T) {
+	help := BudgetExhaustedTotal.WithLabelValues("ns", "p").Desc().String()
+	assert.Contains(t, help, "per-cycle")
+	assert.Contains(t, help, "per-minute")
+}
+
 func TestMetricsRegistered(t *testing.T) {
 	// Verify each metric can receive a value without panicking
 	assert.NotPanics(t, func() {
