@@ -68,7 +68,7 @@ func (r *AttunePolicyReconciler) recordBudgetBlock(
 		"pod", podName, "container", container)
 	if r.Recorder != nil {
 		r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "BudgetExhausted", "resize",
-			"Resize deferred for pod %s container %s: per-cycle budget exhausted",
+			"Resize deferred for pod %s container %s: remaining per-cycle or per-minute budget exhausted",
 			podName, container)
 	}
 }
