@@ -273,6 +273,48 @@ check_default "Prometheus setup condition table" "Ready: False, Reason: Insuffic
 check_default "Prometheus setup condition meaning" "Prometheus could not be used for this reconcile" "docs/guides/prometheus-setup.md"
 check_absent "Prometheus setup stale condition meaning" "No Prometheus address found" "docs/guides/prometheus-setup.md"
 
+# Parameter rows that fell out of configuration.md while other guides
+# still named them. The namespace-defaults field table must also stay
+# one table: a prose line between rows drops updateStrategy and
+# costPricing from the rendered page.
+check_default "weight (configuration.md)" \
+  '| `weight` | int32 | `100` |' \
+  "docs/reference/configuration.md"
+check_default "insecureSkipVerify (configuration.md)" \
+  'metricsSource.prometheus.tls.insecureSkipVerify' \
+  "docs/reference/configuration.md"
+check_default "autoPromote (configuration.md)" \
+  'autoPromote' \
+  "docs/reference/configuration.md"
+check_default "namespace defaults updateStrategy row" \
+  '| `updateStrategy` |' \
+  "docs/reference/configuration.md"
+python3 - "$REPO_ROOT/docs/reference/configuration.md" <<'PY'
+import sys
+path = sys.argv[1]
+lines = open(path).read().splitlines()
+start = None
+for i, line in enumerate(lines):
+    if line.startswith("| `memory` | Same as `cpu`"):
+        start = i
+        break
+if start is None:
+    print("FAIL: namespace defaults memory row missing")
+    sys.exit(1)
+end = None
+for i in range(start + 1, len(lines)):
+    if lines[i].startswith("| `costPricing` |"):
+        end = i
+        break
+    if not lines[i].startswith("|"):
+        print("FAIL: prose split the namespace defaults field table before costPricing")
+        print(f"  {path}:{i+1}: {lines[i]}")
+        sys.exit(1)
+if end is None:
+    print("FAIL: costPricing row missing from namespace defaults field table")
+    sys.exit(1)
+PY
+
 # --- controller-applied defaults explanation ---
 check_default "controller-applied defaults (README)" \
   "controller at reconcile time" \

@@ -331,7 +331,7 @@ that do not set them explicitly. Policy-level values always take precedence.
 | `export` | object | (none) | Metrics export configuration |
 | `safetyObservationPeriod` | duration | `5m` | Post-resize observation window. Omit the field for 5m. Zero is invalid. The shortest accepted value is 1m. A policy already stored with `0s` is treated as unset. |
 | `sloGuardrails` | list | `[]` | Application-level SLO PromQL checks after resize |
-| `canary` | object | (none) | Canary rollout (percentage, observationPeriod). Omitted or `0s` `observationPeriod` uses the built-in observation period, not a rejected value. CREATE sizing, startup boost, and HPA stay off for an app until that app is promoted. |
+| `canary` | object | (none) | Canary rollout (`percentage`, `observationPeriod`, `autoPromote`). Omitted or `0s` `observationPeriod` uses the built-in observation period, not a rejected value. `autoPromote` defaults to false. When true, a clean observation period resizes the remaining pods. When false, switch the policy to Auto yourself. CREATE sizing, startup boost, and HPA stay off for an app until that app is promoted. |
 | `initialSizing` | bool | `false` | Enable mutating webhook for pod creation |
 | `hpaTargetBounds` | object | (none) | Optional percent band for auto-tuned HPA utilization targets. `cpu` and `memory` each have optional `min` and `max` from 1 to 10000. Unset means no band, so today's limit cap stays, including CPU targets above 90. 50 and 90 are a recommended opt-in, not a default. The band does not turn auto-tune on. |
 
@@ -436,10 +436,10 @@ All fields from `AttuneDefaults` are available in
 | `metricsSource` | `prometheus.address`, `prometheus.headers`, `prometheus.queryParameters`, `prometheus.bearerTokenSecret`, `prometheus.sigv4`, `prometheus.tls`, `datadog.site`, `datadog.apiKeySecretRef`, `cloudwatch.region`, `cloudwatch.clusterName`, `cloudwatch.roleArn`, `cloudwatch.cpuUnit`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow`, `podAggregation`, `cpuRecordingMetric`, `memoryRecordingMetric` |
 | `cpu` | `percentile`, `overhead`, `minAllowed`, `maxAllowed`, `controlledValues`, `burstSensitivity`, `allowDecrease`, `startupBoost`, `surge`, `maxChangePercent`, `maxIncreasePercent`, `maxDecreasePercent` |
 | `memory` | Same as `cpu` (no `startupBoost`), plus `decreaseUsageMarginPercent`, `memoryFromCpuRatio`, `oomBump`, and `surge` |
-
-`containerPolicies` is not part of `AttuneDefaultsSpec`. `AttuneNamespaceDefaults` uses that same spec, so the list is not in this table and is not inherited. Set it on each `AttunePolicy`.
 | `updateStrategy` | `type`, `cooldown`, `autoRevert`, `resizeMethod`, `initialSizing`, `maxConcurrentResizes`, `maxStatusRecommendations`, `includeExplanationsInStatus`, `maxTotalCpuIncrease`, `maxTotalMemoryIncrease`, `maxCpuIncreasePerMinute`, `maxMemoryIncreasePerMinute`, `schedule`, `export`, `canary`, `safetyObservationPeriod`, `sloGuardrails`, `templatePersistence`, `hpaTargetBounds` |
 | `costPricing` | `cpuPerCoreHour`, `memoryPerGiBHour` |
+
+`containerPolicies` is not part of `AttuneDefaultsSpec`. `AttuneNamespaceDefaults` uses that same spec, so the list is not in this table and is not inherited. Set it on each `AttunePolicy`.
 
 ## Alternative Metrics Sources
 
@@ -464,6 +464,7 @@ operator queries. The wizard inherit option uses that omit shape.
 | `metricsSource.prometheus.bearerTokenSecret` | object | (optional) | Secret `name` + `key` for a bearer token in the **policy** namespace (`AttunePolicy` or `AttuneNamespaceDefaults`). Deprecated on cluster `AttuneDefaults`: the name is still inherited and read in each policy namespace; use `prometheusAuth` or `openshift.bindClusterMonitoringView` instead. Amazon Managed Prometheus does not use this Secret. |
 | `metricsSource.prometheus.sigv4.region` | string | (required when `sigv4` is set) | AWS region of the Amazon Managed Prometheus workspace, for example `us-east-1`. There is no default. Attune signs queries with SigV4 service `aps`. Omitted `sigv4` does not sign. Do not combine with `bearerTokenSecret`, an `Authorization` header, or an `X-Amz-*` header. |
 | `metricsSource.prometheus.sigv4.roleArn` | string | (optional) | IAM role ARN to assume. Empty uses the pod identity chain (IRSA or Pod Identity). The role needs `aps:QueryMetrics`. |
+| `metricsSource.prometheus.tls.insecureSkipVerify` | bool | `false` | Skip TLS certificate verification. Use only for a self-signed development endpoint. Prefer the cluster CA when you have the bundle. |
 
 ### Datadog
 
@@ -501,6 +502,7 @@ caps apply to `AttunePolicy`, `AttuneDefaults`, and
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `runtimeProfile` | string | (none) | Optional language/runtime profile (`generic`, `java`, `python`, `golang`, `nodejs`). Applies safe memory defaults and admission warnings. See [runtime profiles](../guides/runtime-profiles.md). |
+| `weight` | int32 | `100` | Priority when two policies match the same workload. Range 1 to 1000. The higher value applies. Equal weights: the lexicographically smaller policy name wins, and the other defers. This field is on `AttunePolicy` only. |
 | `paused` | bool | `false` | Halts all reconciliation for this policy: no metrics collection, no recommendations, no resizes. Existing resizes are not reverted. The operator sets `Ready=False` with `reason=Paused`. |
 
 ### Namespace freeze (`attune.io/freeze`)
