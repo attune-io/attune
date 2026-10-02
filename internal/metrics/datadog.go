@@ -207,27 +207,28 @@ func appendFiniteScaled(dst []Sample, ts time.Time, value float64, isCPU bool) [
 }
 
 // appendDatadogSamples converts Datadog [timestamp_ms, value] points to
-// Samples. A nil value is a gap (JSON null or a short point) and is dropped.
-// Numeric 0 is kept. A nil timestamp keeps the value at the Unix epoch, the
-// same zero-filled timestamp the old decoder produced. NaN and Inf are
-// dropped. CPU values are converted from nanocores to cores. The unusable
-// series counter increments once when the series had points and none were
-// usable.
+// Samples. A nil value (JSON null or a short point) is stored as zero, the
+// same idle sample a numeric 0 produces. Dropping the gap would raise the
+// CPU percentile on the next reconcile. A nil timestamp keeps the value at
+// the Unix epoch. NaN and Inf are dropped. CPU values are converted from
+// nanocores to cores. The unusable series counter increments once when the
+// series had points and none were usable.
 func appendDatadogSamples(ctx context.Context, dst []Sample, points [][2]*float64, isCPU bool) []Sample {
 	if len(points) == 0 {
 		return dst
 	}
 	before := len(dst)
 	for _, point := range points {
-		if point[1] == nil {
-			continue
+		value := 0.0
+		if point[1] != nil {
+			value = *point[1]
 		}
 		tsMs := 0.0
 		if point[0] != nil {
 			tsMs = *point[0]
 		}
 		ts := time.Unix(int64(tsMs)/1000, 0)
-		dst = appendFiniteScaled(dst, ts, *point[1], isCPU)
+		dst = appendFiniteScaled(dst, ts, value, isCPU)
 	}
 	if len(dst) == before {
 		recordDroppedNonFinite(ctx, metricTypeFromCPU(isCPU))

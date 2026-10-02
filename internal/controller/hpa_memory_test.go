@@ -149,8 +149,7 @@ func runMemoryRetune(t *testing.T, opts memoryRetuneOpts) (client.Client, int) {
 	reconciler.Scheme = scheme
 	reconciler.Recorder = opts.recorder
 	if opts.policy == nil {
-		opts.policy = newTestPolicy("p", "default")
-		opts.policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+		opts.policy = policyWithBounds(memoryBounds(nil, nil))
 	}
 	if opts.recs == nil {
 		opts.recs = []attunev1alpha1.WorkloadRecommendation{{
@@ -214,10 +213,10 @@ func TestRetuneHPAMemory_SingleContainer(t *testing.T) {
 		want   int32
 		event  string
 	}{
-		{name: "limit 2Gi publishes 160", limit: "2Gi", want: 160},
-		{name: "limit equals request publishes 100", limit: "512Mi", want: 100},
-		{name: "no limit publishes 100", want: 100},
-		{name: "limit below request publishes 100", limit: "256Mi", want: 100},
+		{name: "limit 2Gi publishes 160", limit: "2Gi", bounds: memoryBounds(nil, nil), want: 160},
+		{name: "limit equals request publishes 100", limit: "512Mi", bounds: memoryBounds(nil, nil), want: 100},
+		{name: "no limit publishes 100", bounds: memoryBounds(nil, nil), want: 100},
+		{name: "limit below request publishes 100", limit: "256Mi", bounds: memoryBounds(nil, nil), want: 100},
 		{
 			name:   "memory max 90 clamps 160",
 			limit:  "2Gi",
@@ -226,10 +225,13 @@ func TestRetuneHPAMemory_SingleContainer(t *testing.T) {
 			event:  "Normal HPATargetClamped HPA default/api-server-hpa memory target 160 clamped to 90",
 		},
 		{
-			name:   "cpu max does not change memory",
-			limit:  "2Gi",
-			bounds: &attunev1alpha1.HPATargetBounds{CPU: &attunev1alpha1.HPATargetBound{Max: &max90}},
-			want:   160,
+			name:  "cpu max does not change memory",
+			limit: "2Gi",
+			bounds: &attunev1alpha1.HPATargetBounds{
+				CPU:    &attunev1alpha1.HPATargetBound{Max: &max90},
+				Memory: &attunev1alpha1.HPATargetBound{},
+			},
+			want: 160,
 		},
 		{
 			name:   "user min cannot exceed the limit cap",
@@ -272,6 +274,22 @@ func TestRetuneHPAMemory_SingleContainer(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRetuneHPAMemory_OmittedBoundsLeavesPercent(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", nil, memoryResourceMetric(80))
+	pod := workloadPod("api-server", memContainer(t, "app", "1Gi", "2Gi"))
+	cl, updates := runMemoryRetune(t, memoryRetuneOpts{
+		policy:  policyWithBounds(nil),
+		hpas:    []autoscalingv2.HorizontalPodAutoscaler{hpa},
+		pod:     &pod,
+		history: []attunev1alpha1.ResizeHistoryEntry{memoryHistory("app", "1Gi", "512Mi")},
+	})
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(80), metricUtil(t, updated, 0))
+	assert.Empty(t, updated.Annotations[annotationHPAOriginalMemory])
+	assert.Equal(t, 0, updates)
 }
 
 func TestRetuneHPAMemory_ResourceSumAndContainerOneUpdate(t *testing.T) {
@@ -590,6 +608,7 @@ func TestRetuneHPAMemory_RequestsAndLimitsUsesRecommendedLimit(t *testing.T) {
 	both := attunev1alpha1.ControlledRequestsAndLimits
 	policy := newTestPolicy("p", "default")
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.HPATargetBounds = memoryBounds(nil, nil)
 	policy.Spec.Memory.ControlledValues = &both
 	recommended := qty(t, "2Gi")
 	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", nil, memoryResourceMetric(80))
@@ -858,6 +877,7 @@ func TestRetuneHPAMemory_ContainerRequestsAndLimitsCapsBothMetrics(t *testing.T)
 	both := attunev1alpha1.ControlledRequestsAndLimits
 	policy := newTestPolicy("p", "default")
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.HPATargetBounds = memoryBounds(nil, nil)
 	policy.Spec.ContainerPolicies = []attunev1alpha1.ContainerResourcePolicy{{
 		ContainerName: "app",
 		Memory:        &attunev1alpha1.ResourceConfig{ControlledValues: &both},
@@ -897,6 +917,7 @@ func TestRetuneHPAMemory_ContainerRequestsOnlyOverridesPolicy(t *testing.T) {
 	only := attunev1alpha1.ControlledRequestsOnly
 	policy := newTestPolicy("p", "default")
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.HPATargetBounds = memoryBounds(nil, nil)
 	policy.Spec.Memory.ControlledValues = &both
 	policy.Spec.ContainerPolicies = []attunev1alpha1.ContainerResourcePolicy{{
 		ContainerName: "app",

@@ -922,14 +922,11 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// already shorter than queryStep (for example cooldown 1m vs 5m step),
 	// bootstrap still uses cooldown. Jittering that wait delayed first
 	// recommendations by up to RequeueJitter (nightly #520).
-	if requeueAfter == cooldown && !bootstrap {
+	if requeueAfter == cooldown && !bootstrap && requeueAfter > 0 {
 		requeueAfter = r.addRequeueJitter(requeueAfter, &policy)
 	}
-	// A non-positive wait is not a schedule. This does not raise a real
-	// 10s query step or a remaining cooldown that is already under 1m.
-	if requeueAfter <= 0 {
-		requeueAfter = defaultCooldown
-	}
+	// A stored cooldown of 0 stays RequeueAfter 0. controller-runtime does
+	// not schedule another pass, which is the behavior those objects had.
 	logger.Info("Reconciliation complete, requeueing", "requeueAfter", requeueAfter)
 	operatormetrics.ReconcileDuration.WithLabelValues("attunepolicy", policy.Namespace, policy.Name).Observe(time.Since(startTime).Seconds())
 	return ctrl.Result{RequeueAfter: requeueAfter}, nil

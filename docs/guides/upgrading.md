@@ -26,19 +26,21 @@ ClusterRole. Policies that do not set `kind: Rollout` do not change.
 Attune does not install the Rollout CRD. A Rollout policy stays Ready
 False with reason `WorkloadCRDMissing` until Argo Rollouts is installed.
 
-### Memory HPA targets move when auto-tune is on
+### Memory HPA targets stay until hpaTargetBounds.memory is set
 
-A memory utilization HPA used to keep its percent when Attune changed the
-memory request, so a smaller request could scale the workload out. An HPA
-annotated `attune.io/auto-tune: "true"` now gets the same retune for memory
-as for CPU. The original target and the original request are stored on the
+A memory utilization HPA keeps its percent when Attune changes the memory
+request. Set `updateStrategy.hpaTargetBounds.memory` to retune an HPA that
+already has `attune.io/auto-tune: "true"`. An empty `memory: {}` turns that
+retune on. The original target and the original request are stored on the
 HPA. A later resize multiplies that stored target by the stored request
 divided by the new request.
 
-`updateStrategy.hpaTargetBounds` is optional. Leave it unset to keep today's
-limit cap, including CPU targets above 90. Set `cpu` or `memory` `min` and
-`max` only when you want a tighter band. 50 and 90 are a common choice, not
-a default. The Helm chart does not turn auto-tune on.
+Leave `memory` unset and the percent stays, including on an upgrade where
+you do not change the HPA or the policy. `cpu` bounds do not turn memory
+retune on. Set `min` and `max` only when you want a tighter band. 50 and 90
+are a common choice, not a default. CPU targets above 90 stay above 90
+until you set `hpaTargetBounds.cpu`. The Helm chart does not turn auto-tune
+on.
 
 ### Usage surge is off until cpu.surge or memory.surge is set
 
@@ -63,7 +65,8 @@ minBump `100Mi`, maxBumps `3`, and hold `24h`. The step is
 `max(ceil(origin * ratio^count), origin + minBump * count)`, then
 `maxAllowed`. Origin is the live memory request before the first bump of
 the streak, not the latest live request and not the pod template. When
-`maxAllowed` is omitted, `maxBumps` is the only cap. After `hold` expires,
+`maxAllowed` is omitted, the percentile path stays capped at 8Gi, and
+`maxBumps` is the only extra cap on the bump itself. After `hold` expires,
 recommendations follow the normal percentile, allowDecrease, and template
 rules. Hold expiry does not clear the original request stored on the pod.
 A later OOM can step again from that same origin until `maxBumps`.
@@ -123,50 +126,43 @@ To store the full pod base, delete these annotations and leave
 The next successful CPU resize stores the full base. Deleting the keys is
 required. The next resize does not repair an old annotation by itself.
 
-### Omitted maxAllowed is not capped
+### Omitted maxAllowed stays 4000m and 8Gi
 
-Policies and AttuneDefaults objects that omitted `maxAllowed` were held
-at 4000m CPU and 8Gi memory. CPU `allowDecrease` defaults to true, so a
-CPU request already above 4000m could drop to that ceiling in one cycle.
-Memory `allowDecrease` defaults to false, so the 8Gi ceiling blocked
-further growth. A memory request already above 8Gi stayed at the current
-request until decrease was enabled.
-
-To restore the old ceiling, set it on the policy or on AttuneDefaults:
-
-```yaml
-cpu:
-  maxAllowed: "4000m"
-memory:
-  maxAllowed: "8Gi"
-```
+Policies and AttuneDefaults objects that omit `maxAllowed` stay capped at
+4000m CPU and 8Gi memory. CPU `allowDecrease` defaults to true, so a CPU
+request already above 4000m can still drop to that ceiling. Memory
+`allowDecrease` defaults to false, so a memory request already above 8Gi
+stays at the current request until decrease is enabled.
 
 An omitted minimum still floors at 1m CPU and 4Mi memory. An explicit
 `maxAllowed` of `"0"` remains a cap. The engine applies an explicit max
-again after the percent cap. A memory request above that max is published
-downward only when `allowDecrease` is true. Explanation status omits
-`bounds.max` when the policy has no maximum, so it is not reported as 0.
+again after the percent cap. Explanation status still writes
+`bounds.max`, including the built-in ceiling when the policy omits
+`maxAllowed`. A controller upgrade does not require new CRDs for that
+status write. The previous CRD requires the field, and the controller
+still sends it.
 
-Apply CRDs before the controller upgrade. Helm does not update CRDs on
-`helm upgrade`. The previous CRD requires
-`explanation.cpu.bounds.max` and `explanation.memory.bounds.max`. The
-next status write for a policy that omits `maxAllowed` fails that
-required field until the new CRDs are applied:
-
-```bash
-kubectl apply --server-side --force-conflicts -f \
-  https://github.com/attune-io/attune/releases/latest/download/crds.yaml
-```
+To raise the ceiling, set `maxAllowed` on the policy or on AttuneDefaults.
 
 ### CloudWatch CPU unit
 
-CloudWatch policies that omit `cpuUnit` now treat `container_cpu_usage_total` as millicores (divide by 1000). Older releases divided that metric by 1e9. The next reconcile changes CPU recommendations.
+CloudWatch policies that omit `cpuUnit` still treat
+`container_cpu_usage_total` as nanocores (divide by 1e9). That is the
+scale from before the field existed. An upgrade does not change CPU
+recommendations when the field is unset, whether or not the CRDs are
+updated. The field is optional on both CRDs.
 
-To keep the old scale, set `cpuUnit: Nanocores` on each policy that has its own `cloudwatch` block. Setting it only on AttuneDefaults does not reach those policies. Defaults apply when the policy omits the whole metrics provider.
+Set `cpuUnit: Millicores` on a policy that has its own `cloudwatch` block
+when the metric is already in millicores. Setting it only on AttuneDefaults
+does not reach those policies. Defaults apply when the policy omits the
+whole metrics provider.
 
-If the new scale is too small, CPU requests sit at 1m or minAllowed. If it is too large, they move toward maxAllowed. CPU `allowDecrease` still defaults to true, and CloudWatch does not run throttle revert, so a bad step is not undone by the throttle check. Confirm one raw GetMetricData sample against the container limit before rollout.
-
-The OpenTelemetry `awscontainerinsightreceiver` multiplies the core rate by 1000, and its README lists `container_cpu_usage_total` as Millicore ([cpu extractor](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/receiver/awscontainerinsightreceiver/internal/cadvisor/extractors/cpu_extractor.go)).
+The OpenTelemetry `awscontainerinsightreceiver` multiplies the core rate
+by 1000, and its README lists `container_cpu_usage_total` as Millicore
+([cpu extractor](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/receiver/awscontainerinsightreceiver/internal/cadvisor/extractors/cpu_extractor.go)).
+Confirm one raw GetMetricData sample against the container limit before
+setting `Millicores`. CPU `allowDecrease` still defaults to true, and
+CloudWatch does not run throttle revert.
 
 ## v0.1.31 to v0.1.32
 

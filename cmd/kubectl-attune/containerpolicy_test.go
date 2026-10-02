@@ -99,7 +99,7 @@ func TestPrintEffectivePolicySummary_ContainerPolicies(t *testing.T) {
 		assert.Contains(t, got, "      CPU max allowed: 200m (source: container, configured: 200m)")
 		assert.Contains(t, got, "      CPU controlled values: RequestsOnly (source: policy, configured: <unset>)")
 		assert.Contains(t, got, "      Memory percentile: 99 (source: policy, configured: <unset>)")
-		assert.Contains(t, got, "      Memory max allowed: none (source: policy, configured: <unset>)")
+		assert.Contains(t, got, "      Memory max allowed: 8Gi (source: built-in default, configured: <unset>)")
 		assert.Contains(t, got, "      Memory controlled values: RequestsOnly (source: policy, configured: <unset>)")
 		assert.Contains(t, got, "    app:")
 		assert.Contains(t, got, "      CPU max allowed: 300m (source: wildcard, configured: 300m)")

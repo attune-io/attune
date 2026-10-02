@@ -303,7 +303,7 @@ func validateCloudWatchQuerySpec(spec CloudWatchQuerySpec) error {
 		}
 	}
 	switch spec.CPUUnit {
-	case "", attunev1alpha1.DefaultCloudWatchCPUUnit, "Cores", "Nanocores":
+	case "", "Millicores", "Cores", "Nanocores":
 	default:
 		return fmt.Errorf("unsupported cpuUnit %q", spec.CPUUnit)
 	}
@@ -311,7 +311,7 @@ func validateCloudWatchQuerySpec(spec CloudWatchQuerySpec) error {
 }
 
 // appendCloudWatchSample drops NaN and Inf, then scales container_cpu_usage_total
-// into cores. Memory samples stay raw. Empty cpuUnit uses millicores.
+// into cores. Memory samples stay raw. Empty cpuUnit uses nanocores.
 func appendCloudWatchSample(dst []Sample, ts time.Time, value float64, metric, cpuUnit string) []Sample {
 	if math.IsNaN(value) || math.IsInf(value, 0) {
 		return dst
@@ -325,15 +325,18 @@ func appendCloudWatchSample(dst []Sample, ts time.Time, value float64, metric, c
 // cloudWatchCPUDivisor converts container_cpu_usage_total into cores.
 // validateCloudWatchQuerySpec rejects any cpuUnit outside this set.
 func cloudWatchCPUDivisor(cpuUnit string) float64 {
+	if cpuUnit == "" {
+		cpuUnit = attunev1alpha1.DefaultCloudWatchCPUUnit
+	}
 	switch cpuUnit {
 	case "Cores":
 		return 1
+	case "Millicores":
+		return 1000
 	case "Nanocores":
 		return 1e9
-	case "", attunev1alpha1.DefaultCloudWatchCPUUnit:
-		return 1000
 	default:
-		return 1000
+		return 1e9
 	}
 }
 

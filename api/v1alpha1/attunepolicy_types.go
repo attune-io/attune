@@ -376,9 +376,10 @@ type CloudWatchConfig struct {
 
 	// CPUUnit selects the scale of Container Insights container_cpu_usage_total
 	// before Attune converts it to cores. Millicores divides by 1000, Cores
-	// leaves the sample unchanged, and Nanocores divides by 1e9 (the pre-field
-	// behavior, and the Datadog scale). Empty means Millicores, including
-	// objects stored before this field existed. Memory samples are not scaled.
+	// leaves the sample unchanged, and Nanocores divides by 1e9. Empty means
+	// Nanocores, including objects stored before this field existed, so an
+	// upgrade does not rescale CPU recommendations. Set Millicores when the
+	// metric is already in millicores. Memory samples are not scaled.
 	// Unknown values are rejected.
 	// +optional
 	// +kubebuilder:validation:Enum=Millicores;Cores;Nanocores
@@ -617,7 +618,9 @@ type ResourceBounds struct {
 	Min resource.Quantity `json:"min"`
 
 	// Max is the maximum allowed resource value.
-	// Omitted when maxAllowed is unset. A present zero is a real cap.
+	// The controller writes 4000m or 8Gi when the policy omits maxAllowed,
+	// so a previous CRD that still requires this field accepts the status
+	// write. A present zero is a real cap.
 	// +optional
 	Max *resource.Quantity `json:"max,omitempty"`
 }

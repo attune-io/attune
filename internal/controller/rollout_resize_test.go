@@ -217,7 +217,7 @@ func TestProcessWorkloads_Auto_MidReplacementRecommendsAndSkipsResize(t *testing
 	require.Equal(t, 1, countSubstr(evs, "Resize deferred for workload api: rollout in progress"))
 }
 
-func TestProcessWorkloads_Auto_ScaleOutStillResizesReadyPods(t *testing.T) {
+func TestProcessWorkloads_Auto_ScaleOutSkipsWholeDeployment(t *testing.T) {
 	now := time.Now()
 	dep := observedDeployment("api", 5, appsv1.DeploymentStatus{
 		Replicas:          3,
@@ -232,18 +232,16 @@ func TestProcessWorkloads_Auto_ScaleOutStillResizesReadyPods(t *testing.T) {
 	r, rec := newRolloutReconciler([]client.Object{dep}, []*corev1.Pod{ready, pending})
 	result := runRolloutProcess(r, policy, dep, now)
 	requireNonStaleRec(t, result)
-	require.False(t, r.isRollingOut(dep))
-	require.False(t, r.podSkippedForRollout(dep, pending, ""))
-	require.False(t, r.podSkippedForRollout(dep, ready, ""))
+	require.True(t, r.isRollingOut(dep))
 
 	count, _ := r.executeResizes(context.Background(), policy, []client.Object{dep},
 		[]attunev1alpha1.WorkloadRecommendation{risingCPURecommendation("api")},
 		podMap("api", ready, pending), nil, nil)
-	require.Equal(t, 1, count)
-	names := resizedPodNames(r.Clientset.(*kubefake.Clientset))
-	require.Contains(t, names, ready.Name)
-	require.NotContains(t, names, pending.Name)
-	require.Equal(t, 0, countSubstr(recordedEvents(rec), "RolloutInProgress"))
+	require.Equal(t, 0, count)
+	require.Empty(t, resizedPodNames(r.Clientset.(*kubefake.Clientset)))
+	evs := recordedEvents(rec)
+	require.Equal(t, 1, countSubstr(evs, "RolloutInProgress"))
+	require.Equal(t, 1, countSubstr(evs, "Resize deferred for workload api: rollout in progress"))
 }
 
 func TestWorkload_PodSkippedForRollout(t *testing.T) {
@@ -276,7 +274,7 @@ func TestWorkload_PodSkippedForRollout(t *testing.T) {
 		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
 		r, _ := newRolloutReconciler([]client.Object{sts}, []*corev1.Pod{first, second})
 		requireNonStaleRec(t, runRolloutProcess(r, policy, sts, now))
-		require.False(t, r.isRollingOut(sts))
+		require.True(t, r.isRollingOut(sts))
 		require.True(t, r.podSkippedForRollout(sts, first, ""))
 		require.True(t, r.podSkippedForRollout(sts, second, ""))
 
@@ -321,16 +319,16 @@ func TestWorkload_PodSkippedForRollout(t *testing.T) {
 		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
 		r, rec := newRolloutReconciler([]client.Object{sts}, []*corev1.Pod{fresh, old})
 		requireNonStaleRec(t, runRolloutProcess(r, policy, sts, now))
-		require.False(t, r.isRollingOut(sts))
+		require.True(t, r.isRollingOut(sts))
 
 		count, _ := r.executeResizes(context.Background(), policy, []client.Object{sts},
 			[]attunev1alpha1.WorkloadRecommendation{risingCPURecommendation("db")},
 			podMap("db", fresh, old), nil, nil)
-		require.Equal(t, 1, count)
-		names := resizedPodNames(r.Clientset.(*kubefake.Clientset))
-		require.Contains(t, names, fresh.Name)
-		require.NotContains(t, names, old.Name)
-		require.Equal(t, 1, countSubstr(recordedEvents(rec), "RolloutInProgress"))
+		require.Equal(t, 0, count)
+		require.Empty(t, resizedPodNames(r.Clientset.(*kubefake.Clientset)))
+		evs := recordedEvents(rec)
+		require.Equal(t, 1, countSubstr(evs, "RolloutInProgress"))
+		require.Equal(t, 1, countSubstr(evs, "Resize deferred for workload db: rollout in progress"))
 	})
 
 	t.Run("DaemonSet_RollingUpdate_old_pod_skipped", func(t *testing.T) {
@@ -347,16 +345,16 @@ func TestWorkload_PodSkippedForRollout(t *testing.T) {
 		r, rec := newRolloutReconciler([]client.Object{ds, currentRev, oldRev}, []*corev1.Pod{current, old})
 		result := runRolloutProcess(r, policy, ds, now)
 		requireNonStaleRec(t, result)
-		require.False(t, r.isRollingOut(ds))
+		require.True(t, r.isRollingOut(ds))
 
 		count, _ := r.executeResizes(context.Background(), policy, []client.Object{ds},
 			[]attunev1alpha1.WorkloadRecommendation{risingCPURecommendation("ds")},
 			podMap("ds", current, old), nil, nil)
-		require.Equal(t, 1, count)
-		names := resizedPodNames(r.Clientset.(*kubefake.Clientset))
-		require.Contains(t, names, current.Name)
-		require.NotContains(t, names, old.Name)
-		require.Equal(t, 1, countSubstr(recordedEvents(rec), "RolloutInProgress"))
+		require.Equal(t, 0, count)
+		require.Empty(t, resizedPodNames(r.Clientset.(*kubefake.Clientset)))
+		evs := recordedEvents(rec)
+		require.Equal(t, 1, countSubstr(evs, "RolloutInProgress"))
+		require.Equal(t, 1, countSubstr(evs, "Resize deferred for workload ds: rollout in progress"))
 	})
 
 	t.Run("DaemonSet_new_node_current_pods_still_eligible", func(t *testing.T) {
@@ -371,15 +369,16 @@ func TestWorkload_PodSkippedForRollout(t *testing.T) {
 		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
 		r, rec := newRolloutReconciler([]client.Object{ds, currentRev}, []*corev1.Pod{first, second})
 		requireNonStaleRec(t, runRolloutProcess(r, policy, ds, now))
-		require.False(t, r.isRollingOut(ds))
+		require.True(t, r.isRollingOut(ds))
 
 		count, _ := r.executeResizes(context.Background(), policy, []client.Object{ds},
 			[]attunev1alpha1.WorkloadRecommendation{risingCPURecommendation("ds")},
 			podMap("ds", first, second), nil, nil)
-		require.Equal(t, 1, count)
-		names := resizedPodNames(r.Clientset.(*kubefake.Clientset))
-		require.ElementsMatch(t, []string{first.Name, second.Name}, names)
-		require.Equal(t, 0, countSubstr(recordedEvents(rec), "RolloutInProgress"))
+		require.Equal(t, 0, count)
+		require.Empty(t, resizedPodNames(r.Clientset.(*kubefake.Clientset)))
+		evs := recordedEvents(rec)
+		require.Equal(t, 1, countSubstr(evs, "RolloutInProgress"))
+		require.Equal(t, 1, countSubstr(evs, "Resize deferred for workload ds: rollout in progress"))
 	})
 
 	t.Run("DaemonSet_legacy_annotation_and_OnDelete", func(t *testing.T) {
@@ -427,16 +426,16 @@ func TestWorkload_PodSkippedForRollout(t *testing.T) {
 		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
 		r, rec := newRolloutReconciler([]client.Object{dep, currentRS, oldRS}, []*corev1.Pod{current, old})
 		requireNonStaleRec(t, runRolloutProcess(r, policy, dep, now))
-		require.False(t, r.isRollingOut(dep))
+		require.True(t, r.isRollingOut(dep))
 
 		count, _ := r.executeResizes(context.Background(), policy, []client.Object{dep},
 			[]attunev1alpha1.WorkloadRecommendation{risingCPURecommendation("api")},
 			podMap("api", current, old), nil, nil)
-		require.Equal(t, 1, count)
-		names := resizedPodNames(r.Clientset.(*kubefake.Clientset))
-		require.Contains(t, names, current.Name)
-		require.NotContains(t, names, old.Name)
-		require.Equal(t, 1, countSubstr(recordedEvents(rec), "RolloutInProgress"))
+		require.Equal(t, 0, count)
+		require.Empty(t, resizedPodNames(r.Clientset.(*kubefake.Clientset)))
+		evs := recordedEvents(rec)
+		require.Equal(t, 1, countSubstr(evs, "RolloutInProgress"))
+		require.Equal(t, 1, countSubstr(evs, "Resize deferred for workload api: rollout in progress"))
 	})
 }
 
