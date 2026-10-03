@@ -58,14 +58,13 @@ func memoryProfile(p99 float64) rsmetrics.UsageProfile {
 	}
 }
 
-func TestUnsetMax_NilCPUMaxCapsAtFourCPU(t *testing.T) {
+func TestUnsetMax_NilCPUMaxPublishesTenCPU(t *testing.T) {
 	policy := unsetMaxPolicy()
 	cpuEngine, _ := buildRecommendationEngines(policy)
 	got, expl, _ := cpuEngine.RecommendWithExplanation(cpuProfile(10), resource.MustParse("10"))
-	assert.True(t, resource.MustParse("4000m").Equal(got), "published %s", got.String())
-	assert.Equal(t, "max", expl.BoundsApplied)
-	require.NotNil(t, expl.MaxBound)
-	assert.True(t, resource.MustParse("4000m").Equal(*expl.MaxBound))
+	assert.True(t, resource.MustParse("10").Equal(got), "published %s", got.String())
+	assert.Empty(t, expl.BoundsApplied)
+	assert.Nil(t, expl.MaxBound)
 }
 
 func TestUnsetMax_NilCPUMaxStillLimitsIncrease(t *testing.T) {
@@ -74,10 +73,9 @@ func TestUnsetMax_NilCPUMaxStillLimitsIncrease(t *testing.T) {
 	cpuEngine, _ := buildRecommendationEngines(policy)
 	got, expl, _ := cpuEngine.RecommendWithExplanation(cpuProfile(10), resource.MustParse("1"))
 	assert.True(t, resource.MustParse("1500m").Equal(got), "published %s", got.String())
-	assert.Equal(t, "max", expl.BoundsApplied)
+	assert.Empty(t, expl.BoundsApplied)
 	assert.Equal(t, "max_change_capped", expl.ChangeFilterApplied)
-	require.NotNil(t, expl.MaxBound)
-	assert.True(t, resource.MustParse("4000m").Equal(*expl.MaxBound))
+	assert.Nil(t, expl.MaxBound)
 }
 
 func TestUnsetMax_NilMemoryMaxPublishesTwelveGi(t *testing.T) {
@@ -85,10 +83,9 @@ func TestUnsetMax_NilMemoryMaxPublishesTwelveGi(t *testing.T) {
 	_, memEngine := buildRecommendationEngines(policy)
 	twelveGi := 12 * float64(1024*1024*1024)
 	got, expl, _ := memEngine.RecommendWithExplanation(memoryProfile(twelveGi), resource.MustParse("16Gi"))
-	assert.True(t, resource.MustParse("8Gi").Equal(got), "published %s", got.String())
-	assert.Equal(t, "max", expl.BoundsApplied)
-	require.NotNil(t, expl.MaxBound)
-	assert.True(t, resource.MustParse("8Gi").Equal(*expl.MaxBound))
+	assert.True(t, resource.MustParse("12Gi").Equal(got), "published %s", got.String())
+	assert.Empty(t, expl.BoundsApplied)
+	assert.Nil(t, expl.MaxBound)
 }
 
 func TestUnsetMax_ExplicitCPUMaxReclampsAfterChangeFilter(t *testing.T) {
@@ -151,14 +148,12 @@ func TestUnsetMax_NilMinFloorsAtOneMillicoreAndFourMi(t *testing.T) {
 	cpuGot, cpuExpl, _ := cpuEngine.RecommendWithExplanation(cpuProfile(0), resource.MustParse("0"))
 	assert.True(t, resource.MustParse("1m").Equal(cpuGot), "published %s", cpuGot.String())
 	assert.Equal(t, "min", cpuExpl.BoundsApplied)
-	require.NotNil(t, cpuExpl.MaxBound)
-	assert.True(t, resource.MustParse("4000m").Equal(*cpuExpl.MaxBound))
+	assert.Nil(t, cpuExpl.MaxBound)
 
 	memGot, memExpl, _ := memEngine.RecommendWithExplanation(memoryProfile(0), resource.MustParse("0"))
 	assert.True(t, resource.MustParse("4Mi").Equal(memGot), "published %s", memGot.String())
 	assert.Equal(t, "min", memExpl.BoundsApplied)
-	require.NotNil(t, memExpl.MaxBound)
-	assert.True(t, resource.MustParse("8Gi").Equal(*memExpl.MaxBound))
+	assert.Nil(t, memExpl.MaxBound)
 }
 
 func TestUnsetMax_DefaultsMaxStillClamps(t *testing.T) {
@@ -188,6 +183,5 @@ func TestUnsetMax_DefaultsMinBelowFloorWins(t *testing.T) {
 	got, expl, _ := cpuEngine.RecommendWithExplanation(cpuProfile(0), resource.MustParse("0"))
 	assert.True(t, resource.MustParse("100u").Equal(got), "published %s", got.String())
 	assert.Equal(t, "min", expl.BoundsApplied)
-	require.NotNil(t, expl.MaxBound)
-	assert.True(t, resource.MustParse("4000m").Equal(*expl.MaxBound))
+	assert.Nil(t, expl.MaxBound)
 }

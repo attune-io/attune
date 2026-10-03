@@ -558,21 +558,23 @@ kubectl patch attunepolicy <name> --type merge \
 ### Stored cooldown of 0s
 
 **Symptom**: `kubectl describe attunepolicy <name>` shows
-`updateStrategy.cooldown: 0s`, and the policy does not schedule another
-reconcile.
+`updateStrategy.cooldown: 0s`, and the policy reconciles about once an
+hour. A new apply that still sets `0s` fails admission with
+`cooldown must be at least 1m, or omit the field for the default`.
 
-**Cause**: A stored `0s` is not a wait. The controller leaves
-`RequeueAfter` at 0, so it does not start an hourly resize loop. Admission
-accepts `0s` on policy and AttuneDefaults `cooldown`, on
-`safetyObservationPeriod`, and on an SLO `evaluationWindow`. A positive
-value below 1m is still rejected. Omit `cooldown` for the 1h default.
-Omit the observation and evaluation windows for their 5m default.
+**Cause**: Zero is not a wait. The webhook rejects `0s` on policy and
+AttuneDefaults `cooldown`, on `safetyObservationPeriod`, and on an SLO
+`evaluationWindow`. Omit the field for the built-in default (1h for
+cooldown, 5m for the observation and evaluation windows). The shortest
+accepted value is 1m.
 
-Canary `observationPeriod: 0s` is different: omitted and `0s` both mean
-the built-in observation period.
+A policy already stored with `cooldown: 0s` waits 1h. It keeps
+reconciling on that interval. Canary `observationPeriod: 0s` is
+different: omitted and `0s` both mean the built-in observation period.
+An SLO `evaluationWindow` of `0s` is an admission error. It does not by
+itself stop the reconciler.
 
-**Fix**: Set at least `1m` when the policy should keep reconciling on a
-timer:
+**Fix**: Omit the field, or set at least `1m`:
 
 ```bash
 kubectl patch attunepolicy <name> --type merge \
@@ -1517,9 +1519,10 @@ calculations.
 
 The `attune_nan_inf_samples_total` counter increments each time this
 happens, broken down by container and metric type (`cpu` or `memory`).
-A Datadog gap encoded as JSON `null`, or a point with no value, is stored
-as zero, the same as a numeric idle sample. NaN and Inf are still dropped.
-Use the counter to alert on persistent data quality
+A Datadog gap encoded as JSON `null`, or a point with no value, is dropped
+the same way. A numeric zero is kept, because a container can be idle. A
+Datadog series whose points are all null or missing increments this counter
+once. Use it to alert on persistent data quality
 issues:
 
 ```promql

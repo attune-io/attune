@@ -45,11 +45,8 @@ type WorkloadAdapter interface {
 	PodSpec() *corev1.PodSpec
 
 	// IsRollingOut is the whole-workload resize skip. It does not gate
-	// recommendations. Unchanged objects keep the v0.1.32 rule: a
-	// Deployment skips while updated or available replicas are behind
-	// spec, a StatefulSet while updated replicas are behind, a DaemonSet
-	// while updated pods are behind desired, and a ReplicaSet while ready
-	// replicas are behind. Per-pod checks run only when this is false.
+	// recommendations. StatefulSet and DaemonSet stay false; those kinds
+	// use podSkippedForRollout.
 	IsRollingOut() bool
 
 	// PodNameRegexSuffix returns the PromQL regex suffix that matches pods for this kind.
@@ -178,16 +175,18 @@ func (a *deploymentAdapter) PodSpec() *corev1.PodSpec {
 
 func (a *deploymentAdapter) IsRollingOut() bool {
 	// Nil replicas is not a rollout. Do not treat it as Kubernetes' default of 1.
-	// Updated or available replicas behind spec skips the whole Deployment,
-	// including scale-out, Recreate, and a paused object. A fully updated
-	// and available Deployment is not a rollout, even when generation is stale.
-	if a.Spec.Replicas != nil && a.Status.UpdatedReplicas < *a.Spec.Replicas {
+	// Availability (availableReplicas) and scale-out (updatedReplicas still
+	// catching up to spec) are not a replacement.
+	if a.Spec.Replicas == nil || a.Spec.Paused {
+		return false
+	}
+	if !deploymentUsesRollingUpdate(a.Deployment) {
+		return false
+	}
+	if generationStale(a.Generation, a.Status.ObservedGeneration) {
 		return true
 	}
-	if a.Spec.Replicas != nil && a.Status.AvailableReplicas < *a.Spec.Replicas {
-		return true
-	}
-	return false
+	return a.Status.Replicas > a.Status.UpdatedReplicas
 }
 
 func (a *deploymentAdapter) PodNameRegexSuffix() string { return "-[a-z0-9]+-[a-z0-9]{5}" }
@@ -216,11 +215,8 @@ func (a *statefulSetAdapter) PodSpec() *corev1.PodSpec {
 }
 
 func (a *statefulSetAdapter) IsRollingOut() bool {
-	// Updated replicas behind spec skips the whole StatefulSet, including
-	// scale-out, OnDelete, and a held partition.
-	if a.Spec.Replicas != nil && a.Status.UpdatedReplicas < *a.Spec.Replicas {
-		return true
-	}
+	// Scale-out, OnDelete, and a held partition are not a workload skip.
+	// A stale generation skips every pod in podSkippedForRollout instead.
 	return false
 }
 
@@ -250,9 +246,9 @@ func (a *daemonSetAdapter) PodSpec() *corev1.PodSpec {
 }
 
 func (a *daemonSetAdapter) IsRollingOut() bool {
-	// Status decides the skip. A missing controllerrevisions permission
-	// must not resize DaemonSet pods during a rollout.
-	return a.Status.UpdatedNumberScheduled < a.Status.DesiredNumberScheduled
+	// updatedNumberScheduled below desired is also a new node. Per-pod
+	// ControllerRevision identity decides the skip.
+	return false
 }
 
 func (a *daemonSetAdapter) PodNameRegexSuffix() string { return "-[a-z0-9]{5}" }
@@ -366,12 +362,12 @@ func (a *replicaSetAdapter) PodSpec() *corev1.PodSpec {
 }
 
 func (a *replicaSetAdapter) IsRollingOut() bool {
-	// Nil replicas is not a rollout. Ready replicas behind spec skips the
-	// whole ReplicaSet. A stale generation with a full ready count does not.
-	if a.Spec.Replicas != nil && a.Status.ReadyReplicas < *a.Spec.Replicas {
-		return true
+	// Nil replicas is not a rollout. Do not treat it as the default of 1.
+	// readyReplicas below spec is not a rollout. ReplicaSet has no strategy.
+	if a.Spec.Replicas == nil {
+		return false
 	}
-	return false
+	return generationStale(a.Generation, a.Status.ObservedGeneration)
 }
 
 func (a *replicaSetAdapter) PodNameRegexSuffix() string { return "-[a-z0-9]{5}" }

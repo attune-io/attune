@@ -1508,7 +1508,7 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 	printEffectiveField("  Percentile", formatInt64Field(item, "spec", "cpu", "percentile"), formatInt32Val(effective.Spec.CPU.Percentile), selected, cpuDefaults != nil && cpuDefaults.Percentile != 0)
 	printEffectiveField("  Overhead", getNestedString(item, "spec", "cpu", "overhead"), effective.Spec.CPU.Overhead, selected, cpuDefaults != nil && cpuDefaults.Overhead != "")
 	printEffectiveField("  Min allowed", getNestedString(item, "spec", "cpu", "minAllowed"), formatQuantityPtr(effective.Spec.CPU.MinAllowed), selected, cpuDefaults != nil && cpuDefaults.MinAllowed != nil)
-	printEffectiveField("  Max allowed", getNestedString(item, "spec", "cpu", "maxAllowed"), formatQuantityPtrOr(effective.Spec.CPU.MaxAllowed, attunev1alpha1.DefaultCPUBoundsMax), selected, cpuDefaults != nil && cpuDefaults.MaxAllowed != nil)
+	printEffectiveField("  Max allowed", getNestedString(item, "spec", "cpu", "maxAllowed"), formatQuantityPtr(effective.Spec.CPU.MaxAllowed), selected, cpuDefaults != nil && cpuDefaults.MaxAllowed != nil)
 	printEffectiveField("  Controlled values", getNestedString(item, "spec", "cpu", "controlledValues"), formatStringPtr(effective.Spec.CPU.ControlledValues), selected, cpuDefaults != nil && cpuDefaults.ControlledValues != nil)
 	printEffectiveField("  Limit multiplier", getNestedString(item, "spec", "cpu", "limitMultiplier"), formatStringPtr(effective.Spec.CPU.LimitMultiplier), selected, cpuDefaults != nil && cpuDefaults.LimitMultiplier != nil && *cpuDefaults.LimitMultiplier != "")
 	printEffectiveField("  Allow decrease", formatBoolField(item, "spec", "cpu", "allowDecrease"), formatBoolPtr(effective.Spec.CPU.AllowDecrease), selected, cpuDefaults != nil && cpuDefaults.AllowDecrease != nil)
@@ -1551,7 +1551,7 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 	printEffectiveField("  Percentile", formatInt64Field(item, "spec", "memory", "percentile"), formatInt32Val(effective.Spec.Memory.Percentile), selected, memDefaults != nil && memDefaults.Percentile != 0)
 	printEffectiveField("  Overhead", getNestedString(item, "spec", "memory", "overhead"), effective.Spec.Memory.Overhead, selected, memDefaults != nil && memDefaults.Overhead != "")
 	printEffectiveField("  Min allowed", getNestedString(item, "spec", "memory", "minAllowed"), formatQuantityPtr(effective.Spec.Memory.MinAllowed), selected, memDefaults != nil && memDefaults.MinAllowed != nil)
-	printEffectiveField("  Max allowed", getNestedString(item, "spec", "memory", "maxAllowed"), formatQuantityPtrOr(effective.Spec.Memory.MaxAllowed, attunev1alpha1.DefaultMemoryBoundsMax), selected, memDefaults != nil && memDefaults.MaxAllowed != nil)
+	printEffectiveField("  Max allowed", getNestedString(item, "spec", "memory", "maxAllowed"), formatQuantityPtr(effective.Spec.Memory.MaxAllowed), selected, memDefaults != nil && memDefaults.MaxAllowed != nil)
 	printEffectiveField("  Controlled values", getNestedString(item, "spec", "memory", "controlledValues"), formatStringPtr(effective.Spec.Memory.ControlledValues), selected, memDefaults != nil && memDefaults.ControlledValues != nil)
 	printEffectiveField("  Limit multiplier", getNestedString(item, "spec", "memory", "limitMultiplier"), formatStringPtr(effective.Spec.Memory.LimitMultiplier), selected, memDefaults != nil && memDefaults.LimitMultiplier != nil && *memDefaults.LimitMultiplier != "")
 	printEffectiveField("  Allow decrease", formatBoolField(item, "spec", "memory", "allowDecrease"), formatBoolPtr(effective.Spec.Memory.AllowDecrease), selected, memDefaults != nil && memDefaults.AllowDecrease != nil)
@@ -1723,17 +1723,13 @@ func effectiveSource(selected selectedDefaults, inherited bool) string {
 	return sourceBuiltIn
 }
 
-// effectiveCooldown is the wait the controller uses. An omitted cooldown
-// is 1h. A stored zero or negative duration does not schedule the next
-// reconcile, so explain shows 0s. A positive sub-minute value is raised
-// to 1m.
+// effectiveCooldown is the wait the controller uses. A stored zero or
+// negative duration is not a wait, so explain shows the 1h default. A
+// positive sub-minute value is raised to 1m.
 func effectiveCooldown(policy *attunev1alpha1.AttunePolicy) string {
 	cd := policy.Spec.UpdateStrategy.Cooldown
-	if cd == nil {
+	if cd == nil || cd.Duration <= 0 {
 		return time.Hour.String()
-	}
-	if cd.Duration <= 0 {
-		return "0s"
 	}
 	if cd.Duration < time.Minute {
 		return time.Minute.String()
@@ -1828,15 +1824,15 @@ func printContainerPolicies(policy *attunev1alpha1.AttunePolicy) {
 	fmt.Println("  Container policies:")
 	for _, row := range rows {
 		fmt.Printf("    %s:\n", row.ContainerName)
-		printContainerPolicySide("CPU", row.CPU, row.CPUSources, attunev1alpha1.DefaultCPUPercentile, attunev1alpha1.DefaultCPUBoundsMax)
-		printContainerPolicySide("Memory", row.Memory, row.MemorySources, attunev1alpha1.DefaultMemoryPercentile, attunev1alpha1.DefaultMemoryBoundsMax)
+		printContainerPolicySide("CPU", row.CPU, row.CPUSources, attunev1alpha1.DefaultCPUPercentile)
+		printContainerPolicySide("Memory", row.Memory, row.MemorySources, attunev1alpha1.DefaultMemoryPercentile)
 	}
 }
 
-func printContainerPolicySide(label string, rc attunev1alpha1.ResourceConfig, sources attunev1alpha1.ContainerPolicyFieldSources, builtinPercentile int32, builtinMax resource.Quantity) {
+func printContainerPolicySide(label string, rc attunev1alpha1.ResourceConfig, sources attunev1alpha1.ContainerPolicyFieldSources, builtinPercentile int32) {
 	pctValue, pctSource, pctConfigured := formatContainerPercentile(rc.Percentile, sources.Percentile, builtinPercentile)
 	fmt.Printf("      %s percentile: %s (source: %s, configured: %s)\n", label, pctValue, pctSource, pctConfigured)
-	maxValue, maxSource, maxConfigured := formatContainerMax(rc.MaxAllowed, sources.MaxAllowed, builtinMax)
+	maxValue, maxSource, maxConfigured := formatContainerMax(rc.MaxAllowed, sources.MaxAllowed)
 	fmt.Printf("      %s max allowed: %s (source: %s, configured: %s)\n", label, maxValue, maxSource, maxConfigured)
 	cvValue, cvSource, cvConfigured := formatContainerControlledValues(rc.ControlledValues, sources.ControlledValues)
 	fmt.Printf("      %s controlled values: %s (source: %s, configured: %s)\n", label, cvValue, cvSource, cvConfigured)
@@ -1853,9 +1849,9 @@ func formatContainerPercentile(value int32, source attunev1alpha1.ContainerPolic
 	return shown, string(source), shown
 }
 
-func formatContainerMax(value *resource.Quantity, source attunev1alpha1.ContainerPolicySource, builtin resource.Quantity) (effective, src, configured string) {
+func formatContainerMax(value *resource.Quantity, source attunev1alpha1.ContainerPolicySource) (effective, src, configured string) {
 	if value == nil {
-		return builtin.String(), sourceBuiltIn, unsetValue
+		return "none", sourcePolicy, unsetValue
 	}
 	shown := value.String()
 	if source == "" || source == attunev1alpha1.ContainerPolicySourcePolicy {
@@ -1891,13 +1887,6 @@ func formatStringPtr(value *string) string {
 func formatQuantityPtr(value *resource.Quantity) string {
 	if value == nil {
 		return ""
-	}
-	return value.String()
-}
-
-func formatQuantityPtrOr(value *resource.Quantity, builtin resource.Quantity) string {
-	if value == nil {
-		return builtin.String()
 	}
 	return value.String()
 }

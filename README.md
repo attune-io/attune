@@ -313,8 +313,7 @@ The dashboard includes:
 - HPA coexistence: adjusts base resource requests without interfering
   with HPA's percentage-based scaling. No death spirals.
 - Resource bounds: `minAllowed` and `maxAllowed` are set per policy. Omitted
-  minimums floor at 1m CPU and 4Mi memory. Omitted maximums cap at 4000m
-  CPU and 8Gi memory.
+  minimums floor at 1m CPU and 4Mi memory. Omitted maximums are not capped.
 
 ### Operations
 

@@ -1673,8 +1673,7 @@ func buildRecommendationEngines(policy *attunev1alpha1.AttunePolicy) (cpuEngine,
 // buildEnginesFromResourceConfig creates CPU and memory engines from already
 // resolved resource configs. Percentile 0 and empty overhead fall back to
 // built-in defaults here. Callers must not write those defaults onto a
-// container struct before this call. An omitted maxAllowed uses the
-// built-in 4000m and 8Gi ceilings. The spec object is not rewritten.
+// container struct before this call. An omitted maxAllowed stays uncapped.
 func buildEnginesFromResourceConfig(cpuCfg, memCfg attunev1alpha1.ResourceConfig) (cpuEngine, memEngine *recommendation.RecommendationEngine) {
 	cpuPercentile := int(cpuCfg.Percentile)
 	if cpuPercentile == 0 {
@@ -1689,7 +1688,7 @@ func buildEnginesFromResourceConfig(cpuCfg, memCfg attunev1alpha1.ResourceConfig
 	memOverhead := parseOverheadPercent(memCfg.Overhead, defaultMemoryOverhead)
 
 	cpuBoundsMin := attunev1alpha1.DefaultCPUBoundsMin.DeepCopy()
-	cpuBoundsMax := attunev1alpha1.DefaultCPUBoundsMax.DeepCopy()
+	var cpuBoundsMax k8sresource.Quantity
 	if cpuCfg.MinAllowed != nil {
 		cpuBoundsMin = cpuCfg.MinAllowed.DeepCopy()
 	}
@@ -1698,7 +1697,7 @@ func buildEnginesFromResourceConfig(cpuCfg, memCfg attunev1alpha1.ResourceConfig
 	}
 
 	memBoundsMin := attunev1alpha1.DefaultMemoryBoundsMin.DeepCopy()
-	memBoundsMax := attunev1alpha1.DefaultMemoryBoundsMax.DeepCopy()
+	var memBoundsMax k8sresource.Quantity
 	if memCfg.MinAllowed != nil {
 		memBoundsMin = memCfg.MinAllowed.DeepCopy()
 	}
@@ -1714,12 +1713,12 @@ func buildEnginesFromResourceConfig(cpuCfg, memCfg attunev1alpha1.ResourceConfig
 		attunev1alpha1.DefaultMemoryMaxChangePercent)
 
 	// Parse per-resource burst sensitivity; nil means default (0.1).
-	cpuOpts := recommendation.EngineOpts{IsCPU: true}
+	cpuOpts := recommendation.EngineOpts{IsCPU: true, NoMax: cpuCfg.MaxAllowed == nil}
 	if cpuCfg.BurstSensitivity != nil {
 		bs := parseFloat64NonNeg(*cpuCfg.BurstSensitivity, recommendation.DefaultBurstSensitivity)
 		cpuOpts.BurstSensitivity = &bs
 	}
-	memOpts := recommendation.EngineOpts{}
+	memOpts := recommendation.EngineOpts{NoMax: memCfg.MaxAllowed == nil}
 	if memCfg.BurstSensitivity != nil {
 		bs := parseFloat64NonNeg(*memCfg.BurstSensitivity, recommendation.DefaultBurstSensitivity)
 		memOpts.BurstSensitivity = &bs
