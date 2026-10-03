@@ -16,21 +16,21 @@ spec:
     type: Canary
     canary:
       percentage: 10          # resize 10% of pods first
-      observationPeriod: 30m  # watch canary pods for 30 minutes
-      autoPromote: true       # promote to full fleet automatically
-    cooldown: 2h
-    autoRevert: true
+      observationPeriod: 30m  # example first window; omit or 0s for 5m
+      autoPromote: true       # example; default is false
+    cooldown: 2h               # example; omit for 1h
+    autoRevert: true           # default
 ```
 
 | Field | Description |
 |-------|-------------|
 | `canary.percentage` | Percentage of eligible pods to resize in the first wave |
-| `canary.observationPeriod` | How long the operator monitors canary pods before proceeding |
+| `canary.observationPeriod` | How long the operator monitors canary pods before proceeding. Omit or `0s` for 5m. |
 | `canary.autoPromote` | Automatically promote to full fleet after observation passes without reverts (default: false) |
 | `cpu.maxChangePercent` | Maximum CPU change per resize cycle (default 50%) |
 | `memory.maxChangePercent` | Maximum memory change per resize cycle (default 30%) |
-| `cooldown` | Minimum time between successive resizes of the same workload |
-| `autoRevert` | Automatically restore original resources on safety violation |
+| `cooldown` | Minimum time between successive resizes of the same workload. Omit for 1h. |
+| `autoRevert` | Automatically restore original resources on safety violation (default: true) |
 
 !!! note
     At least one pod is always selected, even if `percentage` would calculate

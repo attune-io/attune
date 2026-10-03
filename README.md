@@ -116,12 +116,10 @@ spec:
     percentile: 95
     overhead: "20"
     minAllowed: "1m"
-    maxAllowed: "4000m"
   memory:
     percentile: 99
     overhead: "30"
     minAllowed: "4Mi"
-    maxAllowed: "8Gi"
   updateStrategy:
     type: Recommend
 ```
@@ -146,7 +144,7 @@ kubectl get attunepolicies -n production
 # api-services    Recommend   3           3      0         True    2d
 
 kubectl attune recommendations -n production
-# NAMESPACE   POLICY        WORKLOAD    CONTAINER  CPU REQ  CPU REC  MEM REQ  MEM REC  GRADE  CONFIDENCE
+# NAMESPACE   POLICY        WORKLOAD    CONTAINER  CPU REQ  CPU REC  MEM REQ  MEM REC  GRADE  CONFIDENCE / STATUS
 # production  api-services  api-server  app        500m     320m     512Mi    384Mi    D      92.0%
 # production  api-services  worker      main       1000m    480m     2Gi      1.2Gi    F      88.5%
 # production  api-services  frontend    nginx      250m     120m     256Mi    180Mi    F      95.1%
@@ -160,6 +158,8 @@ kubectl attune savings -n production
 > hours. With the default `queryStep: 5m`, `minimumDataPoints: 48` needs about
 > 4 hours of data. If you increase `queryStep`, the wall-clock time rises too.
 > See the [quickstart guide](docs/getting-started/quickstart.md) for details.
+>
+> This sample does not set `maxAllowed`. Add one when you want a cap.
 >
 > **Effective defaults:** Most defaultable policy fields are applied by the
 > controller at reconcile time so that `AttuneDefaults` and
@@ -190,8 +190,8 @@ spec:
     type: Canary
     canary:
       percentage: 10
-      observationPeriod: 30m
-    autoRevert: true
+      observationPeriod: 30m  # suggested first window; omit for 5m
+    autoRevert: true           # default
 ```
 
 See the [examples/](examples/) directory for more scenarios: Auto mode,
@@ -237,7 +237,7 @@ production   api-services   Canary  3          0        1        Monitoring   Id
 Example output (`kubectl attune recommendations`):
 
 ```
-NAMESPACE   POLICY        WORKLOAD    CONTAINER  CPU REQ  CPU REC  MEM REQ  MEM REC  GRADE  CONFIDENCE
+NAMESPACE   POLICY        WORKLOAD    CONTAINER  CPU REQ  CPU REC  MEM REQ  MEM REC  GRADE  CONFIDENCE / STATUS
 production  api-services  api-server  app        500m     320m     512Mi    384Mi    D      92.0%
 ```
 
@@ -325,8 +325,8 @@ The dashboard includes:
   status, CLI (`kubectl attune savings`), and Grafana dashboard.
 - Scheduled resize windows: restrict resizes to specific time windows
   and days of the week. Recommendations compute continuously regardless.
-- Per-cycle budget caps: limit aggregate CPU/memory increases per
-  reconcile cycle, preventing cluster-wide spikes.
+- Per-minute increase caps: limit how much CPU and memory one policy
+  can add per minute.
 - Concurrent pod processing: parallel pod resizes within a cycle for
   reduced latency at scale.
 

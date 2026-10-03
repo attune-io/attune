@@ -9,6 +9,9 @@ resize running pods. CREATE can still size Job and CronJob pods when
 
 ## Creating a Recommend-mode policy
 
+The bounds in this example are explicit. Omitted minimums floor at 1m CPU
+and 4Mi memory. Omitted maximums are not capped.
+
 ```yaml
 apiVersion: attune.io/v1alpha1
 kind: AttunePolicy

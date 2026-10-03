@@ -160,7 +160,7 @@ spec:
     initialSizing: false       # optional: set pod resources at creation time via webhook
     canary:                    # required when type is Canary
       percentage: 10           # % of pods to resize first
-      observationPeriod: 30m   # watch canary pods before proceeding (minimum: 1m)
+      observationPeriod: 30m   # example. Omit or 0s for 5m. Shortest accepted value is 1m.
       autoPromote: false       # default. true promotes the rest of the fleet after a clean observation.
     cooldown: 1h               # min time between resizes of the same workload (default: 1h)
     autoRevert: true           # revert on safety violation (default: true)

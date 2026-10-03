@@ -256,7 +256,7 @@ spec:
     # mode-specific config (for Canary and Auto):
     canary:
       percentage: 10          # % of pods to resize first
-      observationPeriod: 30m  # monitor canary pods for this long (minimum: 1m)
+      observationPeriod: 30m  # example. Omit or 0s for 5m. Shortest accepted value is 1m.
     # Cooldown between resizes of the same workload
     cooldown: 1h              # default: 1h, min: 1m; other apps are not locked
     # Automatic revert on OOMKill, throttle, restarts, NotReady, or SLO breach
