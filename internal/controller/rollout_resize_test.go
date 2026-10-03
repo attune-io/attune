@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -25,15 +26,18 @@ import (
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	kubefake "k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	rsmetrics "github.com/attune-io/attune/internal/metrics"
@@ -408,6 +412,44 @@ func TestWorkload_PodSkippedForRollout(t *testing.T) {
 		require.False(t, r.podSkippedForRollout(dep, pod, "hash-new"))
 	})
 
+	t.Run("DaemonSet_controllerrevision_list_error_skips_every_pod", func(t *testing.T) {
+		ds := testDaemonSet(t, 3, 5)
+		current := burstableResizePod("ds-current-pod", "ds")
+		current.Labels[appsv1.ControllerRevisionHashLabelKey] = "ds-current"
+		old := burstableResizePod("ds-old-pod", "ds")
+		old.Labels[appsv1.ControllerRevisionHashLabelKey] = "ds-old"
+		policy := newTestPolicy("test-policy", "default")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+		r, rec := newRolloutReconciler([]client.Object{ds}, []*corev1.Pod{current, old})
+		r.Client = daemonSetRevisionForbiddenClient(t, ds, current, old)
+		require.False(t, r.isRollingOut(ds))
+
+		count, _ := r.executeResizes(context.Background(), policy, []client.Object{ds},
+			[]attunev1alpha1.WorkloadRecommendation{risingCPURecommendation("ds")},
+			podMap("ds", current, old), nil, nil)
+		require.Equal(t, 0, count)
+		require.Empty(t, resizedPodNames(r.Clientset.(*kubefake.Clientset)))
+		evs := recordedEvents(rec)
+		require.Equal(t, 1, countSubstr(evs, "DaemonSetRevisionUnavailable"))
+		require.Equal(t, 0, countSubstr(evs, "RolloutInProgress"))
+	})
+
+	t.Run("DaemonSet_OnDelete_ignores_controllerrevision_list_error", func(t *testing.T) {
+		ds := testDaemonSet(t, 3, 5)
+		ds.Spec.UpdateStrategy.Type = appsv1.OnDeleteDaemonSetStrategyType
+		pod := burstableResizePod("ds-pod", "ds")
+		policy := newTestPolicy("test-policy", "default")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+		r, rec := newRolloutReconciler([]client.Object{ds}, []*corev1.Pod{pod})
+		r.Client = daemonSetRevisionForbiddenClient(t, ds, pod)
+
+		count, _ := r.executeResizes(context.Background(), policy, []client.Object{ds},
+			[]attunev1alpha1.WorkloadRecommendation{risingCPURecommendation("ds")},
+			podMap("ds", pod), nil, nil)
+		require.Equal(t, 1, count)
+		require.Equal(t, 0, countSubstr(recordedEvents(rec), "DaemonSetRevisionUnavailable"))
+	})
+
 	t.Run("Deployment_paused_resizes_newest_replicaset_hash", func(t *testing.T) {
 		now := time.Now()
 		dep := observedDeployment("api", 3, appsv1.DeploymentStatus{
@@ -438,6 +480,20 @@ func TestWorkload_PodSkippedForRollout(t *testing.T) {
 		require.NotContains(t, names, old.Name)
 		require.Equal(t, 1, countSubstr(recordedEvents(rec), "RolloutInProgress"))
 	})
+}
+
+func daemonSetRevisionForbiddenClient(t *testing.T, objs ...client.Object) client.Client {
+	t.Helper()
+	scheme := testScheme()
+	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				if _, ok := list.(*appsv1.ControllerRevisionList); ok {
+					return apierrors.NewForbidden(schema.GroupResource{Group: "apps", Resource: "controllerrevisions"}, "", fmt.Errorf("injected"))
+				}
+				return c.List(ctx, list, opts...)
+			},
+		}).Build()
 }
 
 func pausedReplicaSet(name, revision, hash string, owner types.UID) *appsv1.ReplicaSet {
