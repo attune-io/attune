@@ -401,7 +401,7 @@ func TestDatadogCollector_Query_ReturnsLatestTimestamp(t *testing.T) {
 	assert.InDelta(t, 5.0, val, 0.001, "should return the sample with the latest timestamp")
 }
 
-func TestDatadogCollector_NullPointIsZeroNumericZeroKept(t *testing.T) {
+func TestDatadogCollector_NullPointIsDroppedNumericZeroKept(t *testing.T) {
 	const body = `{
 		"status": "ok",
 		"series": [{
@@ -427,16 +427,15 @@ func TestDatadogCollector_NullPointIsZeroNumericZeroKept(t *testing.T) {
 
 	grouped, err := c.QueryRangeGrouped(ctx, "avg:kubernetes.cpu.usage.total{*}", time.Unix(1700000000, 0), time.Unix(1700000200, 0), time.Minute)
 	require.NoError(t, err)
-	require.Len(t, grouped["web"], 3)
+	require.Len(t, grouped["web"], 2)
 	assert.InDelta(t, 0.5, grouped["web"][0].Value, 0.001)
 	assert.InDelta(t, 0, grouped["web"][1].Value, 0.001)
-	assert.InDelta(t, 0, grouped["web"][2].Value, 0.001)
 
 	after := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("dd-ns", "dd-policy", "untracked", "cpu"))
 	assert.Equal(t, before, after, "a series that still has a usable point does not increment")
 }
 
-func TestDatadogCollector_MemoryNullPointIsZero(t *testing.T) {
+func TestDatadogCollector_MemoryNullPointIsDropped(t *testing.T) {
 	const body = `{
 		"status": "ok",
 		"series": [{
@@ -459,12 +458,11 @@ func TestDatadogCollector_MemoryNullPointIsZero(t *testing.T) {
 	}
 	grouped, err := c.QueryRangeGrouped(context.Background(), "avg:kubernetes.memory.working_set{*}", time.Unix(1700000000, 0), time.Unix(1700000200, 0), time.Minute)
 	require.NoError(t, err)
-	require.Len(t, grouped["web"], 2)
-	assert.InDelta(t, 0, grouped["web"][0].Value, 1)
-	assert.InDelta(t, 1048576, grouped["web"][1].Value, 1)
+	require.Len(t, grouped["web"], 1)
+	assert.InDelta(t, 1048576, grouped["web"][0].Value, 1)
 }
 
-func TestDatadogCollector_AllNullPointsStayZero(t *testing.T) {
+func TestDatadogCollector_AllNullPointsIncrementOnce(t *testing.T) {
 	const body = `{
 		"status": "ok",
 		"series": [{
@@ -489,11 +487,9 @@ func TestDatadogCollector_AllNullPointsStayZero(t *testing.T) {
 	before := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("dd-ns", "dd-policy", "untracked", "cpu"))
 	grouped, err := c.QueryRangeGrouped(ctx, "avg:kubernetes.cpu.usage.total{*}", time.Unix(1700000000, 0), time.Unix(1700000200, 0), time.Minute)
 	require.NoError(t, err)
-	require.Len(t, grouped["web"], 2)
-	assert.InDelta(t, 0, grouped["web"][0].Value, 0.001)
-	assert.InDelta(t, 0, grouped["web"][1].Value, 0.001)
+	assert.Empty(t, grouped["web"])
 	after := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("dd-ns", "dd-policy", "untracked", "cpu"))
-	assert.Equal(t, before, after)
+	assert.Equal(t, before+1, after)
 }
 
 func TestDatadogCollector_NullTimestampKeepsValue(t *testing.T) {
@@ -522,10 +518,9 @@ func TestDatadogCollector_NullTimestampKeepsValue(t *testing.T) {
 
 	grouped, err := c.QueryRangeGrouped(ctx, "avg:kubernetes.cpu.usage.total{*}", time.Unix(1700000000, 0), time.Unix(1700000200, 0), time.Minute)
 	require.NoError(t, err)
-	require.Len(t, grouped["web"], 2)
+	require.Len(t, grouped["web"], 1)
 	assert.True(t, grouped["web"][0].Timestamp.Equal(time.Unix(0, 0)))
 	assert.InDelta(t, 0.5, grouped["web"][0].Value, 0.001)
-	assert.InDelta(t, 0, grouped["web"][1].Value, 0.001)
 
 	after := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("dd-ns", "dd-policy", "untracked", "cpu"))
 	assert.Equal(t, before, after, "a kept value must not increment the counter")

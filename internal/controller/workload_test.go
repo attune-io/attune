@@ -249,7 +249,7 @@ func TestWorkload_IsRollingOut(t *testing.T) {
 					AvailableReplicas:  1,
 				},
 			},
-			want: true,
+			want: false,
 		},
 		{
 			name: "Deployment_unavailable_but_fully_updated",
@@ -263,7 +263,7 @@ func TestWorkload_IsRollingOut(t *testing.T) {
 					AvailableReplicas:  1,
 				},
 			},
-			want: true,
+			want: false,
 		},
 		{
 			name: "StatefulSet mid-rollout",
@@ -271,7 +271,7 @@ func TestWorkload_IsRollingOut(t *testing.T) {
 				Spec:   appsv1.StatefulSetSpec{Replicas: int32Ptr(5)},
 				Status: appsv1.StatefulSetStatus{UpdatedReplicas: 2},
 			},
-			want: true,
+			want: false,
 		},
 		{
 			name: "Deployment_old_pods_still_present",
@@ -285,7 +285,7 @@ func TestWorkload_IsRollingOut(t *testing.T) {
 					AvailableReplicas:  3,
 				},
 			},
-			want: false,
+			want: true,
 		},
 		{
 			name: "Deployment_scale_out_not_a_replacement",
@@ -299,7 +299,7 @@ func TestWorkload_IsRollingOut(t *testing.T) {
 					AvailableReplicas:  3,
 				},
 			},
-			want: true,
+			want: false,
 		},
 		{
 			name: "Deployment_maxUnavailable_replacement",
@@ -326,7 +326,7 @@ func TestWorkload_IsRollingOut(t *testing.T) {
 					AvailableReplicas:  3,
 				},
 			},
-			want: false,
+			want: true,
 		},
 		{
 			name: "Deployment_zero_generation_is_not_stale",
@@ -341,7 +341,7 @@ func TestWorkload_IsRollingOut(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "Deployment_paused_after_partial_update_skips",
+			name: "Deployment_paused_after_partial_update_is_not_a_whole_workload_skip",
 			workload: &appsv1.Deployment{
 				ObjectMeta: metav1.ObjectMeta{Generation: 1},
 				Spec: appsv1.DeploymentSpec{
@@ -354,7 +354,7 @@ func TestWorkload_IsRollingOut(t *testing.T) {
 					UpdatedReplicas:    2,
 				},
 			},
-			want: true,
+			want: false,
 		},
 		{
 			name: "Deployment_Recreate_does_not_use_updated_count",
@@ -370,7 +370,7 @@ func TestWorkload_IsRollingOut(t *testing.T) {
 					UpdatedReplicas:    1,
 				},
 			},
-			want: true,
+			want: false,
 		},
 		{
 			name: "StatefulSet_OnDelete_updated_behind",
@@ -381,7 +381,7 @@ func TestWorkload_IsRollingOut(t *testing.T) {
 				},
 				Status: appsv1.StatefulSetStatus{UpdatedReplicas: 1},
 			},
-			want: true,
+			want: false,
 		},
 		{
 			name: "StatefulSet_scale_out_same_revision",
@@ -396,7 +396,7 @@ func TestWorkload_IsRollingOut(t *testing.T) {
 					UpdateRevision:  "rev-1",
 				},
 			},
-			want: true,
+			want: false,
 		},
 		{
 			name: "StatefulSet_partition_holds_old_pods",
@@ -415,7 +415,7 @@ func TestWorkload_IsRollingOut(t *testing.T) {
 					UpdateRevision:  "new",
 				},
 			},
-			want: true,
+			want: false,
 		},
 		{
 			name: "StatefulSet_ordered_rollout_skips_old_hash_only",
@@ -428,7 +428,7 @@ func TestWorkload_IsRollingOut(t *testing.T) {
 					UpdateRevision:  "new",
 				},
 			},
-			want: true,
+			want: false,
 		},
 		{
 			name: "StatefulSet fully rolled out",
@@ -446,7 +446,7 @@ func TestWorkload_IsRollingOut(t *testing.T) {
 					UpdatedNumberScheduled: 3,
 				},
 			},
-			want: true,
+			want: false,
 		},
 		{
 			name: "DaemonSet_OnDelete_updated_behind",
@@ -459,7 +459,7 @@ func TestWorkload_IsRollingOut(t *testing.T) {
 					UpdatedNumberScheduled: 1,
 				},
 			},
-			want: true,
+			want: false,
 		},
 		{
 			name: "DaemonSet_new_node_current_pods_still_eligible",
@@ -471,7 +471,7 @@ func TestWorkload_IsRollingOut(t *testing.T) {
 					UpdatedNumberScheduled: 4,
 				},
 			},
-			want: true,
+			want: false,
 		},
 		{
 			name: "DaemonSet_RollingUpdate_old_pod_skipped",
@@ -484,7 +484,7 @@ func TestWorkload_IsRollingOut(t *testing.T) {
 					UpdatedNumberScheduled: 3,
 				},
 			},
-			want: true,
+			want: false,
 		},
 		{
 			name: "DaemonSet fully rolled out",
@@ -516,7 +516,7 @@ func TestWorkload_IsRollingOut(t *testing.T) {
 					ReadyReplicas:      1,
 				},
 			},
-			want: true,
+			want: false,
 		},
 		{
 			name: "ReplicaSet nil replicas is not a rollout",
@@ -536,7 +536,7 @@ func TestWorkload_IsRollingOut(t *testing.T) {
 					ReadyReplicas:      3,
 				},
 			},
-			want: false,
+			want: true,
 		},
 		{
 			name: "ReplicaSet fully rolled out",
@@ -908,7 +908,7 @@ func TestWorkload_ReplicaSetAdapter_RollingOut(t *testing.T) {
 	}
 	a := newWorkloadAdapter(rs)
 	require.NotNil(t, a)
-	assert.True(t, a.IsRollingOut(), "readyReplicas below spec skips the ReplicaSet")
+	assert.False(t, a.IsRollingOut(), "readyReplicas below spec is not a rollout when generation is observed")
 }
 
 func TestWorkload_ReplicaSetAdapter_NilSelector(t *testing.T) {

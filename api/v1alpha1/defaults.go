@@ -75,9 +75,8 @@ const (
 	// DefaultPodAggregation is Max: max by (container) for PromQL.
 	DefaultPodAggregation = "Max"
 	// DefaultCloudWatchCPUUnit is the container_cpu_usage_total scale when
-	// cpuUnit is empty. Nanocores divides by 1e9, which is what an omitted
-	// unit did before the field existed. Millicores is opt-in.
-	DefaultCloudWatchCPUUnit = "Nanocores"
+	// cpuUnit is empty. Millicores divides by 1000.
+	DefaultCloudWatchCPUUnit = "Millicores"
 	// MaxLimitMultiplier is the largest accepted limitMultiplier.
 	// memoryFromCpuRatio uses 1000; a limit multiple does not need that.
 	MaxLimitMultiplier = 100
@@ -125,16 +124,12 @@ var KnownSidecarContainers = []string{
 	"gce-proxy",
 }
 
-// Default resource floors and ceilings applied when a policy does not
-// specify minAllowed or maxAllowed. These are package-level vars (parsed
+// Default resource floors applied when a policy does not specify minAllowed.
+// An omitted maxAllowed is uncapped. These are package-level vars (parsed
 // once at init) rather than inline MustParse calls in the reconciler hot path.
-// The ceilings stay in the recommendation engine. They are not written back
-// onto the policy spec.
 var (
 	DefaultCPUBoundsMin    = resource.MustParse("1m")
-	DefaultCPUBoundsMax    = resource.MustParse("4000m")
 	DefaultMemoryBoundsMin = resource.MustParse("4Mi")
-	DefaultMemoryBoundsMax = resource.MustParse("8Gi")
 	// DefaultOOMBumpMinBump is used when memory.oomBump is set and minBump is nil.
 	DefaultOOMBumpMinBump = resource.MustParse("100Mi")
 )

@@ -273,25 +273,24 @@ itself was admitted.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `cpu.minAllowed` | quantity | 1m | Minimum CPU recommendation when the field is omitted. An explicit value, including one below 1m, replaces this floor. When both bounds are set, must be less than or equal to `cpu.maxAllowed`. |
-| `cpu.maxAllowed` | quantity | 4000m | Maximum CPU recommendation when the field is omitted. An explicit value replaces this ceiling. Must not exceed 256 cores. |
+| `cpu.maxAllowed` | quantity | (none) | Maximum CPU recommendation (for example `"4000m"`). Must not exceed 256 cores. Omitted means no maximum. |
 | `memory.minAllowed` | quantity | 4Mi | Minimum memory recommendation when the field is omitted. An explicit value replaces this floor. When both bounds are set, must be less than or equal to `memory.maxAllowed`. |
-| `memory.maxAllowed` | quantity | 8Gi | Maximum memory recommendation when the field is omitted. An explicit value replaces this ceiling. Must not exceed 16Ti. |
+| `memory.maxAllowed` | quantity | (none) | Maximum memory recommendation (for example `"8Gi"`). Must not exceed 16Ti. |
 
-The 256-core and 16Ti values are admission caps. They reject oversized
-`maxAllowed`. They are not the ceiling used when the field is omitted.
-An omitted `maxAllowed` uses 4000m CPU and 8Gi memory. The controller
-applies those ceilings. It does not write them back onto the policy.
-Helm `defaults.cpu.*` and `defaults.memory.*` are subject to the same
-webhook because the chart creates an `AttuneDefaults` resource.
+The 256-core and 16Ti values are admission caps only. They reject
+oversized `maxAllowed`; they do not inject a default clamp when the
+field is unset. Helm `defaults.cpu.*` and `defaults.memory.*` are
+subject to the same webhook because the chart creates an
+`AttuneDefaults` resource.
 
 An explicit `maxAllowed` is applied again after the percent cap, which
 can move farther than `maxDecreasePercent` in that engine step. CPU
 `allowDecrease` defaults to true, so a live CPU request above the max
 is published at the cap on this cycle. Memory `allowDecrease` defaults
 to false, so a live memory request above the max stays at the current
-request until decrease is enabled. `"0"` is a real cap, not an omitted
-maximum. An explicit `minAllowed` below 1m or 4Mi replaces the built-in
-floor.
+request until decrease is enabled. An omitted `maxAllowed` is not
+capped. `"0"` is a real cap, not an omitted maximum. An explicit
+`minAllowed` below 1m or 4Mi replaces the built-in floor.
 
 ### Cost Pricing
 
@@ -482,7 +481,7 @@ operator queries. The wizard inherit option uses that omit shape.
 | `metricsSource.cloudwatch.region` | string | (required) | AWS region (e.g., `us-east-1`) |
 | `metricsSource.cloudwatch.clusterName` | string | (required) | EKS cluster name for Container Insights metric filtering (1-100 chars, alphanumeric / hyphen / underscore) |
 | `metricsSource.cloudwatch.roleArn` | string | `""` | Optional IAM role ARN for cross-account access (`arn:aws:iam::ACCOUNT:role/NAME`; IRSA/Pod Identity used if empty) |
-| `metricsSource.cloudwatch.cpuUnit` | string | `Nanocores` | Scale of `container_cpu_usage_total`. Nanocores divides by 1e9. Millicores divides by 1000. Cores leaves the value unchanged. Empty means Nanocores. |
+| `metricsSource.cloudwatch.cpuUnit` | string | `Millicores` | Scale of `container_cpu_usage_total`. Millicores divides by 1000. Cores leaves the value unchanged. Nanocores divides by 1e9. Empty means Millicores. |
 
 ## Policy-Level Fields
 
@@ -557,7 +556,7 @@ and `spec.memory`. Policies that omit the list behave as they do today.
 |-------|------|---------|-------------|
 | `containerPolicies` | list | omitted | Up to 100 entries. Exact case-sensitive container names. No regular expressions. |
 | `containerPolicies[].containerName` | string | required | Container name, or `*` once, as a field-wise fallback. |
-| `containerPolicies[].cpu` / `memory` | object | omitted | Optional `ResourceConfig`. Omitted `maxAllowed` inherits `*` and then the policy max, then 4000m or 8Gi. |
+| `containerPolicies[].cpu` / `memory` | object | omitted | Optional `ResourceConfig`. Omitted `maxAllowed` inherits `*` and then the policy max. It is uncapped only when that effective value is nil. |
 
 v1 reads these fields from a container entry: `percentile`, `overhead`,
 `minAllowed`, `maxAllowed`, `burstSensitivity`, `maxChangePercent`,
@@ -571,8 +570,8 @@ merged policy block. That block is already merged from the policy, then
 inherit `"20"`. An unset CPU `allowDecrease` still allows decreases. An
 unset memory `allowDecrease` still blocks them. An omitted
 `maxAllowed` inherits `*` and then the policy max. A container entry
-cannot clear a policy max. When that value is still nil, the controller
-uses 4000m CPU or 8Gi memory. Same-block minAllowed above maxAllowed on a container
+cannot clear a policy max. The effective value is uncapped only when
+it is still nil. Same-block minAllowed above maxAllowed on a container
 entry is rejected by the webhook. The CRD quantity rule stays on
 `spec.cpu` and `spec.memory` only. Copying it onto each of the 100
 container entries exceeds the API server CEL cost budget.

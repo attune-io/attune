@@ -25,7 +25,7 @@ namespace with dimensions `ClusterName`, `Namespace`, `PodName`, and
 | `container_cpu_usage_total` | CPU usage per container, converted to cores with `metricsSource.cloudwatch.cpuUnit` |
 | `container_memory_working_set` | Memory actively used per container in bytes |
 
-`container_cpu_usage_total` is converted to cores with `metricsSource.cloudwatch.cpuUnit`. Nanocores (the default, including an empty field) divides by 1e9. Millicores divides by 1000. Cores leaves the value unchanged. AWS documents the log field `pod_cpu_usage_total` as millicores and also shows an example that looks like cores. Compare one raw GetMetricData value with the container limit or kubectl top before setting `cpuUnit: Millicores`. Dividing a cores-valued point by 1000 still rounds to 1 millicore. Memory metrics stay in bytes.
+`container_cpu_usage_total` is converted to cores with `metricsSource.cloudwatch.cpuUnit`. Millicores (the default) divides by 1000. Cores leaves the value unchanged. Nanocores divides by 1e9, which is what Attune did before this field existed. AWS documents the log field `pod_cpu_usage_total` as millicores and also shows an example that looks like cores. Compare one raw GetMetricData value with the container limit or kubectl top before rollout. Dividing a cores-valued point by 1000 still rounds to 1 millicore. Memory metrics stay in bytes.
 
 The operator uses CloudWatch
 [SEARCH expressions](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/using-search-expressions.html)
@@ -142,7 +142,7 @@ spec:
 | `region` | string | (required) | AWS region where CloudWatch metrics are stored (e.g., `us-east-1`) |
 | `clusterName` | string | (required) | EKS cluster name, used as the `ClusterName` dimension filter (alphanumeric, hyphen, underscore) |
 | `roleArn` | string | (optional) | IAM role ARN to assume for cross-account access (`arn:aws:iam::ACCOUNT:role/NAME`) |
-| `cpuUnit` | string | Nanocores | Scale of `container_cpu_usage_total`. Nanocores divides by 1e9. Millicores divides by 1000. Cores leaves the value unchanged. Empty means Nanocores. |
+| `cpuUnit` | string | Millicores | Scale of `container_cpu_usage_total`. Millicores divides by 1000. Cores leaves the value unchanged. Nanocores divides by 1e9. Empty means Millicores. |
 
 ## Step 3: Verify the integration
 

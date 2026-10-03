@@ -158,26 +158,20 @@ check_default "memOverhead (README)" \
 check_default "cpuBoundsMin (Go)" \
   'DefaultCPUBoundsMin.*"1m"' \
   "api/v1alpha1/defaults.go"
-check_default "cpuBoundsMax (Go)" \
-  'DefaultCPUBoundsMax.*"4000m"' \
+check_absent "cpuBoundsMax removed" \
+  'DefaultCPUBoundsMax' \
   "api/v1alpha1/defaults.go"
 check_default "memBoundsMin (Go)" \
   'DefaultMemoryBoundsMin.*"4Mi"' \
   "api/v1alpha1/defaults.go"
-check_default "memBoundsMax (Go)" \
-  'DefaultMemoryBoundsMax.*"8Gi"' \
+check_absent "memBoundsMax removed" \
+  'DefaultMemoryBoundsMax' \
   "api/v1alpha1/defaults.go"
 check_default "cpuBoundsMin (configuration.md)" \
   'cpu.minAllowed.*1m' \
   "docs/reference/configuration.md"
 check_default "memBoundsMin (configuration.md)" \
   'memory.minAllowed.*4Mi' \
-  "docs/reference/configuration.md"
-check_default "cpuBoundsMax (configuration.md)" \
-  'cpu.maxAllowed.*4000m' \
-  "docs/reference/configuration.md"
-check_default "memBoundsMax (configuration.md)" \
-  'memory.maxAllowed.*8Gi' \
   "docs/reference/configuration.md"
 check_default "cpuBounds (README)" \
   'min.*1m' \
