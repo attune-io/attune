@@ -334,11 +334,13 @@ resizes.
 Before resizing, the controller checks for potential conflicts:
 
 - **Active rollout**: Auto, OneShot, and Canary skip resize
-  (`RolloutInProgress`) during a real replacement. Recommendations are
-  still computed. OnDelete is not a rollout. A Deployment with
-  `availableReplicas` behind, or a ReplicaSet with `readyReplicas`
-  behind, is not a rollout when generation is observed and no old pods
-  remain.
+  (`RolloutInProgress`) during a RollingUpdate replacement.
+  Recommendations are still computed. `Recreate` and OnDelete are not a
+  skip: those pods are resized. A RollingUpdate Deployment is not skipped
+  because `availableReplicas` is behind, or because a scale-out has not
+  finished, when generation is observed and no old pods remain. A
+  ReplicaSet is not skipped because `readyReplicas` is behind when
+  generation is observed, so unready pods can be resized.
 - **Opt-out annotation**: workloads with `attune.io/skip: "true"` are
   skipped entirely.
 - **Namespace freeze**: `attune.io/freeze=true` on the namespace skips
