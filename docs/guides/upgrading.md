@@ -28,17 +28,36 @@ False with reason `WorkloadCRDMissing` until Argo Rollouts is installed.
 
 ### Resize during a rollout
 
-Recommendations are still computed while pods are being replaced. The
-resize waits only for the pods that are still on the old revision.
+Recommendations are still computed while pods are being replaced. Which
+pods are resized depends on the workload kind and its strategy.
 
-A Deployment is not frozen because `availableReplicas` is behind
-`spec.replicas`, or because a scale-out has not finished, when generation
-is observed and updated pods are already on the new template. Pods still
-being replaced are skipped. A StatefulSet resizes pods on
+A RollingUpdate Deployment, including the default strategy, skips resize
+only while its generation is ahead of the observed generation, or while
+`status.replicas` is still above `status.updatedReplicas`. It does not
+freeze because `availableReplicas` is behind `spec.replicas`, or because a
+scale-out has not finished. Pods still on the old template are skipped. A
+paused Deployment skips pods that are not on the current pod-template-hash
+when that hash is known.
+
+A Deployment whose strategy is `Recreate` is not a resize skip. Pods are
+resized while `updatedReplicas` is still behind `spec.replicas`. Release
+v0.1.32 skipped the whole Deployment in that case.
+
+A RollingUpdate StatefulSet resizes pods whose revision matches
 `status.updateRevision` and skips the others, including while a partition
-has not reached every replica. A RollingUpdate DaemonSet resizes pods on
-the current ControllerRevision and skips older pods. OnDelete is not a
-rollout.
+has not reached every replica. A stale generation skips every pod. An
+OnDelete StatefulSet is not a resize skip. Pods still on the previous
+template are resized. Release v0.1.32 skipped the whole StatefulSet while
+`updatedReplicas` was behind `spec.replicas`.
+
+A RollingUpdate DaemonSet resizes pods on the current ControllerRevision
+and skips older pods. An OnDelete DaemonSet is not a resize skip. Its pods
+are resized.
+
+A standalone ReplicaSet is skipped only while its generation is ahead of
+the observed generation. `readyReplicas` behind `spec.replicas` does not
+freeze it, so ready and unready pods can be resized. Release v0.1.32
+skipped the ReplicaSet while `readyReplicas` was behind.
 
 ### DaemonSet controllerrevisions
 

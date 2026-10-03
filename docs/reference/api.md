@@ -269,7 +269,7 @@ View them with `kubectl describe attunepolicy <name>` or
 | `RestartOnResize` | Normal | Container will restart on resize due to `RestartContainer` resize policy |
 | `MemoryLimitClamped` | Normal | Memory limit decrease skipped due to K8s v1.33 restriction |
 | `PolicyConflict` | Warning | Multiple policies target the same workload |
-| `RolloutInProgress` | Normal | Resize skip for Auto, OneShot, and Canary during a real replacement. Recommendations are still computed. OnDelete is not a rollout. A Deployment with availableReplicas behind, or a ReplicaSet with readyReplicas behind, is not a rollout when generation is observed and no old pods remain. A Rollout message includes the phase, and `abort true` when `status.abort` is set. |
+| `RolloutInProgress` | Normal | Resize skip for Auto, OneShot, and Canary during a RollingUpdate replacement. Recommendations are still computed. `Recreate` and OnDelete are not a skip: those pods are resized. A RollingUpdate Deployment is not skipped because `availableReplicas` is behind, or because a scale-out has not finished, when generation is observed and no old pods remain. A ReplicaSet is not skipped because `readyReplicas` is behind when generation is observed, so unready pods can be resized. A Rollout message includes the phase, and `abort true` when `status.abort` is set. |
 | `DaemonSetRevisionUnavailable` | Warning | Resize skipped for every pod of a RollingUpdate DaemonSet because `controllerrevisions` could not be listed. OnDelete does not emit this. |
 | `WorkloadOptOut` | Normal | Workload opted out via annotation |
 
