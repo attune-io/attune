@@ -43,8 +43,9 @@ This quick start gets you to recommendations. When you are ready to go further:
 Start in **Recommend** mode so that no pods are modified. The operator will
 collect metrics and write recommendations to the resource status.
 
-All fields have production-ready defaults (P95 CPU, P99 memory, 20%/30%
-overhead, sensible bounds). A minimal policy is just:
+All fields have production-ready defaults: P95 CPU, P99 memory, 20% CPU
+overhead, and 30% memory overhead. Omitted minimums floor at 1m CPU and
+4Mi memory. Omitted maximums are not capped. A minimal policy is:
 
 ```yaml
 apiVersion: attune.io/v1alpha1
@@ -61,6 +62,8 @@ spec:
   metricsSource:
     prometheus:
       address: http://prometheus-server.monitoring:80
+  updateStrategy:
+    type: Recommend
   # Optional: faster first look (~1h instead of ~4h at default queryStep: 5m)
   # minimumDataPoints: 12
 ```
@@ -123,7 +126,7 @@ Right after applying, the policy will be collecting data:
 
 ```text
 NAME     TYPE        WORKLOADS   RECS   RESIZED   READY   AGE   CPU SAVED   MEM SAVED
-my-app   Recommend   1           0      0         False   5m    0           0
+my-app   Recommend   1           0      0         False   5m
 ```
 
 > **Note:** `READY=False` here means the policy is still in the `InsufficientData`
@@ -192,9 +195,9 @@ spec:
     type: Canary
     canary:
       percentage: 10
-      observationPeriod: 30m
-    cooldown: 2h
-    autoRevert: true
+      observationPeriod: 30m  # suggested first window; omit for 5m
+    cooldown: 2h               # suggested first gap; omit for 1h
+    autoRevert: true           # default
 ```
 
 ```bash
