@@ -52,11 +52,34 @@ spec:
       bearerTokenSecret:                  # optional: Secret in the policy namespace (deprecated on AttuneDefaults)
         name: prometheus-token
         key: token
-      # Amazon Managed Prometheus uses sigv4 instead of bearerTokenSecret. Do not set both.
+      # sigv4 signs Amazon Managed Prometheus (service aps). Off until set.
+      # Do not combine with bearerTokenSecret, an Authorization header, or
+      # an X-Amz-* header. Region has no default. Empty roleArn uses the
+      # pod identity chain (IRSA or Pod Identity).
+      # sigv4:
+      #   region: us-east-1
+      #   roleArn: arn:aws:iam::123456789012:role/amp-query
       tls:                                # optional: TLS settings
-        insecureSkipVerify: false
-    # Alternative: consume VPA recommendations instead of querying Prometheus.
+        insecureSkipVerify: false         # default: false
     # At most one of prometheus, datadog, cloudwatch, or vpa may be set.
+    # datadog is off until this block is set. site defaults to datadoghq.com.
+    # datadog:
+    #   site: datadoghq.com
+    #   apiKeySecretRef:                   # required when datadog is set
+    #     name: datadog-api                # policy namespace; on AttuneDefaults the name is copied onto each policy
+    #     key: api-key
+    # cloudwatch is off until this block is set. region and clusterName are required.
+    # Empty cpuUnit means Millicores (divide by 1000), including a policy that
+    # sets cloudwatch and omits cpuUnit. Cores leaves the value unchanged.
+    # Nanocores divides by 1e9 and is the older scale; set it explicitly.
+    # A defaults cpuUnit is copied only with a whole cloudwatch block, and
+    # only onto a policy that sets no provider.
+    # cloudwatch:
+    #   region: us-east-1
+    #   clusterName: prod
+    #   roleArn: arn:aws:iam::123456789012:role/cloudwatch-read  # optional
+    #   cpuUnit: Millicores
+    # Alternative: consume VPA recommendations instead of querying Prometheus.
     # vpa:
     #   name: my-vpa                       # VPA object name
     #   namespace: default                 # defaults to policy namespace
@@ -71,12 +94,18 @@ spec:
     percentile: 95             # target percentile: 50, 90, 95, or 99
     overhead: "20"        # percentage headroom above percentile
     burstSensitivity: "0.1"   # burst boost multiplier (0 = disabled, max 1.0)
-    startupBoost:              # optional: temporary CPU boost for cold starts
+    startupBoost:              # optional: temporary CPU boost for cold starts. Off until set. Policy-wide.
       multiplier: "3.0"        # scale factor for startup CPU (1.1-10.0)
       duration: 2m             # boost window after pod creation (10s-1h)
-    minAllowed: "1m"             # optional: min clamp
-    maxAllowed: "4000m"          # optional: max clamp (upper limit: 256 cores)
-    controlledValues: RequestsAndLimits  # RequestsOnly | RequestsAndLimits
+      excludeFromHistory: false  # omitted is false. true drops CPU samples during duration plus rateWindow.
+    # surge is off until set. {} turns the short window on and fills
+    # triggerRatio 1.5, percentile 99, and window 30m. Policy-wide.
+    # A policy that omits surge inherits an AttuneDefaults surge.
+    # surge: {}
+    minAllowed: "1m"             # omitted floor is 1m; an explicit value replaces it
+    maxAllowed: "4000m"          # example explicit cap, not the omitted default. Omitted means no maximum. Admission rejects above 256 cores. "0" is a real cap.
+    controlledValues: RequestsAndLimits  # default is RequestsOnly. A limitMultiplier requires RequestsAndLimits on this same object.
+    # limitMultiplier: "2"     # off until set. Omitted keeps the live request-to-limit ratio. "1" forces the limit equal to the request. A container with no current limit keeps that limit omitted. Maximum 100. maxAllowed caps the request, not the limit.
     maxChangePercent: 50       # max CPU change per cycle (default: 50)
     maxIncreasePercent: 50     # max increase per cycle (default: 50)
     maxDecreasePercent: 30     # max decrease per cycle (default: 30)
@@ -86,14 +115,41 @@ spec:
     percentile: 99
     overhead: "30"
     burstSensitivity: "0.1"
-    minAllowed: "4Mi"
-    maxAllowed: "8Gi"                 # upper limit: 16Ti
-    controlledValues: RequestsAndLimits
-    allowDecrease: false       # prevent memory decreases (recommended)
+    minAllowed: "4Mi"            # omitted floor is 4Mi; an explicit value replaces it
+    maxAllowed: "8Gi"            # example explicit cap, not the omitted default. Omitted means no maximum. Admission rejects above 16Ti. "0" is a real cap.
+    controlledValues: RequestsAndLimits  # default is RequestsOnly
+    # limitMultiplier: "2"     # off until set. Same rules as cpu.limitMultiplier. Policy-wide.
+    allowDecrease: false       # prevent memory decreases (default: false)
+    decreaseUsageMarginPercent: 10  # default 10. Headroom above usage when decreasing a memory limit. 0 requires the limit strictly above usage. Ignored for CPU. Policy-wide.
     maxChangePercent: 30       # max memory change per cycle (default: 30)
     maxIncreasePercent: 50     # max increase per cycle (default: 50)
     maxDecreasePercent: 30     # max decrease per cycle (default: 30)
-    memoryFromCpuRatio: "2.0"  # optional: derive memory from CPU (GiB per core)
+    memoryFromCpuRatio: "2.0"  # off until set. GiB of memory per CPU core. Policy-wide. Does not fall back to the memory signal.
+    # oomBump is off until set. {} turns it on and fills ratio 1.2, minBump
+    # 100Mi, maxBumps 3, and hold 24h. When maxAllowed is omitted, maxBumps
+    # is the only cap. CPU rejects this block. Policy-wide.
+    # oomBump:
+    #   ratio: "1.2"
+    #   minBump: 100Mi
+    #   maxBumps: 3
+    #   hold: 24h
+    # surge: {}                # off until set. Same fill rules as cpu.surge. Policy-wide.
+
+  # AttunePolicy only. Not inherited from AttuneDefaults. Omitted keeps
+  # one shared cpu and memory engine. There is no implicit "*".
+  # Write containerName "*" once for a field-wise fallback. A literal name
+  # wins over "*", and "*" wins over the merged policy block.
+  # An entry may set percentile, overhead, minAllowed, maxAllowed,
+  # burstSensitivity, maxChangePercent, maxIncreasePercent,
+  # maxDecreasePercent, allowDecrease, and controlledValues.
+  # The webhook rejects startupBoost, memoryFromCpuRatio,
+  # decreaseUsageMarginPercent, limitMultiplier, oomBump, and surge here.
+  # Omitted maxAllowed inherits "*" and then the policy max. It is uncapped
+  # only when that effective value is still unset.
+  containerPolicies:
+    - containerName: app
+      cpu:
+        maxAllowed: "500m"     # example explicit cap for this container, not a default
 
   # Pause reconciliation (no metrics, no recommendations, no resizes).
   paused: false                # default: false
@@ -105,16 +161,40 @@ spec:
     canary:                    # required when type is Canary
       percentage: 10           # % of pods to resize first
       observationPeriod: 30m   # watch canary pods before proceeding (minimum: 1m)
-      autoPromote: true        # promote to full fleet after safe observation (default: false)
+      autoPromote: false       # default. true promotes the rest of the fleet after a clean observation.
     cooldown: 1h               # min time between resizes of the same workload (default: 1h)
     autoRevert: true           # revert on safety violation (default: true)
     safetyObservationPeriod: 5m  # post-resize safety watch period (default: 5m, minimum: 1m)
     resizeMethod: InPlaceOnly  # InPlaceOnly | InPlaceOrRecreate (default: InPlaceOnly)
     # maxConcurrentResizes omitted so AttuneDefaults can apply (built-in: 1, max: 50)
-    maxTotalCpuIncrease: "2000m"    # max aggregate CPU increase per cycle (default: unlimited)
-    maxTotalMemoryIncrease: "4Gi"   # max aggregate memory increase per cycle (default: unlimited)
-    export:                         # optional: export recommendations to ConfigMaps
+    maxCpuIncreasePerMinute: "2000m"   # optional. Unlimited until set. Aggregate CPU increase per wall-clock minute.
+    maxMemoryIncreasePerMinute: "4Gi"  # optional. Unlimited until set. Aggregate memory increase per wall-clock minute.
+    # Older per-cycle caps. Optional, and unlimited until set. Prefer the
+    # per-minute fields. When both kinds are set, both apply. The per-cycle
+    # rate depends on reconcile interval.
+    # maxTotalCpuIncrease: "2000m"
+    # maxTotalMemoryIncrease: "4Gi"
+    maxStatusRecommendations: 100      # default 100. Caps status.recommendations. Resizes still use the full set.
+    includeExplanationsInStatus: true  # default true. false strips explanation chains from status.
+    export:                         # optional: export recommendations
       configMap: true               # creates <policy>-<workload>-recommendations ConfigMap
+      # pullRequest is off until enabled is true. Requires repository and
+      # tokenSecretRef when enabled. provider defaults to github, baseBranch
+      # to main, cooldown to 24h, minChangePercent to 10, dryRun to false.
+      # pullRequest:
+      #   enabled: false
+      #   provider: github
+      #   repository: owner/repo
+      #   tokenSecretRef:
+      #     name: gitops-token
+      #     key: token
+      #   baseBranch: main
+      #   apiUrl: https://api.github.com   # optional enterprise or self-hosted base
+      #   allowPrivateEndpoints: false     # default false. Loopback and link-local stay blocked.
+      #   cooldown: 24h
+      #   minChangePercent: 10
+      #   dryRun: false
+      #   labels: []
     templatePersistence:            # optional: write recs into Deploy/STS template
       enabled: false                # default off; triggers rolling update when true
       when: AfterSuccessfulResize   # or OnRecommendation
@@ -123,12 +203,26 @@ spec:
         query: 'histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{namespace="{{ .Namespace }}"}[5m]))'
         threshold: "0.5"
         comparison: above
+        evaluationWindow: 5m        # default 5m. Shortest accepted value is 1m. Zero is invalid.
     schedule:                       # optional: restrict when resizes can occur
       windows:
         - start: "02:00"           # HH:MM (24-hour)
           end: "06:00"
       daysOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
       timezone: "America/New_York" # IANA timezone (default: UTC)
+    # hpaTargetBounds does not turn auto-tune on. The HPA still needs
+    # attune.io/auto-tune: "true". A successful in-place memory resize
+    # retunes memory utilization. Canary waits until that workload is
+    # promoted. This band only clamps the published percent. CPU bounds
+    # do not apply to memory, and memory bounds do not apply to CPU.
+    # Unset means no band. 50 and 90 are an example, not a default.
+    # hpaTargetBounds:
+    #   cpu:
+    #     min: 50
+    #     max: 90
+    #   memory:
+    #     min: 50
+    #     max: 90
 
   # Auto-exclude well-known mesh/sidecar names (default: true).
   # Set false to restore pre-feature behavior (only excludedContainers).
@@ -314,6 +408,38 @@ spec:
     memoryPerGiBHour: "0.004"   # USD per GiB-hour (default: $0.004)
 ```
 
+`metricsSource`, `cpu`, `memory`, and `updateStrategy` use the same
+fields as the AttunePolicy sample. This sample does not repeat them.
+Fields that are not copied from that sample:
+
+- `containerPolicies` is AttunePolicy only. There is no implicit `*`.
+- `targetRef`, `paused`, `excludedContainers`, and `weight` are
+  AttunePolicy only.
+- `costPricing` is only on AttuneDefaults and AttuneNamespaceDefaults.
+
+`excludeKnownSidecars` is shared. Unset on both the policy and the
+defaults object stays true.
+
+`hpaTargetBounds` does not turn `attune.io/auto-tune` on. The HPA still
+needs that annotation. A successful in-place memory resize retunes
+memory utilization. Canary waits until that workload is promoted.
+Setting the memory band only clamps that percent.
+
+A `limitMultiplier` fails reconcile with `InvalidConfig` when
+`controlledValues` is `RequestsOnly` after merge. An unset value is
+filled with `RequestsOnly` by built-in defaults. `RequestsAndLimits` on
+AttuneDefaults is inherited by a policy that omits the field, so that
+pair does not fail. A policy that sets `RequestsOnly` while the
+multiplier comes only from defaults fails the same way. Set
+`RequestsAndLimits` on the same object as the multiplier. Admission
+does not see that inherited pair. The check runs after built-in
+defaults.
+
+A policy that already sets `metricsSource.cloudwatch` does not inherit
+`cpuUnit` from AttuneDefaults. Empty `cpuUnit` on that policy means
+Millicores. The cloudwatch block is inherited only when the policy sets
+no provider.
+
 AttuneDefaults fields are merged into every AttunePolicy at
 reconciliation time. Policy-level values always take precedence.
 
@@ -374,7 +500,8 @@ metadata:
   name: production-defaults
   namespace: production
 spec:
-  # Same fields as AttuneDefaults.spec
+  # Same fields as AttuneDefaults.spec, including the exceptions above.
+  # containerPolicies is not on this object.
   metricsSource:
     prometheus:
       address: http://prometheus-server.monitoring:80
