@@ -174,8 +174,11 @@ spec:
         - start: "02:00"
           end: "06:00"
     maxConcurrentResizes: 10
-    maxTotalCpuIncrease: "2000m"
-    maxTotalMemoryIncrease: "4Gi"
+    # Per-minute increase cap. About 2000m CPU and 4Gi memory.
+    # maxTotalCpuIncrease and maxTotalMemoryIncrease are the older
+    # per-cycle cap and are optional.
+    maxCpuIncreasePerMinute: "2000m"
+    maxMemoryIncreasePerMinute: "4Gi"
 ```
 
 See [`examples/12-scheduled-auto-mode.yaml`](https://github.com/attune-io/attune/blob/main/examples/12-scheduled-auto-mode.yaml) for a complete example.

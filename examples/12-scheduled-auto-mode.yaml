@@ -1,8 +1,9 @@
 # Scheduled Auto Mode: resize only during off-peak hours on weekdays
 #
 # Recommendations are computed continuously. Resizes are applied only
-# during the configured time windows. Budget caps limit total resource
-# increase per cycle to prevent cluster-wide spikes.
+# during the configured time windows. The per-minute budget caps how
+# fast requests can rise. maxTotalCpuIncrease and maxTotalMemoryIncrease
+# are the older per-cycle cap and are optional.
 #
 # Apply:
 #   kubectl apply -f examples/12-scheduled-auto-mode.yaml
@@ -42,9 +43,11 @@ spec:
           end: "06:00"
       daysOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
       timezone: "America/New_York"
-    # Limit total resource increase per cycle
-    maxTotalCpuIncrease: "2000m"
-    maxTotalMemoryIncrease: "4Gi"
+    # Per-minute increase cap. About 2000m CPU and 4Gi memory.
+    # maxTotalCpuIncrease and maxTotalMemoryIncrease are the older
+    # per-cycle cap and are optional.
+    maxCpuIncreasePerMinute: "2000m"
+    maxMemoryIncreasePerMinute: "4Gi"
     # Process up to 10 pods in parallel
     maxConcurrentResizes: 10
     # Fall back to eviction if in-place fails
