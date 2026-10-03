@@ -487,14 +487,18 @@ directory. When referencing files elsewhere in the repo (e.g., `charts/`,
   conditions such as `MemoryPressure`). Those must run serially and restore
   state in `t.Cleanup`. Every other test creates a unique namespace via
   `uniqueNS()`, so they are fully isolated. Without `t.Parallel()`, the suite
-  runs sequentially (~12+ min); with it, tests run concurrently (~2 min,
-  bounded by the longest test such as OOMKill).
+  runs sequentially (~12+ min); with it, tests run concurrently. CI caps
+  that with `go test -parallel=2` after `hack/wait-cluster-quiet.sh`.
+  Default parallelism is the runner CPU count, which schedules more 500m
+  pods than one k3d node can hold, and the package timeout then kills
+  tests still queued (nightly #921). The suite timeout is 30m.
 - E2E test policies must use `Cooldown: 1m` (the minimum) to avoid long requeue
   delays during data collection.
 - E2E test pods should use Burstable QoS (requests only, no CPU/memory limits)
   unless testing QoS behavior specifically. Guaranteed QoS pods are harder to
-  schedule when 13 parallel tests compete for ~4 allocatable CPUs on the k3d
-  node. Keep CPU requests at or below 300m per test pod.
+  schedule when several parallel tests compete for the CPUs on the one
+  k3d node. Keep CPU requests at or below 300m per test pod. CI still
+  runs only two Go E2E tests at a time because many fixtures request 500m.
 - E2E wait helpers (`waitForDeploymentReady`, `waitForResize`, etc.) must
   log diagnostic state on timeout (pod phase, container state, events).
   Silent timeouts make CI failures undiagnosable.

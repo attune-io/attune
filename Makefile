@@ -243,7 +243,9 @@ test-e2e: chainsaw ## Run Chainsaw E2E tests (requires a pre-provisioned k3d or 
 
 .PHONY: test-e2e-go
 test-e2e-go: ## Run Go E2E tests (requires a pre-provisioned k3d/Kind cluster with operator + Prometheus)
-	go test -tags=e2e ./test/e2e-go/... -race -count=1 -timeout=15m -v
+	bash hack/wait-cluster-quiet.sh
+	# -parallel=2 keeps 500m test pods inside one k3d node (nightly #921).
+	go test -tags=e2e ./test/e2e-go/... -race -count=1 -parallel=2 -timeout=30m -v
 
 .PHONY: test-e2e-smoke
 test-e2e-smoke: chainsaw ## Run a minimal E2E smoke suite (requires a pre-provisioned k3d/Kind cluster with operator + Prometheus)
@@ -264,6 +266,7 @@ python-test: ## Run helper script tests (fossa-filter, run-fuzz classifier, go-v
 	bash scripts/test_e2e_install_cert_manager.sh
 	bash scripts/test_e2e_download_cert_manager.sh
 	bash scripts/test_e2e_wait_cadvisor.sh
+	bash scripts/test_wait_cluster_quiet.sh
 	bash scripts/test_e2e_verify_resize_subresource.sh
 	bash scripts/test_e2e_nightly_matrix.sh
 	bash scripts/test_k3d_delete.sh
