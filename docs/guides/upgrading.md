@@ -26,6 +26,60 @@ ClusterRole. Policies that do not set `kind: Rollout` do not change.
 Attune does not install the Rollout CRD. A Rollout policy stays Ready
 False with reason `WorkloadCRDMissing` until Argo Rollouts is installed.
 
+### Resize during a rollout
+
+Recommendations are still computed while pods are being replaced. The
+resize waits only for the pods that are still on the old revision.
+
+A Deployment is not frozen because `availableReplicas` is behind
+`spec.replicas`, or because a scale-out has not finished, when generation
+is observed and updated pods are already on the new template. Pods still
+being replaced are skipped. A StatefulSet resizes pods on
+`status.updateRevision` and skips the others, including while a partition
+has not reached every replica. A RollingUpdate DaemonSet resizes pods on
+the current ControllerRevision and skips older pods. OnDelete is not a
+rollout.
+
+### DaemonSet controllerrevisions
+
+A RollingUpdate DaemonSet needs `apps/controllerrevisions` get, list, and
+watch. A Helm upgrade adds that ClusterRole rule. Raw manifests need the
+same rule on the operator ClusterRole.
+
+If that list fails, Attune skips every pod of that DaemonSet and emits
+`DaemonSetRevisionUnavailable`. It does not resize them. OnDelete does not
+read ControllerRevisions.
+
+### Stored cooldown of 0s
+
+A stored `cooldown: 0s` is not a wait. The controller reconciles that
+policy about once an hour, and it can resize. A new apply that still sets
+`0s` is rejected. Omit the field for the 1h default, or set at least `1m`.
+The same floor applies to `safetyObservationPeriod` and an SLO
+`evaluationWindow`. Canary `observationPeriod: 0s` still means the built-in
+observation period.
+
+### Datadog null points
+
+A Datadog point with a JSON `null`, or no value, is dropped. A numeric
+zero is kept. Dropping a gap can raise the CPU percentile. CPU
+`allowDecrease` still defaults to true, so the next reconcile can raise
+the CPU request. Memory `allowDecrease` still defaults to false.
+
+### QoS class changes are not evicted
+
+An in-place resize that would change the pod QoS class is skipped,
+including when `resizeMethod` is `InPlaceOrRecreate`. The pod is not
+evicted. `InPlaceOnly`, the default, already could not apply that resize,
+because the API rejects a QoS class change.
+
+### Standalone ReplicaSet initial sizing
+
+`initialSizing` still defaults to false. A policy that already sets
+`initialSizing: true` now sizes new pods of a standalone ReplicaSet whose
+selector matches. A ReplicaSet owned by a Deployment still follows the
+Deployment.
+
 ### Memory HPA targets move when auto-tune is on
 
 A memory utilization HPA used to keep its percent when Attune changed the

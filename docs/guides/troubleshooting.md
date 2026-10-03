@@ -314,6 +314,19 @@ does not happen, read the pod-level skip on the policy events.
 Infeasible, or a QoS change. `RolloutInProgress` is only a resize skip
 for Auto, OneShot, and Canary during a real replacement.
 
+### DaemonSet pods are not resized
+
+**Symptom**: Pods of a RollingUpdate DaemonSet stay at their current
+requests. The policy emits `DaemonSetRevisionUnavailable`.
+
+**Cause**: The operator could not list `apps/controllerrevisions`. An
+image-only upgrade does not add that rule. Attune skips every pod of that
+DaemonSet until the list succeeds.
+
+**Fix**: Give the operator ClusterRole get, list, and watch on
+`controllerrevisions`. A Helm upgrade adds the rule. OnDelete DaemonSets
+do not read ControllerRevisions.
+
 ### InvalidConfig
 
 **Symptom**: Ready condition is `False` with reason `InvalidConfig`.

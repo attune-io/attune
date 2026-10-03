@@ -324,8 +324,10 @@ func (r *AttunePolicyReconciler) emitRolloutInProgress(policy *attunev1alpha1.At
 
 // podSkippedForRollout reports a per-pod resize skip. currentHash is the
 // DaemonSet ControllerRevision name, or the paused Deployment's current
-// pod-template-hash. Empty means the lookup failed or does not apply, and
-// that must not skip the pod.
+// pod-template-hash. An empty hash means the lookup does not apply, or it
+// failed for a kind other than a RollingUpdate DaemonSet. That empty hash
+// does not skip the pod. A RollingUpdate DaemonSet whose ControllerRevision
+// list fails is handled in filterRolloutPods and skips every pod.
 func (r *AttunePolicyReconciler) podSkippedForRollout(workload client.Object, pod *corev1.Pod, currentHash string) bool {
 	if pod == nil {
 		return false
@@ -398,6 +400,14 @@ func (r *AttunePolicyReconciler) filterRolloutPods(
 ) []corev1.Pod {
 	hash, err := r.rolloutRevisionHash(ctx, workload)
 	if err != nil {
+		if ds, ok := workload.(*appsv1.DaemonSet); ok && daemonSetUsesRollingUpdate(ds) {
+			log.FromContext(ctx).Error(err, "Failed to list DaemonSet controllerrevisions; skipping resize", "workload", workloadName)
+			if policy != nil {
+				r.emitEventOnce(policy, corev1.EventTypeWarning, "DaemonSetRevisionUnavailable", "resize",
+					"Resize skipped for DaemonSet %s: cannot list controllerrevisions", workloadName)
+			}
+			return nil
+		}
 		log.FromContext(ctx).Error(err, "Failed to resolve rollout revision; not skipping pods", "workload", workloadName)
 		hash = ""
 	}
