@@ -896,6 +896,15 @@ func validateMetricsSourceProviderFields(ms *attunev1alpha1.MetricsSource) error
 	return nil
 }
 
+func hopByHopHeader(name string) bool {
+	switch strings.ToLower(name) {
+	case "host", "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade":
+		return true
+	default:
+		return false
+	}
+}
+
 func validatePrometheusSigV4(prometheus *attunev1alpha1.PrometheusConfig) error {
 	if prometheus == nil || prometheus.SigV4 == nil {
 		return nil
@@ -910,7 +919,7 @@ func validatePrometheusSigV4(prometheus *attunev1alpha1.PrometheusConfig) error 
 		if strings.EqualFold(name, "Authorization") {
 			return fmt.Errorf("metricsSource.prometheus.sigv4 cannot be combined with an Authorization header")
 		}
-		if strings.HasPrefix(strings.ToLower(name), "x-amz-") {
+		if strings.HasPrefix(strings.ToLower(name), "x-amz-") || hopByHopHeader(name) {
 			return fmt.Errorf("metricsSource.prometheus.sigv4 cannot be combined with header %q", name)
 		}
 	}

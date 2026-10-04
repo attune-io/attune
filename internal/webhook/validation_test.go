@@ -1197,6 +1197,31 @@ func TestValidate_PrometheusSigV4(t *testing.T) {
 			wantErr: "metricsSource.prometheus.sigv4 cannot be combined with an Authorization header",
 		},
 		{
+			name: "host header",
+			prom: &attunev1alpha1.PrometheusConfig{
+				Address: address,
+				SigV4:   &attunev1alpha1.SigV4Config{Region: "us-east-1"},
+				Headers: map[string]string{"Host": "evil.example"},
+			},
+			wantErr: `metricsSource.prometheus.sigv4 cannot be combined with header "Host"`,
+		},
+		{
+			name: "connection header",
+			prom: &attunev1alpha1.PrometheusConfig{
+				Address: address,
+				SigV4:   &attunev1alpha1.SigV4Config{Region: "us-east-1"},
+				Headers: map[string]string{"Connection": "close"},
+			},
+			wantErr: `metricsSource.prometheus.sigv4 cannot be combined with header "Connection"`,
+		},
+		{
+			name: "host without sigv4",
+			prom: &attunev1alpha1.PrometheusConfig{
+				Address: address,
+				Headers: map[string]string{"Host": "prometheus.internal"},
+			},
+		},
+		{
 			name: "x-amz header",
 			prom: &attunev1alpha1.PrometheusConfig{
 				Address: address,
