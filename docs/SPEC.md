@@ -438,6 +438,7 @@ spec:
 |---------------|---------|-------------|
 | `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `MetricsUnavailable` (alias `PrometheusUnavailable`), `InvalidConfig`, `WorkloadDiscoveryFailed`, `WorkloadCRDMissing`, `ConflictCheckFailed`, `Paused`, `PrometheusSeriesCapped` | Overall health. `PrometheusSeriesCapped` keeps Ready True and means the query result was partial. `WorkloadCRDMissing` means a Rollout policy's CRD is not installed |
 | `TemplatePersistence` | `TemplateWorkloadRef` | False when a Rollout `spec.workloadRef` is set. Attune does not patch that template |
+| `TemplatePersistence` | `WorkloadRefUnread` | False when a Rollout `spec.workloadRef` has an empty name or an unsupported kind, or its object cannot be read or has no containers. Takes precedence over `TemplateWorkloadRef` |
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation |
 | `Degraded` | `HighRevertRate` | Some resizes failing |
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Whether the current time is within the configured resize schedule window |
