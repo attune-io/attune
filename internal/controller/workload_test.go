@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"testing"
 	"time"
 
@@ -1210,7 +1211,11 @@ func TestWorkload_JobIndexedCompletionRegex(t *testing.T) {
 	}
 	ca := newWorkloadAdapter(cronJob)
 	require.NotNil(t, ca)
-	assert.Contains(t, ca.PodNameRegexSuffix(), "[0-9]+")
+	suffix := ca.PodNameRegexSuffix()
+	assert.Equal(t, "-[0-9]{8,9}-[0-9]+-[a-z0-9]{5}", suffix)
+	re := regexp.MustCompile("^(?:nightly" + suffix + ")$")
+	assert.True(t, re.MatchString("nightly-29453760-3-fghij"))
+	assert.False(t, re.MatchString("nightly-1767225600-3-fghij"))
 }
 
 func TestQueryMetricsGrouped_InfoAndErrorOmitQuery(t *testing.T) {
