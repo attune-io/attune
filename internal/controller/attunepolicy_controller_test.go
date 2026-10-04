@@ -1124,6 +1124,74 @@ func TestUpdateStatusWithRetry_ConflictThenRetry(t *testing.T) {
 	assert.Equal(t, "true", final.Annotations["test-bump"])
 }
 
+func TestUpdateStatusWithRetry_TrimmedHistoryDoesNotReturnAtTail(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	reconciler, fakeClient := newReconcilerForReconcile(&mockCollector{}, policy)
+	ctx := context.Background()
+	key := types.NamespacedName{Name: "test-policy", Namespace: "default"}
+
+	base := time.Now().Add(-2 * time.Hour).UTC()
+	row := func(i int, result attunev1alpha1.ResizeResult) attunev1alpha1.ResizeHistoryEntry {
+		return attunev1alpha1.ResizeHistoryEntry{
+			Timestamp: metav1.NewTime(base.Add(time.Duration(i) * time.Second)),
+			Workload:  "api",
+			Container: "main",
+			Resource:  "cpu",
+			From:      fmt.Sprintf("%dm", i),
+			To:        fmt.Sprintf("%dm", i+1),
+			Method:    "InPlace",
+			Result:    result,
+		}
+	}
+	stored := make([]attunev1alpha1.ResizeHistoryEntry, 0, 50)
+	for i := 1; i <= 50; i++ {
+		result := attunev1alpha1.ResizeResultSuccess
+		if i == 1 {
+			result = attunev1alpha1.ResizeResultReverted
+		}
+		stored = append(stored, row(i, result))
+	}
+	snapshot := make([]attunev1alpha1.ResizeHistoryEntry, 0, 50)
+	for i := 2; i <= 51; i++ {
+		snapshot = append(snapshot, row(i, attunev1alpha1.ResizeResultSuccess))
+	}
+
+	var concurrent attunev1alpha1.AttunePolicy
+	require.NoError(t, fakeClient.Get(ctx, key, &concurrent))
+	concurrent.Status.ResizeHistory = stored
+	require.NoError(t, fakeClient.Status().Update(ctx, &concurrent))
+
+	var p attunev1alpha1.AttunePolicy
+	require.NoError(t, fakeClient.Get(ctx, key, &p))
+	// Stale resourceVersion from before the stored write, with the trimmed snapshot.
+	p.ResourceVersion = concurrent.ResourceVersion
+	// Force the conflict: the object we pass in must not match the stored RV
+	// after another write. Bump stored again so p is stale.
+	require.NoError(t, fakeClient.Get(ctx, key, &concurrent))
+	staleRV := p.ResourceVersion
+	if concurrent.Annotations == nil {
+		concurrent.Annotations = map[string]string{}
+	}
+	concurrent.Annotations["bump"] = "1"
+	require.NoError(t, fakeClient.Update(ctx, &concurrent))
+	require.NoError(t, fakeClient.Get(ctx, key, &p))
+	p.ResourceVersion = staleRV
+	p.Status.ResizeHistory = snapshot
+	p.Status.Workloads.WithRecommendations = 1
+
+	require.NoError(t, reconciler.updateStatusWithRetry(ctx, &p, key, nil, false, time.Time{}))
+
+	var final attunev1alpha1.AttunePolicy
+	require.NoError(t, fakeClient.Get(ctx, key, &final))
+	require.NotEmpty(t, final.Status.ResizeHistory)
+	last := final.Status.ResizeHistory[len(final.Status.ResizeHistory)-1]
+	assert.Equal(t, "51m", last.From)
+	for _, entry := range final.Status.ResizeHistory {
+		assert.NotEqual(t, "1m", entry.From)
+	}
+	assert.Equal(t, 0, consecutiveRevertsForWorkload(final.Status.ResizeHistory, "api"))
+}
+
 func TestUpdateStatusWithRetry_PreservesHigherResizedCount(t *testing.T) {
 	idleCond := metav1.Condition{
 		Type:    attunev1alpha1.ConditionResizing,

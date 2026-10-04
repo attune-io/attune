@@ -676,17 +676,31 @@ func historyEntryIdentity(entry attunev1alpha1.ResizeHistoryEntry) string {
 // of the same normalized identity. History is append-only, so the matching
 // prefix consumes that count and a later extra copy is a new row. Timestamp,
 // Result, and Reason are not part of the identity, so a revert already in
-// the snapshot is not appended again.
+// the snapshot is not appended again. A fetched row older than the oldest
+// timestamp still in the snapshot was trimmed and is not appended at the tail.
 func resizeHistoryDelta(saved, fetched []attunev1alpha1.ResizeHistoryEntry) []attunev1alpha1.ResizeHistoryEntry {
 	remaining := make(map[string]int, len(saved))
+	var oldest time.Time
 	for _, entry := range saved {
 		remaining[historyEntryIdentity(entry)]++
+		if entry.Timestamp.IsZero() {
+			continue
+		}
+		if oldest.IsZero() || entry.Timestamp.Time.Before(oldest) {
+			oldest = entry.Timestamp.Time
+		}
 	}
 	delta := make([]attunev1alpha1.ResizeHistoryEntry, 0)
 	for _, entry := range fetched {
 		id := historyEntryIdentity(entry)
 		if remaining[id] > 0 {
 			remaining[id]--
+			continue
+		}
+		// A trimmed row is older than anything still in this snapshot.
+		// Timestamp stays out of the identity so a revert of a row already
+		// in the snapshot is not appended again.
+		if !oldest.IsZero() && !entry.Timestamp.IsZero() && entry.Timestamp.Time.Before(oldest) {
 			continue
 		}
 		delta = append(delta, entry)
