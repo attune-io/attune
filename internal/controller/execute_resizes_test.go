@@ -269,7 +269,7 @@ func TestExecuteResizes_StaleOOMBumpStillResizes(t *testing.T) {
 		origin, err := resource.ParseQuantity("200Mi")
 		require.NoError(t, err)
 		reconciler.oomBumps.Put(
-			string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "main",
+			string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "Deployment", "main",
 			[]oomBumpPodStamp{{
 				Namespace: pod.Namespace,
 				PodName:   pod.Name,
@@ -366,7 +366,7 @@ func TestResizeContainer_ImmediateRevertDoesNotCountOOMBump(t *testing.T) {
 	floor, err := resource.ParseQuantity("300Mi")
 	require.NoError(t, err)
 	reconciler.oomBumps.Put(
-		string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "main",
+		string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "Deployment", "main",
 		[]oomBumpPodStamp{{
 			Namespace: listed.Namespace,
 			PodName:   listed.Name,
@@ -423,7 +423,7 @@ func TestResizeContainer_UnraisedMemoryDoesNotCountOOMBump(t *testing.T) {
 	floor, err := resource.ParseQuantity("360Mi")
 	require.NoError(t, err)
 	reconciler.oomBumps.Put(
-		string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "main",
+		string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "Deployment", "main",
 		[]oomBumpPodStamp{{
 			Namespace: pod.Namespace,
 			PodName:   pod.Name,
@@ -2872,7 +2872,7 @@ func TestExecuteResizes_AnnotationOnlySurvivesQoSSkip(t *testing.T) {
 	reconciler.SetNowFunc(func() time.Time { return now })
 	policy := newOOMSkipPolicy("oom-skip-qos", attunev1alpha1.UpdateTypeAuto)
 	stamp, raw := annotationOnlyCappedStamp(t, pod, now)
-	reconciler.oomBumps.Put(string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "main", []oomBumpPodStamp{stamp}, nil)
+	reconciler.oomBumps.Put(string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "Deployment", "main", []oomBumpPodStamp{stamp}, nil)
 	beforeSkipped := oomSkipCount(policy, oomBumpSkipped)
 	beforeApplied := oomSkipCount(policy, oomBumpApplied)
 
@@ -2897,7 +2897,7 @@ func TestExecuteResizes_AnnotationOnlySurvivesBudgetSkip(t *testing.T) {
 	cpuBudget := resource.MustParse("500m")
 	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpuBudget
 	stamp, raw := annotationOnlyCappedStamp(t, pod, now)
-	reconciler.oomBumps.Put(string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "main", []oomBumpPodStamp{stamp}, nil)
+	reconciler.oomBumps.Put(string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "Deployment", "main", []oomBumpPodStamp{stamp}, nil)
 	beforeSkipped := oomSkipCount(policy, oomBumpSkipped)
 
 	recs := []attunev1alpha1.WorkloadRecommendation{
@@ -2920,7 +2920,7 @@ func TestExecuteResizes_AnnotationOnlySurvivesCooldown(t *testing.T) {
 	policy := newOOMSkipPolicy("oom-skip-cooldown", attunev1alpha1.UpdateTypeAuto)
 	policy.Annotations = map[string]string{lastResizeAnnotation: now.Format(time.RFC3339)}
 	stamp, raw := annotationOnlyCappedStamp(t, pod, now)
-	reconciler.oomBumps.Put(string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "main", []oomBumpPodStamp{stamp}, nil)
+	reconciler.oomBumps.Put(string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "Deployment", "main", []oomBumpPodStamp{stamp}, nil)
 
 	recs := []attunev1alpha1.WorkloadRecommendation{
 		newResizeRecommendation("oom-skip-cooldown", "100m", "256Mi", "200m", "256Mi", "150m", "256Mi", "200m", "256Mi"),
@@ -2945,7 +2945,7 @@ func TestExecuteResizes_AnnotationOnlyOneShotWritesUnselectedPod(t *testing.T) {
 	policy := newOOMSkipPolicy("oom-skip-oneshot", attunev1alpha1.UpdateTypeOneShot)
 	stamp1, raw := annotationOnlyCappedStamp(t, pod1, now)
 	stamp2, _ := annotationOnlyCappedStamp(t, pod2, now)
-	reconciler.oomBumps.Put(string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "main", []oomBumpPodStamp{stamp1, stamp2}, nil)
+	reconciler.oomBumps.Put(string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "Deployment", "main", []oomBumpPodStamp{stamp1, stamp2}, nil)
 	beforeSkipped := oomSkipCount(policy, oomBumpSkipped)
 	beforeApplied := oomSkipCount(policy, oomBumpApplied)
 

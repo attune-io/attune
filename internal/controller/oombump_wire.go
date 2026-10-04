@@ -114,7 +114,7 @@ func (r *AttunePolicyReconciler) planContainerOOMBump(
 	if r.oomBumps != nil && workload != nil && isResizeMode(mode) && len(plan.Stamps) > 0 {
 		r.oomBumps.Put(
 			string(policy.UID), policy.Namespace, policy.Name,
-			workload.GetNamespace(), workload.GetName(), container,
+			workload.GetNamespace(), workload.GetName(), workloadKindName(workload), container,
 			plan.Stamps, plan.BaseHeld,
 		)
 	}
@@ -197,25 +197,28 @@ func (r *AttunePolicyReconciler) oomBumpRevertGate(
 	reason string,
 	now time.Time,
 ) (safety.ResizeRecord, bool) {
-	live := r.livePodForBumpGate(ctx, pod)
 	if policy == nil || policy.Spec.Memory.OOMBump == nil {
 		return record, false
 	}
+	live := r.livePodForBumpGate(ctx, pod)
 	decision := oomBumpRevertDecisionFor(live, record.Container, reason, record.ResizedAt, now, oomBumpMaxBumps(policy))
 	if decision.Suppress {
 		return record, true
 	}
 	if decision.Floor > 0 {
 		adjusted := record
-		adjusted.OriginalResources = raiseMemoryFloor(record.OriginalResources, decision.Floor)
+		raiseLimit := policy.Spec.Memory.ControlledValues != nil &&
+			*policy.Spec.Memory.ControlledValues == attunev1alpha1.ControlledRequestsAndLimits
+		adjusted.OriginalResources = raiseMemoryFloor(record.OriginalResources, decision.Floor, raiseLimit)
 		return adjusted, false
 	}
 	return record, false
 }
 
 // raiseMemoryFloor copies requirements and raises a lower memory request.
-// A missing or zero limit stays unset. A positive limit below the floor is raised.
-func raiseMemoryFloor(src corev1.ResourceRequirements, floorBytes int64) corev1.ResourceRequirements {
+// A missing or zero limit stays unset. A positive limit below the floor is
+// raised only when memory controlledValues is RequestsAndLimits.
+func raiseMemoryFloor(src corev1.ResourceRequirements, floorBytes int64, raiseLimit bool) corev1.ResourceRequirements {
 	out := src.DeepCopy()
 	floor := resource.NewQuantity(floorBytes, resource.BinarySI)
 	if out.Requests == nil {
@@ -225,7 +228,7 @@ func raiseMemoryFloor(src corev1.ResourceRequirements, floorBytes int64) corev1.
 	if cur.Cmp(*floor) < 0 {
 		out.Requests[corev1.ResourceMemory] = floor.DeepCopy()
 	}
-	if out.Limits != nil {
+	if raiseLimit && out.Limits != nil {
 		if lim, ok := out.Limits[corev1.ResourceMemory]; ok && !lim.IsZero() && lim.Cmp(*floor) < 0 {
 			out.Limits[corev1.ResourceMemory] = floor.DeepCopy()
 		}
@@ -258,7 +261,7 @@ func (r *AttunePolicyReconciler) peekOOMBump(
 	}
 	return r.oomBumps.PeekPod(
 		string(policy.UID), policy.Namespace, policy.Name,
-		workload.GetNamespace(), workload.GetName(), container,
+		workload.GetNamespace(), workload.GetName(), workloadKindName(workload), container,
 		pod.Namespace, pod.Name,
 	)
 }
@@ -275,17 +278,18 @@ func (r *AttunePolicyReconciler) dropOOMBumpStamp(
 	if r == nil || r.oomBumps == nil || policy == nil {
 		return
 	}
-	wns, wname := "", ""
+	wns, wname, kind := "", "", ""
 	if workload != nil {
 		wns = workload.GetNamespace()
 		wname = workload.GetName()
+		kind = workloadKindName(workload)
 	}
 	uid := string(policy.UID)
-	stamp, ok := r.oomBumps.PeekPod(uid, policy.Namespace, policy.Name, wns, wname, container, podNS, podName)
+	stamp, ok := r.oomBumps.PeekPod(uid, policy.Namespace, policy.Name, wns, wname, kind, container, podNS, podName)
 	if !ok || stamp.AnnotationOnly {
 		return
 	}
-	if _, dropped := r.oomBumps.DropPod(uid, policy.Namespace, policy.Name, wns, wname, container, podNS, podName); !dropped {
+	if _, dropped := r.oomBumps.DropPod(uid, policy.Namespace, policy.Name, wns, wname, kind, container, podNS, podName); !dropped {
 		return
 	}
 	if countSkipped {
@@ -354,7 +358,7 @@ func (r *AttunePolicyReconciler) persistPendingAnnotationOnlyOOMBumps(
 	}
 	pending := r.oomBumps.annotationOnlyStamps(
 		string(policy.UID), policy.Namespace, policy.Name,
-		workload.GetNamespace(), workload.GetName(),
+		workload.GetNamespace(), workload.GetName(), workloadKindName(workload),
 	)
 	for _, item := range pending {
 		pod := &corev1.Pod{}
@@ -375,7 +379,7 @@ func (r *AttunePolicyReconciler) markOOMBumpApplied(
 	}
 	r.oomBumps.MarkApplied(
 		string(policy.UID), policy.Namespace, policy.Name,
-		workload.GetNamespace(), workload.GetName(), container,
+		workload.GetNamespace(), workload.GetName(), workloadKindName(workload), container,
 		pod.Namespace, pod.Name,
 	)
 }
@@ -434,7 +438,7 @@ func (r *AttunePolicyReconciler) storeAppliedOOMBumps(
 	for _, containerRec := range rec.Containers {
 		applied, base := r.oomBumps.Applied(
 			string(policy.UID), policy.Namespace, policy.Name,
-			workload.GetNamespace(), workload.GetName(), containerRec.Name,
+			workload.GetNamespace(), workload.GetName(), workloadKindName(workload), containerRec.Name,
 		)
 		value := heldWorkloadValue(base, applied, now)
 		if value == "" {
@@ -558,7 +562,7 @@ func (r *AttunePolicyReconciler) pendingOOMBumpBytes(policy *attunev1alpha1.Attu
 	}
 	stamps := r.oomBumps.Stamps(
 		string(policy.UID), policy.Namespace, policy.Name,
-		workload.GetNamespace(), workload.GetName(), container,
+		workload.GetNamespace(), workload.GetName(), workloadKindName(workload), container,
 	)
 	var maxBytes int64
 	found := false
@@ -836,7 +840,7 @@ func podHasPendingOOMBump(
 	for _, containerRec := range rec.Containers {
 		stamp, ok := r.oomBumps.PeekPod(
 			string(policy.UID), policy.Namespace, policy.Name,
-			pod.Namespace, rec.Workload, containerRec.Name,
+			pod.Namespace, rec.Workload, rec.Kind, containerRec.Name,
 			pod.Namespace, pod.Name,
 		)
 		if ok && !stamp.AnnotationOnly {

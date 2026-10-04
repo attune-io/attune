@@ -239,7 +239,7 @@ func proposeOOMBump(in oomBumpInput) oomBumpProposal {
 	}
 	origin := in.LiveBytes
 	storedCount := 0
-	if in.Stored != nil {
+	if in.Stored != nil && in.Now.Before(in.Stored.HoldUntil) {
 		origin = in.Stored.Origin
 		storedCount = in.Stored.Count
 	}

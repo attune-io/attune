@@ -78,6 +78,10 @@ spec:
     {{- if kindIs "bool" .initialSizing }}
     initialSizing: {{ .initialSizing }}
     {{- end }}
+    {{- with .hpaTargetBounds }}
+    hpaTargetBounds:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     {{- with .sloGuardrails }}
     sloGuardrails:
       {{- toYaml . | nindent 6 }}

@@ -340,12 +340,12 @@ func TestWorkload_PodSkippedForRollout(t *testing.T) {
 	t.Run("DaemonSet_RollingUpdate_old_pod_skipped", func(t *testing.T) {
 		now := time.Now()
 		ds := testDaemonSet(t, 3, 5)
-		currentRev := controllerRev("ds-current", 3, ds.UID)
-		oldRev := controllerRev("ds-old", 1, ds.UID)
+		currentRev := controllerRev("ds-abc123", "abc123", 3, ds.UID)
+		oldRev := controllerRev("ds-def456", "def456", 1, ds.UID)
 		current := burstableResizePod("ds-current-pod", "ds")
-		current.Labels[appsv1.ControllerRevisionHashLabelKey] = currentRev.Name
+		current.Labels[appsv1.ControllerRevisionHashLabelKey] = "abc123"
 		old := burstableResizePod("ds-old-pod", "ds")
-		old.Labels[appsv1.ControllerRevisionHashLabelKey] = oldRev.Name
+		old.Labels[appsv1.ControllerRevisionHashLabelKey] = "def456"
 		policy := newTestPolicy("test-policy", "default")
 		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
 		r, rec := newRolloutReconciler([]client.Object{ds, currentRev, oldRev}, []*corev1.Pod{current, old})
@@ -366,11 +366,11 @@ func TestWorkload_PodSkippedForRollout(t *testing.T) {
 	t.Run("DaemonSet_new_node_current_pods_still_eligible", func(t *testing.T) {
 		now := time.Now()
 		ds := testDaemonSet(t, 4, 5)
-		currentRev := controllerRev("ds-current", 2, ds.UID)
+		currentRev := controllerRev("ds-abc123", "abc123", 2, ds.UID)
 		first := burstableResizePod("ds-a", "ds")
-		first.Labels[appsv1.ControllerRevisionHashLabelKey] = currentRev.Name
+		first.Labels[appsv1.ControllerRevisionHashLabelKey] = "abc123"
 		second := burstableResizePod("ds-b", "ds")
-		second.Labels[appsv1.ControllerRevisionHashLabelKey] = currentRev.Name
+		second.Labels[appsv1.ControllerRevisionHashLabelKey] = "abc123"
 		policy := newTestPolicy("test-policy", "default")
 		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
 		r, rec := newRolloutReconciler([]client.Object{ds, currentRev}, []*corev1.Pod{first, second})
@@ -421,7 +421,8 @@ func TestWorkload_PodSkippedForRollout(t *testing.T) {
 		policy := newTestPolicy("test-policy", "default")
 		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
 		r, rec := newRolloutReconciler([]client.Object{ds}, []*corev1.Pod{current, old})
-		r.Client = daemonSetRevisionForbiddenClient(t, ds, current, old)
+		r.APIReader = daemonSetRevisionForbiddenClient(t, ds, current, old)
+		r.Client = rejectControllerRevisionCacheList{Client: r.Client, t: t}
 		require.False(t, r.isRollingOut(ds))
 
 		count, _ := r.executeResizes(context.Background(), policy, []client.Object{ds},
@@ -448,6 +449,102 @@ func TestWorkload_PodSkippedForRollout(t *testing.T) {
 			podMap("ds", pod), nil, nil)
 		require.Equal(t, 1, count)
 		require.Equal(t, 0, countSubstr(recordedEvents(rec), "DaemonSetRevisionUnavailable"))
+	})
+
+	t.Run("DaemonSet_missing_hash_label_skips_every_pod", func(t *testing.T) {
+		ds := testDaemonSet(t, 3, 5)
+		rev := controllerRev("ds-abc123", "", 2, ds.UID)
+		pod := burstableResizePod("ds-pod", "ds")
+		pod.Labels[appsv1.ControllerRevisionHashLabelKey] = "abc123"
+		policy := newTestPolicy("test-policy", "default")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+		r, rec := newRolloutReconciler([]client.Object{ds, rev}, []*corev1.Pod{pod})
+
+		count, _ := r.executeResizes(context.Background(), policy, []client.Object{ds},
+			[]attunev1alpha1.WorkloadRecommendation{risingCPURecommendation("ds")},
+			podMap("ds", pod), nil, nil)
+		require.Equal(t, 0, count)
+		require.Empty(t, resizedPodNames(r.Clientset.(*kubefake.Clientset)))
+		require.Equal(t, 1, countSubstr(recordedEvents(rec), "DaemonSetRevisionUnavailable"))
+	})
+
+	t.Run("OneShot_skips_previous_revision_and_resizes_current", func(t *testing.T) {
+		replicas := int32(2)
+		sts := &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{Name: "db", Namespace: "default", UID: "sts-uid", Generation: 1},
+			Spec: appsv1.StatefulSetSpec{
+				Replicas: &replicas,
+				Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "db"}},
+				UpdateStrategy: appsv1.StatefulSetUpdateStrategy{
+					Type: appsv1.RollingUpdateStatefulSetStrategyType,
+				},
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "db"}},
+					Spec:       corev1.PodSpec{Containers: []corev1.Container{mainContainer(t)}},
+				},
+			},
+			Status: appsv1.StatefulSetStatus{
+				ObservedGeneration: 1,
+				Replicas:           2,
+				CurrentRevision:    "rev-old",
+				UpdateRevision:     "rev-new",
+			},
+		}
+		old := burstableResizePod("db-0", "db")
+		old.Labels[appsv1.ControllerRevisionHashLabelKey] = "rev-old"
+		current := burstableResizePod("db-1", "db")
+		current.Labels[appsv1.ControllerRevisionHashLabelKey] = "rev-new"
+		policy := newTestPolicy("test-policy", "default")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeOneShot
+		r, _ := newRolloutReconciler([]client.Object{sts}, []*corev1.Pod{old, current})
+
+		count, _ := r.executeResizes(context.Background(), policy, []client.Object{sts},
+			[]attunev1alpha1.WorkloadRecommendation{risingCPURecommendation("db")},
+			podMap("db", old, current), nil, nil)
+		require.Equal(t, 1, count)
+		names := resizedPodNames(r.Clientset.(*kubefake.Clientset))
+		require.Equal(t, []string{current.Name}, names)
+	})
+
+	t.Run("Canary_percentage_uses_current_revision_only", func(t *testing.T) {
+		replicas := int32(4)
+		sts := &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{Name: "db", Namespace: "default", UID: "sts-uid", Generation: 1},
+			Spec: appsv1.StatefulSetSpec{
+				Replicas: &replicas,
+				Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "db"}},
+				UpdateStrategy: appsv1.StatefulSetUpdateStrategy{
+					Type: appsv1.RollingUpdateStatefulSetStrategyType,
+				},
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "db"}},
+					Spec:       corev1.PodSpec{Containers: []corev1.Container{mainContainer(t)}},
+				},
+			},
+			Status: appsv1.StatefulSetStatus{
+				ObservedGeneration: 1,
+				Replicas:           4,
+				CurrentRevision:    "rev-old",
+				UpdateRevision:     "rev-new",
+			},
+		}
+		pods := make([]*corev1.Pod, 0, 4)
+		for i, hash := range []string{"rev-old", "rev-old", "rev-new", "rev-new"} {
+			pod := burstableResizePod(fmt.Sprintf("db-%d", i), "db")
+			pod.Labels[appsv1.ControllerRevisionHashLabelKey] = hash
+			pods = append(pods, pod)
+		}
+		policy := newTestPolicy("test-policy", "default")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeCanary
+		policy.Spec.UpdateStrategy.Canary = &attunev1alpha1.CanaryConfig{Percentage: 50}
+		r, _ := newRolloutReconciler([]client.Object{sts}, pods)
+
+		count, _ := r.executeResizes(context.Background(), policy, []client.Object{sts},
+			[]attunev1alpha1.WorkloadRecommendation{risingCPURecommendation("db")},
+			podMap("db", pods...), nil, nil)
+		require.Equal(t, 1, count)
+		names := resizedPodNames(r.Clientset.(*kubefake.Clientset))
+		require.Equal(t, []string{"db-2"}, names)
 	})
 
 	t.Run("Deployment_paused_resizes_newest_replicaset_hash", func(t *testing.T) {
@@ -542,11 +639,14 @@ func testDaemonSet(t *testing.T, updated, desired int32) *appsv1.DaemonSet {
 	}
 }
 
-func controllerRev(name string, rev int64, owner types.UID) *appsv1.ControllerRevision {
+func controllerRev(name, hash string, rev int64, owner types.UID) *appsv1.ControllerRevision {
 	return &appsv1.ControllerRevision{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: "default",
+			Labels: map[string]string{
+				appsv1.ControllerRevisionHashLabelKey: hash,
+			},
 			OwnerReferences: []metav1.OwnerReference{{
 				APIVersion: "apps/v1",
 				Kind:       "DaemonSet",
@@ -556,4 +656,19 @@ func controllerRev(name string, rev int64, owner types.UID) *appsv1.ControllerRe
 		},
 		Revision: rev,
 	}
+}
+
+// rejectControllerRevisionCacheList fails the test if the cache client lists
+// ControllerRevisions. The DaemonSet revision lookup must use APIReader.
+type rejectControllerRevisionCacheList struct {
+	client.Client
+	t *testing.T
+}
+
+func (r rejectControllerRevisionCacheList) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if _, ok := list.(*appsv1.ControllerRevisionList); ok {
+		r.t.Errorf("cache client listed ControllerRevisions")
+		return fmt.Errorf("cache listed ControllerRevisions")
+	}
+	return r.Client.List(ctx, list, opts...)
 }

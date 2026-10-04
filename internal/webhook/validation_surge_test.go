@@ -18,15 +18,80 @@ package webhook
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
+
+func surgeValidator(t *testing.T, objs ...client.Object) *AttunePolicyValidator {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+	return &AttunePolicyValidator{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()}
+}
+
+func TestValidate_SurgeUsesCombinedHistory(t *testing.T) {
+	window := func(h time.Duration) *metav1.Duration {
+		return &metav1.Duration{Duration: h}
+	}
+	ns := func(h time.Duration) *attunev1alpha1.AttuneNamespaceDefaults {
+		return &attunev1alpha1.AttuneNamespaceDefaults{
+			ObjectMeta: metav1.ObjectMeta{Name: "team", Namespace: "default"},
+			Spec: attunev1alpha1.AttuneDefaultsSpec{
+				MetricsSource: &attunev1alpha1.MetricsSource{HistoryWindow: window(h)},
+			},
+		}
+	}
+	cluster := func(h time.Duration) *attunev1alpha1.AttuneDefaults {
+		return &attunev1alpha1.AttuneDefaults{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: attunev1alpha1.AttuneDefaultsSpec{
+				MetricsSource: &attunev1alpha1.MetricsSource{HistoryWindow: window(h)},
+			},
+		}
+	}
+	policy := func(surge time.Duration) *attunev1alpha1.AttunePolicy {
+		p := validPolicy()
+		p.Namespace = "default"
+		p.Spec.CPU.Surge = &attunev1alpha1.Surge{Window: window(surge)}
+		return p
+	}
+
+	_, err := surgeValidator(t, ns(24*time.Hour)).ValidateCreate(context.Background(), policy(48*time.Hour))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "historyWindow")
+
+	_, err = surgeValidator(t, cluster(336*time.Hour)).ValidateCreate(context.Background(), policy(200*time.Hour))
+	require.NoError(t, err)
+
+	_, err = surgeValidator(t, cluster(336*time.Hour), ns(24*time.Hour)).ValidateCreate(context.Background(), policy(48*time.Hour))
+	require.Error(t, err)
+
+	explicit := policy(48 * time.Hour)
+	explicit.Spec.MetricsSource.HistoryWindow = window(24 * time.Hour)
+	_, err = surgeValidator(t, cluster(336*time.Hour)).ValidateCreate(context.Background(), explicit)
+	require.Error(t, err)
+
+	base := surgeValidator(t)
+	_, err = (&AttunePolicyValidator{Client: errListReader{Reader: base.Client}}).ValidateCreate(context.Background(), policy(48*time.Hour))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "listing AttuneDefaults")
+}
+
+type errListReader struct{ client.Reader }
+
+func (errListReader) List(context.Context, client.ObjectList, ...client.ListOption) error {
+	return fmt.Errorf("listing AttuneDefaults: injected")
+}
 
 func TestValidate_Surge(t *testing.T) {
 	validator := &AttunePolicyValidator{}

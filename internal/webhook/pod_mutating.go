@@ -234,8 +234,15 @@ func (h *PodMutatingHandler) listAdmissionDefaults(
 	ctx context.Context,
 	namespace string,
 ) (*attunev1alpha1.AttuneDefaults, error) {
+	return combinedDefaults(ctx, h.Client, namespace)
+}
+
+func combinedDefaults(ctx context.Context, c client.Reader, namespace string) (*attunev1alpha1.AttuneDefaults, error) {
+	if c == nil {
+		return nil, fmt.Errorf("listing AttuneDefaults: client is nil")
+	}
 	var nsList attunev1alpha1.AttuneNamespaceDefaultsList
-	if err := h.Client.List(ctx, &nsList, client.InNamespace(namespace)); err != nil {
+	if err := c.List(ctx, &nsList, client.InNamespace(namespace)); err != nil {
 		return nil, fmt.Errorf("listing AttuneNamespaceDefaults in %s: %w", namespace, err)
 	}
 	var nsDefaults *attunev1alpha1.AttuneDefaults
@@ -253,7 +260,7 @@ func (h *PodMutatingHandler) listAdmissionDefaults(
 	}
 
 	var clusterList attunev1alpha1.AttuneDefaultsList
-	if err := h.Client.List(ctx, &clusterList); err != nil {
+	if err := c.List(ctx, &clusterList); err != nil {
 		return nil, fmt.Errorf("listing AttuneDefaults: %w", err)
 	}
 	var clusterDefaults *attunev1alpha1.AttuneDefaults
@@ -780,8 +787,10 @@ func controlledValuesRequestsOnly(cv *string) bool {
 
 // createPodRequestsOnly is requests-only for the CREATE envelope when every
 // managed container is requests-only. Managed means app containers and
-// restartPolicy Always inits, minus excluded names. An omitted list, a nil
-// pod, or a pod with no managed container keeps createRequestsOnly. One
+// restartPolicy Always inits, minus excluded names. That is wider than
+// podResourceRequestsOnly, which stays on spec.containers so the HPA
+// Resource cap matches the Kubernetes resource metric. An omitted list, a
+// nil pod, or a pod with no managed container keeps createRequestsOnly. One
 // RequestsAndLimits container makes the envelope eligible to rise so the
 // request patch is not dropped.
 func createPodRequestsOnly(policy *attunev1alpha1.AttunePolicy, pod *corev1.Pod, res corev1.ResourceName) bool {

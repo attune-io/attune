@@ -24,7 +24,9 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
@@ -37,13 +39,17 @@ import (
 type AttunePolicyValidator struct {
 	// SecretAccess, when set, requires the admission user to get each referenced Secret.
 	SecretAccess SecretAccessChecker
+	// Client loads AttuneDefaults when a policy omits a field that defaults
+	// change, such as historyWindow for surge.window. Nil keeps the built-in
+	// window so unit tests do not need a cluster.
+	Client client.Reader
 }
 
 // ValidateCreate validates a new AttunePolicy.
 func (v *AttunePolicyValidator) ValidateCreate(ctx context.Context, policy *attunev1alpha1.AttunePolicy) (admission.Warnings, error) {
 	timer := operatormetrics.NewWebhookTimer("validate_create")
 	defer timer.Observe()
-	w, err := v.validate(policy)
+	w, err := v.validate(ctx, nil, policy)
 	if err == nil {
 		err = v.checkReferencedSecretAccess(ctx, policy)
 	}
@@ -55,7 +61,11 @@ func (v *AttunePolicyValidator) ValidateCreate(ctx context.Context, policy *attu
 func (v *AttunePolicyValidator) ValidateUpdate(ctx context.Context, oldPolicy, policy *attunev1alpha1.AttunePolicy) (admission.Warnings, error) {
 	timer := operatormetrics.NewWebhookTimer("validate_update")
 	defer timer.Observe()
-	w, err := v.validate(policy)
+	if oldPolicy != nil && policy != nil && !policy.DeletionTimestamp.IsZero() && equality.Semantic.DeepEqual(oldPolicy.Spec, policy.Spec) {
+		timer.RecordResult(nil)
+		return nil, nil
+	}
+	w, err := v.validate(ctx, oldPolicy, policy)
 	if err == nil {
 		err = v.checkReferencedSecretAccess(ctx, policy)
 	}
@@ -68,7 +78,28 @@ func (v *AttunePolicyValidator) ValidateDelete(ctx context.Context, policy *attu
 	return nil, nil
 }
 
-func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (admission.Warnings, error) {
+func (v *AttunePolicyValidator) effectiveHistory(ctx context.Context, policy *attunev1alpha1.AttunePolicy) (*metav1.Duration, error) {
+	if policy != nil && policy.Spec.MetricsSource.HistoryWindow != nil {
+		return policy.Spec.MetricsSource.HistoryWindow, nil
+	}
+	if v == nil || v.Client == nil {
+		return nil, nil
+	}
+	ns := ""
+	if policy != nil {
+		ns = policy.Namespace
+	}
+	merged, err := combinedDefaults(ctx, v.Client, ns)
+	if err != nil {
+		return nil, err
+	}
+	if merged != nil && merged.Spec.MetricsSource != nil {
+		return merged.Spec.MetricsSource.HistoryWindow, nil
+	}
+	return nil, nil
+}
+
+func (v *AttunePolicyValidator) validate(ctx context.Context, old, policy *attunev1alpha1.AttunePolicy) (admission.Warnings, error) {
 	var warnings admission.Warnings
 
 	// Use a local pointer to avoid mutating the input object.
@@ -80,7 +111,10 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 	// Validate shared ResourceConfig fields (overhead, burstSensitivity,
 	// memoryFromCpuRatio, percentile, bounds, startupBoost) for CPU and memory.
 	// These checks are shared with AttuneDefaults validation.
-	history := policy.Spec.MetricsSource.HistoryWindow
+	history, err := v.effectiveHistory(ctx, policy)
+	if err != nil {
+		return warnings, err
+	}
 	if err := validateResourceConfigFields("cpu", &policy.Spec.CPU, history); err != nil {
 		return warnings, err
 	}
@@ -120,8 +154,8 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 
 	// Validate safetyObservationPeriod has a minimum floor.
 	if us.SafetyObservationPeriod != nil {
-		if err := validateDurationFloor("updateStrategy.safetyObservationPeriod",
-			us.SafetyObservationPeriod.Duration); err != nil {
+		if err := validateDurationFloorAllowZero("updateStrategy.safetyObservationPeriod",
+			us.SafetyObservationPeriod.Duration, sameStoredZero(strategyDuration(old, true), us.SafetyObservationPeriod)); err != nil {
 			return warnings, err
 		}
 	}
@@ -152,8 +186,8 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 
 	// Validate cooldown has a minimum floor to prevent resource exhaustion via tight reconciliation loops.
 	if us.Cooldown != nil {
-		if err := validateDurationFloor("updateStrategy.cooldown",
-			us.Cooldown.Duration); err != nil {
+		if err := validateDurationFloorAllowZero("updateStrategy.cooldown",
+			us.Cooldown.Duration, sameStoredZero(strategyDuration(old, false), us.Cooldown)); err != nil {
 			return warnings, err
 		}
 	}
@@ -235,7 +269,11 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 	}
 
 	// Validate SLO guardrails.
-	if err := validateSLOGuardrails(us.SLOGuardrails); err != nil {
+	var oldGuardrails []attunev1alpha1.SLOGuardrail
+	if old != nil && old.Spec.UpdateStrategy != nil {
+		oldGuardrails = old.Spec.UpdateStrategy.SLOGuardrails
+	}
+	if err := validateSLOGuardrails(us.SLOGuardrails, oldGuardrails); err != nil {
 		return warnings, err
 	}
 
@@ -277,6 +315,11 @@ func warnIneffectiveSettings(policy *attunev1alpha1.AttunePolicy) admission.Warn
 	var w admission.Warnings
 	if policy.Spec.UpdateStrategy == nil {
 		return w
+	}
+	if policy.Spec.TargetRef.Kind == "Rollout" &&
+		policy.Spec.UpdateStrategy.InitialSizing != nil &&
+		*policy.Spec.UpdateStrategy.InitialSizing {
+		w = append(w, "initialSizing does nothing for kind Rollout; CREATE does not resolve a Rollout owner")
 	}
 	mode := policy.Spec.UpdateStrategy.Type
 	isNonResizing := mode == attunev1alpha1.UpdateTypeObserve ||
@@ -670,10 +713,31 @@ func validateBurstSensitivity(resource string, value *string) error {
 // validateDurationFloor rejects a zero, negative, or sub-minute duration.
 // Zero is not a wait: omit the field to keep the built-in default.
 func validateDurationFloor(field string, d time.Duration) error {
+	return validateDurationFloorAllowZero(field, d, false)
+}
+
+func validateDurationFloorAllowZero(field string, d time.Duration, allowStoredZero bool) error {
 	if d == 0 {
+		if allowStoredZero {
+			return nil
+		}
 		return fmt.Errorf("%s must be at least 1m, or omit the field for the default", field)
 	}
 	return validatePositiveDurationFloor(field, d)
+}
+
+func sameStoredZero(old, neu *metav1.Duration) bool {
+	return old != nil && neu != nil && old.Duration == 0 && neu.Duration == 0
+}
+
+func strategyDuration(policy *attunev1alpha1.AttunePolicy, safety bool) *metav1.Duration {
+	if policy == nil || policy.Spec.UpdateStrategy == nil {
+		return nil
+	}
+	if safety {
+		return policy.Spec.UpdateStrategy.SafetyObservationPeriod
+	}
+	return policy.Spec.UpdateStrategy.Cooldown
 }
 
 // validatePositiveDurationFloor allows zero. Canary observationPeriod is a
@@ -737,7 +801,7 @@ func validateHHMM(field, value string) error {
 }
 
 // validateSLOGuardrails validates all SLO guardrail entries.
-func validateSLOGuardrails(guardrails []attunev1alpha1.SLOGuardrail) error {
+func validateSLOGuardrails(guardrails, previous []attunev1alpha1.SLOGuardrail) error {
 	names := make(map[string]bool, len(guardrails))
 	for i, g := range guardrails {
 		if g.Name == "" {
@@ -768,9 +832,10 @@ func validateSLOGuardrails(guardrails []attunev1alpha1.SLOGuardrail) error {
 		}
 
 		if g.EvaluationWindow != nil {
-			if err := validateDurationFloor(
+			allowZero := i < len(previous) && sameStoredZero(previous[i].EvaluationWindow, g.EvaluationWindow)
+			if err := validateDurationFloorAllowZero(
 				fmt.Sprintf("updateStrategy.sloGuardrails[%d].evaluationWindow", i),
-				g.EvaluationWindow.Duration); err != nil {
+				g.EvaluationWindow.Duration, allowZero); err != nil {
 				return err
 			}
 		}
@@ -865,6 +930,15 @@ func validateMetricsSourceProviderFields(ms *attunev1alpha1.MetricsSource) error
 	return nil
 }
 
+func hopByHopHeader(name string) bool {
+	switch strings.ToLower(name) {
+	case "host", "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade":
+		return true
+	default:
+		return false
+	}
+}
+
 func validatePrometheusSigV4(prometheus *attunev1alpha1.PrometheusConfig) error {
 	if prometheus == nil || prometheus.SigV4 == nil {
 		return nil
@@ -879,7 +953,7 @@ func validatePrometheusSigV4(prometheus *attunev1alpha1.PrometheusConfig) error 
 		if strings.EqualFold(name, "Authorization") {
 			return fmt.Errorf("metricsSource.prometheus.sigv4 cannot be combined with an Authorization header")
 		}
-		if strings.HasPrefix(strings.ToLower(name), "x-amz-") {
+		if strings.HasPrefix(strings.ToLower(name), "x-amz-") || hopByHopHeader(name) {
 			return fmt.Errorf("metricsSource.prometheus.sigv4 cannot be combined with header %q", name)
 		}
 	}

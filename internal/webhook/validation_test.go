@@ -721,6 +721,50 @@ func TestValidate_ZeroCooldownRejected(t *testing.T) {
 	assert.Contains(t, err.Error(), "omit the field")
 }
 
+func TestValidateUpdate_StoredZeroDuration(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	old := validPolicy()
+	old.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 0}
+	old.Spec.UpdateStrategy.SafetyObservationPeriod = &metav1.Duration{Duration: 0}
+	window := &metav1.Duration{Duration: 0}
+	old.Spec.UpdateStrategy.SLOGuardrails = []attunev1alpha1.SLOGuardrail{{
+		Name: "latency", Query: "vector(0)", Threshold: "1", EvaluationWindow: window,
+	}}
+
+	same := old.DeepCopy()
+	_, err := validator.ValidateUpdate(context.Background(), old, same)
+	require.NoError(t, err)
+
+	deleting := old.DeepCopy()
+	now := metav1.Now()
+	deleting.DeletionTimestamp = &now
+	deleting.Finalizers = nil
+	_, err = validator.ValidateUpdate(context.Background(), old, deleting)
+	require.NoError(t, err)
+
+	live := validPolicy()
+	live.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: time.Minute}
+	badDelete := live.DeepCopy()
+	badDelete.DeletionTimestamp = &now
+	badDelete.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 0}
+	_, err = validator.ValidateUpdate(context.Background(), live, badDelete)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cooldown must be at least 1m")
+
+	introduced := validPolicy()
+	introduced.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 0}
+	_, err = validator.ValidateUpdate(context.Background(), validPolicy(), introduced)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cooldown must be at least 1m")
+
+	positive := validPolicy()
+	positive.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: time.Minute}
+	zeroed := positive.DeepCopy()
+	zeroed.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 0}
+	_, err = validator.ValidateUpdate(context.Background(), positive, zeroed)
+	require.Error(t, err)
+}
+
 func TestValidate_MinCooldownAccepted(t *testing.T) {
 	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
@@ -1151,6 +1195,31 @@ func TestValidate_PrometheusSigV4(t *testing.T) {
 				Headers: map[string]string{"authorization": "Bearer x"},
 			},
 			wantErr: "metricsSource.prometheus.sigv4 cannot be combined with an Authorization header",
+		},
+		{
+			name: "host header",
+			prom: &attunev1alpha1.PrometheusConfig{
+				Address: address,
+				SigV4:   &attunev1alpha1.SigV4Config{Region: "us-east-1"},
+				Headers: map[string]string{"Host": "evil.example"},
+			},
+			wantErr: `metricsSource.prometheus.sigv4 cannot be combined with header "Host"`,
+		},
+		{
+			name: "connection header",
+			prom: &attunev1alpha1.PrometheusConfig{
+				Address: address,
+				SigV4:   &attunev1alpha1.SigV4Config{Region: "us-east-1"},
+				Headers: map[string]string{"Connection": "close"},
+			},
+			wantErr: `metricsSource.prometheus.sigv4 cannot be combined with header "Connection"`,
+		},
+		{
+			name: "host without sigv4",
+			prom: &attunev1alpha1.PrometheusConfig{
+				Address: address,
+				Headers: map[string]string{"Host": "prometheus.internal"},
+			},
 		},
 		{
 			name: "x-amz header",
@@ -1992,6 +2061,26 @@ func TestValidate_VPAWithDatadogMutuallyExclusive(t *testing.T) {
 }
 
 // ---------- Ineffective settings warnings ----------
+
+func TestWarn_InitialSizingRollout(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	rollout := validPolicy()
+	rollout.Spec.TargetRef.Kind = "Rollout"
+	rollout.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	rollout.Spec.UpdateStrategy.InitialSizing = boolPtr(true)
+	w, err := validator.ValidateCreate(context.Background(), rollout)
+	require.NoError(t, err)
+	assert.Contains(t, w, "initialSizing does nothing for kind Rollout; CREATE does not resolve a Rollout owner")
+
+	deploy := validPolicy()
+	deploy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	deploy.Spec.UpdateStrategy.InitialSizing = boolPtr(true)
+	w, err = validator.ValidateCreate(context.Background(), deploy)
+	require.NoError(t, err)
+	for _, msg := range w {
+		assert.NotContains(t, msg, "kind Rollout")
+	}
+}
 
 func TestWarn_InitialSizingInRecommendMode(t *testing.T) {
 	validator := &AttunePolicyValidator{}

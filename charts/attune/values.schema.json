@@ -682,8 +682,8 @@
             },
             "limitMultiplier": {
               "type": "string",
-              "pattern": "^[0-9]+(\\.[0-9]+)?$",
-              "description": "Multiple applied to the new request when controlledValues is RequestsAndLimits. Omitted keeps the live ratio. No default."
+              "pattern": "^([0-9]+(\\.[0-9]+)?)?$",
+              "description": "Multiple applied to the new request when controlledValues is RequestsAndLimits. Omitted keeps the live ratio. Empty string is accepted. No default."
             },
             "burstSensitivity": {
               "type": "string"
@@ -710,10 +710,38 @@
                 },
                 "duration": {
                   "type": "string"
+                },
+                "excludeFromHistory": {
+                  "type": "boolean"
                 }
               },
               "description": "Temporary CPU inflation for cold-start optimization"
             },
+            "decreaseUsageMarginPercent": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "oomBump": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "ratio": { "type": "string" },
+                "minBump": { "type": "string" },
+                "maxBumps": { "type": "integer", "minimum": 1 },
+                "hold": { "type": "string" }
+              }
+            },
+            "surge": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "triggerRatio": { "type": "string" },
+                "percentile": { "type": "integer", "enum": [50, 90, 95, 99] },
+                "window": { "type": "string" }
+              }
+            },
+
             "maxIncreasePercent": {
               "type": "integer",
               "minimum": 1,
@@ -762,8 +790,8 @@
             },
             "limitMultiplier": {
               "type": "string",
-              "pattern": "^[0-9]+(\\.[0-9]+)?$",
-              "description": "Multiple applied to the new request when controlledValues is RequestsAndLimits. Omitted keeps the live ratio. No default."
+              "pattern": "^([0-9]+(\\.[0-9]+)?)?$",
+              "description": "Multiple applied to the new request when controlledValues is RequestsAndLimits. Omitted keeps the live ratio. Empty string is accepted. No default."
             },
             "burstSensitivity": {
               "type": "string"
@@ -790,9 +818,36 @@
                 },
                 "duration": {
                   "type": "string"
+                },
+                "excludeFromHistory": {
+                  "type": "boolean"
                 }
               },
               "description": "No effect on memory; startup boost only applies to CPU resources"
+            },
+            "decreaseUsageMarginPercent": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "oomBump": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "ratio": { "type": "string" },
+                "minBump": { "type": "string" },
+                "maxBumps": { "type": "integer", "minimum": 1 },
+                "hold": { "type": "string" }
+              }
+            },
+            "surge": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "triggerRatio": { "type": "string" },
+                "percentile": { "type": "integer", "enum": [50, 90, 95, 99] },
+                "window": { "type": "string" }
+              }
             },
             "maxIncreasePercent": {
               "type": "integer",
@@ -862,6 +917,34 @@
               "minimum": 1,
               "maximum": 50,
               "default": 1
+            },
+            "maxCpuIncreasePerMinute": {
+              "type": "string"
+            },
+            "maxMemoryIncreasePerMinute": {
+              "type": "string"
+            },
+            "hpaTargetBounds": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "cpu": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "min": { "type": "integer", "minimum": 1 },
+                    "max": { "type": "integer", "minimum": 1 }
+                  }
+                },
+                "memory": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "min": { "type": "integer", "minimum": 1 },
+                    "max": { "type": "integer", "minimum": 1 }
+                  }
+                }
+              }
             },
             "schedule": {
               "type": "object",

@@ -602,3 +602,28 @@ func TestRecordQuerySettings_UsesContainerBurst(t *testing.T) {
 	assert.Contains(t, app.CPU.FinalAdjustment, "burstSensitivity=0.1")
 	assert.NotContains(t, app.CPU.FinalAdjustment, "burstSensitivity=0.5")
 }
+
+func TestPodResourceRequestsOnly_IgnoresNativeSidecar(t *testing.T) {
+	t.Parallel()
+	requests := attunev1alpha1.ControlledRequestsOnly
+	both := attunev1alpha1.ControlledRequestsAndLimits
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			ContainerPolicies: []attunev1alpha1.ContainerResourcePolicy{
+				{ContainerName: "app", CPU: &attunev1alpha1.ResourceConfig{ControlledValues: &requests}},
+				{ContainerName: "mesh", CPU: &attunev1alpha1.ResourceConfig{ControlledValues: &both}},
+			},
+		},
+	}
+	always := corev1.ContainerRestartPolicyAlways
+	pod := &corev1.Pod{Spec: corev1.PodSpec{
+		InitContainers: []corev1.Container{{
+			Name:          "mesh",
+			RestartPolicy: &always,
+		}},
+		Containers: []corev1.Container{{Name: "app"}},
+	}}
+	// Resource HPA cap stays on spec.containers. Counting the native sidecar
+	// would return false because mesh is RequestsAndLimits.
+	assert.True(t, podResourceRequestsOnly(policy, pod, corev1.ResourceCPU, true))
+}

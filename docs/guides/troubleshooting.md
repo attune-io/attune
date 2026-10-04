@@ -317,15 +317,23 @@ for Auto, OneShot, and Canary during a real replacement.
 ### DaemonSet pods are not resized
 
 **Symptom**: Pods of a RollingUpdate DaemonSet stay at their current
-requests. The policy emits `DaemonSetRevisionUnavailable`.
+requests. The policy emits `DaemonSetRevisionUnavailable` or
+`RolloutInProgress`.
 
-**Cause**: The operator could not list `apps/controllerrevisions`. An
-image-only upgrade does not add that rule. Attune skips every pod of that
-DaemonSet until the list succeeds.
+**Cause**: Attune resizes a pod when its `controller-revision-hash` label
+matches that label on the current ControllerRevision. The revision name
+is `<daemonset>-<hash>`. The pod label is only `<hash>`. Pods still on
+the previous hash are skipped with `RolloutInProgress`.
 
-**Fix**: Give the operator ClusterRole get, list, and watch on
-`controllerrevisions`. A Helm upgrade adds the rule. OnDelete DaemonSets
-do not read ControllerRevisions.
+`DaemonSetRevisionUnavailable` means the current revision could not be
+read. That is a failed `controllerrevisions` list, or a current revision
+with no hash label. An image-only upgrade does not add the list rule.
+Attune skips every pod of that DaemonSet until the list succeeds. OnDelete
+DaemonSets do not read ControllerRevisions.
+
+**Fix**: Apply the ClusterRole with the new image so it can get and list
+`controllerrevisions`. The lookup uses the API reader, not a cached watch.
+A Helm upgrade adds the rule.
 
 ### InvalidConfig
 
@@ -729,7 +737,8 @@ Use the explanation chain (percentile → overhead → confidence → bounds →
 recommendation is still high.
 
 **Cause**: Deleted pods stay in the series until `historyWindow`, because
-there is no `CreationTimestamp` to cut on. The cutoff is creation plus
+there is no `CreationTimestamp` to cut on. A recreated pod keeps samples
+older than its new creation time. The cutoff is creation plus
 `startupBoost.duration` plus the rate window, so points near the end of
 startup can still count. A series with no pod label is not filtered
 (explanation note `startupExcluded=skipped`).
@@ -1676,8 +1685,11 @@ spec:
 
 ### Mid-rollout or no-op
 
-The operator skips patches while a Deployment/StatefulSet is rolling out,
-and no-ops when the template already matches. Events:
+The operator skips patches while a Deployment or StatefulSet is mid-replacement.
+An Argo Rollout is skipped while it is aborted, Paused, Progressing, or
+`updatedReplicas` is still behind `spec.replicas`. A Healthy Rollout whose
+updated replicas match the spec can still be patched. A no-op also happens
+when the template already matches. Events:
 
 - `TemplatePatched` (Normal) on success
 - `TemplatePatchFailed` (Warning) on API errors

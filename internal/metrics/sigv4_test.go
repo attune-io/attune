@@ -386,6 +386,34 @@ func TestSigV4Transport_CrossOriginStripsAuthHeaders(t *testing.T) {
 	assert.Equal(t, "keep", got.Get("X-Custom"))
 }
 
+func TestSigV4Transport_SignDoesNotMutateCaller(t *testing.T) {
+	origin, err := url.Parse("https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-example")
+	require.NoError(t, err)
+	signer := &recordingSigner{}
+	provider := &countingProvider{creds: aws.Credentials{AccessKeyID: "AKID", SecretAccessKey: "SECRET"}}
+	base := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("ok")), Header: make(http.Header), Request: r}, nil
+	})
+	rt := newSigV4Transport(base, origin, &SigV4Options{
+		Region: "us-east-1", Credentials: provider, Signer: signer,
+	}, false, logr.Discard())
+
+	const raw = "query=up"
+	req, err := http.NewRequest(http.MethodPost, origin.String()+"/api/v1/query", strings.NewReader(raw))
+	require.NoError(t, err)
+	req.Header.Set("X-Custom", "keep")
+	before := req.Header.Clone()
+	resp, err := rt.RoundTrip(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, 1, signer.calls)
+	assert.Equal(t, before, req.Header)
+	assert.Empty(t, req.Header.Get("Authorization"))
+	got, err := io.ReadAll(req.Body)
+	require.NoError(t, err)
+	assert.Equal(t, raw, string(got))
+}
+
 func TestSigV4Transport_NilIdempotencyKeyIsNotSigned(t *testing.T) {
 	signer := &recordingSigner{}
 	var forwarded http.Header

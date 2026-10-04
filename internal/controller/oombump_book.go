@@ -22,12 +22,15 @@ import (
 )
 
 // oomBumpPendingKey identifies one container on one workload for one policy.
+// workloadKind keeps a Deployment and a Rollout that share a name apart.
+// The pod annotation attune.io/oom-bump.<container> is a different key.
 type oomBumpPendingKey struct {
 	policyUID       string
 	policyNamespace string
 	policyName      string
 	workloadNS      string
 	workloadName    string
+	workloadKind    string
 	container       string
 }
 
@@ -175,7 +178,7 @@ type oomBumpAnnotationOnly struct {
 }
 
 // annotationOnlyStamps copies planned annotation-only stamps for one workload.
-func (p *oomBumpPending) annotationOnlyStamps(policyUID, policyNamespace, policyName, workloadNS, workloadName string) []oomBumpAnnotationOnly {
+func (p *oomBumpPending) annotationOnlyStamps(policyUID, policyNamespace, policyName, workloadNS, workloadName, workloadKind string) []oomBumpAnnotationOnly {
 	if p == nil {
 		return nil
 	}
@@ -184,7 +187,7 @@ func (p *oomBumpPending) annotationOnlyStamps(policyUID, policyNamespace, policy
 	var out []oomBumpAnnotationOnly
 	for k, entry := range p.items {
 		if k.policyUID != policyUID || k.policyNamespace != policyNamespace || k.policyName != policyName ||
-			k.workloadNS != workloadNS || k.workloadName != workloadName {
+			k.workloadNS != workloadNS || k.workloadName != workloadName || k.workloadKind != workloadKind {
 			continue
 		}
 		for _, stamp := range entry.stamps {
@@ -208,7 +211,7 @@ func (p *oomBumpPending) Clears(policyUID string) []oomBumpClear {
 	return append([]oomBumpClear(nil), p.cleared[policyUID]...)
 }
 
-func (p *oomBumpPending) Put(policyUID, policyNamespace, policyName, workloadNS, workloadName, container string, stamps []oomBumpPodStamp, baseHeld []oomBumpRecord) {
+func (p *oomBumpPending) Put(policyUID, policyNamespace, policyName, workloadNS, workloadName, workloadKind, container string, stamps []oomBumpPodStamp, baseHeld []oomBumpRecord) {
 	if p == nil || len(stamps) == 0 {
 		return
 	}
@@ -216,7 +219,7 @@ func (p *oomBumpPending) Put(policyUID, policyNamespace, policyName, workloadNS,
 	held := append([]oomBumpRecord(nil), baseHeld...)
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	k := oomBumpPendingKey{policyUID, policyNamespace, policyName, workloadNS, workloadName, container}
+	k := oomBumpPendingKey{policyUID, policyNamespace, policyName, workloadNS, workloadName, workloadKind, container}
 	p.items[k] = oomBumpPendingEntry{stamps: cp, baseHeld: held}
 }
 
@@ -231,36 +234,36 @@ func (p *oomBumpPending) peek(k oomBumpPendingKey, podNS, podName string) (oomBu
 }
 
 // Stamps returns a copy of the planned stamps for one container.
-func (p *oomBumpPending) Stamps(policyUID, policyNamespace, policyName, workloadNS, workloadName, container string) []oomBumpPodStamp {
+func (p *oomBumpPending) Stamps(policyUID, policyNamespace, policyName, workloadNS, workloadName, workloadKind, container string) []oomBumpPodStamp {
 	if p == nil {
 		return nil
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	entry := p.items[oomBumpPendingKey{policyUID, policyNamespace, policyName, workloadNS, workloadName, container}]
+	entry := p.items[oomBumpPendingKey{policyUID, policyNamespace, policyName, workloadNS, workloadName, workloadKind, container}]
 	return append([]oomBumpPodStamp(nil), entry.stamps...)
 }
 
 // PeekPod returns a copy of the planned stamp. It does not remove it.
-func (p *oomBumpPending) PeekPod(policyUID, policyNamespace, policyName, workloadNS, workloadName, container, podNS, podName string) (oomBumpPodStamp, bool) {
+func (p *oomBumpPending) PeekPod(policyUID, policyNamespace, policyName, workloadNS, workloadName, workloadKind, container, podNS, podName string) (oomBumpPodStamp, bool) {
 	if p == nil {
 		return oomBumpPodStamp{}, false
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	stamp, _, ok := p.peek(oomBumpPendingKey{policyUID, policyNamespace, policyName, workloadNS, workloadName, container}, podNS, podName)
+	stamp, _, ok := p.peek(oomBumpPendingKey{policyUID, policyNamespace, policyName, workloadNS, workloadName, workloadKind, container}, podNS, podName)
 	return stamp, ok
 }
 
 // DropPod removes a stamp that must not increment count (budget, QoS, pod not selected).
 // baseHeld stays so a later Applied call can still publish the stored floor.
-func (p *oomBumpPending) DropPod(policyUID, policyNamespace, policyName, workloadNS, workloadName, container, podNS, podName string) (oomBumpPodStamp, bool) {
+func (p *oomBumpPending) DropPod(policyUID, policyNamespace, policyName, workloadNS, workloadName, workloadKind, container, podNS, podName string) (oomBumpPodStamp, bool) {
 	if p == nil {
 		return oomBumpPodStamp{}, false
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	k := oomBumpPendingKey{policyUID, policyNamespace, policyName, workloadNS, workloadName, container}
+	k := oomBumpPendingKey{policyUID, policyNamespace, policyName, workloadNS, workloadName, workloadKind, container}
 	stamp, i, ok := p.peek(k, podNS, podName)
 	if !ok {
 		return oomBumpPodStamp{}, false
@@ -276,13 +279,13 @@ func (p *oomBumpPending) DropPod(policyUID, policyNamespace, policyName, workloa
 }
 
 // MarkApplied keeps the stamp in the list and records that the pod annotation was stored.
-func (p *oomBumpPending) MarkApplied(policyUID, policyNamespace, policyName, workloadNS, workloadName, container, podNS, podName string) {
+func (p *oomBumpPending) MarkApplied(policyUID, policyNamespace, policyName, workloadNS, workloadName, workloadKind, container, podNS, podName string) {
 	if p == nil {
 		return
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	k := oomBumpPendingKey{policyUID, policyNamespace, policyName, workloadNS, workloadName, container}
+	k := oomBumpPendingKey{policyUID, policyNamespace, policyName, workloadNS, workloadName, workloadKind, container}
 	entry := p.items[k]
 	for i := range entry.stamps {
 		if entry.stamps[i].Namespace == podNS && entry.stamps[i].PodName == podName {
@@ -295,13 +298,13 @@ func (p *oomBumpPending) MarkApplied(policyUID, policyNamespace, policyName, wor
 
 // Applied returns stamps whose pod annotation was stored, plus the in-hold
 // records from before this cycle, then deletes the key.
-func (p *oomBumpPending) Applied(policyUID, policyNamespace, policyName, workloadNS, workloadName, container string) ([]oomBumpPodStamp, []oomBumpRecord) {
+func (p *oomBumpPending) Applied(policyUID, policyNamespace, policyName, workloadNS, workloadName, workloadKind, container string) ([]oomBumpPodStamp, []oomBumpRecord) {
 	if p == nil {
 		return nil, nil
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	k := oomBumpPendingKey{policyUID, policyNamespace, policyName, workloadNS, workloadName, container}
+	k := oomBumpPendingKey{policyUID, policyNamespace, policyName, workloadNS, workloadName, workloadKind, container}
 	entry, ok := p.items[k]
 	if !ok {
 		return nil, nil

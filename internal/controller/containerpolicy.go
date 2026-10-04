@@ -81,7 +81,10 @@ func containerControlledRequestsOnly(policy *attunev1alpha1.AttunePolicy, contai
 
 // podResourceRequestsOnly is false when any non-excluded app container is
 // RequestsAndLimits. Init containers are not scanned: a Resource metric
-// sums spec.containers only. An omitted list, a nil pod, or a pod with no
+// sums spec.containers only. Native sidecars (init restartPolicy Always)
+// stay out of this cap on purpose, including when their container policy
+// is RequestsAndLimits. CREATE initial sizing still counts them in
+// createPodRequestsOnly. An omitted list, a nil pod, or a pod with no
 // managed app container keeps fallback.
 func podResourceRequestsOnly(policy *attunev1alpha1.AttunePolicy, pod *corev1.Pod, res corev1.ResourceName, fallback bool) bool {
 	if policy == nil || pod == nil || len(policy.Spec.ContainerPolicies) == 0 {

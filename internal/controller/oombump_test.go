@@ -226,13 +226,19 @@ func TestProposeOOMBump(t *testing.T) {
 		Now: cappedStored.HoldUntil, Hold: 24 * time.Hour, NewOOM: true,
 		FinishedAt: oomAt.Add(3 * time.Minute), Restart: 8, Stored: &cappedStored,
 	})
-	assert.Equal(t, oomBumpCapped, afterHold.Result)
+	// HoldUntil is expired at this instant, so the next OOM steps once from
+	// the live request. The stored count of 3 does not stay capped.
+	wantFloor, wantResult, bumpErr := oomBumpBytes(floor2, mi100, floor2, "1.2", 1, nil)
+	require.NoError(t, bumpErr)
+	assert.Equal(t, oomBumpApplied, wantResult)
+	assert.Equal(t, oomBumpApplied, afterHold.Result)
 	require.NotNil(t, afterHold.Stamp)
-	assert.True(t, afterHold.AnnotationOnly)
-	assert.Equal(t, 3, afterHold.Stamp.Count)
-	assert.Equal(t, floor2, afterHold.Stamp.Floor)
-	assert.True(t, afterHold.Stamp.HoldUntil.Equal(cappedStored.HoldUntil))
-	assert.Equal(t, mi800, afterHold.PublishBytes)
+	assert.False(t, afterHold.AnnotationOnly)
+	assert.Equal(t, 1, afterHold.Stamp.Count)
+	assert.Equal(t, floor2, afterHold.Stamp.Origin)
+	assert.Equal(t, wantFloor, afterHold.Stamp.Floor)
+	assert.True(t, afterHold.Stamp.HoldUntil.Equal(cappedStored.HoldUntil.Add(24*time.Hour)))
+	assert.Equal(t, wantFloor, afterHold.PublishBytes)
 
 	held := proposeOOMBump(oomBumpInput{
 		LiveBytes: floor1, HasPercentile: true, PercentileBytes: mi200,

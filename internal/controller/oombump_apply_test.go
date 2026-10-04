@@ -132,12 +132,13 @@ func TestPlanWorkloadOOMBump(t *testing.T) {
 			wantWork:   true,
 		},
 		{
-			name:      "excluded new oom is skipped once",
-			block:     empty,
-			container: "istio-proxy",
-			excluded:  true,
-			pods:      []corev1.Pod{oomBumpPod("a", "istio-proxy", "200Mi", oomKilledStatus(later, 1), "", false)},
-			wantNow:   []string{oomBumpSkipped},
+			name:       "excluded new oom is skipped once",
+			block:      empty,
+			container:  "istio-proxy",
+			excluded:   true,
+			pods:       []corev1.Pod{oomBumpPod("a", "istio-proxy", "200Mi", oomKilledStatus(later, 1), "", false)},
+			wantNow:    []string{oomBumpSkipped},
+			wantStamps: 1,
 		},
 		{
 			name:      "quiet excluded emits nothing",
@@ -297,23 +298,21 @@ func TestPlanWorkloadOOMBump(t *testing.T) {
 			wantAnnOnly: true,
 		},
 		{
-			name:       "capped after hold keeps the percentile",
+			name:       "expired hold steps once and keeps a higher percentile",
 			block:      empty,
 			container:  "app",
 			percentile: origin512,
 			hasPct:     true,
 			pods: []corev1.Pod{oomBumpPod("a", "app", "300Mi", oomKilledStatus(later, 4),
 				stored(3, live200, floor300, now, 3, expired), false)},
-			wantPub:     true,
-			wantBytes:   origin512,
-			wantNote:    true,
-			wantStamps:  1,
-			wantCount:   3,
-			wantOrigin:  live200,
-			wantFloor:   floor300,
-			wantNow:     []string{oomBumpCapped},
-			wantEvent:   "OOMBumpCapped",
-			wantAnnOnly: true,
+			wantPub:    true,
+			wantBytes:  origin512,
+			wantNote:   true,
+			wantStamps: 1,
+			wantCount:  1,
+			wantOrigin: qtyBytes(t, "300Mi"),
+			wantFloor:  origin512,
+			wantWork:   true,
 		},
 	}
 
@@ -481,6 +480,46 @@ func oomKilledStatus(finished time.Time, restart int32) *corev1.ContainerStatus 
 		RestartCount:         restart,
 		LastTerminationState: corev1.ContainerState{Terminated: term},
 	}
+}
+
+func TestPlanWorkloadOOMBump_ExpiredHoldStepsFromLive(t *testing.T) {
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	origin := qtyBytes(t, "256Mi")
+	live := qtyBytes(t, "1Gi")
+	raw, err := formatOOMBumpRecord(oomBumpRecord{
+		Count: 1, Origin: origin, Floor: origin,
+		OOMAt: now.Add(-2 * time.Hour), Restart: 1, HoldUntil: now.Add(-time.Minute),
+	})
+	require.NoError(t, err)
+	pod := oomBumpPod("a", "app", "1Gi", oomKilledStatus(now, 2), "", false)
+	ratio := "1.5"
+	block := &attunev1alpha1.OOMBump{Ratio: &ratio}
+	plan := planWorkloadOOMBump(block, "app", false, 0, false, nil, raw, []corev1.Pod{pod}, now, nil)
+	require.True(t, plan.UsePublish)
+	assert.Greater(t, plan.PublishBytes, live)
+	require.Len(t, plan.Stamps, 1)
+	assert.Equal(t, live, plan.Stamps[0].Stamp.Origin)
+	assert.Equal(t, 1, plan.Stamps[0].Stamp.Count)
+
+	updated, err := formatOOMBumpRecord(plan.Stamps[0].Stamp)
+	require.NoError(t, err)
+	next := oomBumpPod("a", "app", "1Gi", oomKilledStatus(now, 2), updated, false)
+	second := planWorkloadOOMBump(block, "app", false, 0, false, nil, updated, []corev1.Pod{next}, now, nil)
+	assert.Empty(t, second.MetricNow)
+	if len(second.Stamps) > 0 {
+		assert.Equal(t, 1, second.Stamps[0].Stamp.Count)
+	}
+
+	heldAt := now.Add(-2 * time.Hour)
+	heldRaw, err := formatOOMBumpRecord(oomBumpRecord{
+		Count: 1, Origin: origin, Floor: origin,
+		OOMAt: heldAt, Restart: 1, HoldUntil: now.Add(time.Hour),
+	})
+	require.NoError(t, err)
+	held := oomBumpPod("a", "app", "1Gi", oomKilledStatus(heldAt, 1), heldRaw, false)
+	heldPlan := planWorkloadOOMBump(block, "app", false, 0, false, nil, heldRaw, []corev1.Pod{held}, now, nil)
+	assert.Empty(t, heldPlan.Stamps)
+	assert.Equal(t, origin, heldPlan.PublishBytes)
 }
 
 func TestPlanWorkloadOOMBump_ConsumedSignalStartsOver(t *testing.T) {

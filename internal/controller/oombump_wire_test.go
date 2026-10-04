@@ -124,7 +124,13 @@ func TestOOMBumpPlan_ExcludedSkipsOnce(t *testing.T) {
 	plan := r.planContainerOOMBump(context.Background(), policy, oomWireDeploy("api"), "app", true, 0, false, []corev1.Pod{fresh}, now)
 	assert.Equal(t, before+1, oomMetric(policy.Name, oomBumpSkipped))
 	assert.Equal(t, []string{oomBumpSkipped}, plan.MetricNow)
-	assert.Empty(t, plan.Stamps)
+	require.Len(t, plan.Stamps, 1)
+	raw, err := formatOOMBumpRecord(plan.Stamps[0].Stamp)
+	require.NoError(t, err)
+	stamped := oomBumpPod("p", "app", "200Mi", oomKilledStatus(now, 1), raw, false)
+	again := r.planContainerOOMBump(context.Background(), policy, oomWireDeploy("api"), "app", true, 0, false, []corev1.Pod{stamped}, now)
+	assert.Empty(t, again.MetricNow)
+	assert.Equal(t, before+1, oomMetric(policy.Name, oomBumpSkipped))
 
 	quiet := oomBumpPod("p", "app", "200Mi", nil, "", false)
 	quietPlan := r.planContainerOOMBump(context.Background(), policy, oomWireDeploy("api"), "app", true, 0, false, []corev1.Pod{quiet}, now)
@@ -269,6 +275,7 @@ func TestOOMBumpPreferPending(t *testing.T) {
 	}
 	rec := attunev1alpha1.WorkloadRecommendation{
 		Workload:   "api",
+		Kind:       "Deployment",
 		Containers: []attunev1alpha1.ContainerRecommendation{{Name: "app"}},
 	}
 	got := preferPendingOOMBumpPods(r, policy, pods, rec)
@@ -278,13 +285,13 @@ func TestOOMBumpPreferPending(t *testing.T) {
 		Namespace: "ns", PodName: "b", AnnotationOnly: true,
 		Stamp: oomBumpRecord{Count: 1, Origin: 1, Floor: 2, Restart: 1, OOMAt: oomWireNow(), HoldUntil: oomWireNow().Add(time.Hour)},
 	}
-	r.oomBumps.Put(string(policy.UID), policy.Namespace, policy.Name, "ns", "api", "app", []oomBumpPodStamp{fill}, nil)
+	r.oomBumps.Put(string(policy.UID), policy.Namespace, policy.Name, "ns", "api", "Deployment", "app", []oomBumpPodStamp{fill}, nil)
 	got = preferPendingOOMBumpPods(r, policy, pods, rec)
 	assert.True(t, samePodBacking(pods, got))
 
 	real := fill
 	real.AnnotationOnly = false
-	r.oomBumps.Put(string(policy.UID), policy.Namespace, policy.Name, "ns", "api", "app", []oomBumpPodStamp{real}, nil)
+	r.oomBumps.Put(string(policy.UID), policy.Namespace, policy.Name, "ns", "api", "Deployment", "app", []oomBumpPodStamp{real}, nil)
 	got = preferPendingOOMBumpPods(r, policy, pods, rec)
 	require.Len(t, got, 2)
 	assert.Equal(t, "b", got[0].Name)
@@ -337,9 +344,17 @@ func TestOOMBumpRevertGate(t *testing.T) {
 	adjusted, suppress = r.oomBumpRevertGate(context.Background(), policy, &pod, record("150Mi", "200Mi"), "throttle", now)
 	assert.False(t, suppress)
 	assert.Equal(t, floor, adjusted.OriginalResources.Requests.Memory().Value())
-	assert.Equal(t, floor, adjusted.OriginalResources.Limits.Memory().Value())
+	assert.Equal(t, qtyBytes(t, "200Mi"), adjusted.OriginalResources.Limits.Memory().Value())
 
 	adjusted, suppress = r.oomBumpRevertGate(context.Background(), policy, &pod, record("150Mi", "200Mi"), "slo:latency", now)
+	assert.False(t, suppress)
+	assert.Equal(t, floor, adjusted.OriginalResources.Requests.Memory().Value())
+	assert.Equal(t, qtyBytes(t, "200Mi"), adjusted.OriginalResources.Limits.Memory().Value())
+
+	both := policy.DeepCopy()
+	ral := attunev1alpha1.ControlledRequestsAndLimits
+	both.Spec.Memory.ControlledValues = &ral
+	adjusted, suppress = r.oomBumpRevertGate(context.Background(), both, &pod, record("150Mi", "200Mi"), "throttle", now)
 	assert.False(t, suppress)
 	assert.Equal(t, floor, adjusted.OriginalResources.Requests.Memory().Value())
 	assert.Equal(t, floor, adjusted.OriginalResources.Limits.Memory().Value())
@@ -356,6 +371,20 @@ func TestOOMBumpRevertGate(t *testing.T) {
 	assert.Equal(t, qtyBytes(t, "200Mi"), adjusted.OriginalResources.Limits.Memory().Value())
 }
 
+func TestOOMBumpRevertGate_NilBumpDoesNotGetPod(t *testing.T) {
+	now := oomWireNow()
+	pod := oomBumpPod("p", "app", "200Mi", oomKilledStatus(now, 1), "", false)
+	cs := kubefake.NewSimpleClientset(&pod)
+	r := &AttunePolicyReconciler{Clientset: cs}
+	off := newTestPolicy("oom-wire-revert-off", "ns")
+	_, _ = r.oomBumpRevertGate(context.Background(), off, &pod, safety.ResizeRecord{
+		PodName: pod.Name, Namespace: pod.Namespace, Container: "app",
+	}, "oomkill", now)
+	for _, action := range cs.Actions() {
+		assert.NotEqual(t, "get", action.GetVerb())
+	}
+}
+
 func TestOOMBumpBook_DropKeepsBase(t *testing.T) {
 	now := oomWireNow()
 	hold := now.Add(time.Hour)
@@ -364,18 +393,35 @@ func TestOOMBumpBook_DropKeepsBase(t *testing.T) {
 	base := oomBumpRecord{Count: 1, Origin: origin, Floor: floor, OOMAt: now.Add(-time.Hour), Restart: 1, HoldUntil: hold}
 	higher := oomBumpRecord{Count: 2, Origin: origin, Floor: floor, OOMAt: now, Restart: 2, HoldUntil: hold}
 	book := newOOMBumpPending()
-	book.Put("uid", "ns", "pol", "ns", "api", "app", []oomBumpPodStamp{{
+	book.Put("uid", "ns", "pol", "ns", "api", "Deployment", "app", []oomBumpPodStamp{{
 		Namespace: "ns", PodName: "p", Stamp: higher,
 	}}, []oomBumpRecord{base})
-	_, ok := book.DropPod("uid", "ns", "pol", "ns", "api", "app", "ns", "p")
+	_, ok := book.DropPod("uid", "ns", "pol", "ns", "api", "Deployment", "app", "ns", "p")
 	require.True(t, ok)
-	applied, held := book.Applied("uid", "ns", "pol", "ns", "api", "app")
+	applied, held := book.Applied("uid", "ns", "pol", "ns", "api", "Deployment", "app")
 	assert.Empty(t, applied)
 	require.Len(t, held, 1)
 	assert.Equal(t, 1, held[0].Count)
 	value := heldWorkloadValue(held, applied, now)
 	assert.Contains(t, value, "count=1")
 	assert.NotContains(t, value, "count=2")
+}
+
+func TestOOMBumpPendingKeySeparatesKind(t *testing.T) {
+	book := newOOMBumpPending()
+	book.Put("uid", "ns", "pol", "ns", "api", "Deployment", "app", []oomBumpPodStamp{{
+		Namespace: "ns", PodName: "p",
+	}}, nil)
+	book.Put("uid", "ns", "pol", "ns", "api", "Rollout", "app", []oomBumpPodStamp{{
+		Namespace: "ns", PodName: "other",
+	}}, nil)
+	got, ok := book.PeekPod("uid", "ns", "pol", "ns", "api", "Deployment", "app", "ns", "p")
+	require.True(t, ok)
+	assert.Equal(t, "p", got.PodName)
+	_, ok = book.PeekPod("uid", "ns", "pol", "ns", "api", "Rollout", "app", "ns", "p")
+	assert.False(t, ok)
+	_, ok = book.PeekPod("uid", "ns", "pol", "ns", "api", "Rollout", "app", "ns", "other")
+	assert.True(t, ok)
 }
 
 func TestOOMBumpStore_EmptyKeepsAnnotation(t *testing.T) {
@@ -390,7 +436,7 @@ func TestOOMBumpStore_EmptyKeepsAnnotation(t *testing.T) {
 		Name: "api", Namespace: "ns", Annotations: map[string]string{key: kept},
 	}}
 	r.Client = fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(dep).Build()
-	r.oomBumps.Put(string(policy.UID), policy.Namespace, policy.Name, "ns", "api", "app", []oomBumpPodStamp{{
+	r.oomBumps.Put(string(policy.UID), policy.Namespace, policy.Name, "ns", "api", "Deployment", "app", []oomBumpPodStamp{{
 		Namespace: "ns", PodName: "gone",
 		Stamp: oomBumpRecord{
 			Count: 2, Origin: qtyBytes(t, "200Mi"), Floor: qtyBytes(t, "300Mi"),
@@ -400,7 +446,7 @@ func TestOOMBumpStore_EmptyKeepsAnnotation(t *testing.T) {
 		Count: 1, Origin: qtyBytes(t, "200Mi"), Floor: qtyBytes(t, "300Mi"),
 		OOMAt: now.Add(-48 * time.Hour), Restart: 1, HoldUntil: now.Add(-time.Hour),
 	}})
-	_, dropped := r.oomBumps.DropPod(string(policy.UID), policy.Namespace, policy.Name, "ns", "api", "app", "ns", "gone")
+	_, dropped := r.oomBumps.DropPod(string(policy.UID), policy.Namespace, policy.Name, "ns", "api", "Deployment", "app", "ns", "gone")
 	require.True(t, dropped)
 	r.storeAppliedOOMBumps(context.Background(), policy, dep, attunev1alpha1.WorkloadRecommendation{
 		Workload:   "api",
@@ -423,14 +469,14 @@ func TestOOMBumpStore_WritesMarkedCount(t *testing.T) {
 		Name: "api", Namespace: "ns", Annotations: map[string]string{key: previous},
 	}}
 	r.Client = fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(dep).Build()
-	r.oomBumps.Put(string(policy.UID), policy.Namespace, policy.Name, "ns", "api", "app", []oomBumpPodStamp{{
+	r.oomBumps.Put(string(policy.UID), policy.Namespace, policy.Name, "ns", "api", "Deployment", "app", []oomBumpPodStamp{{
 		Namespace: "ns", PodName: "p",
 		Stamp: oomBumpRecord{
 			Count: 2, Origin: qtyBytes(t, "200Mi"), Floor: qtyBytes(t, "300Mi"),
 			OOMAt: now, Restart: 2, HoldUntil: now.Add(time.Hour),
 		},
 	}}, nil)
-	r.oomBumps.MarkApplied(string(policy.UID), policy.Namespace, policy.Name, "ns", "api", "app", "ns", "p")
+	r.oomBumps.MarkApplied(string(policy.UID), policy.Namespace, policy.Name, "ns", "api", "Deployment", "app", "ns", "p")
 	var current appsv1.Deployment
 	require.NoError(t, r.Get(context.Background(), client.ObjectKey{Namespace: "ns", Name: "api"}, &current))
 	r.storeAppliedOOMBumps(context.Background(), policy, &current, attunev1alpha1.WorkloadRecommendation{
@@ -453,7 +499,7 @@ func TestOOMBumpFinishStored(t *testing.T) {
 	}
 
 	appliedPolicy := oomWirePolicy("oom-wire-finish-applied")
-	r.oomBumps.Put(string(appliedPolicy.UID), appliedPolicy.Namespace, appliedPolicy.Name, wl.Namespace, wl.Name, "app", []oomBumpPodStamp{{
+	r.oomBumps.Put(string(appliedPolicy.UID), appliedPolicy.Namespace, appliedPolicy.Name, wl.Namespace, wl.Name, "Deployment", "app", []oomBumpPodStamp{{
 		Namespace: "ns", PodName: "p", Stamp: record,
 	}}, nil)
 	beforeApplied := oomMetric(appliedPolicy.Name, oomBumpApplied)
@@ -461,7 +507,7 @@ func TestOOMBumpFinishStored(t *testing.T) {
 	assert.Equal(t, beforeApplied+1, oomMetric(appliedPolicy.Name, oomBumpApplied))
 
 	fillPolicy := oomWirePolicy("oom-wire-finish-fill")
-	r.oomBumps.Put(string(fillPolicy.UID), fillPolicy.Namespace, fillPolicy.Name, wl.Namespace, wl.Name, "app", []oomBumpPodStamp{{
+	r.oomBumps.Put(string(fillPolicy.UID), fillPolicy.Namespace, fillPolicy.Name, wl.Namespace, wl.Name, "Deployment", "app", []oomBumpPodStamp{{
 		Namespace: "ns", PodName: "p", Stamp: record, AnnotationOnly: true, Result: oomBumpApplied,
 	}}, nil)
 	beforeFill := oomMetric(fillPolicy.Name, oomBumpApplied)
@@ -469,7 +515,7 @@ func TestOOMBumpFinishStored(t *testing.T) {
 	assert.Equal(t, beforeFill, oomMetric(fillPolicy.Name, oomBumpApplied))
 
 	clampPolicy := oomWirePolicy("oom-wire-finish-clamp")
-	r.oomBumps.Put(string(clampPolicy.UID), clampPolicy.Namespace, clampPolicy.Name, wl.Namespace, wl.Name, "app", []oomBumpPodStamp{{
+	r.oomBumps.Put(string(clampPolicy.UID), clampPolicy.Namespace, clampPolicy.Name, wl.Namespace, wl.Name, "Deployment", "app", []oomBumpPodStamp{{
 		Namespace: "ns", PodName: "p", Stamp: record, Result: oomBumpClamped, Event: "OOMBumpClamped",
 	}}, nil)
 	beforeClamp := oomMetric(clampPolicy.Name, oomBumpClamped)
@@ -496,7 +542,7 @@ func TestSettleUnchangedOOMBump(t *testing.T) {
 	realPod := oomBumpPod("real", "app", "300Mi", nil, "", false)
 	realWL := oomWireDeploy("api")
 	real := NewAttunePolicyReconciler()
-	real.oomBumps.Put(string(realPolicy.UID), realPolicy.Namespace, realPolicy.Name, realWL.Namespace, realWL.Name, "app", []oomBumpPodStamp{{
+	real.oomBumps.Put(string(realPolicy.UID), realPolicy.Namespace, realPolicy.Name, realWL.Namespace, realWL.Name, "Deployment", "app", []oomBumpPodStamp{{
 		Namespace: realPod.Namespace, PodName: realPod.Name, Stamp: record, Result: oomBumpApplied,
 	}}, nil)
 	beforeReal := oomMetric(realPolicy.Name, oomBumpSkipped)
@@ -509,7 +555,7 @@ func TestSettleUnchangedOOMBump(t *testing.T) {
 	raisePod := oomBumpPod("raise", "app", "300Mi", nil, "", false)
 	raiseWL := oomWireDeploy("api")
 	raising := NewAttunePolicyReconciler()
-	raising.oomBumps.Put(string(raisePolicy.UID), raisePolicy.Namespace, raisePolicy.Name, raiseWL.Namespace, raiseWL.Name, "app", []oomBumpPodStamp{{
+	raising.oomBumps.Put(string(raisePolicy.UID), raisePolicy.Namespace, raisePolicy.Name, raiseWL.Namespace, raiseWL.Name, "Deployment", "app", []oomBumpPodStamp{{
 		Namespace: raisePod.Namespace, PodName: raisePod.Name, Stamp: record, Result: oomBumpApplied,
 	}}, nil)
 	beforeRaise := oomMetric(raisePolicy.Name, oomBumpSkipped)
@@ -525,7 +571,7 @@ func TestSettleUnchangedOOMBump(t *testing.T) {
 	fillWL := oomWireDeploy("api")
 	fill := NewAttunePolicyReconciler()
 	fill.Clientset = kubefake.NewSimpleClientset(fillPod.DeepCopy())
-	fill.oomBumps.Put(string(fillPolicy.UID), fillPolicy.Namespace, fillPolicy.Name, fillWL.Namespace, fillWL.Name, "app", []oomBumpPodStamp{{
+	fill.oomBumps.Put(string(fillPolicy.UID), fillPolicy.Namespace, fillPolicy.Name, fillWL.Namespace, fillWL.Name, "Deployment", "app", []oomBumpPodStamp{{
 		Namespace: fillPod.Namespace, PodName: fillPod.Name, Stamp: record, AnnotationOnly: true,
 	}}, nil)
 	beforeFill := oomMetric(fillPolicy.Name, oomBumpSkipped)
@@ -572,7 +618,7 @@ func TestClearOOMBumpAfterFullRevert(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	r.Client = fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod.DeepCopy(), deploy.DeepCopy()).Build()
 	r.Scheme = scheme
-	r.oomBumps.Put(string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "app", []oomBumpPodStamp{{
+	r.oomBumps.Put(string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "Deployment", "app", []oomBumpPodStamp{{
 		Namespace: pod.Namespace, PodName: pod.Name, Stamp: oomBumpRecord{
 			Count: 1, Origin: qtyBytes(t, "200Mi"), Floor: qtyBytes(t, "300Mi"),
 			OOMAt: oomAt, Restart: 1, HoldUntil: now.Add(time.Hour),
@@ -651,13 +697,13 @@ func TestConsumedOOMSignalSurvivesResetUID(t *testing.T) {
 	r.oomBumps.NoteClear(string(policy.UID), clear)
 	require.Len(t, r.oomBumps.Clears(string(policy.UID)), 1)
 
-	r.oomBumps.Put(string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "app", []oomBumpPodStamp{{
+	r.oomBumps.Put(string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "Deployment", "app", []oomBumpPodStamp{{
 		Namespace: "ns", PodName: "a", Stamp: oomBumpRecord{
 			Count: 1, Origin: origin, Floor: floor, OOMAt: oomAt, Restart: 1, HoldUntil: now.Add(time.Hour),
 		},
 	}}, nil)
 	r.oomBumps.ResetUID(string(policy.UID))
-	_, still := r.oomBumps.PeekPod(string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "app", "ns", "a")
+	_, still := r.oomBumps.PeekPod(string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "Deployment", "app", "ns", "a")
 	assert.False(t, still)
 	kept := r.oomBumps.Clears(string(policy.UID))
 	require.Len(t, kept, 1)
@@ -808,24 +854,24 @@ func TestDropOOMBumpStampKeepsAnnotationOnly(t *testing.T) {
 
 	policy := oomWirePolicy("oom-wire-drop-annonly")
 	r := NewAttunePolicyReconciler()
-	r.oomBumps.Put(string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "app", []oomBumpPodStamp{{
+	r.oomBumps.Put(string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "Deployment", "app", []oomBumpPodStamp{{
 		Namespace: "ns", PodName: "a", Stamp: record, AnnotationOnly: true,
 	}}, nil)
 	before := oomMetric(policy.Name, oomBumpSkipped)
 	r.dropOOMBumpStamp(policy, deploy, "app", "ns", "a", true)
-	stamp, ok := r.oomBumps.PeekPod(string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "app", "ns", "a")
+	stamp, ok := r.oomBumps.PeekPod(string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "Deployment", "app", "ns", "a")
 	require.True(t, ok)
 	assert.True(t, stamp.AnnotationOnly)
 	assert.Equal(t, before, oomMetric(policy.Name, oomBumpSkipped))
 
 	realPolicy := oomWirePolicy("oom-wire-drop-real")
 	real := NewAttunePolicyReconciler()
-	real.oomBumps.Put(string(realPolicy.UID), realPolicy.Namespace, realPolicy.Name, deploy.Namespace, deploy.Name, "app", []oomBumpPodStamp{{
+	real.oomBumps.Put(string(realPolicy.UID), realPolicy.Namespace, realPolicy.Name, deploy.Namespace, deploy.Name, "Deployment", "app", []oomBumpPodStamp{{
 		Namespace: "ns", PodName: "a", Stamp: record, Result: oomBumpApplied,
 	}}, nil)
 	beforeReal := oomMetric(realPolicy.Name, oomBumpSkipped)
 	real.dropOOMBumpStamp(realPolicy, deploy, "app", "ns", "a", true)
-	_, still := real.oomBumps.PeekPod(string(realPolicy.UID), realPolicy.Namespace, realPolicy.Name, deploy.Namespace, deploy.Name, "app", "ns", "a")
+	_, still := real.oomBumps.PeekPod(string(realPolicy.UID), realPolicy.Namespace, realPolicy.Name, deploy.Namespace, deploy.Name, "Deployment", "app", "ns", "a")
 	assert.False(t, still)
 	assert.Equal(t, beforeReal+1, oomMetric(realPolicy.Name, oomBumpSkipped))
 }

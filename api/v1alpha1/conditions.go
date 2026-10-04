@@ -63,9 +63,12 @@ const (
 	// retries. This is not InvalidConfig.
 	ReasonWorkloadCRDMissing = "WorkloadCRDMissing"
 	// ReasonTemplateWorkloadRef is set on ConditionTemplatePersistence when
-	// a Rollout spec.workloadRef is set. Attune does not patch that template
-	// and does not follow the reference.
+	// a Rollout spec.workloadRef is set. Attune does not patch that template.
+	// Recommendations still read the referenced pod template.
 	ReasonTemplateWorkloadRef = "TemplateWorkloadRef"
+	// ReasonWorkloadRefUnread is set when that referenced object cannot be
+	// read, or it has no containers. Recommendations are not computed.
+	ReasonWorkloadRefUnread = "WorkloadRefUnread"
 	// ReasonConflictCheckFailed is set when listing AttunePolicies for
 	// conflict detection fails. Recommendations from the last successful
 	// cycle are kept; this cycle does not compute new ones.

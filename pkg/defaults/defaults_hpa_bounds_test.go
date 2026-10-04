@@ -96,3 +96,55 @@ func TestMergeDefaults_HPATargetBounds(t *testing.T) {
 	*partial.Spec.UpdateStrategy.HPATargetBounds.CPU.Min = 10
 	assert.Equal(t, int32(50), *defaults.Spec.UpdateStrategy.HPATargetBounds.CPU.Min)
 }
+
+func TestMergeDefaults_HPAMinAboveMaxIsNotInherited(t *testing.T) {
+	t.Parallel()
+	high := int32(80)
+	low := int32(40)
+	defaults := &attunev1alpha1.AttuneDefaults{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				HPATargetBounds: &attunev1alpha1.HPATargetBounds{
+					CPU: &attunev1alpha1.HPATargetBound{Min: &high},
+				},
+			},
+		},
+	}
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				HPATargetBounds: &attunev1alpha1.HPATargetBounds{
+					CPU: &attunev1alpha1.HPATargetBound{Max: &low},
+				},
+			},
+		},
+	}
+	notes := MergeDefaults(policy, defaults)
+	assert.Equal(t, int32(40), *policy.Spec.UpdateStrategy.HPATargetBounds.CPU.Max)
+	assert.Nil(t, policy.Spec.UpdateStrategy.HPATargetBounds.CPU.Min)
+	assert.NotContains(t, notes, "hpaTargetBounds.cpu.min")
+	assert.Equal(t, int32(80), *defaults.Spec.UpdateStrategy.HPATargetBounds.CPU.Min)
+
+	defaults.Spec.UpdateStrategy.HPATargetBounds.CPU = &attunev1alpha1.HPATargetBound{Max: &low}
+	policy = &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				HPATargetBounds: &attunev1alpha1.HPATargetBounds{
+					CPU: &attunev1alpha1.HPATargetBound{Min: &high},
+				},
+			},
+		},
+	}
+	notes = MergeDefaults(policy, defaults)
+	assert.Equal(t, int32(80), *policy.Spec.UpdateStrategy.HPATargetBounds.CPU.Min)
+	assert.Nil(t, policy.Spec.UpdateStrategy.HPATargetBounds.CPU.Max)
+	assert.NotContains(t, notes, "hpaTargetBounds.cpu.max")
+
+	defaults.Spec.UpdateStrategy.HPATargetBounds.CPU = &attunev1alpha1.HPATargetBound{Min: &high, Max: &low}
+	omitted := &attunev1alpha1.AttunePolicy{}
+	notes = MergeDefaults(omitted, defaults)
+	if omitted.Spec.UpdateStrategy != nil && omitted.Spec.UpdateStrategy.HPATargetBounds != nil {
+		assert.Nil(t, omitted.Spec.UpdateStrategy.HPATargetBounds.CPU)
+	}
+	assert.NotContains(t, notes, "hpaTargetBounds.cpu")
+}

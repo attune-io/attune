@@ -69,14 +69,30 @@ If that list fails, Attune skips every pod of that DaemonSet and emits
 `DaemonSetRevisionUnavailable`. It does not resize them. OnDelete does not
 read ControllerRevisions.
 
+### Copy into the next release notes
+
+These behaviors change when the operator is upgraded, with no YAML edit.
+The generated notes for the next release must list them. Do not edit
+release pull request 889 to add the list.
+
+- Omitted `maxAllowed` is not capped
+- CloudWatch `cpuUnit` empty means Millicores
+- A stored `0s` cooldown, safety period, or SLO window can be updated and deleted. A new `0s` is rejected
+- RollingUpdate DaemonSets resize the current revision. The pod label is the hash, not the revision name
+- A QoS check with `spec.resources` uses one rule on both sides
+- A stored HPA CPU base that is missing other containers is repaired. Growth of the same containers keeps the stored original
+- Datadog null points are dropped
+
 ### Stored cooldown of 0s
 
-A stored `cooldown: 0s` is not a wait. The controller reconciles that
-policy about once an hour, and it can resize. A new apply that still sets
-`0s` is rejected. Omit the field for the 1h default, or set at least `1m`.
-The same floor applies to `safetyObservationPeriod` and an SLO
-`evaluationWindow`. Canary `observationPeriod: 0s` still means the built-in
-observation period.
+A stored `cooldown: 0s` is not a wait. The controller treats it as the 1h
+default. An update that leaves that stored `0s` unchanged is accepted,
+including the update that removes the finalizer, so the object can be
+deleted. A create that sets `0s`, or an update that changes a positive
+duration to `0s`, is still rejected. Omit the field for the 1h default,
+or set at least `1m`. The same rule applies to `safetyObservationPeriod`
+and an SLO `evaluationWindow`. Canary `observationPeriod: 0s` still means
+the built-in observation period.
 
 ### Datadog null points
 
@@ -151,7 +167,8 @@ Sample timestamps are the end of `rate()`.
 Existing startup boost policies keep today's percentile until you set
 `excludeFromHistory: true`. Nil and false do not change the percentile.
 Memory samples are unchanged. Deleted pods stay in the history window,
-because there is no `CreationTimestamp` to cut on. A series with no pod
+because there is no `CreationTimestamp` to cut on. A recreated pod keeps
+samples older than its new `CreationTimestamp`. A series with no pod
 label is left unfiltered.
 
 ### RequestsAndLimits limit multiplier
@@ -181,11 +198,17 @@ that pair is rejected at reconcile.
 
 ### HPA auto-tune keeps the stored CPU base
 
-An HPA that Attune has already tuned keeps its stored CPU base, including
-a partial sum written before this fix. A later resize does not replace
-that base with the full pod total.
+An HPA that Attune has already tuned keeps its stored CPU base when that
+base is at least the pre-resize pod sum. A stored pod-level base below
+that sum is repaired only when the history rows' old sum still fits in
+the stored base. That gap is other containers. The next CPU resize
+replaces `attune.io/original-cpu-request` with the pre-resize sum and
+emits `HPABaseRepaired`. If the history old sum is already above the
+stored base, those containers grew. Attune keeps the stored original and
+adds only containers that have no history row. ContainerResource bases
+are not repaired this way.
 
-To store the full pod base, delete these annotations and leave
+Deleting the keys still stores a fresh base on the next resize. Leave
 `attune.io/auto-tune` in place:
 
 - `attune.io/original-target-cpu`
@@ -193,8 +216,7 @@ To store the full pod base, delete these annotations and leave
 - any `attune.io/hpa-cpu-target.*` key
 - any `attune.io/hpa-cpu-base.*` key
 
-The next successful CPU resize stores the full base. Deleting the keys is
-required. The next resize does not repair an old annotation by itself.
+The next successful CPU resize stores the full base when the keys are gone.
 
 ### Omitted maxAllowed is not capped
 

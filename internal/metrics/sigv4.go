@@ -116,7 +116,11 @@ func (t *sigv4Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if t.opts == nil || strings.TrimSpace(t.opts.Region) == "" {
 		return nil, fmt.Errorf("AWS region is required")
 	}
-	payloadHash, err := hashRequestBody(req)
+	signed, err := cloneForSign(req)
+	if err != nil {
+		return nil, err
+	}
+	payloadHash, err := hashRequestBody(signed)
 	if err != nil {
 		return nil, err
 	}
@@ -128,14 +132,14 @@ func (t *sigv4Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, fmt.Errorf("prometheus sigv4 credentials: %w", err)
 	}
-	stripSignedHeaders(req.Header)
-	unsent := dropUnsentHeaders(req.Header)
-	if err := t.signer.SignHTTP(req.Context(), creds, req, payloadHash, sigV4ServiceName, t.opts.Region, time.Now()); err != nil {
-		restoreHeaderKeys(req.Header, unsent)
+	stripSignedHeaders(signed.Header)
+	unsent := dropUnsentHeaders(signed.Header)
+	if err := t.signer.SignHTTP(req.Context(), creds, signed, payloadHash, sigV4ServiceName, t.opts.Region, time.Now()); err != nil {
+		restoreHeaderKeys(signed.Header, unsent)
 		return nil, fmt.Errorf("prometheus sigv4 sign: %w", err)
 	}
-	restoreHeaderKeys(req.Header, unsent)
-	resp, err := t.base.RoundTrip(req)
+	restoreHeaderKeys(signed.Header, unsent)
+	resp, err := t.base.RoundTrip(signed)
 	if err != nil {
 		return nil, err
 	}
@@ -177,6 +181,38 @@ func resolveSigV4Provider(ctx context.Context, opts *SigV4Options) (aws.Credenti
 		return nil, fmt.Errorf("prometheus sigv4 credentials: AWS config has no credentials")
 	}
 	return cfg.Credentials, nil
+}
+
+// cloneForSign copies the request so SignHTTP cannot edit the caller.
+// The caller body is rewound to the same bytes when it had to be read.
+func cloneForSign(req *http.Request) (*http.Request, error) {
+	clone := req.Clone(req.Context())
+	if req.Body == nil || req.Body == http.NoBody {
+		return clone, nil
+	}
+	payload, err := io.ReadAll(req.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading prometheus request body: %w", err)
+	}
+	_ = req.Body.Close()
+	rewind := func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(payload)), nil
+	}
+	body, err := rewind()
+	if err != nil {
+		return nil, err
+	}
+	req.Body = body
+	req.GetBody = rewind
+	req.ContentLength = int64(len(payload))
+	cloneBody, err := rewind()
+	if err != nil {
+		return nil, err
+	}
+	clone.Body = cloneBody
+	clone.GetBody = rewind
+	clone.ContentLength = req.ContentLength
+	return clone, nil
 }
 
 func hashRequestBody(req *http.Request) (string, error) {

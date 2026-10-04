@@ -250,7 +250,7 @@ func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec) (admission.War
 
 	// Validate SLO guardrails.
 	if spec.UpdateStrategy != nil {
-		if err := validateSLOGuardrails(spec.UpdateStrategy.SLOGuardrails); err != nil {
+		if err := validateSLOGuardrails(spec.UpdateStrategy.SLOGuardrails, nil); err != nil {
 			return warnings, err
 		}
 		if err := validateHPATargetBounds(spec.UpdateStrategy); err != nil {

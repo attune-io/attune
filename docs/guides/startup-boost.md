@@ -44,7 +44,8 @@ are the end of `rate()`, so the rate window is part of the cutoff. A
 sample exactly at the cutoff stays. Nil and false keep today's
 percentile. Memory samples are unchanged. Deleted pods stay in history
 until `historyWindow`, because there is no `CreationTimestamp` to cut
-on. A series with no pod label is left unfiltered. Prometheus uses
+on. A recreated pod keeps samples older than its new creation time.
+A series with no pod label is left unfiltered. Prometheus uses
 `max by (pod, container)` for that CPU query so each pod and container
 is one series. The boost annotation is not the cutoff.
 
@@ -99,7 +100,7 @@ spec:
 |-------|------|-------------|-------------|
 | `multiplier` | string | > 1.0, <= 10.0 | Scales the recommended CPU request during startup |
 | `duration` | Duration | >= 10s, <= 1h | Maximum time the boost remains active |
-| `excludeFromHistory` | bool | omitted (false) | When true, drop CPU samples until `CreationTimestamp` plus `duration` plus `rateWindow`. Nil and false keep today's percentile. Deleted pods stay until `historyWindow`. |
+| `excludeFromHistory` | bool | omitted (false) | When true, drop CPU samples from creation until `CreationTimestamp` plus `duration` plus `rateWindow`. Samples older than creation stay. Nil and false keep today's percentile. Deleted pods stay until `historyWindow`. |
 
 ### Choosing a multiplier
 

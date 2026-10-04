@@ -372,8 +372,8 @@ func TestAdjustHPATargets_ContainerResourceScalesTargetUtilization(t *testing.T)
 	require.NotNil(t, hpa.Spec.Metrics[0].ContainerResource)
 	require.NotNil(t, hpa.Spec.Metrics[0].ContainerResource.Target.AverageUtilization)
 	assert.Equal(t, int32(40), *hpa.Spec.Metrics[0].ContainerResource.Target.AverageUtilization)
-	assert.Equal(t, "80", hpa.Annotations[annotationHPAOriginalCPU])
-	assert.Equal(t, "200m", hpa.Annotations[annotationHPAOriginalCPURequest])
+	assert.Equal(t, "80", hpa.Annotations[annotationHPACPUTargetPrefix+"app"])
+	assert.Equal(t, "200m", hpa.Annotations[annotationHPACPUBasePrefix+"app"])
 }
 
 func TestAdjustHPATargets_PreservesThirdPartyAnnotations(t *testing.T) {
@@ -1204,6 +1204,67 @@ func TestRetuneHPAAfterResize_ResourceUsesUnchangedLiveContainer(t *testing.T) {
 	assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest])
 }
 
+func TestRetuneHPAAfterResize_PartialStoredBaseUsesPreResizeSum(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
+		annotationHPAOriginalCPU:        "80",
+		annotationHPAOriginalCPURequest: "400m",
+	}, cpuResourceMetric(80))
+	pod := workloadPod("api-server",
+		podContainer(t, "app", "300m", "1000m"),
+		podContainer(t, "sidecar", "200m", "1000m"),
+	)
+	cl := runHPARetune(t, []autoscalingv2.HorizontalPodAutoscaler{hpa}, &pod,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "400m", "300m")}, nil)
+
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(96), metricUtil(t, updated, 0),
+		"80 * 600/500 = 96; 64 keeps the partial base and 80 rebases onto the new total")
+	assert.Equal(t, "80", updated.Annotations[annotationHPAOriginalCPU])
+	assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest])
+}
+
+func TestRetuneHPAAfterResize_InitHistoryDoesNotShrinkPartialBase(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
+		annotationHPAOriginalCPU:        "80",
+		annotationHPAOriginalCPURequest: "400m",
+	}, cpuResourceMetric(80))
+	pod := workloadPod("api-server",
+		podContainer(t, "app", "300m", "1000m"),
+		podContainer(t, "sidecar", "200m", "1000m"),
+	)
+	pod.Spec.InitContainers = []corev1.Container{podContainer(t, "migrate", "50m", "1000m")}
+	cl := runHPARetune(t, []autoscalingv2.HorizontalPodAutoscaler{hpa}, &pod,
+		[]attunev1alpha1.ResizeHistoryEntry{
+			cpuHistory("app", "400m", "300m"),
+			cpuHistory("migrate", "100m", "50m"),
+		}, nil)
+
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(96), metricUtil(t, updated, 0),
+		"init history is outside the Resource sum: 80 * 600/500 = 96")
+	assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest])
+}
+
+func TestRetuneHPAAfterResize_FullStoredBaseStays(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
+		annotationHPAOriginalCPU:        "80",
+		annotationHPAOriginalCPURequest: "600m",
+	}, cpuResourceMetric(80))
+	pod := workloadPod("api-server",
+		podContainer(t, "app", "300m", "1000m"),
+		podContainer(t, "sidecar", "200m", "1000m"),
+	)
+	cl := runHPARetune(t, []autoscalingv2.HorizontalPodAutoscaler{hpa}, &pod,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "400m", "300m")}, nil)
+
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(96), metricUtil(t, updated, 0))
+	assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest])
+}
+
 func TestRetuneHPAAfterResize_SecondResizeUsesPodTotal(t *testing.T) {
 	t.Parallel()
 	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
@@ -1421,11 +1482,25 @@ func (r *AttunePolicyReconciler) adjustHPATargets(
 	if oldCPURequest.IsZero() || newCPURequest.IsZero() || oldCPURequest.Equal(newCPURequest) {
 		return
 	}
+	// One app container plus a history row. requestsOnly uses cpuLimit as the
+	// live limit cap. The container name matches ContainerResource fixtures
+	// that call this helper with container "app".
+	const name = "app"
+	container := corev1.Container{
+		Name: name,
+		Resources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{corev1.ResourceCPU: newCPURequest},
+		},
+	}
+	if !cpuLimit.IsZero() {
+		container.Resources.Limits = corev1.ResourceList{corev1.ResourceCPU: cpuLimit}
+	}
 	r.tuneHPAs(ctx, hpas, workloadName, workloadKind, hpaTuneScope{
-		scalar: true,
-		old:    oldCPURequest,
-		neu:    newCPURequest,
-		limit:  cpuLimit,
+		rows: map[string]hpaCPURow{
+			name: {old: oldCPURequest.MilliValue(), neu: newCPURequest.MilliValue(), ok: true},
+		},
+		pod:          &corev1.Pod{Spec: corev1.PodSpec{Containers: []corev1.Container{container}}},
+		requestsOnly: true,
 	})
 }
 
