@@ -295,10 +295,7 @@ func (r *AttunePolicyReconciler) getPodRegex(workload client.Object) string {
 }
 
 const (
-	// podTemplateGenerationAnnotation is the legacy DaemonSet revision
-	// identity used when controller-revision-hash is empty.
-	podTemplateGenerationAnnotation = "pod-template-generation"
-	deploymentRevisionAnnotation    = "deployment.kubernetes.io/revision"
+	deploymentRevisionAnnotation = "deployment.kubernetes.io/revision"
 )
 
 // generationStale is true only when the spec generation is ahead of the
@@ -438,13 +435,7 @@ func daemonSetPodSkipped(ds *appsv1.DaemonSet, pod *corev1.Pod, currentHash stri
 }
 
 func daemonSetPodRevision(pod *corev1.Pod) string {
-	if h := podLabel(pod, appsv1.ControllerRevisionHashLabelKey); h != "" {
-		return h
-	}
-	if pod.Annotations == nil {
-		return ""
-	}
-	return pod.Annotations[podTemplateGenerationAnnotation]
+	return podLabel(pod, appsv1.ControllerRevisionHashLabelKey)
 }
 
 func pausedDeploymentPodSkipped(dep *appsv1.Deployment, pod *corev1.Pod, currentHash string) bool {

@@ -69,6 +69,11 @@ If that list fails, Attune skips every pod of that DaemonSet and emits
 `DaemonSetRevisionUnavailable`. It does not resize them. OnDelete does not
 read ControllerRevisions.
 
+Attune reads only the pod label `controller-revision-hash`. It does not
+read `pod-template-generation`. Pods that have the hash label resize the
+same way. A pod with no hash label is still skipped when the current hash
+is known.
+
 ### Copy into the next release notes
 
 These behaviors change when the operator is upgraded, with no YAML edit.

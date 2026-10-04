@@ -323,7 +323,9 @@ requests. The policy emits `DaemonSetRevisionUnavailable` or
 **Cause**: Attune resizes a pod when its `controller-revision-hash` label
 matches that label on the current ControllerRevision. The revision name
 is `<daemonset>-<hash>`. The pod label is only `<hash>`. Pods still on
-the previous hash are skipped with `RolloutInProgress`.
+the previous hash are skipped with `RolloutInProgress`. A pod with no
+hash label is skipped while that current hash is known. The annotation
+`pod-template-generation` is not a revision.
 
 `DaemonSetRevisionUnavailable` means the current revision could not be
 read. That is a failed `controllerrevisions` list, or a current revision

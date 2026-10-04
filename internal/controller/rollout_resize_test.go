@@ -386,17 +386,40 @@ func TestWorkload_PodSkippedForRollout(t *testing.T) {
 		require.Equal(t, 0, countSubstr(recordedEvents(rec), "RolloutInProgress"))
 	})
 
-	t.Run("DaemonSet_legacy_annotation_and_OnDelete", func(t *testing.T) {
+	t.Run("DaemonSet_revision_is_hash_label_only", func(t *testing.T) {
 		r := NewAttunePolicyReconciler()
-		ds := &appsv1.DaemonSet{}
-		pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
-			podTemplateGenerationAnnotation: "rev-a",
+		rolling := &appsv1.DaemonSet{}
+		onDelete := &appsv1.DaemonSet{Spec: appsv1.DaemonSetSpec{
+			UpdateStrategy: appsv1.DaemonSetUpdateStrategy{Type: appsv1.OnDeleteDaemonSetStrategyType},
+		}}
+		hashPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{
+			appsv1.ControllerRevisionHashLabelKey: "rev-a",
 		}}}
-		require.False(t, r.podSkippedForRollout(ds, pod, "rev-a"))
-		require.True(t, r.podSkippedForRollout(ds, pod, "rev-b"))
-		require.False(t, r.podSkippedForRollout(ds, pod, ""))
-		ds.Spec.UpdateStrategy.Type = appsv1.OnDeleteDaemonSetStrategyType
-		require.False(t, r.podSkippedForRollout(ds, pod, "rev-b"))
+		wrongAnn := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+			"pod-template-generation": "rev-a",
+		}}}
+		legacyAnn := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+			appsv1.DeprecatedTemplateGeneration: "rev-a",
+		}}}
+		cases := []struct {
+			name    string
+			ds      *appsv1.DaemonSet
+			pod     *corev1.Pod
+			current string
+			skip    bool
+		}{
+			{name: "hash matches", ds: rolling, pod: hashPod, current: "rev-a", skip: false},
+			{name: "hash differs", ds: rolling, pod: hashPod, current: "rev-b", skip: true},
+			{name: "pod-template-generation is not a revision", ds: rolling, pod: wrongAnn, current: "rev-a", skip: true},
+			{name: "deprecated template generation is not a revision", ds: rolling, pod: legacyAnn, current: "rev-a", skip: true},
+			{name: "empty current hash does not skip", ds: rolling, pod: wrongAnn, current: "", skip: false},
+			{name: "OnDelete does not compare hashes", ds: onDelete, pod: hashPod, current: "rev-b", skip: false},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				require.Equal(t, tc.skip, r.podSkippedForRollout(tc.ds, tc.pod, tc.current))
+			})
+		}
 	})
 
 	t.Run("Deployment_paused_skips_old_pod_template_hash", func(t *testing.T) {
