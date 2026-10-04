@@ -343,7 +343,7 @@ func TestMergeResourceConfig_AllFields(t *testing.T) {
 	}
 	policy := &attunev1alpha1.ResourceConfig{}
 
-	inherited := MergeResourceConfig(policy, defaults, "cpu")
+	inherited := MergeResourceConfig(policy, defaults, "cpu", true)
 
 	assert.Equal(t, int32(90), policy.Percentile)
 	assert.Equal(t, "50", policy.Overhead)
@@ -389,7 +389,7 @@ func TestMergeResourceConfig_AllFields(t *testing.T) {
 
 func TestMergeResourceConfig_NilDefaultsIsNoOp(t *testing.T) {
 	policy := &attunev1alpha1.ResourceConfig{Percentile: 95}
-	inherited := MergeResourceConfig(policy, nil, "cpu")
+	inherited := MergeResourceConfig(policy, nil, "cpu", true)
 	assert.Empty(t, inherited)
 	assert.Equal(t, int32(95), policy.Percentile)
 }
@@ -424,7 +424,7 @@ func TestMergeResourceConfig_PolicyFieldsTakePrecedence(t *testing.T) {
 		MaxDecreasePercent: ptrInt32(20),
 	}
 
-	inherited := MergeResourceConfig(policy, defaults, "memory")
+	inherited := MergeResourceConfig(policy, defaults, "memory", true)
 
 	assert.Empty(t, inherited)
 	assert.Equal(t, int32(99), policy.Percentile)
@@ -445,11 +445,11 @@ func TestMergeResourceConfig_PrefixAppliedCorrectly(t *testing.T) {
 	defaults := &attunev1alpha1.ResourceConfig{Percentile: 90}
 	policy := &attunev1alpha1.ResourceConfig{}
 
-	cpuInherited := MergeResourceConfig(policy, defaults, "cpu")
+	cpuInherited := MergeResourceConfig(policy, defaults, "cpu", true)
 	assert.Contains(t, cpuInherited, "cpu.percentile")
 
 	policy2 := &attunev1alpha1.ResourceConfig{}
-	memInherited := MergeResourceConfig(policy2, defaults, "memory")
+	memInherited := MergeResourceConfig(policy2, defaults, "memory", true)
 	assert.Contains(t, memInherited, "memory.percentile")
 }
 
@@ -458,26 +458,39 @@ func TestMergeResourceConfig_LimitMultiplier(t *testing.T) {
 	defaults := &attunev1alpha1.ResourceConfig{LimitMultiplier: ptrStr("2")}
 
 	omitted := &attunev1alpha1.ResourceConfig{}
-	inherited := MergeResourceConfig(omitted, defaults, "cpu")
+	inherited := MergeResourceConfig(omitted, defaults, "cpu", true)
 	require.NotNil(t, omitted.LimitMultiplier)
 	assert.Equal(t, "2", *omitted.LimitMultiplier)
 	assert.Contains(t, inherited, "cpu.limitMultiplier")
 
 	empty := &attunev1alpha1.ResourceConfig{LimitMultiplier: ptrStr("")}
-	inherited = MergeResourceConfig(empty, defaults, "memory")
+	inherited = MergeResourceConfig(empty, defaults, "memory", true)
 	require.NotNil(t, empty.LimitMultiplier)
 	assert.Equal(t, "2", *empty.LimitMultiplier)
 	assert.Contains(t, inherited, "memory.limitMultiplier")
 
 	three := &attunev1alpha1.ResourceConfig{LimitMultiplier: ptrStr("3")}
-	inherited = MergeResourceConfig(three, defaults, "cpu")
+	inherited = MergeResourceConfig(three, defaults, "cpu", true)
 	assert.Equal(t, "3", *three.LimitMultiplier)
 	assert.NotContains(t, inherited, "cpu.limitMultiplier")
 
 	one := &attunev1alpha1.ResourceConfig{LimitMultiplier: ptrStr("1")}
-	inherited = MergeResourceConfig(one, defaults, "cpu")
+	inherited = MergeResourceConfig(one, defaults, "cpu", true)
 	assert.Equal(t, "1", *one.LimitMultiplier)
 	assert.NotContains(t, inherited, "cpu.limitMultiplier")
+
+	only := attunev1alpha1.ControlledRequestsOnly
+	requestsOnly := &attunev1alpha1.ResourceConfig{ControlledValues: &only}
+	inherited = MergeResourceConfig(requestsOnly, defaults, "cpu", true)
+	assert.Nil(t, requestsOnly.LimitMultiplier)
+	assert.NotContains(t, inherited, "cpu.limitMultiplier")
+	assert.Equal(t, attunev1alpha1.ControlledRequestsOnly, *requestsOnly.ControlledValues)
+
+	folded := &attunev1alpha1.ResourceConfig{ControlledValues: &only}
+	inherited = MergeResourceConfig(folded, defaults, "cpu", false)
+	require.NotNil(t, folded.LimitMultiplier)
+	assert.Equal(t, "2", *folded.LimitMultiplier)
+	assert.Contains(t, inherited, "cpu.limitMultiplier")
 }
 
 func TestApplyBuiltInDefaults_OOMBumpStaysNilUntilSet(t *testing.T) {
@@ -966,6 +979,76 @@ func TestCombineDefaultsLayers_AllSpecSectionsAndCostPricing(t *testing.T) {
 	require.NotNil(t, got.Spec.CostPricing)
 	assert.Equal(t, "0.01", got.Spec.CostPricing.CPUPerCoreHour)
 	assert.Equal(t, "0.004", got.Spec.CostPricing.MemoryPerGiBHour)
+}
+
+func TestCombineDefaultsLayers_NamespaceRequestsOnlyKeepsClusterMultiplier(t *testing.T) {
+	t.Parallel()
+	only := attunev1alpha1.ControlledRequestsOnly
+	both := attunev1alpha1.ControlledRequestsAndLimits
+	cluster := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{LimitMultiplier: ptrStr("2")},
+		},
+	}
+	ns := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "ns"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{ControlledValues: &only},
+		},
+	}
+	got := CombineDefaultsLayers(cluster, ns)
+	require.NotNil(t, got)
+	require.NotNil(t, got.Spec.CPU)
+	require.NotNil(t, got.Spec.CPU.LimitMultiplier)
+	assert.Equal(t, "2", *got.Spec.CPU.LimitMultiplier)
+	require.NotNil(t, got.Spec.CPU.ControlledValues)
+	assert.Equal(t, only, *got.Spec.CPU.ControlledValues)
+
+	policy := &attunev1alpha1.AttunePolicy{}
+	policy.Spec.CPU.ControlledValues = &both
+	MergeDefaults(policy, got)
+	require.NotNil(t, policy.Spec.CPU.LimitMultiplier)
+	assert.Equal(t, "2", *policy.Spec.CPU.LimitMultiplier)
+
+	requestsOnly := &attunev1alpha1.AttunePolicy{}
+	requestsOnly.Spec.CPU.ControlledValues = &only
+	MergeDefaults(requestsOnly, got)
+	assert.Nil(t, requestsOnly.Spec.CPU.LimitMultiplier)
+}
+
+func TestCombineDefaultsLayers_UnsetNamespaceCPUKeepsClusterMultiplier(t *testing.T) {
+	t.Parallel()
+	only := attunev1alpha1.ControlledRequestsOnly
+	both := attunev1alpha1.ControlledRequestsAndLimits
+	cluster := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{
+				ControlledValues: &only,
+				LimitMultiplier:  ptrStr("3"),
+			},
+		},
+	}
+	ns := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "ns"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			Memory: &attunev1alpha1.ResourceConfig{Percentile: 90},
+		},
+	}
+	got := CombineDefaultsLayers(cluster, ns)
+	require.NotNil(t, got)
+	require.NotNil(t, got.Spec.CPU)
+	require.NotNil(t, got.Spec.CPU.LimitMultiplier)
+	assert.Equal(t, "3", *got.Spec.CPU.LimitMultiplier)
+	require.NotNil(t, got.Spec.CPU.ControlledValues)
+	assert.Equal(t, only, *got.Spec.CPU.ControlledValues)
+
+	policy := &attunev1alpha1.AttunePolicy{}
+	policy.Spec.CPU.ControlledValues = &both
+	MergeDefaults(policy, got)
+	require.NotNil(t, policy.Spec.CPU.LimitMultiplier)
+	assert.Equal(t, "3", *policy.Spec.CPU.LimitMultiplier)
 }
 
 func TestCombineDefaultsLayers_NamespaceSetsAllSectionsOverCluster(t *testing.T) {

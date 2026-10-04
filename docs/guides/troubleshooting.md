@@ -355,6 +355,26 @@ continuing. The condition message includes the failing step, such as
    expected objects exist in the namespace.
 3. Check operator logs for the exact failing API call or validation error.
 
+### InvalidConfig from limitMultiplier
+
+**Symptom**: Ready is `False` with reason `InvalidConfig`, and the
+message says `cpu.limitMultiplier cannot be set when cpu.controlledValues is RequestsOnly`
+(or the same sentence for memory).
+
+**Cause**: The policy omits `controlledValues`. Built-in defaults fill
+`RequestsOnly`, and a `limitMultiplier` inherited from `AttuneDefaults`
+or `AttuneNamespaceDefaults` is then illegal. A policy that already
+sets `controlledValues: RequestsOnly` does not inherit that multiplier,
+so it does not hit this reason.
+
+**Fix**:
+
+1. Set `controlledValues: RequestsAndLimits` on the policy when the
+   multiplier should apply.
+2. Or remove `limitMultiplier` from the defaults object.
+3. An explicit `RequestsOnly` policy needs no change. It keeps the live
+   limit.
+
 ### WorkloadDiscoveryFailed
 
 **Symptom**: Ready condition is `False` with reason `WorkloadDiscoveryFailed`.

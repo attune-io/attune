@@ -26,11 +26,14 @@ import (
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	meta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	kubefake "k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/events"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
@@ -183,6 +186,88 @@ func TestLimitMultiplierRequestsOnlyConflict_AfterBuiltInDefaults(t *testing.T) 
 	policy.Spec.CPU.ControlledValues = &both
 	policy.Spec.Memory.ControlledValues = &both
 	require.NoError(t, limitMultiplierRequestsOnlyConflict(policy))
+
+	only := attunev1alpha1.ControlledRequestsOnly
+	twoStr := "2"
+	explicit := &attunev1alpha1.AttunePolicy{}
+	explicit.Spec.CPU.ControlledValues = &only
+	explicit.Spec.Memory.ControlledValues = &only
+	defs := &attunev1alpha1.AttuneDefaults{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{
+				LimitMultiplier:  &twoStr,
+				ControlledValues: &both,
+			},
+			Memory: &attunev1alpha1.ResourceConfig{
+				LimitMultiplier:  &twoStr,
+				ControlledValues: &both,
+			},
+		},
+	}
+	pkgdefaults.MergeDefaults(explicit, defs)
+	pkgdefaults.ApplyBuiltInDefaults(explicit)
+	assert.Nil(t, explicit.Spec.CPU.LimitMultiplier)
+	assert.Nil(t, explicit.Spec.Memory.LimitMultiplier)
+	require.NoError(t, limitMultiplierRequestsOnlyConflict(explicit))
+
+	omitted := &attunev1alpha1.AttunePolicy{}
+	multOnly := &attunev1alpha1.AttuneDefaults{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{LimitMultiplier: &twoStr},
+		},
+	}
+	pkgdefaults.MergeDefaults(omitted, multOnly)
+	pkgdefaults.ApplyBuiltInDefaults(omitted)
+	require.NotNil(t, omitted.Spec.CPU.ControlledValues)
+	assert.Equal(t, attunev1alpha1.ControlledRequestsOnly, *omitted.Spec.CPU.ControlledValues)
+	require.EqualError(t, limitMultiplierRequestsOnlyConflict(omitted),
+		"cpu.limitMultiplier cannot be set when cpu.controlledValues is RequestsOnly")
+}
+
+func TestReconcile_RequestsOnlySkipsInheritedLimitMultiplier(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	only := attunev1alpha1.ControlledRequestsOnly
+	policy.Spec.CPU.ControlledValues = &only
+	policy.Spec.Memory.ControlledValues = &only
+	two := "2"
+	both := attunev1alpha1.ControlledRequestsAndLimits
+	defaults := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{
+				LimitMultiplier:  &two,
+				ControlledValues: &both,
+			},
+			Memory: &attunev1alpha1.ResourceConfig{
+				LimitMultiplier:  &two,
+				ControlledValues: &both,
+			},
+		},
+	}
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(200, 0.1), nil
+		},
+	}
+	reconciler, fakeClient := newReconcilerForReconcile(mc, policy, defaults, deploy, pod)
+
+	result, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, time.Hour, result.RequeueAfter)
+
+	var updated attunev1alpha1.AttunePolicy
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "test-policy", Namespace: "default",
+	}, &updated))
+	cond := meta.FindStatusCondition(updated.Status.Conditions, attunev1alpha1.ConditionReady)
+	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionTrue, cond.Status)
+	assert.Equal(t, attunev1alpha1.ReasonMonitoring, cond.Reason)
+	assert.NotEqual(t, attunev1alpha1.ReasonInvalidConfig, cond.Reason)
 }
 
 func TestScaleLimits_ExplicitMultiplierDoesNotInventZeroLimit(t *testing.T) {

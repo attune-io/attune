@@ -203,7 +203,9 @@ func CombineDefaultsLayers(cluster, namespace *attunev1alpha1.AttuneDefaults) *a
 	// MergeDefaults fills gaps from cluster (lower priority).
 	policy := &attunev1alpha1.AttunePolicy{}
 	applyDefaultsSpecToPolicy(policy, namespace.Spec)
-	_ = MergeDefaults(policy, cluster)
+	// false: this fold is two defaults layers, not a policy. A namespace
+	// RequestsOnly must not drop a cluster limitMultiplier.
+	_ = mergeDefaults(policy, cluster, false)
 
 	out := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: namespace.ObjectMeta,
@@ -277,14 +279,22 @@ func pickCostPricing(namespace, cluster *attunev1alpha1.CostPricing) *attunev1al
 // policy where the policy has not specified its own values. Returns the
 // list of field names that were inherited (for debug logging by callers).
 func MergeDefaults(policy *attunev1alpha1.AttunePolicy, defaults *attunev1alpha1.AttuneDefaults) []string {
+	return mergeDefaults(policy, defaults, true)
+}
+
+// mergeDefaults copies unset policy fields from defaults. skipRequestsOnlyMultiplier
+// is true for a real policy: an explicit RequestsOnly block does not copy
+// limitMultiplier. CombineDefaultsLayers passes false so the cluster multiplier
+// stays on the effective defaults object.
+func mergeDefaults(policy *attunev1alpha1.AttunePolicy, defaults *attunev1alpha1.AttuneDefaults, skipRequestsOnlyMultiplier bool) []string {
 	if defaults == nil {
 		return nil
 	}
 	spec := defaults.Spec
 
 	inherited := make([]string, 0, 4) //nolint:mnd // 4 merge sections: cpu, memory, metrics, strategy
-	inherited = append(inherited, MergeResourceConfig(&policy.Spec.CPU, spec.CPU, "cpu")...)
-	inherited = append(inherited, MergeResourceConfig(&policy.Spec.Memory, spec.Memory, "memory")...)
+	inherited = append(inherited, MergeResourceConfig(&policy.Spec.CPU, spec.CPU, "cpu", skipRequestsOnlyMultiplier)...)
+	inherited = append(inherited, MergeResourceConfig(&policy.Spec.Memory, spec.Memory, "memory", skipRequestsOnlyMultiplier)...)
 	inherited = append(inherited, MergeMetricsSource(&policy.Spec.MetricsSource, spec.MetricsSource)...)
 	if policy.Spec.UpdateStrategy == nil {
 		policy.Spec.UpdateStrategy = &attunev1alpha1.UpdateStrategy{}
@@ -350,11 +360,14 @@ func ExclusionReason(policy *attunev1alpha1.AttunePolicy, containerName string) 
 }
 
 // MergeResourceConfig merges default resource config values into the policy.
-func MergeResourceConfig(policy *attunev1alpha1.ResourceConfig, defaults *attunev1alpha1.ResourceConfig, prefix string) []string {
+// skipRequestsOnlyMultiplier skips limitMultiplier only when this block was
+// already RequestsOnly before controlledValues is copied from defaults.
+func MergeResourceConfig(policy *attunev1alpha1.ResourceConfig, defaults *attunev1alpha1.ResourceConfig, prefix string, skipRequestsOnlyMultiplier bool) []string {
 	if defaults == nil {
 		return nil
 	}
 	var inherited []string
+	explicitRequestsOnly := policy.ControlledValues != nil && *policy.ControlledValues == attunev1alpha1.ControlledRequestsOnly
 	if policy.Percentile == 0 && defaults.Percentile != 0 {
 		policy.Percentile = defaults.Percentile
 		inherited = append(inherited, prefix+".percentile")
@@ -387,7 +400,11 @@ func MergeResourceConfig(policy *attunev1alpha1.ResourceConfig, defaults *attune
 		policy.MemoryFromCPURatio = defaults.MemoryFromCPURatio
 		inherited = append(inherited, prefix+".memoryFromCpuRatio")
 	}
-	if (policy.LimitMultiplier == nil || *policy.LimitMultiplier == "") &&
+	// An empty multiplier is unset. The pre-copy mode still copies when a
+	// real policy omitted controlledValues and defaults are RequestsOnly.
+	// Folding defaults layers passes skipRequestsOnlyMultiplier false.
+	if !(skipRequestsOnlyMultiplier && explicitRequestsOnly) &&
+		(policy.LimitMultiplier == nil || *policy.LimitMultiplier == "") &&
 		defaults.LimitMultiplier != nil && *defaults.LimitMultiplier != "" {
 		policy.LimitMultiplier = defaults.LimitMultiplier
 		inherited = append(inherited, prefix+".limitMultiplier")

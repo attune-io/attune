@@ -10,6 +10,20 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### RequestsOnly does not inherit a limit multiplier
+
+A policy that sets `cpu.controlledValues` or `memory.controlledValues`
+to `RequestsOnly` no longer copies `limitMultiplier` from
+`AttuneDefaults` or `AttuneNamespaceDefaults`. The live limit stays,
+and that policy is no longer `InvalidConfig` because of a defaults
+multiplier.
+
+A policy that omits `controlledValues` still copies the multiplier.
+Built-in defaults then fill `RequestsOnly`, and reconcile still reports
+`InvalidConfig`. Set `RequestsAndLimits` on that policy, or remove the
+multiplier from defaults. A defaults object may still store a
+multiplier without `RequestsAndLimits`.
+
 ### Rollout workloadRef read failures stay visible
 
 Template persistence still does not patch a Rollout whose
@@ -102,6 +116,7 @@ release pull request 889 to add the list.
 - Omitted `maxAllowed` is not capped
 - CloudWatch `cpuUnit` empty means Millicores
 - A stored `0s` cooldown, safety period, or SLO window on a policy or on defaults can be updated and deleted. A new `0s` is rejected. A stored `0s` cooldown still waits 1h
+- A policy that sets `controlledValues: RequestsOnly` does not inherit `limitMultiplier`. Omitting `controlledValues` still inherits it and can be `InvalidConfig`
 - RollingUpdate DaemonSets resize the current revision. The pod label is the hash, not the revision name
 - A QoS check with `spec.resources` uses one rule on both sides
 - A stored HPA CPU base that is missing other containers is repaired. Growth of the same containers keeps the stored original. An annotation an older operator already rewrote is left in place
@@ -222,9 +237,10 @@ Guaranteed pod raises the memory request to the new limit and the resize
 proceeds. That applied request can exceed `maxAllowed`.
 
 `RequestsOnly` plus a multiplier on the same object is rejected.
-`AttuneDefaults` may carry a multiplier without `RequestsAndLimits`. After
-merge, a policy that still omits `controlledValues` is `RequestsOnly`, so
-that pair is rejected at reconcile.
+`AttuneDefaults` may carry a multiplier without `RequestsAndLimits`. A
+policy that sets `RequestsOnly` does not inherit that multiplier. A
+policy that omits `controlledValues` still inherits it, then resolves
+to `RequestsOnly`, so that pair is rejected at reconcile.
 
 ### HPA auto-tune keeps the stored CPU base
 

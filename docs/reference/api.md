@@ -430,11 +430,13 @@ A `limitMultiplier` fails reconcile with `InvalidConfig` when
 `controlledValues` is `RequestsOnly` after merge. An unset value is
 filled with `RequestsOnly` by built-in defaults. `RequestsAndLimits` on
 AttuneDefaults is inherited by a policy that omits the field, so that
-pair does not fail. A policy that sets `RequestsOnly` while the
-multiplier comes only from defaults fails the same way. Set
-`RequestsAndLimits` on the same object as the multiplier. Admission
-does not see that inherited pair. The check runs after built-in
-defaults.
+pair does not fail. A policy that sets `RequestsOnly` does not copy a
+defaults multiplier. A policy that omits `controlledValues` still
+copies it, then becomes `RequestsOnly`, and fails. Set
+`RequestsAndLimits` on that policy, or remove the multiplier from
+defaults. A defaults object may still store a multiplier without
+`RequestsAndLimits`. Admission does not see the inherited pair. The
+check runs after built-in defaults.
 
 A policy that already sets `metricsSource.cloudwatch` does not inherit
 `cpuUnit` from AttuneDefaults. Empty `cpuUnit` on that policy means
