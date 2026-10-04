@@ -121,6 +121,15 @@ func (v *AttunePolicyValidator) validate(ctx context.Context, old, policy *attun
 	if err := validateResourceConfigFields("memory", &policy.Spec.Memory, history); err != nil {
 		return warnings, err
 	}
+	// Built-in defaults fill RequestsOnly after admission. A policy multiplier
+	// with no mode would become InvalidConfig at reconcile. Defaults objects
+	// may still store the multiplier alone.
+	if err := policyMultiplierRequiresMode("cpu", &policy.Spec.CPU); err != nil {
+		return warnings, err
+	}
+	if err := policyMultiplierRequiresMode("memory", &policy.Spec.Memory); err != nil {
+		return warnings, err
+	}
 	if err := validateContainerPolicies(policy, history); err != nil {
 		return warnings, err
 	}
@@ -484,6 +493,19 @@ func validateOverhead(resource, overhead string) error {
 		return fmt.Errorf("%s.overhead must be <= 900, got %s", resource, overhead)
 	}
 	return nil
+}
+
+// policyMultiplierRequiresMode rejects a set multiplier unless this policy
+// block already says RequestsAndLimits. Empty multiplier stays unset.
+// RequestsOnly is reported by validateLimitMultiplier.
+func policyMultiplierRequiresMode(prefix string, rc *attunev1alpha1.ResourceConfig) error {
+	if rc.LimitMultiplier == nil || *rc.LimitMultiplier == "" {
+		return nil
+	}
+	if rc.ControlledValues != nil && *rc.ControlledValues == attunev1alpha1.ControlledRequestsAndLimits {
+		return nil
+	}
+	return fmt.Errorf("%s.limitMultiplier requires %s.controlledValues RequestsAndLimits, or remove the multiplier", prefix, prefix)
 }
 
 func validateLimitMultiplier(prefix string, rc *attunev1alpha1.ResourceConfig) error {

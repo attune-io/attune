@@ -375,6 +375,12 @@ so it does not hit this reason.
 3. An explicit `RequestsOnly` policy needs no change. It keeps the live
    limit.
 
+An object already stored with a multiplier and no `RequestsAndLimits`
+is not rewritten. It stays on this reason until an update sets
+`RequestsAndLimits` or removes the multiplier. A new apply of that
+shape fails in admission instead, with
+`cpu.limitMultiplier requires cpu.controlledValues RequestsAndLimits, or remove the multiplier`.
+
 ### WorkloadDiscoveryFailed
 
 **Symptom**: Ready condition is `False` with reason `WorkloadDiscoveryFailed`.

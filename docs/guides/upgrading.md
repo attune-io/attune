@@ -10,6 +10,19 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### Policy limit multiplier requires RequestsAndLimits
+
+A policy that sets `cpu.limitMultiplier` or `memory.limitMultiplier`
+must set `controlledValues: RequestsAndLimits` on that same block.
+Admission rejects an omitted or empty mode. `RequestsOnly` with a
+multiplier was already rejected.
+
+An object already stored without that mode is not rewritten. Reconcile
+still reports `InvalidConfig` until an update sets `RequestsAndLimits`
+or removes the multiplier. `AttuneDefaults` and
+`AttuneNamespaceDefaults` may still store a multiplier without the
+mode. A policy that omits the multiplier still inherits it.
+
 ### RequestsOnly does not inherit a limit multiplier
 
 A policy that sets `cpu.controlledValues` or `memory.controlledValues`
@@ -116,6 +129,7 @@ release pull request 889 to add the list.
 - Omitted `maxAllowed` is not capped
 - CloudWatch `cpuUnit` empty means Millicores
 - A stored `0s` cooldown, safety period, or SLO window on a policy or on defaults can be updated and deleted. A new `0s` is rejected. A stored `0s` cooldown still waits 1h
+- A policy that sets `limitMultiplier` must set `controlledValues: RequestsAndLimits` on that same object. Admission rejects the apply. A stored policy stays `InvalidConfig` until edited
 - A policy that sets `controlledValues: RequestsOnly` does not inherit `limitMultiplier`. Omitting `controlledValues` still inherits it and can be `InvalidConfig`
 - RollingUpdate DaemonSets resize the current revision. The pod label is the hash, not the revision name
 - A QoS check with `spec.resources` uses one rule on both sides

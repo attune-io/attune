@@ -104,8 +104,8 @@ spec:
     # surge: {}
     minAllowed: "1m"             # omitted floor is 1m; an explicit value replaces it
     maxAllowed: "4000m"          # example explicit cap, not the omitted default. Omitted means no maximum. Admission rejects above 256 cores. "0" is a real cap.
-    controlledValues: RequestsAndLimits  # default is RequestsOnly. A limitMultiplier requires RequestsAndLimits on this same object.
-    # limitMultiplier: "2"     # off until set. Omitted keeps the live request-to-limit ratio. "1" forces the limit equal to the request. A container with no current limit keeps that limit omitted. Maximum 100. maxAllowed caps the request, not the limit.
+    controlledValues: RequestsAndLimits  # default is RequestsOnly. A set limitMultiplier on this policy requires RequestsAndLimits here at admission.
+    # limitMultiplier: "2"     # off until set. Omitted keeps the live request-to-limit ratio. "1" forces the limit equal to the request and still needs RequestsAndLimits. Omitted mode is rejected. Defaults may omit the mode. A stored policy is not rewritten. A container with no current limit keeps that limit omitted. Maximum 100. maxAllowed caps the request, not the limit.
     maxChangePercent: 50       # max CPU change per cycle (default: 50)
     maxIncreasePercent: 50     # max increase per cycle (default: 50)
     maxDecreasePercent: 30     # max decrease per cycle (default: 30)
@@ -437,6 +437,14 @@ copies it, then becomes `RequestsOnly`, and fails. Set
 defaults. A defaults object may still store a multiplier without
 `RequestsAndLimits`. Admission does not see the inherited pair. The
 check runs after built-in defaults.
+
+Admission rejects a multiplier set on the policy unless that same
+block is already `RequestsAndLimits`. The message is
+`cpu.limitMultiplier requires cpu.controlledValues RequestsAndLimits, or remove the multiplier`
+(and the same sentence for memory). `RequestsOnly` plus a multiplier
+is still rejected by the earlier check. An object already stored
+without the mode is not rewritten. It stays `InvalidConfig` until an
+update sets `RequestsAndLimits` or removes the multiplier.
 
 A policy that already sets `metricsSource.cloudwatch` does not inherit
 `cpuUnit` from AttuneDefaults. Empty `cpuUnit` on that policy means
