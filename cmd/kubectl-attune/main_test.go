@@ -2724,6 +2724,75 @@ func TestPrintExplain_ShowsPolicyNamespaceAndBuiltInEffectiveValues(t *testing.T
 	assert.NotContains(t, output, "source: cluster default")
 }
 
+func explainOutput(t *testing.T, policy *unstructured.Unstructured, defaults *attunev1alpha1.AttuneDefaults) string {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:                  "AttunePolicyList",
+			defaultsGVR:          "AttuneDefaultsList",
+			namespaceDefaultsGVR: "AttuneNamespaceDefaultsList",
+		},
+		policy)
+	if defaults != nil {
+		obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(defaults)
+		require.NoError(t, err)
+		_, err = dynClient.Resource(defaultsGVR).Create(context.Background(), &unstructured.Unstructured{Object: obj}, metav1.CreateOptions{})
+		require.NoError(t, err)
+	}
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	printExplain(context.Background(), dynClient, "default", policy.GetName())
+	require.NoError(t, w.Close())
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	return buf.String()
+}
+
+func TestPrintExplain_CloudWatchCPUUnitSource(t *testing.T) {
+	policy := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "attune.io/v1alpha1",
+		"kind":       "AttunePolicy",
+		"metadata": map[string]interface{}{
+			"name":      "cw-policy",
+			"namespace": "default",
+		},
+		"spec": map[string]interface{}{
+			"updateStrategy": map[string]interface{}{"type": "Recommend"},
+		},
+	}}
+	defaults := &attunev1alpha1.AttuneDefaults{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "attune.io/v1alpha1", Kind: "AttuneDefaults"},
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				CloudWatch: &attunev1alpha1.CloudWatchConfig{Region: "us-east-1", ClusterName: "prod"},
+			},
+		},
+	}
+	out := explainOutput(t, policy, defaults)
+	assert.Contains(t, out, "CloudWatch CPU unit: Millicores (source: built-in default, configured: <unset>)")
+	assert.NotContains(t, out, "CloudWatch CPU unit: Millicores (source: cluster default")
+
+	cores := "Cores"
+	defaults.Spec.MetricsSource.CloudWatch.CPUUnit = cores
+	out = explainOutput(t, policy, defaults)
+	assert.Contains(t, out, "CloudWatch CPU unit: Cores (source: cluster default, configured: <unset>)")
+
+	own := policy.DeepCopy()
+	own.Object["spec"].(map[string]interface{})["metricsSource"] = map[string]interface{}{
+		"cloudwatch": map[string]interface{}{
+			"region": "us-east-1", "clusterName": "prod", "cpuUnit": "Nanocores",
+		},
+	}
+	out = explainOutput(t, own, defaults)
+	assert.Contains(t, out, "CloudWatch CPU unit: Nanocores (source: policy, configured: Nanocores)")
+}
+
 func TestPrintExplain_ObservationPeriodFromCanaryShowsConfigured(t *testing.T) {
 	policy := &unstructured.Unstructured{Object: map[string]interface{}{
 		"apiVersion": "attune.io/v1alpha1",

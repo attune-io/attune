@@ -1326,7 +1326,9 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 		if unit == "" {
 			unit = attunev1alpha1.DefaultCloudWatchCPUUnit
 		}
-		cpuUnitInherited := providerConfigured == unsetValue && metricsDefaults != nil && metricsDefaults.CloudWatch != nil
+		cpuUnitInherited := providerConfigured == unsetValue &&
+			metricsDefaults != nil && metricsDefaults.CloudWatch != nil &&
+			metricsDefaults.CloudWatch.CPUUnit != ""
 		printEffectiveField("CloudWatch CPU unit", getNestedString(item, "spec", "metricsSource", "cloudwatch", "cpuUnit"), unit, selected, cpuUnitInherited)
 	}
 	if prom := effective.Spec.MetricsSource.Prometheus; prom != nil && prom.SigV4 != nil {
