@@ -33,7 +33,8 @@ before the series cap. cAdvisor per-core series collapse the same way
 plus `startupBoost.duration` plus the rate window are removed, then the
 surviving pod series are reduced with `podAggregation` (Max, Avg, or
 None). Nil and false keep today's percentile. Memory samples are not
-filtered. Deleted pods stay until `historyWindow`. A series with no pod
+filtered. Deleted pods stay until `historyWindow`. A recreated pod keeps
+samples older than its new `CreationTimestamp`. A series with no pod
 label is left unfiltered.
 
 ### Usage surge (off until set)

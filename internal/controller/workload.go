@@ -174,6 +174,76 @@ func (r *AttunePolicyReconciler) getContainers(workload client.Object) []corev1.
 	return append(containers, spec.Containers...)
 }
 
+// recommendationContainers returns the containers used for a recommendation.
+// A Rollout with spec.workloadRef and an empty template is read from the
+// referenced Deployment, StatefulSet, or ReplicaSet. The Rollout object is
+// not modified, and its template is not patched.
+func (r *AttunePolicyReconciler) recommendationContainers(ctx context.Context, workload client.Object) ([]corev1.Container, error) {
+	ro, ok := workload.(*argorollout.Rollout)
+	if !ok || ro == nil || ro.Spec.WorkloadRef == nil || rolloutTemplateHasContainers(ro) {
+		return r.getContainers(workload), nil
+	}
+	spec, err := r.lookupWorkloadRefSpec(ctx, ro)
+	if err != nil {
+		return nil, err
+	}
+	containers := nativeSidecars(spec.InitContainers)
+	containers = append(containers, spec.Containers...)
+	if len(containers) == 0 {
+		ref := ro.Spec.WorkloadRef
+		return nil, fmt.Errorf("workloadRef %s %s/%s has no containers", workloadRefKind(ref), ro.Namespace, ref.Name)
+	}
+	return containers, nil
+}
+
+func rolloutTemplateHasContainers(ro *argorollout.Rollout) bool {
+	if ro == nil {
+		return false
+	}
+	spec := ro.Spec.Template.Spec
+	return len(spec.Containers) > 0 || len(nativeSidecars(spec.InitContainers)) > 0
+}
+
+func workloadRefKind(ref *argorollout.WorkloadRef) string {
+	if ref == nil || ref.Kind == "" {
+		return "Deployment"
+	}
+	return ref.Kind
+}
+
+func (r *AttunePolicyReconciler) lookupWorkloadRefSpec(ctx context.Context, ro *argorollout.Rollout) (*corev1.PodSpec, error) {
+	ref := ro.Spec.WorkloadRef
+	if ref == nil || ref.Name == "" {
+		return nil, fmt.Errorf("workloadRef name is empty")
+	}
+	if r.Client == nil {
+		return nil, fmt.Errorf("workloadRef %s %s/%s cannot be read: client is nil", workloadRefKind(ref), ro.Namespace, ref.Name)
+	}
+	key := types.NamespacedName{Namespace: ro.Namespace, Name: ref.Name}
+	switch workloadRefKind(ref) {
+	case "Deployment":
+		var dep appsv1.Deployment
+		if err := r.Get(ctx, key, &dep); err != nil {
+			return nil, fmt.Errorf("workloadRef Deployment %s/%s: %w", ro.Namespace, ref.Name, err)
+		}
+		return dep.Spec.Template.Spec.DeepCopy(), nil
+	case "StatefulSet":
+		var sts appsv1.StatefulSet
+		if err := r.Get(ctx, key, &sts); err != nil {
+			return nil, fmt.Errorf("workloadRef StatefulSet %s/%s: %w", ro.Namespace, ref.Name, err)
+		}
+		return sts.Spec.Template.Spec.DeepCopy(), nil
+	case "ReplicaSet":
+		var rs appsv1.ReplicaSet
+		if err := r.Get(ctx, key, &rs); err != nil {
+			return nil, fmt.Errorf("workloadRef ReplicaSet %s/%s: %w", ro.Namespace, ref.Name, err)
+		}
+		return rs.Spec.Template.Spec.DeepCopy(), nil
+	default:
+		return nil, fmt.Errorf("workloadRef kind %q is not supported", ref.Kind)
+	}
+}
+
 // nativeSidecars returns init containers that have restartPolicy=Always,
 // which makes them run for the pod's lifetime (KEP-753, stable since K8s 1.29).
 func nativeSidecars(initContainers []corev1.Container) []corev1.Container {

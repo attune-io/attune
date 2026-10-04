@@ -737,7 +737,8 @@ Use the explanation chain (percentile → overhead → confidence → bounds →
 recommendation is still high.
 
 **Cause**: Deleted pods stay in the series until `historyWindow`, because
-there is no `CreationTimestamp` to cut on. The cutoff is creation plus
+there is no `CreationTimestamp` to cut on. A recreated pod keeps samples
+older than its new creation time. The cutoff is creation plus
 `startupBoost.duration` plus the rate window, so points near the end of
 startup can still count. A series with no pod label is not filtered
 (explanation note `startupExcluded=skipped`).

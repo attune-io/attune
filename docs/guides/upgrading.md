@@ -151,7 +151,8 @@ Sample timestamps are the end of `rate()`.
 Existing startup boost policies keep today's percentile until you set
 `excludeFromHistory: true`. Nil and false do not change the percentile.
 Memory samples are unchanged. Deleted pods stay in the history window,
-because there is no `CreationTimestamp` to cut on. A series with no pod
+because there is no `CreationTimestamp` to cut on. A recreated pod keeps
+samples older than its new `CreationTimestamp`. A series with no pod
 label is left unfiltered.
 
 ### RequestsAndLimits limit multiplier

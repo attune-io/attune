@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -554,6 +555,64 @@ func TestApplyTemplatePersistence_RolloutMidStepDoesNotPatch(t *testing.T) {
 			assert.Equal(t, int64(500), got)
 		})
 	}
+}
+
+func TestComputeRecommendations_RolloutWorkloadRef(t *testing.T) {
+	cpu, err := resource.ParseQuantity("500m")
+	require.NoError(t, err)
+	mem, err := resource.ParseQuantity("512Mi")
+	require.NoError(t, err)
+	policy := newTestPolicy("p", "default")
+	policy.Spec.TargetRef.Kind = argorollout.Kind
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			if strings.Contains(query, "cpu_usage_seconds_total") {
+				return generateSamples(200, 0.1), nil
+			}
+			return generateSamples(200, 128*1024*1024), nil
+		},
+	}
+
+	t.Run("uses referenced deployment containers", func(t *testing.T) {
+		dep := newTestDeployment("checkout", "default", nil)
+		ro := rolloutWithResources("checkout-rollout", cpu, mem)
+		ro.Spec.Template.Spec.Containers = nil
+		ro.Spec.WorkloadRef = &argorollout.WorkloadRef{Name: "checkout", Kind: "Deployment", APIVersion: "apps/v1"}
+		r := newReconcilerWithClient(ro, dep)
+		rec, _, _, _, _, recErr := r.computeRecommendations(context.Background(), policy, ro, mc, nil, nil, nil, nil, nil)
+		require.NoError(t, recErr)
+		require.NotNil(t, rec)
+		require.NotEmpty(t, rec.Containers)
+		assert.Equal(t, "main", rec.Containers[0].Name)
+		var stored argorollout.Rollout
+		require.NoError(t, r.Get(context.Background(), client.ObjectKeyFromObject(ro), &stored))
+		assert.Empty(t, stored.Spec.Template.Spec.Containers)
+	})
+
+	t.Run("missing deployment sets an error", func(t *testing.T) {
+		ro := rolloutWithResources("checkout-rollout", cpu, mem)
+		ro.Spec.Template.Spec.Containers = nil
+		ro.Spec.WorkloadRef = &argorollout.WorkloadRef{Name: "missing", Kind: "Deployment", APIVersion: "apps/v1"}
+		r := newReconcilerWithClient(ro)
+		rec, _, _, _, _, recErr := r.computeRecommendations(context.Background(), policy, ro, mc, nil, nil, nil, nil, nil)
+		require.Error(t, recErr)
+		assert.Nil(t, rec)
+		assert.Contains(t, recErr.Error(), "workloadRef ")
+		policy.Status.WorkloadErrors = []attunev1alpha1.WorkloadError{{Workload: ro.Name, Error: recErr.Error()}}
+		noteWorkloadRefReadErrors(policy, policy.Status.WorkloadErrors)
+		cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionTemplatePersistence)
+		require.NotNil(t, cond)
+		assert.Equal(t, attunev1alpha1.ReasonWorkloadRefUnread, cond.Reason)
+	})
+
+	t.Run("own template is unchanged", func(t *testing.T) {
+		ro := rolloutWithResources("checkout", cpu, mem)
+		r := newReconcilerWithClient(ro)
+		rec, _, _, _, _, recErr := r.computeRecommendations(context.Background(), policy, ro, mc, nil, nil, nil, nil, nil)
+		require.NoError(t, recErr)
+		require.NotNil(t, rec)
+		assert.Equal(t, "app", rec.Containers[0].Name)
+	})
 }
 
 func TestApplyTemplatePersistence_RolloutWorkloadRef(t *testing.T) {

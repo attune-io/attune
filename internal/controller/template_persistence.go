@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -766,7 +767,8 @@ func workloadKindName(w client.Object) string {
 const templateWorkloadRefMessage = "Rollout spec.workloadRef is set, so Attune does not patch that template"
 
 // rolloutTemplateSkipped reports a Rollout whose pod template lives on
-// another workload. Attune does not follow spec.workloadRef.
+// another workload. Attune does not patch that Rollout template.
+// Recommendations still read the referenced pod template.
 func rolloutTemplateSkipped(w client.Object) bool {
 	ro, ok := w.(*argorollout.Rollout)
 	return ok && ro.Spec.WorkloadRef != nil
@@ -781,8 +783,34 @@ func anyRolloutWorkloadRef(workloads []client.Object) bool {
 	return false
 }
 
+// noteWorkloadRefReadErrors records a failed workloadRef read. A later
+// reconcile that can read the reference removes only that reason.
+func noteWorkloadRefReadErrors(policy *attunev1alpha1.AttunePolicy, errs []attunev1alpha1.WorkloadError) {
+	if policy == nil {
+		return
+	}
+	for _, e := range errs {
+		if !strings.HasPrefix(e.Error, "workloadRef ") {
+			continue
+		}
+		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+			Type:               attunev1alpha1.ConditionTemplatePersistence,
+			Status:             metav1.ConditionFalse,
+			Reason:             attunev1alpha1.ReasonWorkloadRefUnread,
+			Message:            e.Error,
+			ObservedGeneration: policy.Generation,
+		})
+		return
+	}
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionTemplatePersistence)
+	if cond != nil && cond.Reason == attunev1alpha1.ReasonWorkloadRefUnread {
+		meta.RemoveStatusCondition(&policy.Status.Conditions, attunev1alpha1.ConditionTemplatePersistence)
+	}
+}
+
 // markTemplateWorkloadRef records why the Rollout template was left alone.
-// It does not change Ready. Resize of the Rollout's pods still proceeds.
+// It does not change Ready. Resize of the Rollout's pods still proceeds
+// from the referenced template when that object can be read.
 func markTemplateWorkloadRef(policy *attunev1alpha1.AttunePolicy) {
 	if policy == nil {
 		return

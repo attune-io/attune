@@ -50,9 +50,11 @@ type startupHistoryFilter struct {
 // startup window, then re-aggregates the surviving pod-labeled series.
 //
 // The cutoff is pod CreationTimestamp plus boost plus rateWindow. A point
-// exactly at the cutoff stays. Sample timestamps are the end of rate().
-// Deleted pods have no CreationTimestamp to cut on, so their series stay
-// until historyWindow. A series with an empty pod label is left unchanged
+// exactly at the cutoff stays. Samples older than CreationTimestamp stay,
+// so a recreated pod name keeps its earlier history. Sample timestamps are
+// the end of rate(). Deleted pods have no CreationTimestamp to cut on, so
+// their series stay until historyWindow. A series with an empty pod label
+// is left unchanged
 // and is not folded into Max or Avg. A numeric 0 after the cutoff stays.
 // Pods with no surviving points are omitted.
 func filterStartupCPUSamples(samples []rsmetrics.Sample, pods []corev1.Pod, boost time.Duration, rateWindow time.Duration, mode rsmetrics.PodAggregationMode) startupHistoryFilter {
@@ -84,7 +86,9 @@ func filterStartupCPUSamples(samples []rsmetrics.Sample, pods []corev1.Pod, boos
 			continue
 		}
 		cutoff := created.Add(boost).Add(rateWindow)
-		if sample.Timestamp.Before(cutoff) {
+		// A recreated pod reuses the name. Points from the previous
+		// incarnation are older than CreationTimestamp and stay.
+		if !sample.Timestamp.Before(created) && sample.Timestamp.Before(cutoff) {
 			dropped = true
 			continue
 		}

@@ -604,6 +604,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 	// Surface per-workload errors so users can diagnose without operator logs.
 	policy.Status.WorkloadErrors = workloadErrors
+	noteWorkloadRefReadErrors(&policy, workloadErrors)
 	// Observe mode: collect data and track progress but don't surface
 	// recommendations. This gives a zero-footprint data-collection phase.
 	if policy.Spec.UpdateStrategy.Type == attunev1alpha1.UpdateTypeObserve {

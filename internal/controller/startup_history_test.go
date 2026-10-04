@@ -229,6 +229,20 @@ func TestFilterStartupCPUSamples(t *testing.T) {
 			wantLen:    2,
 		},
 		{
+			name: "reused pod name keeps samples older than creation",
+			samples: []rsmetrics.Sample{
+				{Timestamp: now.Add(-2 * time.Hour), Value: 0.3, Pod: "web-0"},
+				{Timestamp: now.Add(-9 * time.Minute), Value: 9, Pod: "web-0"},
+				{Timestamp: now, Value: 0.4, Pod: "web-0"},
+			},
+			pods:        []corev1.Pod{podAt("web-0", now.Add(-10*time.Minute))},
+			mode:        rsmetrics.PodAggregationNone,
+			wantValues:  []float64{0.3, 0.4},
+			wantPods:    []string{"web-0", "web-0"},
+			wantDropped: true,
+			wantLen:     2,
+		},
+		{
 			name: "none concatenates surviving labeled points",
 			samples: []rsmetrics.Sample{
 				{Timestamp: now, Value: 0.2, Pod: "old"},

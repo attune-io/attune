@@ -46,7 +46,10 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 ) (rec *attunev1alpha1.WorkloadRecommendation, maxDataPoints int, err error) { //nolint:unparam // error return kept for interface contract
 	logger := log.FromContext(ctx)
 	logInvalidMemoryFromCPURatio(logger, policy)
-	containers := r.getContainers(workload)
+	containers, err := r.recommendationContainers(ctx, workload)
+	if err != nil {
+		return nil, 0, err
+	}
 	if len(containers) == 0 {
 		return nil, 0, nil
 	}

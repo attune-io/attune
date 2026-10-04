@@ -226,6 +226,7 @@ spec:
     #   # excludeFromHistory: true drops CPU samples until
     #   # CreationTimestamp + duration + rateWindow. Omitted keeps
     #   # today's percentile. Deleted pods stay until historyWindow.
+    #   # A recreated name keeps samples older than the new CreationTimestamp.
 
   memory:
     percentile: 99            # supported: 50, 90, 95, 99
@@ -577,7 +578,8 @@ query is `max by (pod, container)` so each pod and container is one
 series. CPU samples before pod CreationTimestamp plus duration plus the
 rate window are dropped, then the remaining pod series are reduced with
 `podAggregation`. Nil and false keep today's percentile. Memory samples
-are unchanged. Deleted pods stay until `historyWindow`.
+are unchanged. Deleted pods stay until `historyWindow`. A recreated
+pod name keeps samples older than the new CreationTimestamp.
 
 ```
 Raw Prometheus Data
