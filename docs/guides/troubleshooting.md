@@ -328,10 +328,12 @@ hash label is skipped while that current hash is known. The annotation
 `pod-template-generation` is not a revision.
 
 `DaemonSetRevisionUnavailable` means the current revision could not be
-read. That is a failed `controllerrevisions` list, or a current revision
-with no hash label. An image-only upgrade does not add the list rule.
-Attune skips every pod of that DaemonSet until the list succeeds. OnDelete
-DaemonSets do not read ControllerRevisions.
+read. The list is limited to the DaemonSet pod selector, then to revisions
+owned by that DaemonSet. The event means the list failed, the current
+revision has no hash label, or an owned revision does not match the
+selector. Attune skips every pod of that DaemonSet until the read
+succeeds. OnDelete DaemonSets do not read ControllerRevisions. The pod
+label compared with the revision is still the hash, not the revision name.
 
 **Fix**: Apply the ClusterRole with the new image so it can get and list
 `controllerrevisions`. The lookup uses the API reader, not a cached watch.

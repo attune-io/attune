@@ -474,6 +474,86 @@ func TestWorkload_PodSkippedForRollout(t *testing.T) {
 		require.Equal(t, 0, countSubstr(recordedEvents(rec), "DaemonSetRevisionUnavailable"))
 	})
 
+	t.Run("DaemonSet_revision_list_uses_pod_selector_and_owner", func(t *testing.T) {
+		ds := testDaemonSet(t, 3, 5)
+		owned := controllerRev("ds-abc123", "abc123", 2, ds.UID)
+		other := controllerRev("foreign-zzz", "zzz999", 9, types.UID("other-uid"))
+		pod := burstableResizePod("ds-current", "ds")
+		pod.Labels[appsv1.ControllerRevisionHashLabelKey] = "abc123"
+		policy := newTestPolicy("test-policy", "default")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+		r, rec := newRolloutReconciler([]client.Object{ds, owned, other}, []*corev1.Pod{pod})
+		probe := &revisionListProbe{Client: r.Client}
+		r.Client = probe
+
+		hash, err := r.currentDaemonSetRevisionName(context.Background(), ds)
+		require.NoError(t, err)
+		require.Equal(t, "abc123", hash)
+		require.Equal(t, []string{"app=ds"}, probe.selectors)
+
+		count, _ := r.executeResizes(context.Background(), policy, []client.Object{ds},
+			[]attunev1alpha1.WorkloadRecommendation{risingCPURecommendation("ds")},
+			podMap("ds", pod), nil, nil)
+		require.Equal(t, 1, count)
+		require.Contains(t, resizedPodNames(r.Clientset.(*kubefake.Clientset)), pod.Name)
+		require.Equal(t, 0, countSubstr(recordedEvents(rec), "DaemonSetRevisionUnavailable"))
+	})
+
+	t.Run("DaemonSet_selector_that_hides_owned_revision_skips", func(t *testing.T) {
+		ds := testDaemonSet(t, 3, 5)
+		hidden := &appsv1.ControllerRevision{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "ds-abc123",
+				Namespace: "default",
+				Labels: map[string]string{
+					appsv1.ControllerRevisionHashLabelKey: "abc123",
+				},
+				OwnerReferences: []metav1.OwnerReference{{
+					APIVersion: "apps/v1",
+					Kind:       "DaemonSet",
+					Name:       ds.Name,
+					UID:        ds.UID,
+				}},
+			},
+			Revision: 2,
+		}
+		pod := burstableResizePod("ds-current", "ds")
+		pod.Labels[appsv1.ControllerRevisionHashLabelKey] = "abc123"
+		policy := newTestPolicy("test-policy", "default")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+		r, rec := newRolloutReconciler([]client.Object{ds, hidden}, []*corev1.Pod{pod})
+		probe := &revisionListProbe{Client: r.Client}
+		r.Client = probe
+
+		hash, err := r.currentDaemonSetRevisionName(context.Background(), ds)
+		require.Error(t, err)
+		require.Empty(t, hash)
+
+		count, _ := r.executeResizes(context.Background(), policy, []client.Object{ds},
+			[]attunev1alpha1.WorkloadRecommendation{risingCPURecommendation("ds")},
+			podMap("ds", pod), nil, nil)
+		require.Equal(t, 0, count)
+		require.Empty(t, resizedPodNames(r.Clientset.(*kubefake.Clientset)))
+		require.Equal(t, 1, countSubstr(recordedEvents(rec), "DaemonSetRevisionUnavailable"))
+	})
+
+	t.Run("DaemonSet_OnDelete_does_not_list_controllerrevisions", func(t *testing.T) {
+		ds := testDaemonSet(t, 3, 5)
+		ds.Spec.UpdateStrategy.Type = appsv1.OnDeleteDaemonSetStrategyType
+		pod := burstableResizePod("ds-pod", "ds")
+		policy := newTestPolicy("test-policy", "default")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+		r, _ := newRolloutReconciler([]client.Object{ds}, []*corev1.Pod{pod})
+		probe := &revisionListProbe{Client: r.Client}
+		r.Client = probe
+
+		count, _ := r.executeResizes(context.Background(), policy, []client.Object{ds},
+			[]attunev1alpha1.WorkloadRecommendation{risingCPURecommendation("ds")},
+			podMap("ds", pod), nil, nil)
+		require.Equal(t, 1, count)
+		require.Equal(t, 0, probe.crLists)
+	})
+
 	t.Run("DaemonSet_missing_hash_label_skips_every_pod", func(t *testing.T) {
 		ds := testDaemonSet(t, 3, 5)
 		rev := controllerRev("ds-abc123", "", 2, ds.UID)
@@ -663,13 +743,16 @@ func testDaemonSet(t *testing.T, updated, desired int32) *appsv1.DaemonSet {
 }
 
 func controllerRev(name, hash string, rev int64, owner types.UID) *appsv1.ControllerRevision {
+	// app=ds is testDaemonSet's pod selector. The revision list uses it.
+	lbls := map[string]string{"app": "ds"}
+	if hash != "" {
+		lbls[appsv1.ControllerRevisionHashLabelKey] = hash
+	}
 	return &appsv1.ControllerRevision{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: "default",
-			Labels: map[string]string{
-				appsv1.ControllerRevisionHashLabelKey: hash,
-			},
+			Labels:    lbls,
 			OwnerReferences: []metav1.OwnerReference{{
 				APIVersion: "apps/v1",
 				Kind:       "DaemonSet",
@@ -679,6 +762,28 @@ func controllerRev(name, hash string, rev int64, owner types.UID) *appsv1.Contro
 		},
 		Revision: rev,
 	}
+}
+
+// revisionListProbe records ControllerRevision list selectors. An empty
+// string means the call had no label selector.
+type revisionListProbe struct {
+	client.Client
+	selectors []string
+	crLists   int
+}
+
+func (p *revisionListProbe) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if _, ok := list.(*appsv1.ControllerRevisionList); ok {
+		p.crLists++
+		lo := &client.ListOptions{}
+		lo.ApplyOptions(opts)
+		sel := ""
+		if lo.LabelSelector != nil {
+			sel = lo.LabelSelector.String()
+		}
+		p.selectors = append(p.selectors, sel)
+	}
+	return p.Client.List(ctx, list, opts...)
 }
 
 // rejectControllerRevisionCacheList fails the test if the cache client lists

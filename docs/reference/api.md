@@ -364,7 +364,7 @@ View them with `kubectl describe attunepolicy <name>` or
 | `MemoryLimitClamped` | Normal | Memory limit decrease skipped due to K8s v1.33 restriction |
 | `PolicyConflict` | Warning | Multiple policies target the same workload |
 | `RolloutInProgress` | Normal | Resize skip for Auto, OneShot, and Canary during a RollingUpdate replacement. Recommendations are still computed. `Recreate` and OnDelete are not a skip: those pods are resized. A RollingUpdate Deployment is not skipped because `availableReplicas` is behind, or because a scale-out has not finished, when generation is observed and no old pods remain. A ReplicaSet is not skipped because `readyReplicas` is behind when generation is observed, so unready pods can be resized. A Rollout message includes the phase, and `abort true` when `status.abort` is set. |
-| `DaemonSetRevisionUnavailable` | Warning | Resize skipped for every pod of a RollingUpdate DaemonSet because `controllerrevisions` could not be listed. OnDelete does not emit this. |
+| `DaemonSetRevisionUnavailable` | Warning | Resize skipped for every pod of a RollingUpdate DaemonSet because the current ControllerRevision could not be read: the list failed, the revision has no hash label, or an owned revision does not match the DaemonSet pod selector. OnDelete does not emit this. |
 | `WorkloadOptOut` | Normal | Workload opted out via annotation |
 
 Events use 1-hour deduplication to prevent log spam. Identical events are emitted at most once per hour; condition changes produce new events immediately. Specific events can be suppressed per-policy using the `attune.io/suppress-warnings` annotation (comma-separated list of event reasons).

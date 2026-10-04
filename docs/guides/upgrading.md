@@ -69,6 +69,11 @@ If that list fails, Attune skips every pod of that DaemonSet and emits
 `DaemonSetRevisionUnavailable`. It does not resize them. OnDelete does not
 read ControllerRevisions.
 
+The list uses the DaemonSet pod selector, then the owner UID. Resize
+decisions stay the same when that selector matches the current revision.
+The call returns fewer objects. No new RBAC rule and no user action. An
+owned revision the selector does not match still skips the DaemonSet.
+
 Attune reads only the pod label `controller-revision-hash`. It does not
 read `pod-template-generation`. Pods that have the hash label resize the
 same way. A pod with no hash label is still skipped when the current hash
