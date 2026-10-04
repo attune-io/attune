@@ -120,9 +120,11 @@ retunes memory utilization targets in the same update as CPU.
 
 The new percent is the original target times the original request divided
 by the new request, truncated toward zero, then capped by the memory limit.
-A Resource metric uses the sum of container memory requests, so an unchanged
-container dilutes the ratio. A ContainerResource metric uses only that
-container. Object metrics and AverageValue targets are left unchanged.
+A Resource metric uses the sum of spec.containers requests, so an unchanged
+container dilutes the ratio. Native sidecars stay out of that sum. CREATE
+initial sizing still counts init containers with restartPolicy Always.
+A ContainerResource metric uses only that container. Object metrics and
+AverageValue targets are left unchanged.
 
 The original Resource target and request are stored on the HPA as
 `attune.io/original-target-memory` and `attune.io/original-memory-request`.

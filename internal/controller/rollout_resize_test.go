@@ -528,7 +528,7 @@ func TestWorkload_PodSkippedForRollout(t *testing.T) {
 				UpdateRevision:     "rev-new",
 			},
 		}
-		var pods []*corev1.Pod
+		pods := make([]*corev1.Pod, 0, 4)
 		for i, hash := range []string{"rev-old", "rev-old", "rev-new", "rev-new"} {
 			pod := burstableResizePod(fmt.Sprintf("db-%d", i), "db")
 			pod.Labels[appsv1.ControllerRevisionHashLabelKey] = hash

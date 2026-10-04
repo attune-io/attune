@@ -437,11 +437,13 @@ func mergeSurge(policy, defaults *attunev1alpha1.ResourceConfig, prefix string) 
 		inherited = append(inherited, prefix+".surge.triggerRatio")
 	}
 	if dst.Percentile == nil && src.Percentile != nil {
-		dst.Percentile = src.Percentile
+		v := *src.Percentile
+		dst.Percentile = &v
 		inherited = append(inherited, prefix+".surge.percentile")
 	}
 	if dst.Window == nil && src.Window != nil {
-		dst.Window = src.Window
+		w := *src.Window
+		dst.Window = &w
 		inherited = append(inherited, prefix+".surge.window")
 	}
 	return inherited
@@ -463,19 +465,23 @@ func mergeOOMBump(policy, defaults *attunev1alpha1.ResourceConfig, prefix string
 	dst := policy.OOMBump
 	src := defaults.OOMBump
 	if dst.Ratio == nil && src.Ratio != nil && *src.Ratio != "" {
-		dst.Ratio = src.Ratio
+		v := *src.Ratio
+		dst.Ratio = &v
 		inherited = append(inherited, prefix+".oomBump.ratio")
 	}
 	if dst.MinBump == nil && src.MinBump != nil {
-		dst.MinBump = src.MinBump
+		q := src.MinBump.DeepCopy()
+		dst.MinBump = &q
 		inherited = append(inherited, prefix+".oomBump.minBump")
 	}
 	if dst.MaxBumps == nil && src.MaxBumps != nil {
-		dst.MaxBumps = src.MaxBumps
+		v := *src.MaxBumps
+		dst.MaxBumps = &v
 		inherited = append(inherited, prefix+".oomBump.maxBumps")
 	}
 	if dst.Hold == nil && src.Hold != nil {
-		dst.Hold = src.Hold
+		h := *src.Hold
+		dst.Hold = &h
 		inherited = append(inherited, prefix+".oomBump.hold")
 	}
 	return inherited
@@ -629,7 +635,17 @@ func mergeHPATargetBounds(policy, defaults *attunev1alpha1.UpdateStrategy) []str
 		return nil
 	}
 	if policy.HPATargetBounds == nil {
-		policy.HPATargetBounds = defaults.HPATargetBounds.DeepCopy()
+		copied := defaults.HPATargetBounds.DeepCopy()
+		if hpaBoundInverted(copied.CPU) {
+			copied.CPU = nil
+		}
+		if hpaBoundInverted(copied.Memory) {
+			copied.Memory = nil
+		}
+		if copied.CPU == nil && copied.Memory == nil {
+			return nil
+		}
+		policy.HPATargetBounds = copied
 		return []string{"hpaTargetBounds"}
 	}
 	cpu := mergeHPATargetBound(&policy.HPATargetBounds.CPU, defaults.HPATargetBounds.CPU, "hpaTargetBounds.cpu")
@@ -645,19 +661,36 @@ func mergeHPATargetBound(dst **attunev1alpha1.HPATargetBound, src *attunev1alpha
 		return nil
 	}
 	if *dst == nil {
-		*dst = src.DeepCopy()
+		copied := src.DeepCopy()
+		// Admission checks one object. A stored pair with min above max
+		// must not become the effective band.
+		if hpaBoundInverted(copied) {
+			return nil
+		}
+		*dst = copied
 		return []string{prefix}
 	}
 	var inherited []string
-	if (*dst).Min == nil && src.Min != nil {
+	// Copy a missing side only when the pair stays ordered. A policy max
+	// plus a higher defaults min, or the reverse, would pass admission on
+	// each object and then clamp the wrong way.
+	if (*dst).Min == nil && src.Min != nil && !hpaMinAboveMax(src.Min, (*dst).Max) {
 		v := *src.Min
 		(*dst).Min = &v
 		inherited = append(inherited, prefix+".min")
 	}
-	if (*dst).Max == nil && src.Max != nil {
+	if (*dst).Max == nil && src.Max != nil && !hpaMinAboveMax((*dst).Min, src.Max) {
 		v := *src.Max
 		(*dst).Max = &v
 		inherited = append(inherited, prefix+".max")
 	}
 	return inherited
+}
+
+func hpaBoundInverted(b *attunev1alpha1.HPATargetBound) bool {
+	return b != nil && hpaMinAboveMax(b.Min, b.Max)
+}
+
+func hpaMinAboveMax(min, max *int32) bool {
+	return min != nil && max != nil && *min > *max
 }

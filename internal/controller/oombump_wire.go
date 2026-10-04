@@ -114,7 +114,7 @@ func (r *AttunePolicyReconciler) planContainerOOMBump(
 	if r.oomBumps != nil && workload != nil && isResizeMode(mode) && len(plan.Stamps) > 0 {
 		r.oomBumps.Put(
 			string(policy.UID), policy.Namespace, policy.Name,
-			workload.GetNamespace(), workload.GetName(), container,
+			workload.GetNamespace(), workload.GetName(), workloadKindName(workload), container,
 			plan.Stamps, plan.BaseHeld,
 		)
 	}
@@ -261,7 +261,7 @@ func (r *AttunePolicyReconciler) peekOOMBump(
 	}
 	return r.oomBumps.PeekPod(
 		string(policy.UID), policy.Namespace, policy.Name,
-		workload.GetNamespace(), workload.GetName(), container,
+		workload.GetNamespace(), workload.GetName(), workloadKindName(workload), container,
 		pod.Namespace, pod.Name,
 	)
 }
@@ -278,17 +278,18 @@ func (r *AttunePolicyReconciler) dropOOMBumpStamp(
 	if r == nil || r.oomBumps == nil || policy == nil {
 		return
 	}
-	wns, wname := "", ""
+	wns, wname, kind := "", "", ""
 	if workload != nil {
 		wns = workload.GetNamespace()
 		wname = workload.GetName()
+		kind = workloadKindName(workload)
 	}
 	uid := string(policy.UID)
-	stamp, ok := r.oomBumps.PeekPod(uid, policy.Namespace, policy.Name, wns, wname, container, podNS, podName)
+	stamp, ok := r.oomBumps.PeekPod(uid, policy.Namespace, policy.Name, wns, wname, kind, container, podNS, podName)
 	if !ok || stamp.AnnotationOnly {
 		return
 	}
-	if _, dropped := r.oomBumps.DropPod(uid, policy.Namespace, policy.Name, wns, wname, container, podNS, podName); !dropped {
+	if _, dropped := r.oomBumps.DropPod(uid, policy.Namespace, policy.Name, wns, wname, kind, container, podNS, podName); !dropped {
 		return
 	}
 	if countSkipped {
@@ -357,7 +358,7 @@ func (r *AttunePolicyReconciler) persistPendingAnnotationOnlyOOMBumps(
 	}
 	pending := r.oomBumps.annotationOnlyStamps(
 		string(policy.UID), policy.Namespace, policy.Name,
-		workload.GetNamespace(), workload.GetName(),
+		workload.GetNamespace(), workload.GetName(), workloadKindName(workload),
 	)
 	for _, item := range pending {
 		pod := &corev1.Pod{}
@@ -378,7 +379,7 @@ func (r *AttunePolicyReconciler) markOOMBumpApplied(
 	}
 	r.oomBumps.MarkApplied(
 		string(policy.UID), policy.Namespace, policy.Name,
-		workload.GetNamespace(), workload.GetName(), container,
+		workload.GetNamespace(), workload.GetName(), workloadKindName(workload), container,
 		pod.Namespace, pod.Name,
 	)
 }
@@ -437,7 +438,7 @@ func (r *AttunePolicyReconciler) storeAppliedOOMBumps(
 	for _, containerRec := range rec.Containers {
 		applied, base := r.oomBumps.Applied(
 			string(policy.UID), policy.Namespace, policy.Name,
-			workload.GetNamespace(), workload.GetName(), containerRec.Name,
+			workload.GetNamespace(), workload.GetName(), workloadKindName(workload), containerRec.Name,
 		)
 		value := heldWorkloadValue(base, applied, now)
 		if value == "" {
@@ -561,7 +562,7 @@ func (r *AttunePolicyReconciler) pendingOOMBumpBytes(policy *attunev1alpha1.Attu
 	}
 	stamps := r.oomBumps.Stamps(
 		string(policy.UID), policy.Namespace, policy.Name,
-		workload.GetNamespace(), workload.GetName(), container,
+		workload.GetNamespace(), workload.GetName(), workloadKindName(workload), container,
 	)
 	var maxBytes int64
 	found := false
@@ -839,7 +840,7 @@ func podHasPendingOOMBump(
 	for _, containerRec := range rec.Containers {
 		stamp, ok := r.oomBumps.PeekPod(
 			string(policy.UID), policy.Namespace, policy.Name,
-			pod.Namespace, rec.Workload, containerRec.Name,
+			pod.Namespace, rec.Workload, rec.Kind, containerRec.Name,
 			pod.Namespace, pod.Name,
 		)
 		if ok && !stamp.AnnotationOnly {

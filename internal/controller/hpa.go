@@ -146,12 +146,8 @@ type hpaCPURow struct {
 	ok       bool
 }
 
-// hpaTuneScope is either one precomputed pair (scalar) or per-metric ratios
-// from history plus one live pod (retune).
+// hpaTuneScope is per-metric ratios from history plus one live pod.
 type hpaTuneScope struct {
-	scalar          bool
-	old, neu        resource.Quantity
-	limit           resource.Quantity
 	rows            map[string]hpaCPURow
 	badCPU          bool
 	memRows         map[string]hpaCPURow
@@ -239,6 +235,39 @@ func firstPodWithPositiveCPURequest(pods []corev1.Pod) *corev1.Pod {
 
 func milliQty(milli int64) resource.Quantity {
 	return *resource.NewMilliQuantity(milli, resource.DecimalSI)
+}
+
+// resourceHistoryOldMilli is the pre-resize sum of history rows that
+// podCPUMillis counts. Init containers, including native sidecars, are
+// left out. Containers with no row are not included.
+func resourceHistoryOldMilli(pod *corev1.Pod, rows map[string]hpaCPURow) int64 {
+	if pod == nil {
+		var sum int64
+		for _, row := range rows {
+			if row.ok {
+				sum += row.old
+			}
+		}
+		return sum
+	}
+	seen := make(map[string]struct{}, len(pod.Spec.Containers)+len(pod.Spec.InitContainers))
+	var sum int64
+	for _, c := range pod.Spec.Containers {
+		seen[c.Name] = struct{}{}
+		if row, ok := rows[c.Name]; ok && row.ok {
+			sum += row.old
+		}
+	}
+	for _, c := range pod.Spec.InitContainers {
+		seen[c.Name] = struct{}{}
+	}
+	for name, row := range rows {
+		if _, onPod := seen[name]; onPod || !row.ok {
+			continue
+		}
+		sum += row.old
+	}
+	return sum
 }
 
 func podCPUMillis(pod *corev1.Pod, rows map[string]hpaCPURow) (oldMilli, newMilli int64, ok bool) {
@@ -341,13 +370,10 @@ func hpaContainerAnnotationKeys(container string) (targetKey, baseKey string, ok
 	return annotationHPACPUTargetPrefix + container, annotationHPACPUBasePrefix + container, true
 }
 
-// capAtLimit is the utilization ceiling for one HPA metric. A scalar tune
-// keeps scalarLimit. Requests-only uses the live limit. RequestsAndLimits
-// uses the recommended limit, or the new request when that limit is unset.
-func capAtLimit(scalar bool, scalarLimit resource.Quantity, requestsOnly bool, newMilli, liveLimitMilli int64, recLimit resource.Quantity, qty func(int64) resource.Quantity) resource.Quantity {
-	if scalar {
-		return scalarLimit
-	}
+// capAtLimit is the utilization ceiling for one HPA metric. Requests-only
+// uses the live limit. RequestsAndLimits uses the recommended limit, or
+// the new request when that limit is unset.
+func capAtLimit(requestsOnly bool, newMilli, liveLimitMilli int64, recLimit resource.Quantity, qty func(int64) resource.Quantity) resource.Quantity {
 	if !requestsOnly {
 		if !recLimit.IsZero() {
 			return recLimit
@@ -361,7 +387,7 @@ func capAtLimit(scalar bool, scalarLimit resource.Quantity, requestsOnly bool, n
 }
 
 func (s hpaTuneScope) capLimit(newMilli, liveLimitMilli int64, recLimit resource.Quantity, requestsOnly bool) resource.Quantity {
-	return capAtLimit(s.scalar, s.limit, requestsOnly, newMilli, liveLimitMilli, recLimit, milliQty)
+	return capAtLimit(requestsOnly, newMilli, liveLimitMilli, recLimit, milliQty)
 }
 
 func (s hpaTuneScope) metricBasis(m *autoscalingv2.MetricSpec) (recognized bool, b hpaMetricBasis) {
@@ -374,13 +400,6 @@ func (s hpaTuneScope) metricBasis(m *autoscalingv2.MetricSpec) (recognized bool,
 		b.resName = string(corev1.ResourceCPU)
 		b.targetKey = annotationHPAOriginalCPU
 		b.baseKey = annotationHPAOriginalCPURequest
-		if s.scalar {
-			b.ok = true
-			b.oldMilli = s.old.MilliValue()
-			b.newMilli = s.neu.MilliValue()
-			b.limit = s.limit
-			return true, b
-		}
 		if s.badCPU || s.pod == nil {
 			return true, b
 		}
@@ -404,15 +423,6 @@ func (s hpaTuneScope) metricBasis(m *autoscalingv2.MetricSpec) (recognized bool,
 		m.ContainerResource.Target.AverageUtilization != nil:
 		b.container = m.ContainerResource.Container
 		b.resName = string(corev1.ResourceCPU)
-		if s.scalar {
-			b.ok = true
-			b.oldMilli = s.old.MilliValue()
-			b.newMilli = s.neu.MilliValue()
-			b.limit = s.limit
-			b.targetKey = annotationHPAOriginalCPU
-			b.baseKey = annotationHPAOriginalCPURequest
-			return true, b
-		}
 		if b.container == "" {
 			return true, b
 		}
@@ -599,11 +609,23 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 			} else if storedTarget, storedMilli, ok := storedHPABase(hpa.Annotations, basis.targetKey, basis.baseKey); ok {
 				baseTarget = storedTarget
 				baseRequestMilli = storedMilli
-				// A stored pod CPU base below this cycle's pre-resize sum is
-				// missing containers. ContainerResource bases stay per container.
+				// A stored pod CPU base below this cycle's pre-resize sum can
+				// be missing containers, or it can be the original request
+				// after later growth. ContainerResource bases stay per container.
+				// When the history old sum is still within the stored base, the
+				// gap is other containers: use the pre-resize sum. When history
+				// old already exceeds the stored base, the resized containers
+				// grew, so keep the stored original and add only containers
+				// that have no history row.
 				if basis.resource && basis.resName == string(corev1.ResourceCPU) && storedMilli < basis.oldMilli {
-					baseRequestMilli = basis.oldMilli
-					repairPartialCPU = true
+					historyOld := resourceHistoryOldMilli(scope.pod, scope.rows)
+					if storedMilli >= historyOld {
+						baseRequestMilli = basis.oldMilli
+						repairPartialCPU = true
+					} else if extra := basis.oldMilli - historyOld; extra > 0 {
+						baseRequestMilli = storedMilli + extra
+						repairPartialCPU = true
+					}
 				}
 			}
 			rawTarget := int32(float64(baseTarget) * float64(baseRequestMilli) / float64(basis.newMilli))

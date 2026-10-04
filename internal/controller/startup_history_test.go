@@ -423,13 +423,14 @@ func TestStartupHistory_BlockedReuseSkipsStaleRatio(t *testing.T) {
 	deploy := newTestDeployment("api-server", "default", nil)
 	reconciler := newReconcilerWithClient()
 	reconciler.SetNowFunc(func() time.Time { return now })
-	young := podAt("young", now.Add(-time.Minute))
+	created := now.Add(-time.Minute)
+	young := podAt("young", created)
 
 	mc := &mockCollector{
 		queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
 			if strings.Contains(query, "container_cpu_usage_seconds_total") {
 				return map[string][]rsmetrics.Sample{
-					"main": steadyPodSamples(now, "young", 12, 10),
+					"main": samplesNotBefore(steadyPodSamples(now, "young", 12, 10), created),
 				}, nil
 			}
 			return map[string][]rsmetrics.Sample{
@@ -557,7 +558,8 @@ func TestStartupHistory_DroppedCPUStaysAtLiveRequest(t *testing.T) {
 	deploy := newTestDeployment("api-server", "default", nil)
 	reconciler := newReconcilerWithClient()
 	reconciler.SetNowFunc(func() time.Time { return now })
-	young := podAt("young", now.Add(-time.Minute))
+	created := now.Add(-time.Minute)
+	young := podAt("young", created)
 	young.Spec.Containers = []corev1.Container{{
 		Name: "main",
 		Resources: corev1.ResourceRequirements{
@@ -569,7 +571,7 @@ func TestStartupHistory_DroppedCPUStaysAtLiveRequest(t *testing.T) {
 		queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
 			if strings.Contains(query, "container_cpu_usage_seconds_total") {
 				return map[string][]rsmetrics.Sample{
-					"main": steadyPodSamples(now, "young", 12, 10),
+					"main": samplesNotBefore(steadyPodSamples(now, "young", 12, 10), created),
 				}, nil
 			}
 			return map[string][]rsmetrics.Sample{
@@ -621,6 +623,16 @@ func TestStartupHistory_DatadogBuilderUnchanged(t *testing.T) {
 	var typedNil *rsmetrics.PromQLQueryBuilder
 	typedCPU := cpuQueryBuilderForStartupHistory(typedNil).BuildQuery("ns", "pod-.*", "", "cpu", time.Minute)
 	assert.Contains(t, typedCPU, "max by (pod, container) (rate(")
+}
+
+func samplesNotBefore(samples []rsmetrics.Sample, created time.Time) []rsmetrics.Sample {
+	out := make([]rsmetrics.Sample, 0, len(samples))
+	for _, sample := range samples {
+		if !sample.Timestamp.Before(created) {
+			out = append(out, sample)
+		}
+	}
+	return out
 }
 
 func steadyPodSamples(now time.Time, pod string, count int, value float64) []rsmetrics.Sample {

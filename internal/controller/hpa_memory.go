@@ -202,13 +202,14 @@ func recContainerMemoryLimit(rec attunev1alpha1.WorkloadRecommendation, containe
 // this metric: the named container, or any non-excluded app container on
 // a pod-level Resource metric.
 func (s hpaTuneScope) memoryCap(newMilli, liveLimitMilli int64, recLimit resource.Quantity, requestsOnly bool) resource.Quantity {
-	return capAtLimit(false, resource.Quantity{}, requestsOnly, newMilli, liveLimitMilli, recLimit, memoryQty)
+	return capAtLimit(requestsOnly, newMilli, liveLimitMilli, recLimit, memoryQty)
 }
 
-// memoryMetricBasis recognizes memory utilization metrics. A scalar CPU
-// tune returns not-recognized so that CPU pair is not applied to memory.
+// memoryMetricBasis recognizes memory utilization metrics. A nil metric
+// is not recognized. A pod with no memory request leaves old and new at
+// zero, so tuneHPAs skips that metric.
 func (s hpaTuneScope) memoryMetricBasis(m *autoscalingv2.MetricSpec) (recognized bool, b hpaMetricBasis) {
-	if s.scalar || m == nil {
+	if m == nil {
 		return false, b
 	}
 	switch {

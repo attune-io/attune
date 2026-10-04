@@ -80,7 +80,7 @@ release pull request 889 to add the list.
 - A stored `0s` cooldown, safety period, or SLO window can be updated and deleted. A new `0s` is rejected
 - RollingUpdate DaemonSets resize the current revision. The pod label is the hash, not the revision name
 - A QoS check with `spec.resources` uses one rule on both sides
-- A stored HPA CPU base below the pre-resize pod sum is repaired
+- A stored HPA CPU base that is missing other containers is repaired. Growth of the same containers keeps the stored original
 - Datadog null points are dropped
 
 ### Stored cooldown of 0s
@@ -200,9 +200,13 @@ that pair is rejected at reconcile.
 
 An HPA that Attune has already tuned keeps its stored CPU base when that
 base is at least the pre-resize pod sum. A stored pod-level base below
-that sum is missing containers. The next CPU resize replaces
-`attune.io/original-cpu-request` with the pre-resize sum and emits
-`HPABaseRepaired`. ContainerResource bases are not repaired this way.
+that sum is repaired only when the history rows' old sum still fits in
+the stored base. That gap is other containers. The next CPU resize
+replaces `attune.io/original-cpu-request` with the pre-resize sum and
+emits `HPABaseRepaired`. If the history old sum is already above the
+stored base, those containers grew. Attune keeps the stored original and
+adds only containers that have no history row. ContainerResource bases
+are not repaired this way.
 
 Deleting the keys still stores a fresh base on the next resize. Leave
 `attune.io/auto-tune` in place:

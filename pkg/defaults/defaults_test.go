@@ -574,6 +574,49 @@ func TestMergeDefaults_OOMBump(t *testing.T) {
 	assert.Nil(t, neither.Spec.Memory.OOMBump)
 }
 
+func TestMergeDefaults_PartialSurgeAndOOMBumpDoNotAlias(t *testing.T) {
+	t.Parallel()
+	pct := int32(95)
+	window := metav1.Duration{Duration: 30 * time.Minute}
+	ratio := "1.5"
+	minBump := resource.MustParse("100Mi")
+	maxBumps := int32(3)
+	hold := metav1.Duration{Duration: time.Hour}
+	defaults := &attunev1alpha1.AttuneDefaults{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{
+				Surge: &attunev1alpha1.Surge{Percentile: &pct, Window: &window},
+			},
+			Memory: &attunev1alpha1.ResourceConfig{
+				OOMBump: &attunev1alpha1.OOMBump{
+					Ratio: &ratio, MinBump: &minBump, MaxBumps: &maxBumps, Hold: &hold,
+				},
+			},
+		},
+	}
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU:    attunev1alpha1.ResourceConfig{Surge: &attunev1alpha1.Surge{}},
+			Memory: attunev1alpha1.ResourceConfig{OOMBump: &attunev1alpha1.OOMBump{}},
+		},
+	}
+	MergeDefaults(policy, defaults)
+	*policy.Spec.CPU.Surge.Percentile = 50
+	policy.Spec.CPU.Surge.Window.Duration = time.Hour
+	*policy.Spec.Memory.OOMBump.Ratio = "2"
+	bumped := resource.MustParse("1Gi")
+	policy.Spec.Memory.OOMBump.MinBump = &bumped
+	*policy.Spec.Memory.OOMBump.MaxBumps = 9
+	policy.Spec.Memory.OOMBump.Hold.Duration = 2 * time.Hour
+
+	assert.Equal(t, int32(95), *defaults.Spec.CPU.Surge.Percentile)
+	assert.Equal(t, 30*time.Minute, defaults.Spec.CPU.Surge.Window.Duration)
+	assert.Equal(t, "1.5", *defaults.Spec.Memory.OOMBump.Ratio)
+	assert.Equal(t, 0, defaults.Spec.Memory.OOMBump.MinBump.Cmp(resource.MustParse("100Mi")))
+	assert.Equal(t, int32(3), *defaults.Spec.Memory.OOMBump.MaxBumps)
+	assert.Equal(t, time.Hour, defaults.Spec.Memory.OOMBump.Hold.Duration)
+}
+
 // ---------- Direct MergeMetricsSource tests ----------
 
 func TestMergeMetricsSource_AllFields(t *testing.T) {

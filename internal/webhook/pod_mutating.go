@@ -787,8 +787,10 @@ func controlledValuesRequestsOnly(cv *string) bool {
 
 // createPodRequestsOnly is requests-only for the CREATE envelope when every
 // managed container is requests-only. Managed means app containers and
-// restartPolicy Always inits, minus excluded names. An omitted list, a nil
-// pod, or a pod with no managed container keeps createRequestsOnly. One
+// restartPolicy Always inits, minus excluded names. That is wider than
+// podResourceRequestsOnly, which stays on spec.containers so the HPA
+// Resource cap matches the Kubernetes resource metric. An omitted list, a
+// nil pod, or a pod with no managed container keeps createRequestsOnly. One
 // RequestsAndLimits container makes the envelope eligible to rise so the
 // request patch is not dropped.
 func createPodRequestsOnly(policy *attunev1alpha1.AttunePolicy, pod *corev1.Pod, res corev1.ResourceName) bool {
