@@ -774,3 +774,63 @@ func TestMergeDefaults_PolicyOverridesDefaults(t *testing.T) {
 	assert.Equal(t, int32(99), policy.Spec.Memory.Percentile)
 	assert.Equal(t, "20", policy.Spec.Memory.Overhead)
 }
+
+// storedZeroDefaultsObjects returns the defaults objects for one #953 case:
+// a cluster AttuneDefaults with clusterCooldown, plus an
+// AttuneNamespaceDefaults in "default" when nsCooldown is set.
+func storedZeroDefaultsObjects(clusterCooldown time.Duration, nsCooldown *time.Duration) []client.Object {
+	objs := []client.Object{&attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{Cooldown: &metav1.Duration{Duration: clusterCooldown}},
+		},
+	}}
+	if nsCooldown != nil {
+		objs = append(objs, &attunev1alpha1.AttuneNamespaceDefaults{
+			ObjectMeta: metav1.ObjectMeta{Name: "ns-defaults", Namespace: "default"},
+			Spec: attunev1alpha1.AttuneDefaultsSpec{
+				UpdateStrategy: &attunev1alpha1.UpdateStrategy{Cooldown: &metav1.Duration{Duration: *nsCooldown}},
+			},
+		})
+	}
+	return objs
+}
+
+// TestMergeDefaults_StoredZeroCooldownInherited pins the runtime side of
+// #953: a stored 0s cooldown on defaults reaches the policy as 0s (not the
+// built-in fill) and parseCooldown maps it to 1h.
+func TestMergeDefaults_StoredZeroCooldownInherited(t *testing.T) {
+	zero := time.Duration(0)
+	tests := []struct {
+		name         string
+		cluster      time.Duration
+		namespace    *time.Duration
+		wantMerged   time.Duration
+		wantCooldown time.Duration
+	}{
+		{name: "cluster 0s", cluster: 0, wantMerged: 0, wantCooldown: time.Hour},
+		{name: "namespace 0s over cluster 10m", cluster: 10 * time.Minute, namespace: &zero, wantMerged: 0, wantCooldown: time.Hour},
+		{name: "cluster 10m", cluster: 10 * time.Minute, wantMerged: 10 * time.Minute, wantCooldown: 10 * time.Minute},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			scheme := testScheme()
+			c := fake.NewClientBuilder().WithScheme(scheme).
+				WithObjects(storedZeroDefaultsObjects(tc.cluster, tc.namespace)...).Build()
+			r := NewAttunePolicyReconciler()
+			r.Client = c
+			r.Scheme = scheme
+
+			policy := newTestPolicy("test-policy", "default")
+			policy.Spec.UpdateStrategy.Cooldown = nil
+			defaults, err := r.fetchDefaults(context.Background(), "default")
+			require.NoError(t, err)
+			r.mergeDefaults(policy, defaults)
+			r.applyBuiltInDefaults(policy)
+
+			require.NotNil(t, policy.Spec.UpdateStrategy.Cooldown)
+			assert.Equal(t, tc.wantMerged, policy.Spec.UpdateStrategy.Cooldown.Duration)
+			assert.Equal(t, tc.wantCooldown, r.parseCooldown(policy))
+		})
+	}
+}

@@ -241,7 +241,7 @@ func TestValidate_Surge(t *testing.T) {
 
 func TestValidateDefaults_Surge(t *testing.T) {
 	t.Run("empty block is valid", func(t *testing.T) {
-		_, err := validateDefaultsSpec(attunev1alpha1.AttuneDefaultsSpec{
+		_, err := validateDefaultsSpec(nil, attunev1alpha1.AttuneDefaultsSpec{
 			CPU: &attunev1alpha1.ResourceConfig{Surge: &attunev1alpha1.Surge{}},
 		})
 		assert.NoError(t, err)
@@ -249,7 +249,7 @@ func TestValidateDefaults_Surge(t *testing.T) {
 
 	t.Run("rejects the same edges as a policy", func(t *testing.T) {
 		zero := int32(0)
-		_, err := validateDefaultsSpec(attunev1alpha1.AttuneDefaultsSpec{
+		_, err := validateDefaultsSpec(nil, attunev1alpha1.AttuneDefaultsSpec{
 			Memory: &attunev1alpha1.ResourceConfig{
 				Surge: &attunev1alpha1.Surge{TriggerRatio: "NaN", Percentile: &zero},
 			},
@@ -257,7 +257,7 @@ func TestValidateDefaults_Surge(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "memory.surge.triggerRatio")
 
-		_, err = validateDefaultsSpec(attunev1alpha1.AttuneDefaultsSpec{
+		_, err = validateDefaultsSpec(nil, attunev1alpha1.AttuneDefaultsSpec{
 			MetricsSource: &attunev1alpha1.MetricsSource{
 				HistoryWindow: &metav1.Duration{Duration: time.Hour},
 			},
@@ -269,7 +269,7 @@ func TestValidateDefaults_Surge(t *testing.T) {
 		assert.Contains(t, err.Error(), "cpu.surge.window")
 		assert.Contains(t, err.Error(), "must not exceed historyWindow")
 
-		_, err = validateDefaultsSpec(attunev1alpha1.AttuneDefaultsSpec{
+		_, err = validateDefaultsSpec(nil, attunev1alpha1.AttuneDefaultsSpec{
 			CPU: &attunev1alpha1.ResourceConfig{
 				Surge: &attunev1alpha1.Surge{Window: &metav1.Duration{Duration: 168 * time.Hour}},
 			},

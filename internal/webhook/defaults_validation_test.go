@@ -1434,3 +1434,197 @@ func TestDefaultsValidator_ValidSingleProviders(t *testing.T) {
 		})
 	}
 }
+
+// defaultsStoredZeroCase is one admission request for both defaults kinds.
+// A nil old spec is a create.
+type defaultsStoredZeroCase struct {
+	name    string
+	old     *attunev1alpha1.AttuneDefaultsSpec
+	oldMeta metav1.ObjectMeta
+	spec    attunev1alpha1.AttuneDefaultsSpec
+	meta    metav1.ObjectMeta
+	wantErr string
+}
+
+func validateDefaultsKind(t *testing.T, kind string, tc defaultsStoredZeroCase) error {
+	t.Helper()
+	ctx := context.Background()
+	switch kind {
+	case "AttuneDefaults":
+		v := &AttuneDefaultsValidator{}
+		obj := &attunev1alpha1.AttuneDefaults{ObjectMeta: tc.meta, Spec: tc.spec}
+		if tc.old == nil {
+			_, err := v.ValidateCreate(ctx, obj)
+			return err
+		}
+		_, err := v.ValidateUpdate(ctx, &attunev1alpha1.AttuneDefaults{ObjectMeta: tc.oldMeta, Spec: *tc.old}, obj)
+		return err
+	case "AttuneNamespaceDefaults":
+		v := &AttuneNamespaceDefaultsValidator{}
+		obj := &attunev1alpha1.AttuneNamespaceDefaults{ObjectMeta: tc.meta, Spec: tc.spec}
+		if tc.old == nil {
+			_, err := v.ValidateCreate(ctx, obj)
+			return err
+		}
+		_, err := v.ValidateUpdate(ctx, &attunev1alpha1.AttuneNamespaceDefaults{ObjectMeta: tc.oldMeta, Spec: *tc.old}, obj)
+		return err
+	}
+	t.Fatalf("unknown kind %q", kind)
+	return nil
+}
+
+// TestDefaultsValidators_StoredZeroDuration pins #953: an update that keeps
+// a stored 0s (accepted by v0.1.32) passes, the same rule as AttunePolicy.
+// Create and positive-to-0s stay rejected; historyWindow is not grandfathered.
+func TestDefaultsValidators_StoredZeroDuration(t *testing.T) {
+	d := func(v time.Duration) *metav1.Duration { return &metav1.Duration{Duration: v} }
+	slo := func(name string, window time.Duration) attunev1alpha1.SLOGuardrail {
+		return attunev1alpha1.SLOGuardrail{Name: name, Query: "vector(0)", Threshold: "1", EvaluationWindow: d(window)}
+	}
+	spec := func(percentile int32, us *attunev1alpha1.UpdateStrategy) attunev1alpha1.AttuneDefaultsSpec {
+		return attunev1alpha1.AttuneDefaultsSpec{
+			CPU:            &attunev1alpha1.ResourceConfig{Percentile: percentile},
+			UpdateStrategy: us,
+		}
+	}
+	ptr := func(s attunev1alpha1.AttuneDefaultsSpec) *attunev1alpha1.AttuneDefaultsSpec { return &s }
+	deleting := metav1.Now()
+	const floorErr = "must be at least 1m, or omit the field"
+
+	tests := []defaultsStoredZeroCase{
+		// accept
+		{
+			name: "(a) unchanged cooldown 0s with unrelated change",
+			old:  ptr(spec(95, &attunev1alpha1.UpdateStrategy{Cooldown: d(0)})),
+			spec: spec(90, &attunev1alpha1.UpdateStrategy{Cooldown: d(0)}),
+		},
+		{
+			name: "(b) unchanged safetyObservationPeriod 0s with unrelated change",
+			old:  ptr(spec(95, &attunev1alpha1.UpdateStrategy{SafetyObservationPeriod: d(0)})),
+			spec: spec(90, &attunev1alpha1.UpdateStrategy{SafetyObservationPeriod: d(0)}),
+		},
+		{
+			name: "(c) unchanged SLO evaluationWindow 0s with unrelated change",
+			old:  ptr(spec(95, &attunev1alpha1.UpdateStrategy{SLOGuardrails: []attunev1alpha1.SLOGuardrail{slo("latency", 0)}})),
+			spec: spec(90, &attunev1alpha1.UpdateStrategy{SLOGuardrails: []attunev1alpha1.SLOGuardrail{slo("latency", 0)}}),
+		},
+		{
+			name: "(c2) unchanged SLO 0s at index 1",
+			old:  ptr(spec(95, &attunev1alpha1.UpdateStrategy{SLOGuardrails: []attunev1alpha1.SLOGuardrail{slo("a", 5*time.Minute), slo("b", 0)}})),
+			spec: spec(90, &attunev1alpha1.UpdateStrategy{SLOGuardrails: []attunev1alpha1.SLOGuardrail{slo("a", 5*time.Minute), slo("b", 0)}}),
+		},
+		{
+			name: "(d) stored cooldown 0s raised to 1m",
+			old:  ptr(spec(95, &attunev1alpha1.UpdateStrategy{Cooldown: d(0)})),
+			spec: spec(95, &attunev1alpha1.UpdateStrategy{Cooldown: d(time.Minute)}),
+		},
+		{
+			name: "(e) stored cooldown 0s removed",
+			old:  ptr(spec(95, &attunev1alpha1.UpdateStrategy{Cooldown: d(0)})),
+			spec: spec(95, &attunev1alpha1.UpdateStrategy{}),
+		},
+		{
+			name:    "(f) finalizer removed on a deleting object with stored cooldown 0s",
+			old:     ptr(spec(95, &attunev1alpha1.UpdateStrategy{Cooldown: d(0)})),
+			oldMeta: metav1.ObjectMeta{Name: "default", Finalizers: []string{"example.com/hold"}, DeletionTimestamp: &deleting},
+			spec:    spec(95, &attunev1alpha1.UpdateStrategy{Cooldown: d(0)}),
+			meta:    metav1.ObjectMeta{Name: "default", DeletionTimestamp: &deleting},
+		},
+		// reject
+		{
+			name:    "(g) create cooldown 0s",
+			spec:    spec(95, &attunev1alpha1.UpdateStrategy{Cooldown: d(0)}),
+			wantErr: "updateStrategy.cooldown " + floorErr,
+		},
+		{
+			name:    "(h) create safetyObservationPeriod 0s",
+			spec:    spec(95, &attunev1alpha1.UpdateStrategy{SafetyObservationPeriod: d(0)}),
+			wantErr: "updateStrategy.safetyObservationPeriod " + floorErr,
+		},
+		{
+			name:    "(i) create SLO evaluationWindow 0s",
+			spec:    spec(95, &attunev1alpha1.UpdateStrategy{SLOGuardrails: []attunev1alpha1.SLOGuardrail{slo("latency", 0)}}),
+			wantErr: "updateStrategy.sloGuardrails[0].evaluationWindow " + floorErr,
+		},
+		{
+			name:    "(j) cooldown 1h to 0s",
+			old:     ptr(spec(95, &attunev1alpha1.UpdateStrategy{Cooldown: d(time.Hour)})),
+			spec:    spec(95, &attunev1alpha1.UpdateStrategy{Cooldown: d(0)}),
+			wantErr: "updateStrategy.cooldown " + floorErr,
+		},
+		{
+			name:    "(k) safetyObservationPeriod 5m to 0s",
+			old:     ptr(spec(95, &attunev1alpha1.UpdateStrategy{SafetyObservationPeriod: d(5 * time.Minute)})),
+			spec:    spec(95, &attunev1alpha1.UpdateStrategy{SafetyObservationPeriod: d(0)}),
+			wantErr: "updateStrategy.safetyObservationPeriod " + floorErr,
+		},
+		{
+			name:    "(l) SLO evaluationWindow 5m to 0s",
+			old:     ptr(spec(95, &attunev1alpha1.UpdateStrategy{SLOGuardrails: []attunev1alpha1.SLOGuardrail{slo("latency", 5*time.Minute)}})),
+			spec:    spec(95, &attunev1alpha1.UpdateStrategy{SLOGuardrails: []attunev1alpha1.SLOGuardrail{slo("latency", 0)}}),
+			wantErr: "updateStrategy.sloGuardrails[0].evaluationWindow " + floorErr,
+		},
+		{
+			name:    "(m) omitted cooldown to 0s",
+			old:     ptr(spec(95, &attunev1alpha1.UpdateStrategy{})),
+			spec:    spec(95, &attunev1alpha1.UpdateStrategy{Cooldown: d(0)}),
+			wantErr: "updateStrategy.cooldown " + floorErr,
+		},
+		{
+			name:    "(n) nil updateStrategy to cooldown 0s",
+			old:     ptr(spec(95, nil)),
+			spec:    spec(95, &attunev1alpha1.UpdateStrategy{Cooldown: d(0)}),
+			wantErr: "updateStrategy.cooldown " + floorErr,
+		},
+		{
+			name:    "(o) SLO entry inserted ahead of a stored 0s",
+			old:     ptr(spec(95, &attunev1alpha1.UpdateStrategy{SLOGuardrails: []attunev1alpha1.SLOGuardrail{slo("a", 5*time.Minute), slo("b", 0)}})),
+			spec:    spec(95, &attunev1alpha1.UpdateStrategy{SLOGuardrails: []attunev1alpha1.SLOGuardrail{slo("new", 5*time.Minute), slo("a", 5*time.Minute), slo("b", 0)}}),
+			wantErr: "updateStrategy.sloGuardrails[2].evaluationWindow " + floorErr,
+		},
+		{
+			name:    "(o2) SLO list reordered moves a stored 0s to another index",
+			old:     ptr(spec(95, &attunev1alpha1.UpdateStrategy{SLOGuardrails: []attunev1alpha1.SLOGuardrail{slo("a", 0), slo("b", 5*time.Minute)}})),
+			spec:    spec(95, &attunev1alpha1.UpdateStrategy{SLOGuardrails: []attunev1alpha1.SLOGuardrail{slo("b", 5*time.Minute), slo("a", 0)}}),
+			wantErr: "updateStrategy.sloGuardrails[1].evaluationWindow " + floorErr,
+		},
+		{
+			name:    "(p) stored cooldown 0s to 30s",
+			old:     ptr(spec(95, &attunev1alpha1.UpdateStrategy{Cooldown: d(0)})),
+			spec:    spec(95, &attunev1alpha1.UpdateStrategy{Cooldown: d(30 * time.Second)}),
+			wantErr: "updateStrategy.cooldown must be at least 1m",
+		},
+		{
+			name: "(q) unchanged historyWindow 0s is not grandfathered",
+			old: &attunev1alpha1.AttuneDefaultsSpec{
+				CPU:           &attunev1alpha1.ResourceConfig{Percentile: 95},
+				MetricsSource: &attunev1alpha1.MetricsSource{HistoryWindow: d(0)},
+			},
+			spec: attunev1alpha1.AttuneDefaultsSpec{
+				CPU:           &attunev1alpha1.ResourceConfig{Percentile: 90},
+				MetricsSource: &attunev1alpha1.MetricsSource{HistoryWindow: d(0)},
+			},
+			wantErr: "metricsSource.historyWindow must be at least 1h",
+		},
+		{
+			name:    "(r) stored cooldown 0s does not admit a new safetyObservationPeriod 0s",
+			old:     ptr(spec(95, &attunev1alpha1.UpdateStrategy{Cooldown: d(0), SafetyObservationPeriod: d(time.Hour)})),
+			spec:    spec(95, &attunev1alpha1.UpdateStrategy{Cooldown: d(0), SafetyObservationPeriod: d(0)}),
+			wantErr: "updateStrategy.safetyObservationPeriod " + floorErr,
+		},
+	}
+
+	for _, kind := range []string{"AttuneDefaults", "AttuneNamespaceDefaults"} {
+		for _, tc := range tests {
+			t.Run(kind+"/"+tc.name, func(t *testing.T) {
+				err := validateDefaultsKind(t, kind, tc)
+				if tc.wantErr == "" {
+					assert.NoError(t, err)
+					return
+				}
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErr)
+			})
+		}
+	}
+}
