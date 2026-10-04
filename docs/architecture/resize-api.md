@@ -78,8 +78,12 @@ Before calling `UpdateResize`, the controller runs several safety checks:
    a live limit already equals the new request, and that resize is
    skipped. Burstable to Guaranteed and BestEffort to Burstable name
    both classes. The Guaranteed reason keeps the `RequestsAndLimits`
-   hint. The pod-level envelope defines QoS only when in-place
-   pod-level resize is on and `spec.resources` is set.
+   hint. When `spec.resources` is set, both sides of the check use one
+   rule: the pod-level envelope if in-place pod-level resize is on, and
+   the containers if it is off. `Status.QOSClass` is not compared with
+   a container class. This does not assume PodLevelResources is on by
+   default. A pod with no `spec.resources` still uses `Status.QOSClass`
+   for the current class.
 7. **Pod-level envelope**: If the pod already has `spec.resources`, Attune
    never invents an envelope and never shrinks one. When in-place
    pod-level resize is on, the same `UpdateResize` writes the container

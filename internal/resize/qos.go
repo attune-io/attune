@@ -48,11 +48,20 @@ func QoSClasses(pod *corev1.Pod, container string, target corev1.ResourceRequire
 	if pod == nil {
 		return "", ""
 	}
+	planned := plannedPod(pod, container, target, opts)
+	// Pod-level resources and container resources are different rules.
+	// Use one rule for both sides. Status.QOSClass stays the source only
+	// when the pod has no spec.resources.
+	if pod.Spec.Resources != nil {
+		from = podQOS(pod, opts.InPlacePodLevelResources)
+		to = podQOS(planned, opts.InPlacePodLevelResources)
+		return from, to
+	}
 	from = pod.Status.QOSClass
 	if from == "" {
 		from = podQOS(pod, opts.InPlacePodLevelResources)
 	}
-	to = podQOS(plannedPod(pod, container, target, opts), opts.InPlacePodLevelResources)
+	to = podQOS(planned, opts.InPlacePodLevelResources)
 	return from, to
 }
 

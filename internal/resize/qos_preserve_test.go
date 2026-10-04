@@ -75,6 +75,55 @@ func namedContainer(name string, resources corev1.ResourceRequirements, nativeSi
 	return c
 }
 
+func TestQoSClasses_PodLevelResourcesUseOneRule(t *testing.T) {
+	pod := &corev1.Pod{
+		Status: corev1.PodStatus{QOSClass: corev1.PodQOSGuaranteed},
+		Spec: corev1.PodSpec{
+			Resources: &corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    mustQty(t, "500m"),
+					corev1.ResourceMemory: mustQty(t, "512Mi"),
+				},
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU:    mustQty(t, "500m"),
+					corev1.ResourceMemory: mustQty(t, "512Mi"),
+				},
+			},
+			Containers: []corev1.Container{{
+				Name: "app",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    mustQty(t, "100m"),
+						corev1.ResourceMemory: mustQty(t, "128Mi"),
+					},
+				},
+			}},
+		},
+	}
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    mustQty(t, "150m"),
+			corev1.ResourceMemory: mustQty(t, "128Mi"),
+		},
+	}
+	from, to := QoSClasses(pod, "app", target, QoSPlan{})
+	require.Equal(t, corev1.PodQOSBurstable, from)
+	require.Equal(t, corev1.PodQOSBurstable, to)
+	require.True(t, PreservesQoS(pod, "app", target, QoSPlan{}))
+
+	from, to = QoSClasses(pod, "app", target, QoSPlan{InPlacePodLevelResources: true})
+	require.Equal(t, corev1.PodQOSGuaranteed, from)
+	require.Equal(t, corev1.PodQOSGuaranteed, to)
+	require.True(t, PreservesQoS(pod, "app", target, QoSPlan{InPlacePodLevelResources: true}))
+
+	plain := pod.DeepCopy()
+	plain.Spec.Resources = nil
+	plain.Status.QOSClass = corev1.PodQOSBurstable
+	from, to = QoSClasses(plain, "app", target, QoSPlan{})
+	require.Equal(t, corev1.PodQOSBurstable, from)
+	require.Equal(t, corev1.PodQOSBurstable, to)
+}
+
 func TestPreservesQoS_MergedPod(t *testing.T) {
 	chart := resReq(t, "250m", "512Mi", "500m", "512Mi")
 	below := resReq(t, "100m", "128Mi", "500m", "256Mi")
