@@ -90,7 +90,7 @@ release pull request 889 to add the list.
 - A stored `0s` cooldown, safety period, or SLO window can be updated and deleted. A new `0s` is rejected
 - RollingUpdate DaemonSets resize the current revision. The pod label is the hash, not the revision name
 - A QoS check with `spec.resources` uses one rule on both sides
-- A stored HPA CPU base that is missing other containers is repaired. Growth of the same containers keeps the stored original
+- A stored HPA CPU base that is missing other containers is repaired. Growth of the same containers keeps the stored original. An annotation an older operator already rewrote is left in place
 - Datadog null points are dropped
 
 ### Stored cooldown of 0s
@@ -208,16 +208,25 @@ that pair is rejected at reconcile.
 
 ### HPA auto-tune keeps the stored CPU base
 
-An HPA that Attune has already tuned keeps its stored CPU base when that
-base is at least the pre-resize pod sum. A stored pod-level base below
-that sum is repaired only when the history rows' old sum still fits in
-the stored base. That gap is other containers. The next CPU resize
-replaces `attune.io/original-cpu-request` with the pre-resize sum and
-emits `HPABaseRepaired` only after that HPA update succeeds. A failed
-write does not emit the Warning. If the history old sum is already above the
-stored base, those containers grew. Attune keeps the stored original and
-adds only containers that have no history row. ContainerResource bases
-are not repaired this way.
+An HPA annotated `attune.io/auto-tune: "true"` stores the pod CPU total
+on the first Resource retune. Later resizes reuse that stored request.
+
+A stored base is replaced only when it equals the history old sum of
+`spec.containers` and the live pod total is larger. That gap is
+containers with no history row. The update writes the pre-resize pod
+sum to `attune.io/original-cpu-request` and emits `HPABaseRepaired` only
+after that HPA update succeeds. A failed write does not emit the
+Warning.
+
+A stored base above that history sum stays, including after the same
+containers grow. A stored base below that history sum also stays.
+Attune does not add the no-history containers on top of it, because
+that base may already include them. Init containers and native
+sidecars stay out of the Resource sum. ContainerResource bases are not
+repaired this way.
+
+An annotation that an older operator already replaced with a grown sum
+is left as stored. This release does not write the earlier number back.
 
 Deleting the keys still stores a fresh base on the next resize. Leave
 `attune.io/auto-tune` in place:

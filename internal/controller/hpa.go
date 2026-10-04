@@ -610,21 +610,15 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 			} else if storedTarget, storedMilli, ok := storedHPABase(hpa.Annotations, basis.targetKey, basis.baseKey); ok {
 				baseTarget = storedTarget
 				baseRequestMilli = storedMilli
-				// A stored pod CPU base below this cycle's pre-resize sum can
-				// be missing containers, or it can be the original request
-				// after later growth. ContainerResource bases stay per container.
-				// When the history old sum is still within the stored base, the
-				// gap is other containers: use the pre-resize sum. When history
-				// old already exceeds the stored base, the resized containers
-				// grew, so keep the stored original and add only containers
-				// that have no history row.
+				// Replace the stored base only when it equals the history old
+				// sum. The gap is containers with no history row. A larger
+				// stored value is already a full pod, and this cycle's pod
+				// sum includes later growth. A smaller stored value may
+				// already include the sidecar, so adding it counts twice.
 				if basis.resource && basis.resName == string(corev1.ResourceCPU) && storedMilli < basis.oldMilli {
 					historyOld := resourceHistoryOldMilli(scope.pod, scope.rows)
-					if storedMilli >= historyOld {
+					if storedMilli == historyOld {
 						baseRequestMilli = basis.oldMilli
-						repairPartialCPU = true
-					} else if extra := basis.oldMilli - historyOld; extra > 0 {
-						baseRequestMilli = storedMilli + extra
 						repairPartialCPU = true
 					}
 				}

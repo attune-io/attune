@@ -1090,6 +1090,27 @@ cannot be loaded (API/RBAC failure). Decreases still proceed.
 sum by (namespace, policy, reason) (rate(attune_capacity_skip_total[1h]))
 ```
 
+### Utilization drifted after a second CPU resize
+
+**Symptom**: The HPA CPU utilization target moved again after a later
+resize, and `attune.io/original-cpu-request` is larger than the pod CPU
+total from before the first Attune resize.
+
+**Cause**: A stored full-pod base was replaced with a grown pod sum, or
+the no-history containers were added onto a base that already included
+them. This version keeps a stored base unless it equals the history old
+sum of `spec.containers`. It does not write an older number back.
+
+**Fix**:
+
+1. Read `attune.io/original-cpu-request` on the HPA.
+2. If an older operator already replaced it, delete
+   `attune.io/original-target-cpu` and `attune.io/original-cpu-request`.
+   Leave `attune.io/auto-tune: "true"`. The next successful CPU resize
+   stores a fresh base and moves the live target.
+3. Do not expect this version to restore the number from before that
+   rewrite.
+
 ### HPABaseRepaired and the stored CPU request disagree
 
 **Symptom**: The policy shows Warning `HPABaseRepaired`, but

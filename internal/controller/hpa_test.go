@@ -1390,6 +1390,102 @@ func TestRetuneHPAAfterResize_FullStoredBaseStays(t *testing.T) {
 	assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest])
 }
 
+func TestRetuneHPAAfterResize_FullStoredBaseIgnoresLaterGrowth(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
+		annotationHPAOriginalCPU:        "80",
+		annotationHPAOriginalCPURequest: "600m",
+	}, cpuResourceMetric(80))
+	pod := workloadPod("api-server",
+		podContainer(t, "app", "550m", "1000m"),
+		podContainer(t, "sidecar", "200m", "1000m"),
+	)
+	scheme := testScheme()
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(hpa.DeepCopy()).Build()
+	recorder := events.NewFakeRecorder(4)
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+	r.Recorder = recorder
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	r.retuneHPAAfterResize(context.Background(), policy, attunev1alpha1.UpdateTypeAuto,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "500m", "550m")},
+		[]attunev1alpha1.WorkloadRecommendation{{Workload: "api-server", Kind: "Deployment"}},
+		[]autoscalingv2.HorizontalPodAutoscaler{hpa},
+		map[string][]corev1.Pod{"api-server": {pod}})
+
+	for _, note := range recorderNotes(recorder) {
+		assert.NotContains(t, note, "HPABaseRepaired")
+	}
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(64), metricUtil(t, updated, 0),
+		"80 * 600/750 = 64; 74 rebases onto the grown pod sum 700m")
+	assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest])
+}
+
+func TestRetuneHPAAfterResize_LaterGrowthDoesNotBecomeTheNextBase(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
+		annotationHPAOriginalCPU:        "80",
+		annotationHPAOriginalCPURequest: "600m",
+	}, cpuResourceMetric(80))
+	pod := workloadPod("api-server",
+		podContainer(t, "app", "550m", "1000m"),
+		podContainer(t, "sidecar", "200m", "1000m"),
+	)
+	cl := runHPARetune(t, []autoscalingv2.HorizontalPodAutoscaler{hpa}, &pod,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "500m", "550m")}, nil)
+	grown := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, "600m", grown.Annotations[annotationHPAOriginalCPURequest])
+
+	next := workloadPod("api-server",
+		podContainer(t, "app", "600m", "1000m"),
+		podContainer(t, "sidecar", "200m", "1000m"),
+	)
+	cl = runHPARetune(t, []autoscalingv2.HorizontalPodAutoscaler{grown}, &next,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "550m", "600m")}, nil)
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest],
+		"the annotation must not become 700m and then a larger sum")
+	assert.Equal(t, int32(60), metricUtil(t, updated, 0),
+		"80 * 600/800 = 60; the stored original target stays 80")
+}
+
+func TestRetuneHPAAfterResize_ElseBranchDoesNotDoubleCountSidecar(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
+		annotationHPAOriginalCPU:        "80",
+		annotationHPAOriginalCPURequest: "600m",
+	}, cpuResourceMetric(80))
+	pod := workloadPod("api-server",
+		podContainer(t, "app", "800m", "1000m"),
+		podContainer(t, "sidecar", "200m", "1000m"),
+	)
+	scheme := testScheme()
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(hpa.DeepCopy()).Build()
+	recorder := events.NewFakeRecorder(4)
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+	r.Recorder = recorder
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	r.retuneHPAAfterResize(context.Background(), policy, attunev1alpha1.UpdateTypeAuto,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "700m", "800m")},
+		[]attunev1alpha1.WorkloadRecommendation{{Workload: "api-server", Kind: "Deployment"}},
+		[]autoscalingv2.HorizontalPodAutoscaler{hpa},
+		map[string][]corev1.Pod{"api-server": {pod}})
+
+	for _, note := range recorderNotes(recorder) {
+		assert.NotContains(t, note, "HPABaseRepaired")
+	}
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(48), metricUtil(t, updated, 0),
+		"80 * 600/1000 = 48; 64 is stored 600m plus the sidecar again")
+	assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest])
+}
+
 func TestRetuneHPAAfterResize_SecondResizeUsesPodTotal(t *testing.T) {
 	t.Parallel()
 	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
