@@ -662,21 +662,24 @@ func (r *AttunePolicyReconciler) executeResizes(
 				wlMode = attunev1alpha1.UpdateTypeCanary
 			}
 		}
+		// Filter before selection. OneShot and Canary otherwise pick a pod
+		// that the rollout filter then drops, and the cycle resizes nothing.
+		eligiblePods := r.filterRolloutPods(ctx, policy, matchedWorkload, rec.Workload, pods)
+		if len(eligiblePods) == 0 {
+			continue
+		}
 		var selectedPods []corev1.Pod
 		if wlMode == attunev1alpha1.UpdateTypeOneShot {
 			// OneShot walks remaining replicas; selectPodsForResize OneShot
 			// is eligible[:1] and would pin the first replica forever (#682).
-			selectedPods = r.firstOneShotPodNeedingResizePinned(ctx, policy, pods, rec, checks, pinLiveCPU)
+			selectedPods = r.firstOneShotPodNeedingResizePinned(ctx, policy, eligiblePods, rec, checks, pinLiveCPU)
 		} else {
-			selectedPods = selectPodsForResize(pods, wlMode, canaryPct)
+			selectedPods = selectPodsForResize(eligiblePods, wlMode, canaryPct)
 		}
 		logger.V(1).Info("Pod selection for resize",
 			"workload", rec.Workload, "total", len(pods),
+			"eligible", len(eligiblePods),
 			"selected", len(selectedPods), "type", wlMode)
-		if len(selectedPods) == 0 {
-			continue
-		}
-		selectedPods = r.filterRolloutPods(ctx, policy, matchedWorkload, rec.Workload, selectedPods)
 		if len(selectedPods) == 0 {
 			continue
 		}

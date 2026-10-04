@@ -504,6 +504,58 @@ func TestApplyTemplatePersistence_Rollout(t *testing.T) {
 	assert.Equal(t, attunev1alpha1.ReasonMonitoring, ready.Reason)
 }
 
+func TestApplyTemplatePersistence_RolloutMidStepDoesNotPatch(t *testing.T) {
+	cpuCur, err := resource.ParseQuantity("500m")
+	require.NoError(t, err)
+	memCur, err := resource.ParseQuantity("512Mi")
+	require.NoError(t, err)
+	cpuRec, err := resource.ParseQuantity("200m")
+	require.NoError(t, err)
+	memRec, err := resource.ParseQuantity("256Mi")
+	require.NoError(t, err)
+
+	cases := []struct {
+		name    string
+		phase   string
+		abort   bool
+		updated int32
+		patch   bool
+	}{
+		{name: "paused", phase: "Paused", updated: 1, patch: false},
+		{name: "progressing", phase: "Progressing", updated: 1, patch: false},
+		{name: "abort", phase: "Healthy", abort: true, updated: 1, patch: false},
+		{name: "healthy", phase: "Healthy", updated: 1, patch: true},
+		{name: "healthy behind", phase: "Healthy", updated: 0, patch: false},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			ro := rolloutWithResources("checkout", cpuCur, memCur)
+			ro.Status.Phase = tt.phase
+			ro.Status.Abort = tt.abort
+			ro.Status.UpdatedReplicas = tt.updated
+			r := newReconcilerWithClient(ro)
+			policy := rolloutPersistPolicy()
+			meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+				Type:    attunev1alpha1.ConditionReady,
+				Status:  metav1.ConditionTrue,
+				Reason:  attunev1alpha1.ReasonMonitoring,
+				Message: "watching",
+			})
+			_ = r.applyTemplatePersistence(context.Background(), policy, []client.Object{ro},
+				[]attunev1alpha1.WorkloadRecommendation{rolloutRecommendation("checkout", cpuCur, memCur, cpuRec, memRec)},
+				attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
+			var updated argorollout.Rollout
+			require.NoError(t, r.Get(context.Background(), client.ObjectKeyFromObject(ro), &updated))
+			got := updated.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue()
+			if tt.patch {
+				assert.Equal(t, int64(200), got)
+				return
+			}
+			assert.Equal(t, int64(500), got)
+		})
+	}
+}
+
 func TestApplyTemplatePersistence_RolloutWorkloadRef(t *testing.T) {
 	cpuCur, err := resource.ParseQuantity("500m")
 	require.NoError(t, err)

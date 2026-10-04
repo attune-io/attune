@@ -270,6 +270,8 @@ func templatePersistenceBlockedByRollout(w client.Object) bool {
 		return deploymentTemplateMidReplacement(o)
 	case *appsv1.StatefulSet:
 		return statefulSetTemplateMidReplacement(o)
+	case *argorollout.Rollout:
+		return (&rolloutAdapter{Rollout: o}).IsRollingOut()
 	default:
 		return false
 	}
@@ -323,11 +325,12 @@ func (r *AttunePolicyReconciler) emitRolloutInProgress(policy *attunev1alpha1.At
 }
 
 // podSkippedForRollout reports a per-pod resize skip. currentHash is the
-// DaemonSet ControllerRevision name, or the paused Deployment's current
-// pod-template-hash. An empty hash means the lookup does not apply, or it
-// failed for a kind other than a RollingUpdate DaemonSet. That empty hash
-// does not skip the pod. A RollingUpdate DaemonSet whose ControllerRevision
-// list fails is handled in filterRolloutPods and skips every pod.
+// DaemonSet controller-revision-hash label, or the paused Deployment's
+// current pod-template-hash. An empty hash means the lookup does not apply,
+// or it failed for a kind other than a RollingUpdate DaemonSet. That empty
+// hash does not skip the pod. A RollingUpdate DaemonSet whose
+// ControllerRevision list fails, or whose current revision has no hash
+// label, is handled in filterRolloutPods and skips every pod.
 func (r *AttunePolicyReconciler) podSkippedForRollout(workload client.Object, pod *corev1.Pod, currentHash string) bool {
 	if pod == nil {
 		return false
@@ -404,7 +407,7 @@ func (r *AttunePolicyReconciler) filterRolloutPods(
 			log.FromContext(ctx).Error(err, "Failed to list DaemonSet controllerrevisions; skipping resize", "workload", workloadName)
 			if policy != nil {
 				r.emitEventOnce(policy, corev1.EventTypeWarning, "DaemonSetRevisionUnavailable", "resize",
-					"Resize skipped for DaemonSet %s: cannot list controllerrevisions", workloadName)
+					"Resize skipped for DaemonSet %s: %s", workloadName, err.Error())
 			}
 			return nil
 		}
@@ -446,11 +449,12 @@ func (r *AttunePolicyReconciler) rolloutRevisionHash(ctx context.Context, worklo
 }
 
 func (r *AttunePolicyReconciler) currentDaemonSetRevisionName(ctx context.Context, ds *appsv1.DaemonSet) (string, error) {
-	if r.Client == nil {
+	reader := r.liveReader()
+	if reader == nil {
 		return "", fmt.Errorf("listing ControllerRevisions: client is nil")
 	}
 	var list appsv1.ControllerRevisionList
-	if err := r.List(ctx, &list, client.InNamespace(ds.Namespace)); err != nil {
+	if err := reader.List(ctx, &list, client.InNamespace(ds.Namespace)); err != nil {
 		return "", err
 	}
 	var best *appsv1.ControllerRevision
@@ -466,7 +470,17 @@ func (r *AttunePolicyReconciler) currentDaemonSetRevisionName(ctx context.Contex
 	if best == nil {
 		return "", nil
 	}
-	return best.Name, nil
+	// The DaemonSet controller stores only the hash on the pod. The object
+	// name is <daemonset>-<hash>. Comparing the pod label with best.Name
+	// skips every pod.
+	hash := ""
+	if best.Labels != nil {
+		hash = best.Labels[appsv1.ControllerRevisionHashLabelKey]
+	}
+	if hash == "" {
+		return "", fmt.Errorf("current ControllerRevision %s has no %s label", best.Name, appsv1.ControllerRevisionHashLabelKey)
+	}
+	return hash, nil
 }
 
 func (r *AttunePolicyReconciler) currentPausedDeploymentHash(ctx context.Context, dep *appsv1.Deployment) (string, error) {
