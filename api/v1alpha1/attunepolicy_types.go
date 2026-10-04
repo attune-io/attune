@@ -553,8 +553,8 @@ type StartupBoost struct {
 
 // OOMBump raises memory after an OOMKill. The step is
 // max(ceil(origin * ratio^count), origin + minBump * count), then maxAllowed.
-// Origin stays after hold expires. maxBumps is the only cap when maxAllowed
-// is omitted.
+// After hold expires, the next new OOM steps once from the live request.
+// maxBumps is the only cap when maxAllowed is omitted.
 type OOMBump struct {
 	// Ratio multiplies the original memory request at each successful step.
 	// "1.2" means 20 percent per step. Nil is filled with "1.2" when the

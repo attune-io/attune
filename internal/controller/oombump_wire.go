@@ -197,25 +197,28 @@ func (r *AttunePolicyReconciler) oomBumpRevertGate(
 	reason string,
 	now time.Time,
 ) (safety.ResizeRecord, bool) {
-	live := r.livePodForBumpGate(ctx, pod)
 	if policy == nil || policy.Spec.Memory.OOMBump == nil {
 		return record, false
 	}
+	live := r.livePodForBumpGate(ctx, pod)
 	decision := oomBumpRevertDecisionFor(live, record.Container, reason, record.ResizedAt, now, oomBumpMaxBumps(policy))
 	if decision.Suppress {
 		return record, true
 	}
 	if decision.Floor > 0 {
 		adjusted := record
-		adjusted.OriginalResources = raiseMemoryFloor(record.OriginalResources, decision.Floor)
+		raiseLimit := policy.Spec.Memory.ControlledValues != nil &&
+			*policy.Spec.Memory.ControlledValues == attunev1alpha1.ControlledRequestsAndLimits
+		adjusted.OriginalResources = raiseMemoryFloor(record.OriginalResources, decision.Floor, raiseLimit)
 		return adjusted, false
 	}
 	return record, false
 }
 
 // raiseMemoryFloor copies requirements and raises a lower memory request.
-// A missing or zero limit stays unset. A positive limit below the floor is raised.
-func raiseMemoryFloor(src corev1.ResourceRequirements, floorBytes int64) corev1.ResourceRequirements {
+// A missing or zero limit stays unset. A positive limit below the floor is
+// raised only when memory controlledValues is RequestsAndLimits.
+func raiseMemoryFloor(src corev1.ResourceRequirements, floorBytes int64, raiseLimit bool) corev1.ResourceRequirements {
 	out := src.DeepCopy()
 	floor := resource.NewQuantity(floorBytes, resource.BinarySI)
 	if out.Requests == nil {
@@ -225,7 +228,7 @@ func raiseMemoryFloor(src corev1.ResourceRequirements, floorBytes int64) corev1.
 	if cur.Cmp(*floor) < 0 {
 		out.Requests[corev1.ResourceMemory] = floor.DeepCopy()
 	}
-	if out.Limits != nil {
+	if raiseLimit && out.Limits != nil {
 		if lim, ok := out.Limits[corev1.ResourceMemory]; ok && !lim.IsZero() && lim.Cmp(*floor) < 0 {
 			out.Limits[corev1.ResourceMemory] = floor.DeepCopy()
 		}

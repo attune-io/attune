@@ -323,7 +323,7 @@ Memory request steps after `OOMKilled` when `memory.oomBump` is set. The feature
 | `applied` | In-place resize applied the next step from the original request |
 | `clamped` | The step was above `maxAllowed`, so the request was clamped to that cap |
 | `capped` | `maxBumps` is already reached. When `maxAllowed` is omitted, `maxBumps` is the only cap |
-| `skipped` | No bump was applied (already at the target, excluded container, budget skip, or a Guaranteed pod with `RequestsOnly`). A container name that does not fit the annotation key is logged and not counted |
+| `skipped` | No bump was applied (already at the target, excluded container, unresolved config, budget skip, or a Guaranteed pod with `RequestsOnly`). The same OOM signal counts once. A newer finish time or restart counts again. A container name that does not fit the annotation key is logged and not counted |
 
 ```promql
 sum by (namespace, policy, result) (rate(attune_oom_bump_total[1h]))

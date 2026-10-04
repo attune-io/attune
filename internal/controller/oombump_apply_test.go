@@ -483,6 +483,46 @@ func oomKilledStatus(finished time.Time, restart int32) *corev1.ContainerStatus 
 	}
 }
 
+func TestPlanWorkloadOOMBump_ExpiredHoldStepsFromLive(t *testing.T) {
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	origin := qtyBytes(t, "256Mi")
+	live := qtyBytes(t, "1Gi")
+	raw, err := formatOOMBumpRecord(oomBumpRecord{
+		Count: 1, Origin: origin, Floor: origin,
+		OOMAt: now.Add(-2 * time.Hour), Restart: 1, HoldUntil: now.Add(-time.Minute),
+	})
+	require.NoError(t, err)
+	pod := oomBumpPod("a", "app", "1Gi", oomKilledStatus(now, 2), "", false)
+	ratio := "1.5"
+	block := &attunev1alpha1.OOMBump{Ratio: &ratio}
+	plan := planWorkloadOOMBump(block, "app", false, 0, false, nil, raw, []corev1.Pod{pod}, now, nil)
+	require.True(t, plan.UsePublish)
+	assert.Greater(t, plan.PublishBytes, live)
+	require.Len(t, plan.Stamps, 1)
+	assert.Equal(t, live, plan.Stamps[0].Stamp.Origin)
+	assert.Equal(t, 1, plan.Stamps[0].Stamp.Count)
+
+	updated, err := formatOOMBumpRecord(plan.Stamps[0].Stamp)
+	require.NoError(t, err)
+	next := oomBumpPod("a", "app", "1Gi", oomKilledStatus(now, 2), updated, false)
+	second := planWorkloadOOMBump(block, "app", false, 0, false, nil, updated, []corev1.Pod{next}, now, nil)
+	assert.Empty(t, second.MetricNow)
+	if len(second.Stamps) > 0 {
+		assert.Equal(t, 1, second.Stamps[0].Stamp.Count)
+	}
+
+	heldAt := now.Add(-2 * time.Hour)
+	heldRaw, err := formatOOMBumpRecord(oomBumpRecord{
+		Count: 1, Origin: origin, Floor: origin,
+		OOMAt: heldAt, Restart: 1, HoldUntil: now.Add(time.Hour),
+	})
+	require.NoError(t, err)
+	held := oomBumpPod("a", "app", "1Gi", oomKilledStatus(heldAt, 1), heldRaw, false)
+	heldPlan := planWorkloadOOMBump(block, "app", false, 0, false, nil, heldRaw, []corev1.Pod{held}, now, nil)
+	assert.Empty(t, heldPlan.Stamps)
+	assert.Equal(t, origin, heldPlan.PublishBytes)
+}
+
 func TestPlanWorkloadOOMBump_ConsumedSignalStartsOver(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	oomAt := now.Add(-time.Minute)

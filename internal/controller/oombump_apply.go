@@ -110,6 +110,7 @@ func planWorkloadOOMBump(
 		for _, snap := range snaps {
 			if snap.newOOM {
 				plan.MetricNow = append(plan.MetricNow, oomBumpSkipped)
+				plan.Stamps = append(plan.Stamps, skippedOOMStamp(snap, now))
 				break
 			}
 		}
@@ -121,6 +122,7 @@ func planWorkloadOOMBump(
 		for _, snap := range snaps {
 			if snap.newOOM {
 				plan.MetricNow = append(plan.MetricNow, oomBumpSkipped)
+				plan.Stamps = append(plan.Stamps, skippedOOMStamp(snap, now))
 				break
 			}
 		}
@@ -428,6 +430,22 @@ type oomPodSnap struct {
 	// freshStart means a full revert already consumed an older signal.
 	// The next OOM must not inherit a sibling workload record.
 	freshStart bool
+}
+
+func skippedOOMStamp(snap oomPodSnap, now time.Time) oomBumpPodStamp {
+	return oomBumpPodStamp{
+		Namespace:      snap.namespace,
+		PodName:        snap.name,
+		AnnotationOnly: true,
+		Result:         oomBumpSkipped,
+		Stamp: oomBumpRecord{
+			Origin:    snap.live,
+			Floor:     snap.live,
+			OOMAt:     snap.finished.UTC(),
+			Restart:   snap.restart,
+			HoldUntil: now.UTC(),
+		},
+	}
 }
 
 func snapshotOOMPods(pods []corev1.Pod, container, annKey string, workload *oomBumpRecord) []oomPodSnap {

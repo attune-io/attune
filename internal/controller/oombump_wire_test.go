@@ -124,7 +124,13 @@ func TestOOMBumpPlan_ExcludedSkipsOnce(t *testing.T) {
 	plan := r.planContainerOOMBump(context.Background(), policy, oomWireDeploy("api"), "app", true, 0, false, []corev1.Pod{fresh}, now)
 	assert.Equal(t, before+1, oomMetric(policy.Name, oomBumpSkipped))
 	assert.Equal(t, []string{oomBumpSkipped}, plan.MetricNow)
-	assert.Empty(t, plan.Stamps)
+	require.Len(t, plan.Stamps, 1)
+	raw, err := formatOOMBumpRecord(plan.Stamps[0].Stamp)
+	require.NoError(t, err)
+	stamped := oomBumpPod("p", "app", "200Mi", oomKilledStatus(now, 1), raw, false)
+	again := r.planContainerOOMBump(context.Background(), policy, oomWireDeploy("api"), "app", true, 0, false, []corev1.Pod{stamped}, now)
+	assert.Empty(t, again.MetricNow)
+	assert.Equal(t, before+1, oomMetric(policy.Name, oomBumpSkipped))
 
 	quiet := oomBumpPod("p", "app", "200Mi", nil, "", false)
 	quietPlan := r.planContainerOOMBump(context.Background(), policy, oomWireDeploy("api"), "app", true, 0, false, []corev1.Pod{quiet}, now)
@@ -337,9 +343,17 @@ func TestOOMBumpRevertGate(t *testing.T) {
 	adjusted, suppress = r.oomBumpRevertGate(context.Background(), policy, &pod, record("150Mi", "200Mi"), "throttle", now)
 	assert.False(t, suppress)
 	assert.Equal(t, floor, adjusted.OriginalResources.Requests.Memory().Value())
-	assert.Equal(t, floor, adjusted.OriginalResources.Limits.Memory().Value())
+	assert.Equal(t, qtyBytes(t, "200Mi"), adjusted.OriginalResources.Limits.Memory().Value())
 
 	adjusted, suppress = r.oomBumpRevertGate(context.Background(), policy, &pod, record("150Mi", "200Mi"), "slo:latency", now)
+	assert.False(t, suppress)
+	assert.Equal(t, floor, adjusted.OriginalResources.Requests.Memory().Value())
+	assert.Equal(t, qtyBytes(t, "200Mi"), adjusted.OriginalResources.Limits.Memory().Value())
+
+	both := policy.DeepCopy()
+	ral := attunev1alpha1.ControlledRequestsAndLimits
+	both.Spec.Memory.ControlledValues = &ral
+	adjusted, suppress = r.oomBumpRevertGate(context.Background(), both, &pod, record("150Mi", "200Mi"), "throttle", now)
 	assert.False(t, suppress)
 	assert.Equal(t, floor, adjusted.OriginalResources.Requests.Memory().Value())
 	assert.Equal(t, floor, adjusted.OriginalResources.Limits.Memory().Value())
@@ -354,6 +368,20 @@ func TestOOMBumpRevertGate(t *testing.T) {
 	assert.False(t, suppress)
 	assert.Equal(t, qtyBytes(t, "150Mi"), adjusted.OriginalResources.Requests.Memory().Value())
 	assert.Equal(t, qtyBytes(t, "200Mi"), adjusted.OriginalResources.Limits.Memory().Value())
+}
+
+func TestOOMBumpRevertGate_NilBumpDoesNotGetPod(t *testing.T) {
+	now := oomWireNow()
+	pod := oomBumpPod("p", "app", "200Mi", oomKilledStatus(now, 1), "", false)
+	cs := kubefake.NewSimpleClientset(&pod)
+	r := &AttunePolicyReconciler{Clientset: cs}
+	off := newTestPolicy("oom-wire-revert-off", "ns")
+	_, _ = r.oomBumpRevertGate(context.Background(), off, &pod, safety.ResizeRecord{
+		PodName: pod.Name, Namespace: pod.Namespace, Container: "app",
+	}, "oomkill", now)
+	for _, action := range cs.Actions() {
+		assert.NotEqual(t, "get", action.GetVerb())
+	}
 }
 
 func TestOOMBumpBook_DropKeepsBase(t *testing.T) {
