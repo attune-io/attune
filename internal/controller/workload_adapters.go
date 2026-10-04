@@ -280,10 +280,14 @@ func (a *cronJobAdapter) PodSpec() *corev1.PodSpec {
 func (a *cronJobAdapter) IsRollingOut() bool { return false }
 
 func (a *cronJobAdapter) PodNameRegexSuffix() string {
+	// CronJob controller stamps are unix minutes: 8 digits until
+	// 2160-02-18 and 9 digits after that. Attune requires 1.32+, which
+	// does not write the pre-1.21 10-digit unix-seconds suffix.
+	const minuteStamp = "-[0-9]{8,9}"
 	if a.Spec.JobTemplate.Spec.CompletionMode != nil && *a.Spec.JobTemplate.Spec.CompletionMode == batchv1.IndexedCompletion {
-		return "-[0-9]{10}-[0-9]+-[a-z0-9]{5}"
+		return minuteStamp + "-[0-9]+-[a-z0-9]{5}"
 	}
-	return "-[0-9]{10}-[a-z0-9]{5}"
+	return minuteStamp + "-[a-z0-9]{5}"
 }
 
 func (a *cronJobAdapter) IsBatch() bool { return true }

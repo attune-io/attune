@@ -284,7 +284,9 @@ func (r *AttunePolicyReconciler) isRollingOut(workload client.Object) bool {
 //   - StatefulSet: <name>-<ordinal>
 //   - DaemonSet: <name>-<pod-hash>
 //   - Job: <name>-<pod-hash>
-//   - CronJob: <name>-<timestamp>-<pod-hash>
+//   - CronJob: <name>-<minute-stamp>-<pod-hash>, or indexed
+//     <name>-<minute-stamp>-<index>-<pod-hash>. The stamp is unix
+//     minutes (8 or 9 digits), not a 10-digit unix-seconds suffix.
 func (r *AttunePolicyReconciler) getPodRegex(workload client.Object) string {
 	name := rsmetrics.EscapePromQLRegex(workload.GetName())
 	if a := newWorkloadAdapter(workload); a != nil {

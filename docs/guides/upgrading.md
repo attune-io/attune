@@ -10,6 +10,23 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### CronJob pods match the minute stamp
+
+A CronJob pod name uses the minute stamp from the CronJob controller
+(unix time divided by 60). That stamp is 8 digits until 2160-02-18
+and 9 digits after that. Kubernetes 1.32 and later do not write the pre-1.21
+10-digit unix-seconds suffix.
+
+Prometheus queries and CloudWatch owner-name matching accept that
+8- or 9-digit stamp. A non-indexed pod is `<cronjob>-<stamp>-<hash>`.
+An indexed pod is `<cronjob>-<stamp>-<index>-<hash>`. A 10-digit
+suffix does not match. No policy YAML change. CloudWatch still matches
+the owner name in `PodName`. See
+[CronJob pod name does not match](troubleshooting.md#cronjob-pod-name-does-not-match).
+
+CronJobs on a supported cluster that the old 10-digit pattern missed
+can now produce samples.
+
 ### Policy limit multiplier requires RequestsAndLimits
 
 A policy that sets `cpu.limitMultiplier` or `memory.limitMultiplier`
@@ -126,6 +143,7 @@ These behaviors change when the operator is upgraded, with no YAML edit.
 The generated notes for the next release must list them. Do not edit
 release pull request 889 to add the list.
 
+- CronJob pod names match an 8- or 9-digit minute stamp. A 10-digit unix-seconds suffix does not match
 - Omitted `maxAllowed` is not capped
 - CloudWatch `cpuUnit` empty means Millicores
 - A stored `0s` cooldown, safety period, or SLO window on a policy or on defaults can be updated and deleted. A new `0s` is rejected. A stored `0s` cooldown still waits 1h

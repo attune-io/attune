@@ -297,6 +297,20 @@ spec:
     historyWindow: 168h     # query the last 7 days of metrics
 ```
 
+### CronJob pod name does not match
+
+**Symptom**: A CronJob policy stays `InsufficientData` while its pods run.
+
+**Cause**: The query matches the pod name. A non-indexed pod is
+`<cronjob>-<minute>-<hash>`, for example `nightly-29453760-abc12`.
+The minute stamp is unix time divided by 60 (8 digits until 2160-02-18,
+9 digits after that). An indexed pod inserts the completion index:
+`nightly-29453760-0-abc12`. A 10-digit unix-seconds suffix does not
+match. The Job name (`nightly-29453760`) is not a pod name.
+
+**Fix**: Compare a live pod name from `kubectl get pods` with the
+query. When the name matches, wait for `minimumDataPoints`.
+
 ### Recommendations missing while a pod is crash looping
 
 **Symptom**: Recommendations are missing for a Deployment or ReplicaSet

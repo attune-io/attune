@@ -700,14 +700,14 @@ func TestGetPodRegex(t *testing.T) {
 			want:     "data-migrate-[0-9]+-[a-z0-9]{5}",
 		},
 		{
-			name:     "CronJob uses timestamp and hash suffix pattern",
+			name:     "CronJob uses minute stamp and hash suffix pattern",
 			workload: &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: "nightly-report"}},
-			want:     "nightly-report-[0-9]{10}-[a-z0-9]{5}",
+			want:     "nightly-report-[0-9]{8,9}-[a-z0-9]{5}",
 		},
 		{
-			name:     "Indexed CronJob uses timestamp, index, and hash suffix pattern",
+			name:     "Indexed CronJob uses minute stamp, index, and hash suffix pattern",
 			workload: &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: "nightly-report"}, Spec: batchv1.CronJobSpec{JobTemplate: batchv1.JobTemplateSpec{Spec: batchv1.JobSpec{CompletionMode: ptrCompletionMode(batchv1.IndexedCompletion)}}}},
-			want:     "nightly-report-[0-9]{10}-[0-9]+-[a-z0-9]{5}",
+			want:     "nightly-report-[0-9]{8,9}-[0-9]+-[a-z0-9]{5}",
 		},
 	}
 
@@ -1849,8 +1849,10 @@ func TestGetPodRegex_BatchPatternsDoNotMatchSimilarlyNamedWorkloads(t *testing.T
 	assert.False(t, jobRegex.MatchString("data-migrate-v2-abc12"))
 
 	cronRegex := regexp.MustCompile("^" + r.getPodRegex(&batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: "nightly-report"}}) + "$")
-	assert.True(t, cronRegex.MatchString("nightly-report-1716116400-abc12"))
-	assert.False(t, cronRegex.MatchString("nightly-report-v2-1716116400-abc12"))
+	assert.True(t, cronRegex.MatchString("nightly-report-29453760-abc12"))
+	assert.True(t, cronRegex.MatchString("nightly-report-100000000-abc12"))
+	assert.False(t, cronRegex.MatchString("nightly-report-1716116400-abc12"))
+	assert.False(t, cronRegex.MatchString("nightly-report-v2-29453760-abc12"))
 }
 
 func TestForgetPolicyRuntimeState_RecreateStartsFullBucket(t *testing.T) {
