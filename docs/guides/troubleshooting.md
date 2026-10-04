@@ -1090,6 +1090,20 @@ cannot be loaded (API/RBAC failure). Decreases still proceed.
 sum by (namespace, policy, reason) (rate(attune_capacity_skip_total[1h]))
 ```
 
+### HPABaseRepaired and the stored CPU request disagree
+
+**Symptom**: The policy shows Warning `HPABaseRepaired`, but
+`attune.io/original-cpu-request` on the HPA is not the value you expected
+from that event.
+
+**Cause**: This version emits the Warning only after the HPA update
+succeeds. A Warning whose annotation does not match is from an older
+operator, or a later writer changed the annotation. It is not a failed
+write from this version.
+
+**Fix**: Read `attune.io/original-cpu-request` on the HPA. The event text
+names that key. Do not treat the Warning alone as proof of the stored value.
+
 ### Memory HPA scaled out after a memory decrease
 
 **Symptom**: Attune lowered a memory request and the HorizontalPodAutoscaler

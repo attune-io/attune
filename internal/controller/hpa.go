@@ -571,6 +571,7 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 		}
 
 		foundAdjustable := false
+		repairedCPU := false
 		pending := make([]hpaPendingTarget, 0, len(hpa.Spec.Metrics))
 		var clamps []hpaClampNote
 		for j := range hpa.Spec.Metrics {
@@ -646,9 +647,8 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 				hpa.Annotations[basis.targetKey] = strconv.FormatInt(int64(baseTarget), 10)
 				baseQ := hpaRequestQuantity(basis.resName, baseRequestMilli)
 				hpa.Annotations[basis.baseKey] = baseQ.String()
-				if repairPartialCPU && r.Recorder != nil && scope.policy != nil {
-					r.Recorder.Eventf(scope.policy, nil, corev1.EventTypeWarning, "HPABaseRepaired", "hpa",
-						"Stored %s was below the pre-resize pod sum and was replaced", annotationHPAOriginalCPURequest)
+				if repairPartialCPU {
+					repairedCPU = true
 				}
 			}
 			if basis.resName == string(corev1.ResourceMemory) {
@@ -707,6 +707,10 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 		if err := r.Update(ctx, &fresh); err != nil {
 			logger.Error(err, "Failed to update HPA target", "hpa", hpa.Name)
 			continue
+		}
+		if repairedCPU && r.Recorder != nil && scope.policy != nil {
+			r.Recorder.Eventf(scope.policy, nil, corev1.EventTypeWarning, "HPABaseRepaired", "hpa",
+				"Stored %s was below the pre-resize pod sum and was replaced", annotationHPAOriginalCPURequest)
 		}
 		for _, note := range clamps {
 			r.emitEventOnce(scope.policy, corev1.EventTypeNormal, "HPATargetClamped", "hpa", "%s", note.message)

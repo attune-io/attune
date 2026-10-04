@@ -357,6 +357,7 @@ View them with `kubectl describe attunepolicy <name>` or
 | `WorkloadIdle` | Normal | Apply skipped for this workload because HPA `ScaledToZero` is True, or `spec.replicas` is 0 |
 | `HPAConflict` | Warning | An HPA targets the same workload and may conflict with resizing |
 | `HPATargetClamped` | Normal | An auto-tuned CPU or memory utilization target was clamped by `updateStrategy.hpaTargetBounds` after the limit cap. The resize still applies. One event per clamped metric. |
+| `HPABaseRepaired` | Warning | A stored pod CPU base was below the pre-resize sum and the HPA update that rewrote `attune.io/original-cpu-request` succeeded. A failed update does not emit this. One event per successful HPA update. |
 | `VPAConflict` | Warning | An applying VPA (`updateMode` other than `Off`, or unset) targets the same workload. Recommend-only (`Off`) is coexistence, not a conflict. |
 | `ConfigClamped` | Warning | A policy field was clamped to its allowed range at runtime |
 | `ExportFailed` | Warning | Failed to export recommendations to ConfigMap |

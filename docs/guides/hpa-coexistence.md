@@ -68,7 +68,9 @@ stays at `200m`. The pod total goes from `600m` to `400m`, and a target of
 The first `Resource` adjustment stores the original utilization percent as
 `attune.io/original-target-cpu` and the original pod CPU request as
 `attune.io/original-cpu-request` (`600m` in that example). Later resizes
-reuse those stored values so the absolute threshold does not drift. A
+reuse those stored values so the absolute threshold does not drift.
+`HPABaseRepaired` means the update that rewrote that stored request
+succeeded. A failed HPA update does not emit the Warning. A
 single-container workload at `200m` and 80% (160m absolute) becomes 40% at
 `400m`, then 20% at `800m`, not 40% again.
 

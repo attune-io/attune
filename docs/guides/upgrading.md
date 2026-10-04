@@ -213,7 +213,8 @@ base is at least the pre-resize pod sum. A stored pod-level base below
 that sum is repaired only when the history rows' old sum still fits in
 the stored base. That gap is other containers. The next CPU resize
 replaces `attune.io/original-cpu-request` with the pre-resize sum and
-emits `HPABaseRepaired`. If the history old sum is already above the
+emits `HPABaseRepaired` only after that HPA update succeeds. A failed
+write does not emit the Warning. If the history old sum is already above the
 stored base, those containers grew. Attune keeps the stored original and
 adds only containers that have no history row. ContainerResource bases
 are not repaired this way.
