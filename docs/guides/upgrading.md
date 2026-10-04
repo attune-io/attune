@@ -10,6 +10,22 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### OOM revert follows container controlledValues
+
+An OOM-bump revert raises a positive memory limit to the bump floor only
+when that container's effective `controlledValues` is `RequestsAndLimits`.
+An empty `containerPolicies` list still uses `spec.memory.controlledValues`,
+so policies with no per-container mode do not change.
+
+A container set to `RequestsOnly` keeps its limit. A container set to
+`RequestsAndLimits` gets the limit raised, including when the policy
+block says `RequestsOnly`. `*` and an exact name follow the usual
+overlay. A zero or missing limit is not created. `oomBump` stays
+policy-wide. The request floor is unchanged. New resizes run only in
+Auto, OneShot, and Canary. A pod already under safety observation
+still reverts in Recommend and Observe when `autoRevert` is on (the
+default). `autoRevert: false` skips the revert in every mode.
+
 ### CronJob pods match the minute stamp
 
 A CronJob pod name uses the minute stamp from the CronJob controller
@@ -143,6 +159,7 @@ These behaviors change when the operator is upgraded, with no YAML edit.
 The generated notes for the next release must list them. Do not edit
 release pull request 889 to add the list.
 
+- An OOM-bump revert raises a memory limit only when that container's effective `controlledValues` is `RequestsAndLimits`
 - CronJob pod names match an 8- or 9-digit minute stamp. A 10-digit unix-seconds suffix does not match
 - Omitted `maxAllowed` is not capped
 - CloudWatch `cpuUnit` empty means Millicores

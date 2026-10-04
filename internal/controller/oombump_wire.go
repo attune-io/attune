@@ -207,8 +207,7 @@ func (r *AttunePolicyReconciler) oomBumpRevertGate(
 	}
 	if decision.Floor > 0 {
 		adjusted := record
-		raiseLimit := policy.Spec.Memory.ControlledValues != nil &&
-			*policy.Spec.Memory.ControlledValues == attunev1alpha1.ControlledRequestsAndLimits
+		raiseLimit := !containerControlledRequestsOnly(policy, record.Container, corev1.ResourceMemory)
 		adjusted.OriginalResources = raiseMemoryFloor(record.OriginalResources, decision.Floor, raiseLimit)
 		return adjusted, false
 	}
@@ -217,7 +216,7 @@ func (r *AttunePolicyReconciler) oomBumpRevertGate(
 
 // raiseMemoryFloor copies requirements and raises a lower memory request.
 // A missing or zero limit stays unset. A positive limit below the floor is
-// raised only when memory controlledValues is RequestsAndLimits.
+// raised only when this container's effective mode controls limits.
 func raiseMemoryFloor(src corev1.ResourceRequirements, floorBytes int64, raiseLimit bool) corev1.ResourceRequirements {
 	out := src.DeepCopy()
 	floor := resource.NewQuantity(floorBytes, resource.BinarySI)

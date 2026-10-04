@@ -1246,6 +1246,8 @@ The key is `attune.io/oom-bump.<container>`. The container name must fit so the 
 
 A Guaranteed pod with `controlledValues: RequestsOnly` is skipped (`ResizeSkipped`, metric `result="skipped"`) instead of evicted. Attune does not evict to change QoS.
 
+**Limit left below the request, or a request-only limit changed**: During hold, a throttle, NotReady, or SLO revert keeps the memory request at the floor. The limit moves up to that floor only when the container's effective `controlledValues` is `RequestsAndLimits`. A container set to `RequestsOnly` keeps its limit, even when policy memory is `RequestsAndLimits`. A `RequestsAndLimits` container is raised when policy memory is `RequestsOnly`. A missing or zero limit is not created. `oomBump` is not a per-container field.
+
 ```promql
 sum by (namespace, policy, result) (rate(attune_oom_bump_total[1h]))
 ```

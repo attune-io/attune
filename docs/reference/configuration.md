@@ -742,6 +742,8 @@ Raises the memory request after `OOMKilled`. The block is absent by default, so 
 
 The step is `max(ceil(origin * ratio^count), origin + minBump * count)`, then `maxAllowed`. Origin is the live memory request before the first bump of the streak, not the latest live request and not the pod template. After `hold` expires, recommendations follow the normal percentile, `allowDecrease`, and template rules. A later OOM can step again from that same origin until `maxBumps`.
 
+A safety revert keeps the memory request at or above the bump floor. It raises a positive memory limit to that floor only when this container's effective `controlledValues` is `RequestsAndLimits`. An empty `containerPolicies` list uses `spec.memory.controlledValues`. A literal container name beats `*`, and `*` beats the policy block. A zero or missing limit is not created. `oomBump` itself is not settable on a container entry.
+
 Attune stores the streak on the pod annotation `attune.io/oom-bump.<container>`. The container name must fit so the name segment `oom-bump.<container>` is at most 63 characters. The name is not truncated. The value is `count=<n>,origin=<qty>,floor=<qty>,oomAt=<RFC3339>,restart=<n>,holdUntil=<RFC3339>`.
 
 Example:

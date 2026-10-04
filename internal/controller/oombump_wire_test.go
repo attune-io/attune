@@ -371,6 +371,118 @@ func TestOOMBumpRevertGate(t *testing.T) {
 	assert.Equal(t, qtyBytes(t, "200Mi"), adjusted.OriginalResources.Limits.Memory().Value())
 }
 
+func TestOOMBumpRevertGate_ContainerMode(t *testing.T) {
+	now := oomWireNow()
+	oomAt := now.Add(-time.Minute)
+	floor := int64(314572800)
+	raw := oomWireRaw(t, 1, qtyBytes(t, "200Mi"), floor, oomAt, now.Add(24*time.Hour), 1)
+	ral := attunev1alpha1.ControlledRequestsAndLimits
+	only := attunev1alpha1.ControlledRequestsOnly
+	mem := func(cv *string) *attunev1alpha1.ResourceConfig {
+		return &attunev1alpha1.ResourceConfig{ControlledValues: cv}
+	}
+	entry := func(name string, cv *string) attunev1alpha1.ContainerResourcePolicy {
+		return attunev1alpha1.ContainerResourcePolicy{ContainerName: name, Memory: mem(cv)}
+	}
+	star := attunev1alpha1.ContainerPolicyWildcard
+
+	cases := []struct {
+		name      string
+		policyCV  *string
+		policies  []attunev1alpha1.ContainerResourcePolicy
+		container string
+		limit     string
+		wantLimit string
+	}{
+		{name: "policy requests and limits", policyCV: &ral, container: "app", limit: "200Mi", wantLimit: "floor"},
+		{name: "policy requests only", policyCV: &only, container: "app", limit: "200Mi", wantLimit: "200Mi"},
+		{name: "policy mode omitted", container: "app", limit: "200Mi", wantLimit: "200Mi"},
+		{
+			name: "named container requests and limits", policyCV: &only,
+			policies:  []attunev1alpha1.ContainerResourcePolicy{entry("app", &ral)},
+			container: "app", limit: "200Mi", wantLimit: "floor",
+		},
+		{
+			name: "sibling keeps policy requests only", policyCV: &only,
+			policies:  []attunev1alpha1.ContainerResourcePolicy{entry("app", &ral)},
+			container: "sidecar", limit: "200Mi", wantLimit: "200Mi",
+		},
+		{
+			name: "named requests only beats policy requests and limits", policyCV: &ral,
+			policies:  []attunev1alpha1.ContainerResourcePolicy{entry("sidecar", &only)},
+			container: "sidecar", limit: "200Mi", wantLimit: "200Mi",
+		},
+		{
+			name: "unnamed sibling follows policy requests and limits", policyCV: &ral,
+			policies:  []attunev1alpha1.ContainerResourcePolicy{entry("sidecar", &only)},
+			container: "app", limit: "200Mi", wantLimit: "floor",
+		},
+		{
+			name: "exact name beats star", policyCV: &only,
+			policies: []attunev1alpha1.ContainerResourcePolicy{
+				entry(star, &ral),
+				entry("sidecar", &only),
+			},
+			container: "sidecar", limit: "200Mi", wantLimit: "200Mi",
+		},
+		{
+			name: "unnamed sibling follows star", policyCV: &only,
+			policies: []attunev1alpha1.ContainerResourcePolicy{
+				entry(star, &ral),
+				entry("sidecar", &only),
+			},
+			container: "app", limit: "200Mi", wantLimit: "floor",
+		},
+		{
+			name: "star applies when the named entry omits mode", policyCV: &only,
+			policies: []attunev1alpha1.ContainerResourcePolicy{
+				entry(star, &ral),
+				entry("app", nil),
+			},
+			container: "app", limit: "200Mi", wantLimit: "floor",
+		},
+		{name: "zero limit stays on requests and limits", policyCV: &ral, container: "app", limit: "0", wantLimit: "0"},
+		{name: "zero limit stays on requests only", policyCV: &only, container: "app", limit: "0", wantLimit: "0"},
+		{name: "absent limit stays absent", policyCV: &ral, container: "app", limit: "", wantLimit: "absent"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			policy := oomWirePolicy("oom-wire-revert-mode")
+			policy.Spec.Memory.ControlledValues = tc.policyCV
+			policy.Spec.ContainerPolicies = tc.policies
+			pod := oomBumpPod("p", tc.container, "300Mi", oomKilledStatus(oomAt, 1), raw, false)
+			rec := safety.ResizeRecord{
+				PodName: pod.Name, Namespace: pod.Namespace, Container: tc.container,
+				ResizedAt: now.Add(-time.Minute),
+				OriginalResources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceMemory: parsedQty(t, "150Mi")},
+				},
+			}
+			if tc.limit != "" {
+				rec.OriginalResources.Limits = corev1.ResourceList{corev1.ResourceMemory: parsedQty(t, tc.limit)}
+			}
+			adjusted, suppress := (&AttunePolicyReconciler{}).oomBumpRevertGate(
+				context.Background(), policy, &pod, rec, "throttle", now)
+			assert.False(t, suppress)
+			assert.Equal(t, floor, adjusted.OriginalResources.Requests.Memory().Value(), "request floor")
+			switch tc.wantLimit {
+			case "absent":
+				assert.Nil(t, adjusted.OriginalResources.Limits)
+			case "floor":
+				require.NotNil(t, adjusted.OriginalResources.Limits)
+				assert.Equal(t, floor, adjusted.OriginalResources.Limits.Memory().Value())
+			case "0":
+				require.NotNil(t, adjusted.OriginalResources.Limits)
+				assert.True(t, adjusted.OriginalResources.Limits.Memory().IsZero())
+			default:
+				require.NotNil(t, adjusted.OriginalResources.Limits)
+				assert.Equal(t, qtyBytes(t, tc.wantLimit), adjusted.OriginalResources.Limits.Memory().Value())
+			}
+		})
+	}
+}
+
 func TestOOMBumpRevertGate_NilBumpDoesNotGetPod(t *testing.T) {
 	now := oomWireNow()
 	pod := oomBumpPod("p", "app", "200Mi", oomKilledStatus(now, 1), "", false)
