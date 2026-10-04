@@ -409,7 +409,10 @@ func main() {
 	if enableWebhooks {
 		if err = ctrl.NewWebhookManagedBy(mgr, &attunev1alpha1.AttunePolicy{}).
 			WithDefaulter(&webhook.AttunePolicyDefaulter{}).
-			WithValidator(&webhook.AttunePolicyValidator{SecretAccess: webhook.NewSARSecretChecker(clientset)}).
+			WithValidator(&webhook.AttunePolicyValidator{
+				SecretAccess: webhook.NewSARSecretChecker(clientset),
+				Client:       mgr.GetClient(),
+			}).
 			Complete(); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "AttunePolicy")
 			os.Exit(1)

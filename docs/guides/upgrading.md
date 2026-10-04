@@ -69,6 +69,20 @@ If that list fails, Attune skips every pod of that DaemonSet and emits
 `DaemonSetRevisionUnavailable`. It does not resize them. OnDelete does not
 read ControllerRevisions.
 
+### Copy into the next release notes
+
+These behaviors change when the operator is upgraded, with no YAML edit.
+The generated notes for the next release must list them. Do not edit
+release pull request 889 to add the list.
+
+- Omitted `maxAllowed` is not capped
+- CloudWatch `cpuUnit` empty means Millicores
+- A stored `0s` cooldown, safety period, or SLO window can be updated and deleted. A new `0s` is rejected
+- RollingUpdate DaemonSets resize the current revision. The pod label is the hash, not the revision name
+- A QoS check with `spec.resources` uses one rule on both sides
+- A stored HPA CPU base below the pre-resize pod sum is repaired
+- Datadog null points are dropped
+
 ### Stored cooldown of 0s
 
 A stored `cooldown: 0s` is not a wait. The controller treats it as the 1h

@@ -2062,6 +2062,26 @@ func TestValidate_VPAWithDatadogMutuallyExclusive(t *testing.T) {
 
 // ---------- Ineffective settings warnings ----------
 
+func TestWarn_InitialSizingRollout(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	rollout := validPolicy()
+	rollout.Spec.TargetRef.Kind = "Rollout"
+	rollout.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	rollout.Spec.UpdateStrategy.InitialSizing = boolPtr(true)
+	w, err := validator.ValidateCreate(context.Background(), rollout)
+	require.NoError(t, err)
+	assert.Contains(t, w, "initialSizing does nothing for kind Rollout; CREATE does not resolve a Rollout owner")
+
+	deploy := validPolicy()
+	deploy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	deploy.Spec.UpdateStrategy.InitialSizing = boolPtr(true)
+	w, err = validator.ValidateCreate(context.Background(), deploy)
+	require.NoError(t, err)
+	for _, msg := range w {
+		assert.NotContains(t, msg, "kind Rollout")
+	}
+}
+
 func TestWarn_InitialSizingInRecommendMode(t *testing.T) {
 	validator := &AttunePolicyValidator{}
 	policy := validPolicy()

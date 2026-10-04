@@ -234,8 +234,15 @@ func (h *PodMutatingHandler) listAdmissionDefaults(
 	ctx context.Context,
 	namespace string,
 ) (*attunev1alpha1.AttuneDefaults, error) {
+	return combinedDefaults(ctx, h.Client, namespace)
+}
+
+func combinedDefaults(ctx context.Context, c client.Reader, namespace string) (*attunev1alpha1.AttuneDefaults, error) {
+	if c == nil {
+		return nil, fmt.Errorf("listing AttuneDefaults: client is nil")
+	}
 	var nsList attunev1alpha1.AttuneNamespaceDefaultsList
-	if err := h.Client.List(ctx, &nsList, client.InNamespace(namespace)); err != nil {
+	if err := c.List(ctx, &nsList, client.InNamespace(namespace)); err != nil {
 		return nil, fmt.Errorf("listing AttuneNamespaceDefaults in %s: %w", namespace, err)
 	}
 	var nsDefaults *attunev1alpha1.AttuneDefaults
@@ -253,7 +260,7 @@ func (h *PodMutatingHandler) listAdmissionDefaults(
 	}
 
 	var clusterList attunev1alpha1.AttuneDefaultsList
-	if err := h.Client.List(ctx, &clusterList); err != nil {
+	if err := c.List(ctx, &clusterList); err != nil {
 		return nil, fmt.Errorf("listing AttuneDefaults: %w", err)
 	}
 	var clusterDefaults *attunev1alpha1.AttuneDefaults

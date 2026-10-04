@@ -26,6 +26,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
@@ -38,13 +39,17 @@ import (
 type AttunePolicyValidator struct {
 	// SecretAccess, when set, requires the admission user to get each referenced Secret.
 	SecretAccess SecretAccessChecker
+	// Client loads AttuneDefaults when a policy omits a field that defaults
+	// change, such as historyWindow for surge.window. Nil keeps the built-in
+	// window so unit tests do not need a cluster.
+	Client client.Reader
 }
 
 // ValidateCreate validates a new AttunePolicy.
 func (v *AttunePolicyValidator) ValidateCreate(ctx context.Context, policy *attunev1alpha1.AttunePolicy) (admission.Warnings, error) {
 	timer := operatormetrics.NewWebhookTimer("validate_create")
 	defer timer.Observe()
-	w, err := v.validate(nil, policy)
+	w, err := v.validate(ctx, nil, policy)
 	if err == nil {
 		err = v.checkReferencedSecretAccess(ctx, policy)
 	}
@@ -60,7 +65,7 @@ func (v *AttunePolicyValidator) ValidateUpdate(ctx context.Context, oldPolicy, p
 		timer.RecordResult(nil)
 		return nil, nil
 	}
-	w, err := v.validate(oldPolicy, policy)
+	w, err := v.validate(ctx, oldPolicy, policy)
 	if err == nil {
 		err = v.checkReferencedSecretAccess(ctx, policy)
 	}
@@ -73,7 +78,28 @@ func (v *AttunePolicyValidator) ValidateDelete(ctx context.Context, policy *attu
 	return nil, nil
 }
 
-func (v *AttunePolicyValidator) validate(old, policy *attunev1alpha1.AttunePolicy) (admission.Warnings, error) {
+func (v *AttunePolicyValidator) effectiveHistory(ctx context.Context, policy *attunev1alpha1.AttunePolicy) (*metav1.Duration, error) {
+	if policy != nil && policy.Spec.MetricsSource.HistoryWindow != nil {
+		return policy.Spec.MetricsSource.HistoryWindow, nil
+	}
+	if v == nil || v.Client == nil {
+		return nil, nil
+	}
+	ns := ""
+	if policy != nil {
+		ns = policy.Namespace
+	}
+	merged, err := combinedDefaults(ctx, v.Client, ns)
+	if err != nil {
+		return nil, err
+	}
+	if merged != nil && merged.Spec.MetricsSource != nil {
+		return merged.Spec.MetricsSource.HistoryWindow, nil
+	}
+	return nil, nil
+}
+
+func (v *AttunePolicyValidator) validate(ctx context.Context, old, policy *attunev1alpha1.AttunePolicy) (admission.Warnings, error) {
 	var warnings admission.Warnings
 
 	// Use a local pointer to avoid mutating the input object.
@@ -85,7 +111,10 @@ func (v *AttunePolicyValidator) validate(old, policy *attunev1alpha1.AttunePolic
 	// Validate shared ResourceConfig fields (overhead, burstSensitivity,
 	// memoryFromCpuRatio, percentile, bounds, startupBoost) for CPU and memory.
 	// These checks are shared with AttuneDefaults validation.
-	history := policy.Spec.MetricsSource.HistoryWindow
+	history, err := v.effectiveHistory(ctx, policy)
+	if err != nil {
+		return warnings, err
+	}
 	if err := validateResourceConfigFields("cpu", &policy.Spec.CPU, history); err != nil {
 		return warnings, err
 	}
@@ -286,6 +315,11 @@ func warnIneffectiveSettings(policy *attunev1alpha1.AttunePolicy) admission.Warn
 	var w admission.Warnings
 	if policy.Spec.UpdateStrategy == nil {
 		return w
+	}
+	if policy.Spec.TargetRef.Kind == "Rollout" &&
+		policy.Spec.UpdateStrategy.InitialSizing != nil &&
+		*policy.Spec.UpdateStrategy.InitialSizing {
+		w = append(w, "initialSizing does nothing for kind Rollout; CREATE does not resolve a Rollout owner")
 	}
 	mode := policy.Spec.UpdateStrategy.Type
 	isNonResizing := mode == attunev1alpha1.UpdateTypeObserve ||
