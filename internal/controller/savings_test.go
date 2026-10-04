@@ -17,9 +17,12 @@ limitations under the License.
 package controller
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -405,6 +408,7 @@ func TestScaleLimits_NormalCase(t *testing.T) {
 	// Current limit 1000m with request 500m gives ratio 2.0.
 	// New request 250m * 2.0 = 500m new limit.
 	result := scaleLimits(
+		corev1.ResourceCPU,
 		resource.MustParse("500m"),
 		resource.MustParse("1000m"),
 		resource.MustParse("250m"),
@@ -416,6 +420,7 @@ func TestScaleLimits_NormalCase(t *testing.T) {
 
 func TestScaleLimits_ZeroRequestReturnsZero(t *testing.T) {
 	result := scaleLimits(
+		corev1.ResourceCPU,
 		resource.MustParse("0"),
 		resource.MustParse("1000m"),
 		resource.MustParse("250m"),
@@ -426,6 +431,7 @@ func TestScaleLimits_ZeroRequestReturnsZero(t *testing.T) {
 
 func TestScaleLimits_ZeroLimitReturnsZero(t *testing.T) {
 	result := scaleLimits(
+		corev1.ResourceCPU,
 		resource.MustParse("500m"),
 		resource.MustParse("0"),
 		resource.MustParse("250m"),
@@ -437,6 +443,7 @@ func TestScaleLimits_ZeroLimitReturnsZero(t *testing.T) {
 func TestScaleLimits_EqualRequestAndLimit(t *testing.T) {
 	// Ratio is 1.0 so new limit equals new request.
 	result := scaleLimits(
+		corev1.ResourceCPU,
 		resource.MustParse("500m"),
 		resource.MustParse("500m"),
 		resource.MustParse("300m"),
@@ -444,4 +451,50 @@ func TestScaleLimits_EqualRequestAndLimit(t *testing.T) {
 	)
 	expected := resource.MustParse("300m")
 	assert.True(t, result.Cmp(expected) == 0, "expected %s, got %s", expected.String(), result.String())
+}
+
+func TestScaleLimits_WholeByteMemory(t *testing.T) {
+	t.Parallel()
+	ptr := func(v float64) *float64 { return &v }
+	tests := []struct {
+		name       string
+		resource   corev1.ResourceName
+		currentReq string
+		currentLim string
+		newReq     string
+		multiplier *float64
+		want       string
+		wantFormat resource.Format
+	}{
+		{name: "memory whole product unchanged", resource: corev1.ResourceMemory, currentReq: "256Mi", currentLim: "256Mi", newReq: "256Mi", multiplier: ptr(2), want: "512Mi"},
+		{name: "memory 1000 bytes times 1.3 is already whole", resource: corev1.ResourceMemory, currentReq: "1000", currentLim: "1000", newReq: "1000", multiplier: ptr(1.3), want: "1300"},
+		{name: "memory 1001 bytes times 1.3 rounds up", resource: corev1.ResourceMemory, currentReq: "1000", currentLim: "1000", newReq: "1001", multiplier: ptr(1.3), want: "1302"},
+		{name: "memory genuine fraction below one milli rounds up", resource: corev1.ResourceMemory, currentReq: "1000", currentLim: "1000", newReq: "1000", multiplier: ptr(1.0000001), want: "1001"},
+		{name: "memory 1000 bytes times 1.1 float noise adds no byte", resource: corev1.ResourceMemory, currentReq: "1000", currentLim: "1000", newReq: "1000", multiplier: ptr(1.1), want: "1100"},
+		{name: "memory float noise above a whole product adds no byte", resource: corev1.ResourceMemory, currentReq: "100Mi", currentLim: "100Mi", newReq: "100Mi", multiplier: ptr(1.1), want: "110Mi"},
+		{name: "memory live ratio rounds up", resource: corev1.ResourceMemory, currentReq: "300Mi", currentLim: "1000Mi", newReq: "200Mi", want: "699050667"},
+		{name: "memory live ratio with unchanged request rounds up", resource: corev1.ResourceMemory, currentReq: "333", currentLim: "1000", newReq: "333", want: "1000"},
+		{name: "memory fractional live limit rounds up", resource: corev1.ResourceMemory, currentReq: "200Mi", currentLim: "699050666666m", newReq: "200Mi", want: "699050667"},
+		{name: "memory whole live limit is idempotent", resource: corev1.ResourceMemory, currentReq: "200Mi", currentLim: "699050667", newReq: "200Mi", want: "699050667"},
+		{name: "memory decimal format rounds up", resource: corev1.ResourceMemory, currentReq: "1G", currentLim: "1G", newReq: "123456789", multiplier: ptr(1.3), want: "160493826"},
+		{name: "memory binary format preserved", resource: corev1.ResourceMemory, currentReq: "512Mi", currentLim: "1Gi", newReq: "512Mi", multiplier: ptr(1.5), want: "768Mi", wantFormat: resource.BinarySI},
+		{name: "cpu keeps millicore precision", resource: corev1.ResourceCPU, currentReq: "200m", currentLim: "200m", newReq: "200m", multiplier: ptr(1.3), want: "260m"},
+		{name: "memory zero current limit stays zero", resource: corev1.ResourceMemory, currentReq: "256Mi", currentLim: "0", newReq: "256Mi", multiplier: ptr(2), want: "0"},
+		{name: "memory NaN multiplier returns new request", resource: corev1.ResourceMemory, currentReq: "256Mi", currentLim: "512Mi", newReq: "300Mi", multiplier: ptr(math.NaN()), want: "300Mi"},
+		{name: "memory product of exactly 2^63 milli keeps current limit", resource: corev1.ResourceMemory, currentReq: "1", currentLim: "1Gi", newReq: "4611686018427387904m", multiplier: ptr(2), want: "1Gi"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := scaleLimits(tt.resource, parseQty(t, tt.currentReq), parseQty(t, tt.currentLim), parseQty(t, tt.newReq), tt.multiplier)
+			want := parseQty(t, tt.want)
+			require.Equal(t, want.MilliValue(), got.MilliValue(), "got %s, want %s", got.String(), want.String())
+			if tt.resource == corev1.ResourceMemory {
+				assert.Zero(t, got.MilliValue()%1000, "memory limit %s is not a whole byte", got.String())
+			}
+			if tt.wantFormat != "" {
+				assert.Equal(t, tt.wantFormat, got.Format)
+			}
+		})
+	}
 }

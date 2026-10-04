@@ -188,10 +188,10 @@ func TestLimitMultiplierRequestsOnlyConflict_AfterBuiltInDefaults(t *testing.T) 
 func TestScaleLimits_ExplicitMultiplierDoesNotInventZeroLimit(t *testing.T) {
 	t.Parallel()
 	two := 2.0
-	got := scaleLimits(parseQty(t, "250m"), resource.Quantity{}, parseQty(t, "250m"), &two)
+	got := scaleLimits(corev1.ResourceCPU, parseQty(t, "250m"), resource.Quantity{}, parseQty(t, "250m"), &two)
 	assert.True(t, got.IsZero(), "explicit multiplier must not invent a limit, got %s", got.String())
 
-	got = scaleLimits(resource.Quantity{}, parseQty(t, "500m"), parseQty(t, "250m"), &two)
+	got = scaleLimits(corev1.ResourceCPU, resource.Quantity{}, parseQty(t, "500m"), parseQty(t, "250m"), &two)
 	assert.True(t, got.IsZero(), "zero current request must not invent a limit, got %s", got.String())
 }
 
@@ -436,4 +436,95 @@ func TestExecuteResizes_ExplicitOneBurstableToGuaranteedSkips(t *testing.T) {
 	require.Equal(t, 0, count)
 	require.Empty(t, history)
 	assertNoResizeOrEvict(t, reconciler)
+}
+
+func TestExecuteResizes_MemoryLimitWholeByte(t *testing.T) {
+	const workload = "wholebyte"
+	pod := runningPod(t, workload, "200m", "300Mi", "400m", "1000Mi", corev1.PodQOSBurstable)
+	policy := requestsAndLimitsPolicy(workload)
+	c := scaledContainerRec(t, policy, "200m", "400m", "300Mi", "1000Mi", "200m", "400Mi")
+	assert.Equal(t, int64(1398101334000), c.Recommended.MemoryLimit.MilliValue(),
+		"memory limit got %s", c.Recommended.MemoryLimit.String())
+
+	deploy := newTestDeployment(workload, "default", map[string]string{"app": workload})
+	reconciler := resizeHarness(pod, deploy)
+	count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+		[]attunev1alpha1.WorkloadRecommendation{workloadRec(workload, c)}, podMap(workload, pod), nil, nil)
+	require.Equal(t, 1, count)
+	resized := resizedPodFromClientset(t, reconciler)
+	gotLim := resized.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory]
+	assert.Zero(t, gotLim.MilliValue()%1000, "memory limit %s is not a whole byte", gotLim.String())
+	assert.Equal(t, int64(1398101334000), gotLim.MilliValue(), "memory limit got %s", gotLim.String())
+	gotReq := resized.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory]
+	assert.True(t, gotReq.Equal(parseQty(t, "400Mi")), "memory request got %s", gotReq.String())
+}
+
+// A fractional live memory limit that rounds up to the scaled whole-byte
+// target must not trigger a resize on its own (issue #965).
+func TestExecuteResizes_FractionalLiveMemoryLimitAloneDoesNotResize(t *testing.T) {
+	const workload = "fracmem"
+	pod := runningPod(t, workload, "200m", "200Mi", "400m", "699050666666m", corev1.PodQOSBurstable)
+	policy := requestsAndLimitsPolicy(workload)
+	c := scaledContainerRec(t, policy, "200m", "400m", "200Mi", "699050666666m", "200m", "200Mi")
+	require.Equal(t, int64(699050667000), c.Recommended.MemoryLimit.MilliValue(),
+		"memory limit got %s", c.Recommended.MemoryLimit.String())
+
+	deploy := newTestDeployment(workload, "default", map[string]string{"app": workload})
+	reconciler := resizeHarness(pod, deploy)
+	count, history := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+		[]attunev1alpha1.WorkloadRecommendation{workloadRec(workload, c)}, podMap(workload, pod), nil, nil)
+	require.Equal(t, 0, count)
+	require.Empty(t, history)
+	assertNoResizeOrEvict(t, reconciler)
+}
+
+// A live memory limit at least one byte below the target still resizes.
+func TestExecuteResizes_MemoryLimitOneByteShortResizes(t *testing.T) {
+	const workload = "shortmem"
+	pod := runningPod(t, workload, "200m", "200Mi", "400m", "699050665500m", corev1.PodQOSBurstable)
+	policy := requestsAndLimitsPolicy(workload)
+	c := scaledContainerRec(t, policy, "200m", "400m", "200Mi", "699050666666m", "200m", "200Mi")
+
+	deploy := newTestDeployment(workload, "default", map[string]string{"app": workload})
+	reconciler := resizeHarness(pod, deploy)
+	count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+		[]attunev1alpha1.WorkloadRecommendation{workloadRec(workload, c)}, podMap(workload, pod), nil, nil)
+	require.Equal(t, 1, count)
+	resized := resizedPodFromClientset(t, reconciler)
+	gotLim := resized.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory]
+	assert.Equal(t, int64(699050667000), gotLim.MilliValue(), "memory limit got %s", gotLim.String())
+}
+
+func TestTargetLimitsMatchLive_MemoryWholeByteCPUExact(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		res    corev1.ResourceName
+		live   string
+		target string
+		want   bool
+	}{
+		{name: "memory fractional live equals its rounded-up byte", res: corev1.ResourceMemory, live: "699050666666m", target: "699050667", want: true},
+		{name: "memory one byte short differs", res: corev1.ResourceMemory, live: "699050666", target: "699050667", want: false},
+		{name: "memory fractional one byte short differs", res: corev1.ResourceMemory, live: "699050665500m", target: "699050667", want: false},
+		{name: "cpu sub-milli difference still differs", res: corev1.ResourceCPU, live: "1", target: "1000500u", want: false},
+		{name: "cpu equal matches", res: corev1.ResourceCPU, live: "1", target: "1000m", want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			live := corev1.ResourceList{tt.res: parseQty(t, tt.live)}
+			target := corev1.ResourceList{tt.res: parseQty(t, tt.target)}
+			assert.Equal(t, tt.want, targetLimitsMatchLive(live, target))
+			assert.Equal(t, tt.want, resourcesEqual(
+				corev1.ResourceRequirements{Limits: live}, corev1.ResourceRequirements{Limits: target}))
+		})
+	}
+}
+
+func TestResourcesEqual_RequestsStayExact(t *testing.T) {
+	t.Parallel()
+	a := corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceMemory: parseQty(t, "699050666666m")}}
+	b := corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceMemory: parseQty(t, "699050667")}}
+	assert.False(t, resourcesEqual(a, b), "memory requests keep exact comparison")
 }
