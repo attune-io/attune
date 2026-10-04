@@ -1252,6 +1252,20 @@ A Guaranteed pod with `controlledValues: RequestsOnly` is skipped (`ResizeSkippe
 sum by (namespace, policy, result) (rate(attune_oom_bump_total[1h]))
 ```
 
+### Request did not move after a second OOM
+
+**Symptom**: `memory.oomBump` is set, the container was `OOMKilled` again while `holdUntil` is still in the future, and the memory request stayed put.
+
+**Cause**: The live request was already above the next step from the original origin. A current operator takes one step above that live request. The original origin stays. `maxBumps` and `maxAllowed` still cap the step. Auto, OneShot, and Canary record this `oomAt` and restart on the pod, so the same OOM is not counted again. Recommend and Observe do not write that stamp.
+
+When `maxAllowed` is already at or below the live request, the request cannot rise. Auto, OneShot, and Canary store that signal on the pod, so it counts once as `skipped` and `count` does not increase. Recommend and Observe do not write the stamp, so the same OOM still increments `skipped` on every reconcile. A climb of this in-hold signal in Auto, OneShot, or Canary means an older operator counted that same OOM on every reconcile. A budget skip, or a Guaranteed pod with `RequestsOnly`, still increments `skipped` on every reconcile on a current operator.
+
+Auto, OneShot, and Canary resize to the new step. Recommend stores the recommendation and does not resize. Observe does not resize.
+
+```promql
+sum by (namespace, policy, result) (increase(attune_oom_bump_total[1h]))
+```
+
 ### Revert failures
 
 **Symptom**: Entries in `.status.resizeHistory` show `result: Failed`, or

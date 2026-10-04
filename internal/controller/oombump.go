@@ -79,7 +79,9 @@ type oomBumpInput struct {
 
 // oomBumpProposal is the memory request to publish and the annotation to
 // store after a successful resize. Stamp is nil when count must not change.
-// AnnotationOnly updates oomAt without a resize and without a metric result.
+// AnnotationOnly updates oomAt without a resize. Capped, and an in-hold
+// skip that cannot step above live, emit one MetricNow sample. A timestamp
+// fill does not.
 type oomBumpProposal struct {
 	Result         string
 	PublishBytes   int64
@@ -247,9 +249,12 @@ func proposeOOMBump(in oomBumpInput) oomBumpProposal {
 		return cappedProposal(in, base)
 	}
 	next, result, err := oomBumpBytes(origin, in.MinBumpBytes, in.LiveBytes, in.Ratio, storedCount+1, in.MaxAllowed)
-	if err != nil || result == oomBumpSkipped {
+	if err != nil {
 		base.Result = oomBumpSkipped
 		return base
+	}
+	if result == oomBumpSkipped {
+		return inHoldLiveStep(in, base, origin, storedCount)
 	}
 	stamp := oomBumpRecord{
 		Count:     storedCount + 1,
@@ -262,6 +267,42 @@ func proposeOOMBump(in oomBumpInput) oomBumpProposal {
 	return oomBumpProposal{
 		Result:       result,
 		PublishBytes: next,
+		UsePublish:   true,
+		Stamp:        &stamp,
+	}
+}
+
+// inHoldLiveStep runs when the frozen-origin step is not strictly above
+// live. Origin stays the hold origin. One step from live publishes a
+// higher request. When maxAllowed is already at or below the live
+// request, or the byte math errors, the signal is stored once and the
+// count stays put.
+func inHoldLiveStep(in oomBumpInput, base oomBumpProposal, origin int64, storedCount int) oomBumpProposal {
+	if in.Stored == nil || !in.Now.Before(in.Stored.HoldUntil) {
+		base.Result = oomBumpSkipped
+		return base
+	}
+	liveNext, liveResult, err := oomBumpBytes(in.LiveBytes, in.MinBumpBytes, in.LiveBytes, in.Ratio, 1, in.MaxAllowed)
+	if err != nil || liveResult == oomBumpSkipped {
+		refreshed := *in.Stored
+		refreshed.OOMAt = in.FinishedAt.UTC()
+		refreshed.Restart = in.Restart
+		base.Result = oomBumpSkipped
+		base.Stamp = &refreshed
+		base.AnnotationOnly = true
+		return base
+	}
+	stamp := oomBumpRecord{
+		Count:     storedCount + 1,
+		Origin:    origin,
+		Floor:     liveNext,
+		OOMAt:     in.FinishedAt.UTC(),
+		Restart:   in.Restart,
+		HoldUntil: in.Now.UTC().Add(in.Hold),
+	}
+	return oomBumpProposal{
+		Result:       liveResult,
+		PublishBytes: liveNext,
 		UsePublish:   true,
 		Stamp:        &stamp,
 	}

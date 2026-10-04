@@ -181,6 +181,10 @@ func planWorkloadOOMBump(
 				Stamp:          *prop.Stamp,
 				AnnotationOnly: true,
 			})
+			if prop.Result == oomBumpSkipped {
+				plan.MetricNow = append(plan.MetricNow, oomBumpSkipped)
+				continue
+			}
 			if prop.Result != oomBumpCapped {
 				continue
 			}

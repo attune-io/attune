@@ -10,6 +10,27 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### A second OOM during hold steps above live
+
+During `memory.oomBump.hold`, a newer OOM publishes one memory request
+above the live request when the next step from the original origin is
+not already above live. The origin stays the start of the streak.
+`maxBumps` and `maxAllowed` still cap the step. Auto, OneShot, and
+Canary resize to that step. Recommend stores the recommendation and
+does not resize. Observe does not resize.
+
+If `maxAllowed` is already at or below the live request, the request
+does not move. Auto, OneShot, and Canary store that signal on the pod,
+so that OOM counts once as `attune_oom_bump_total{result="skipped"}`.
+Recommend and Observe do not write the stamp, so the same OOM still
+counts on every reconcile. A chart of the whole `skipped` series does
+not become a per-event count: a budget skip, or a Guaranteed pod with
+`RequestsOnly`, still increments on every reconcile.
+`AttuneOOMBumpCapped` still keys off `capped` and `clamped`.
+
+Policies that omit `memory.oomBump` do not change. The default hold
+stays 24h.
+
 ### OOM revert follows container controlledValues
 
 An OOM-bump revert raises a positive memory limit to the bump floor only
@@ -159,6 +180,7 @@ These behaviors change when the operator is upgraded, with no YAML edit.
 The generated notes for the next release must list them. Do not edit
 release pull request 889 to add the list.
 
+- A newer OOM during `memory.oomBump.hold` steps above the live request. In Auto, OneShot, and Canary, a step that cannot rise counts once as `skipped`. Recommend and Observe still count that skip on every reconcile
 - An OOM-bump revert raises a memory limit only when that container's effective `controlledValues` is `RequestsAndLimits`
 - CronJob pod names match an 8- or 9-digit minute stamp. A 10-digit unix-seconds suffix does not match
 - Omitted `maxAllowed` is not capped
