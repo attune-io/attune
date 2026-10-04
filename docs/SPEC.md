@@ -361,7 +361,8 @@ not via CEL `x-kubernetes-validations` markers. The webhook enforces:
 - `minAllowed <= maxAllowed` for both CPU and memory resource configs
 - `cpu.maxAllowed` must not exceed 256 cores; `memory.maxAllowed` must not exceed 16Ti (AttunePolicy and AttuneDefaults)
 - Canary config required when `updateStrategy.type` is `Canary`
-- `historyWindow` bounded between 1h and 720h (30 days)
+- `historyWindow` bounded between 1h and 720h (30 days), including an unchanged stored value below 1h
+- `cooldown`, `safetyObservationPeriod`, and an SLO `evaluationWindow` must be at least 1m on create. An unchanged stored `0s` is accepted on `AttunePolicy`, `AttuneDefaults`, and `AttuneNamespaceDefaults`, including a finalizer clear. Changing a positive duration to `0s` is rejected. A stored cooldown of `0s` is not a wait: the controller uses 1h, including after defaults merge. A stored safety period of `0s` is unset (5m, or a positive canary period). A stored SLO window of `0s` uses 5m
 - `burstSensitivity` bounded between 0 and 10.0
 - All float fields (percentile, overhead, etc.) reject NaN and Inf
 - Prometheus address SSRF protection (scheme, host, and IP validation)

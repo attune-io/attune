@@ -49,10 +49,14 @@ func (v *AttuneDefaultsValidator) ValidateCreate(_ context.Context, defaults *at
 }
 
 // ValidateUpdate validates an updated AttuneDefaults.
-func (v *AttuneDefaultsValidator) ValidateUpdate(_ context.Context, _, defaults *attunev1alpha1.AttuneDefaults) (admission.Warnings, error) {
+func (v *AttuneDefaultsValidator) ValidateUpdate(_ context.Context, old, defaults *attunev1alpha1.AttuneDefaults) (admission.Warnings, error) {
 	timer := operatormetrics.NewWebhookTimer("defaults_validate_update")
 	defer timer.Observe()
-	w, err := v.validate(defaults)
+	var previous *attunev1alpha1.AttuneDefaultsSpec
+	if old != nil {
+		previous = &old.Spec
+	}
+	w, err := v.validatePrevious(defaults, previous)
 	timer.RecordResult(err)
 	return w, err
 }
@@ -63,7 +67,11 @@ func (v *AttuneDefaultsValidator) ValidateDelete(_ context.Context, _ *attunev1a
 }
 
 func (v *AttuneDefaultsValidator) validate(defaults *attunev1alpha1.AttuneDefaults) (admission.Warnings, error) {
-	w, err := validateDefaultsSpec(defaults.Spec)
+	return v.validatePrevious(defaults, nil)
+}
+
+func (v *AttuneDefaultsValidator) validatePrevious(defaults *attunev1alpha1.AttuneDefaults, previous *attunev1alpha1.AttuneDefaultsSpec) (admission.Warnings, error) {
+	w, err := validateDefaultsSpecPrevious(defaults.Spec, previous)
 	if err != nil {
 		return w, err
 	}
@@ -111,10 +119,14 @@ func (v *AttuneNamespaceDefaultsValidator) ValidateCreate(_ context.Context, def
 }
 
 // ValidateUpdate validates an updated AttuneNamespaceDefaults.
-func (v *AttuneNamespaceDefaultsValidator) ValidateUpdate(_ context.Context, _, defaults *attunev1alpha1.AttuneNamespaceDefaults) (admission.Warnings, error) {
+func (v *AttuneNamespaceDefaultsValidator) ValidateUpdate(_ context.Context, old, defaults *attunev1alpha1.AttuneNamespaceDefaults) (admission.Warnings, error) {
 	timer := operatormetrics.NewWebhookTimer("namespace_defaults_validate_update")
 	defer timer.Observe()
-	w, err := validateDefaultsSpec(defaults.Spec)
+	var previous *attunev1alpha1.AttuneDefaultsSpec
+	if old != nil {
+		previous = &old.Spec
+	}
+	w, err := validateDefaultsSpecPrevious(defaults.Spec, previous)
 	timer.RecordResult(err)
 	return w, err
 }
@@ -124,7 +136,21 @@ func (v *AttuneNamespaceDefaultsValidator) ValidateDelete(_ context.Context, _ *
 	return nil, nil
 }
 
+func defaultsStrategyDuration(spec *attunev1alpha1.AttuneDefaultsSpec, safety bool) *metav1.Duration {
+	if spec == nil || spec.UpdateStrategy == nil {
+		return nil
+	}
+	if safety {
+		return spec.UpdateStrategy.SafetyObservationPeriod
+	}
+	return spec.UpdateStrategy.Cooldown
+}
+
 func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec) (admission.Warnings, error) {
+	return validateDefaultsSpecPrevious(spec, nil)
+}
+
+func validateDefaultsSpecPrevious(spec attunev1alpha1.AttuneDefaultsSpec, previous *attunev1alpha1.AttuneDefaultsSpec) (admission.Warnings, error) {
 	if err := exclusiveMetricsProviderError(spec.MetricsSource); err != nil {
 		return nil, err
 	}
@@ -201,10 +227,12 @@ func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec) (admission.War
 		}
 	}
 
-	// Validate cooldown minimum floor.
+	// Validate cooldown minimum floor. An unchanged stored 0s is not a
+	// wait; parseCooldown still maps it to the 1h built-in.
 	if spec.UpdateStrategy != nil && spec.UpdateStrategy.Cooldown != nil {
-		if err := validateDurationFloor("updateStrategy.cooldown",
-			spec.UpdateStrategy.Cooldown.Duration); err != nil {
+		if err := validateDurationFloorAllowZero("updateStrategy.cooldown",
+			spec.UpdateStrategy.Cooldown.Duration,
+			sameStoredZero(defaultsStrategyDuration(previous, false), spec.UpdateStrategy.Cooldown)); err != nil {
 			return warnings, err
 		}
 	}
@@ -233,8 +261,9 @@ func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec) (admission.War
 
 	// Validate safetyObservationPeriod has a minimum floor.
 	if spec.UpdateStrategy != nil && spec.UpdateStrategy.SafetyObservationPeriod != nil {
-		if err := validateDurationFloor("updateStrategy.safetyObservationPeriod",
-			spec.UpdateStrategy.SafetyObservationPeriod.Duration); err != nil {
+		if err := validateDurationFloorAllowZero("updateStrategy.safetyObservationPeriod",
+			spec.UpdateStrategy.SafetyObservationPeriod.Duration,
+			sameStoredZero(defaultsStrategyDuration(previous, true), spec.UpdateStrategy.SafetyObservationPeriod)); err != nil {
 			return warnings, err
 		}
 	}
@@ -248,9 +277,13 @@ func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec) (admission.War
 		}
 	}
 
-	// Validate SLO guardrails.
+	// Validate SLO guardrails. Index match is the same rule as AttunePolicy.
 	if spec.UpdateStrategy != nil {
-		if err := validateSLOGuardrails(spec.UpdateStrategy.SLOGuardrails, nil); err != nil {
+		var previousSLO []attunev1alpha1.SLOGuardrail
+		if previous != nil && previous.UpdateStrategy != nil {
+			previousSLO = previous.UpdateStrategy.SLOGuardrails
+		}
+		if err := validateSLOGuardrails(spec.UpdateStrategy.SLOGuardrails, previousSLO); err != nil {
 			return warnings, err
 		}
 		if err := validateHPATargetBounds(spec.UpdateStrategy); err != nil {

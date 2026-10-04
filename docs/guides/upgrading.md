@@ -101,7 +101,7 @@ release pull request 889 to add the list.
 
 - Omitted `maxAllowed` is not capped
 - CloudWatch `cpuUnit` empty means Millicores
-- A stored `0s` cooldown, safety period, or SLO window can be updated and deleted. A new `0s` is rejected
+- A stored `0s` cooldown, safety period, or SLO window on a policy or on defaults can be updated and deleted. A new `0s` is rejected. A stored `0s` cooldown still waits 1h
 - RollingUpdate DaemonSets resize the current revision. The pod label is the hash, not the revision name
 - A QoS check with `spec.resources` uses one rule on both sides
 - A stored HPA CPU base that is missing other containers is repaired. Growth of the same containers keeps the stored original. An annotation an older operator already rewrote is left in place
@@ -111,13 +111,18 @@ release pull request 889 to add the list.
 ### Stored cooldown of 0s
 
 A stored `cooldown: 0s` is not a wait. The controller treats it as the 1h
-default. An update that leaves that stored `0s` unchanged is accepted,
-including the update that removes the finalizer, so the object can be
-deleted. A create that sets `0s`, or an update that changes a positive
-duration to `0s`, is still rejected. Omit the field for the 1h default,
-or set at least `1m`. The same rule applies to `safetyObservationPeriod`
-and an SLO `evaluationWindow`. Canary `observationPeriod: 0s` still means
-the built-in observation period.
+default, including when a policy omits cooldown and inherits `0s` from
+`AttuneDefaults` or `AttuneNamespaceDefaults`. An update that leaves that
+stored `0s` unchanged is accepted on `AttunePolicy`, `AttuneDefaults`, and
+`AttuneNamespaceDefaults`, including the update that removes the finalizer,
+so the object can be deleted. A create that sets `0s`, or an update that
+changes a positive duration to `0s`, is still rejected. Omit the field for
+the 1h default, or set at least `1m`. The same admission rule applies to
+`safetyObservationPeriod` (a stored `0s` is unset, so the controller uses
+5m or a positive canary period) and an SLO `evaluationWindow` (a stored
+`0s` uses 5m). Canary `observationPeriod: 0s` still means the built-in
+observation period. `historyWindow` below 1h stays rejected on every write,
+including an unchanged `0s`.
 
 ### Datadog null points
 

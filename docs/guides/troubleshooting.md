@@ -582,29 +582,37 @@ kubectl patch attunepolicy <name> --type merge \
 
 ### Stored cooldown of 0s
 
-**Symptom**: `kubectl describe attunepolicy <name>` shows
-`updateStrategy.cooldown: 0s`, and the policy reconciles about once an
-hour. A new apply that still sets `0s` fails admission with
-`cooldown must be at least 1m, or omit the field for the default`.
+**Symptom**: `kubectl describe` shows `updateStrategy.cooldown: 0s` on
+an AttunePolicy, AttuneDefaults, or AttuneNamespaceDefaults, and the
+policy reconciles about once an hour. Changing an unrelated field, or
+clearing a finalizer, on a defaults object that already stores `0s`
+fails on an older operator with `cooldown must be at least 1m, or omit
+the field for the default`. A create that sets `0s`, or an update that
+changes a positive duration to `0s`, still fails with that message on
+all three kinds. The same shape of message applies to
+`safetyObservationPeriod` and `sloGuardrails[0].evaluationWindow`. An
+unchanged `historyWindow: 0s` still fails with `historyWindow must be
+at least 1h`.
 
-**Cause**: Zero is not a wait. The webhook rejects `0s` on policy and
-AttuneDefaults `cooldown`, on `safetyObservationPeriod`, and on an SLO
-`evaluationWindow`. Omit the field for the built-in default (1h for
-cooldown, 5m for the observation and evaluation windows). The shortest
-accepted value is 1m.
+**Cause**: Zero is not a wait. Admission rejects a new `0s`. An object
+that already stores `0s` can be edited and deleted while that value
+stays. That includes AttuneDefaults and AttuneNamespaceDefaults. The
+controller still maps a cooldown of `0s` to 1h after defaults merge. A
+stored `safetyObservationPeriod` of `0s` is unset (5m, or a positive
+canary period). A stored SLO `evaluationWindow` of `0s` uses 5m. Canary
+`observationPeriod: 0s` is different: omitted and `0s` both mean the
+built-in observation period.
 
-A policy already stored with `cooldown: 0s` waits 1h. It keeps
-reconciling on that interval. Canary `observationPeriod: 0s` is
-different: omitted and `0s` both mean the built-in observation period.
-An SLO `evaluationWindow` of `0s` is an admission error. It does not by
-itself stop the reconciler.
-
-**Fix**: Omit the field, or set at least `1m`:
+**Fix**: Leave the stored `0s` in place when the edit is unrelated.
+Omit the field, or set at least `1m`, when the stored zero should go:
 
 ```bash
 kubectl patch attunepolicy <name> --type merge \
   -p '{"spec":{"updateStrategy":{"cooldown":"1h"}}}'
 ```
+
+The same merge patch works on `attunedefaults` and
+`attunenamespacedefaults`.
 
 ## Webhook / cert-manager issues
 
@@ -1518,8 +1526,9 @@ since most clusters use 1-2 Prometheus instances.
 
 A positive cooldown shorter than 1 minute, such as `10s`, is raised to
 `1m`. This prevents accidental resource churn. `0s` is not raised to
-`1m`. Admission rejects it, and a policy already stored with `0s` waits
-the 1h default. See [Stored cooldown of 0s](#stored-cooldown-of-0s).
+`1m`. Admission rejects a new `0s`, and an object already stored with
+`0s` waits the 1h default, including a policy that inherits `0s` from
+defaults. See [Stored cooldown of 0s](#stored-cooldown-of-0s).
 
 ## Enabling debug logs
 

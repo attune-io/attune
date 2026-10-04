@@ -18,6 +18,7 @@ package webhook
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -326,6 +327,119 @@ func TestDefaultsValidator_Update(t *testing.T) {
 	}
 	_, err := v.ValidateUpdate(context.Background(), old, updated)
 	assert.Error(t, err)
+}
+
+func TestDefaultsValidateUpdate_StoredZeroDuration(t *testing.T) {
+	zero := metav1.Duration{Duration: 0}
+	minute := metav1.Duration{Duration: time.Minute}
+	hour := metav1.Duration{Duration: time.Hour}
+	cooldownSpec := func(d metav1.Duration) attunev1alpha1.AttuneDefaultsSpec {
+		return attunev1alpha1.AttuneDefaultsSpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{Cooldown: &d},
+		}
+	}
+	safetySpec := func(d metav1.Duration) attunev1alpha1.AttuneDefaultsSpec {
+		return attunev1alpha1.AttuneDefaultsSpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{SafetyObservationPeriod: &d},
+		}
+	}
+	sloSpec := func() attunev1alpha1.AttuneDefaultsSpec {
+		return attunev1alpha1.AttuneDefaultsSpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				SLOGuardrails: []attunev1alpha1.SLOGuardrail{{
+					Name:             "latency",
+					Query:            "vector(1)",
+					Threshold:        "1",
+					EvaluationWindow: &metav1.Duration{Duration: 0},
+				}},
+			},
+		}
+	}
+	historySpec := func() attunev1alpha1.AttuneDefaultsSpec {
+		return attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				HistoryWindow: &metav1.Duration{Duration: 0},
+			},
+		}
+	}
+	withCost := func(spec attunev1alpha1.AttuneDefaultsSpec) attunev1alpha1.AttuneDefaultsSpec {
+		spec.CostPricing = &attunev1alpha1.CostPricing{CPUPerCoreHour: "0.1"}
+		return spec
+	}
+
+	cases := []struct {
+		name           string
+		old            attunev1alpha1.AttuneDefaultsSpec
+		neu            attunev1alpha1.AttuneDefaultsSpec
+		create         bool
+		clearFinalizer bool
+		want           string
+	}{
+		{name: "unrelated field keeps cooldown 0s", old: cooldownSpec(zero), neu: withCost(cooldownSpec(zero))},
+		{name: "finalizer clear keeps cooldown 0s", old: cooldownSpec(zero), neu: cooldownSpec(zero), clearFinalizer: true},
+		{name: "unrelated field keeps safety 0s", old: safetySpec(zero), neu: withCost(safetySpec(zero))},
+		{name: "unrelated field keeps slo window 0s", old: sloSpec(), neu: withCost(sloSpec())},
+		{name: "cooldown 1h to 0s", old: cooldownSpec(hour), neu: cooldownSpec(zero), want: "cooldown must be at least 1m"},
+		{name: "create cooldown 0s", neu: cooldownSpec(zero), create: true, want: "cooldown must be at least 1m"},
+		{name: "cooldown 0s to 1m", old: cooldownSpec(zero), neu: cooldownSpec(minute)},
+		{name: "unchanged historyWindow 0s", old: historySpec(), neu: historySpec(), want: "historyWindow must be at least 1h"},
+	}
+
+	for _, kind := range []string{"AttuneDefaults", "AttuneNamespaceDefaults"} {
+		for _, tc := range cases {
+			t.Run(kind+"/"+tc.name, func(t *testing.T) {
+				err := admitDefaultsSpec(kind, tc.old, tc.neu, tc.create, tc.clearFinalizer)
+				if tc.want == "" {
+					assert.NoError(t, err)
+					return
+				}
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.want)
+			})
+		}
+	}
+}
+
+func admitDefaultsSpec(kind string, oldSpec, newSpec attunev1alpha1.AttuneDefaultsSpec, create, clearFinalizer bool) error {
+	ctx := context.Background()
+	switch kind {
+	case "AttuneDefaults":
+		v := &AttuneDefaultsValidator{}
+		obj := &attunev1alpha1.AttuneDefaults{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster", Finalizers: []string{"attune.io/cleanup"}},
+			Spec:       newSpec,
+		}
+		if create {
+			_, err := v.ValidateCreate(ctx, obj)
+			return err
+		}
+		old := obj.DeepCopy()
+		old.Spec = oldSpec
+		if clearFinalizer {
+			obj.Finalizers = nil
+		}
+		_, err := v.ValidateUpdate(ctx, old, obj)
+		return err
+	case "AttuneNamespaceDefaults":
+		v := &AttuneNamespaceDefaultsValidator{}
+		obj := &attunev1alpha1.AttuneNamespaceDefaults{
+			ObjectMeta: metav1.ObjectMeta{Name: "ns-defaults", Namespace: "default", Finalizers: []string{"attune.io/cleanup"}},
+			Spec:       newSpec,
+		}
+		if create {
+			_, err := v.ValidateCreate(ctx, obj)
+			return err
+		}
+		old := obj.DeepCopy()
+		old.Spec = oldSpec
+		if clearFinalizer {
+			obj.Finalizers = nil
+		}
+		_, err := v.ValidateUpdate(ctx, old, obj)
+		return err
+	default:
+		return fmt.Errorf("unknown defaults kind %s", kind)
+	}
 }
 
 func TestDefaultsValidator_Delete(t *testing.T) {
