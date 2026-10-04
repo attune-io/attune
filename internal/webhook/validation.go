@@ -39,9 +39,10 @@ import (
 type AttunePolicyValidator struct {
 	// SecretAccess, when set, requires the admission user to get each referenced Secret.
 	SecretAccess SecretAccessChecker
-	// Client loads AttuneDefaults when a policy omits a field that defaults
-	// change, such as historyWindow for surge.window. Nil keeps the built-in
-	// window so unit tests do not need a cluster.
+	// Client loads AttuneDefaults only when a policy sets cpu.surge.window or
+	// memory.surge.window and omits historyWindow, the one field admission
+	// checks against inherited defaults. Nil keeps the built-in window so unit
+	// tests do not need a cluster.
 	Client client.Reader
 }
 
@@ -82,14 +83,15 @@ func (v *AttunePolicyValidator) effectiveHistory(ctx context.Context, policy *at
 	if policy != nil && policy.Spec.MetricsSource.HistoryWindow != nil {
 		return policy.Spec.MetricsSource.HistoryWindow, nil
 	}
+	// Only a policy surge window is checked against the history window, so
+	// admission reads defaults for nothing else.
+	if policy == nil || (!surgeWindowSet(&policy.Spec.CPU) && !surgeWindowSet(&policy.Spec.Memory)) {
+		return nil, nil
+	}
 	if v == nil || v.Client == nil {
 		return nil, nil
 	}
-	ns := ""
-	if policy != nil {
-		ns = policy.Namespace
-	}
-	merged, err := combinedDefaults(ctx, v.Client, ns)
+	merged, err := combinedDefaults(ctx, v.Client, policy.Namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -609,6 +611,12 @@ func validateSurgeTriggerRatio(prefix, raw string) error {
 		return fmt.Errorf("%s must be <= %d, got %s", field, attunev1alpha1.MaxSurgeTriggerRatio, raw)
 	}
 	return nil
+}
+
+// surgeWindowSet reports whether rc sets surge.window, the only field
+// validated against the effective history window.
+func surgeWindowSet(rc *attunev1alpha1.ResourceConfig) bool {
+	return rc != nil && rc.Surge != nil && rc.Surge.Window != nil
 }
 
 func surgeHistoryLimit(history *metav1.Duration) time.Duration {
