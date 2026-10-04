@@ -162,3 +162,48 @@ tests:
     asserts:
       - notExists:
           path: spec.excludeKnownSidecars
+
+  - it: renders newer resource and strategy fields
+    set:
+      defaults:
+        enabled: true
+        cpu:
+          limitMultiplier: ""
+          decreaseUsageMarginPercent: 10
+          surge:
+            triggerRatio: "1.5"
+            percentile: 95
+            window: 30m
+          startupBoost:
+            multiplier: "2"
+            duration: 2m
+            excludeFromHistory: true
+        memory:
+          oomBump:
+            ratio: "1.5"
+          surge:
+            window: 30m
+          decreaseUsageMarginPercent: 10
+        updateStrategy:
+          maxCpuIncreasePerMinute: 200m
+          maxMemoryIncreasePerMinute: 128Mi
+          hpaTargetBounds:
+            cpu:
+              min: 20
+              max: 80
+    asserts:
+      - equal:
+          path: spec.memory.oomBump.ratio
+          value: "1.5"
+      - equal:
+          path: spec.cpu.surge.triggerRatio
+          value: "1.5"
+      - equal:
+          path: spec.cpu.startupBoost.excludeFromHistory
+          value: true
+      - equal:
+          path: spec.updateStrategy.hpaTargetBounds.cpu.max
+          value: 80
+      - equal:
+          path: spec.updateStrategy.maxCpuIncreasePerMinute
+          value: 200m
