@@ -346,7 +346,11 @@ func (r *AttunePolicyReconciler) applyTemplatePersistence(
 
 	var history []attunev1alpha1.ResizeHistoryEntry
 	now := metav1.NewTime(r.now())
-	if anyRolloutWorkloadRef(workloads) {
+	// A failed reference read outranks the intentional skip. WorkloadErrors
+	// belongs to this reconcile, so a stale WorkloadRefUnread still clears.
+	if _, failed := workloadRefReadError(policy.Status.WorkloadErrors); failed {
+		noteWorkloadRefReadErrors(policy, policy.Status.WorkloadErrors)
+	} else if anyRolloutWorkloadRef(workloads) {
 		markTemplateWorkloadRef(policy)
 	} else {
 		meta.RemoveStatusCondition(&policy.Status.Conditions, attunev1alpha1.ConditionTemplatePersistence)
@@ -783,16 +787,24 @@ func anyRolloutWorkloadRef(workloads []client.Object) bool {
 	return false
 }
 
+// workloadRefReadError returns the first workload error recorded for a
+// failed Rollout spec.workloadRef read.
+func workloadRefReadError(errs []attunev1alpha1.WorkloadError) (attunev1alpha1.WorkloadError, bool) {
+	for _, e := range errs {
+		if strings.HasPrefix(e.Error, "workloadRef ") {
+			return e, true
+		}
+	}
+	return attunev1alpha1.WorkloadError{}, false
+}
+
 // noteWorkloadRefReadErrors records a failed workloadRef read. A later
 // reconcile that can read the reference removes only that reason.
 func noteWorkloadRefReadErrors(policy *attunev1alpha1.AttunePolicy, errs []attunev1alpha1.WorkloadError) {
 	if policy == nil {
 		return
 	}
-	for _, e := range errs {
-		if !strings.HasPrefix(e.Error, "workloadRef ") {
-			continue
-		}
+	if e, failed := workloadRefReadError(errs); failed {
 		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
 			Type:               attunev1alpha1.ConditionTemplatePersistence,
 			Status:             metav1.ConditionFalse,

@@ -659,6 +659,154 @@ func TestApplyTemplatePersistence_RolloutWorkloadRef(t *testing.T) {
 	assert.Equal(t, attunev1alpha1.ReasonMonitoring, ready.Reason)
 }
 
+func TestApplyTemplatePersistence_WorkloadRefUnreadSurvives(t *testing.T) {
+	cpuCur := resource.MustParse("500m")
+	memCur := resource.MustParse("512Mi")
+	cpuRec := resource.MustParse("200m")
+	memRec := resource.MustParse("256Mi")
+	readErr := `workloadRef Deployment default/missing: deployments.apps "missing" not found`
+
+	unreadRollout := func() *argorollout.Rollout {
+		ro := rolloutWithResources("orders", cpuCur, memCur)
+		ro.Spec.WorkloadRef = &argorollout.WorkloadRef{Name: "missing", Kind: "Deployment", APIVersion: "apps/v1"}
+		return ro
+	}
+	refRollout := func() *argorollout.Rollout {
+		ro := rolloutWithResources("orders", cpuCur, memCur)
+		ro.Spec.WorkloadRef = &argorollout.WorkloadRef{Name: "orders", Kind: "Deployment", APIVersion: "apps/v1"}
+		return ro
+	}
+	plainRollout := func() *argorollout.Rollout { return rolloutWithResources("checkout", cpuCur, memCur) }
+	deploymentRec := func(name string) attunev1alpha1.WorkloadRecommendation {
+		rec := rolloutRecommendation(name, cpuCur, memCur, cpuRec, memRec)
+		rec.Kind = "Deployment"
+		rec.Containers[0].Name = "main"
+		return rec
+	}
+
+	cases := []struct {
+		name      string
+		errs      []attunev1alpha1.WorkloadError
+		stale     string // reason seeded directly when errs is empty
+		mode      attunev1alpha1.UpdateType
+		when      attunev1alpha1.TemplatePersistenceWhen
+		only      map[string]bool
+		workloads func() []client.Object
+		recs      []attunev1alpha1.WorkloadRecommendation
+		want      string // "" means the condition is absent
+		wantMsg   string
+		patched   string // healthy Rollout whose template must be patched
+	}{
+		{
+			name: "unread with workloadRef rollout, Recommend OnRecommendation",
+			errs: []attunev1alpha1.WorkloadError{{Workload: "orders", Error: readErr}},
+			mode: attunev1alpha1.UpdateTypeRecommend, when: attunev1alpha1.TemplatePersistenceOnRecommendation,
+			workloads: func() []client.Object { return []client.Object{unreadRollout(), plainRollout()} },
+			recs:      []attunev1alpha1.WorkloadRecommendation{rolloutRecommendation("checkout", cpuCur, memCur, cpuRec, memRec)},
+			want:      attunev1alpha1.ReasonWorkloadRefUnread, wantMsg: readErr,
+			patched: "checkout",
+		},
+		{
+			name: "unread with workloadRef rollout, Auto OnRecommendation",
+			errs: []attunev1alpha1.WorkloadError{{Workload: "orders", Error: readErr}},
+			mode: attunev1alpha1.UpdateTypeAuto, when: attunev1alpha1.TemplatePersistenceOnRecommendation,
+			workloads: func() []client.Object { return []client.Object{unreadRollout(), plainRollout()} },
+			recs:      []attunev1alpha1.WorkloadRecommendation{rolloutRecommendation("checkout", cpuCur, memCur, cpuRec, memRec)},
+			want:      attunev1alpha1.ReasonWorkloadRefUnread, wantMsg: readErr,
+			patched: "checkout",
+		},
+		{
+			name: "unread with workloadRef rollout, Auto AfterSuccessfulResize",
+			errs: []attunev1alpha1.WorkloadError{{Workload: "orders", Error: readErr}},
+			mode: attunev1alpha1.UpdateTypeAuto, when: attunev1alpha1.TemplatePersistenceAfterSuccessfulResize,
+			only:      map[string]bool{"checkout": true},
+			workloads: func() []client.Object { return []client.Object{unreadRollout(), plainRollout()} },
+			recs:      []attunev1alpha1.WorkloadRecommendation{rolloutRecommendation("checkout", cpuCur, memCur, cpuRec, memRec)},
+			want:      attunev1alpha1.ReasonWorkloadRefUnread, wantMsg: readErr,
+			patched: "checkout",
+		},
+		{
+			// Unreachable in a real reconcile (the unread Rollout is in the
+			// workload list); kept as a unit guard on the errors-keyed rule.
+			name: "unread without workloadRef rollout in the list",
+			errs: []attunev1alpha1.WorkloadError{{Workload: "orders", Error: readErr}},
+			mode: attunev1alpha1.UpdateTypeRecommend, when: attunev1alpha1.TemplatePersistenceOnRecommendation,
+			workloads: func() []client.Object { return []client.Object{newTestDeployment("api", "default", nil)} },
+			recs:      []attunev1alpha1.WorkloadRecommendation{deploymentRec("api")},
+			want:      attunev1alpha1.ReasonWorkloadRefUnread, wantMsg: readErr,
+		},
+		{
+			name:  "stale unread, reference readable now",
+			stale: attunev1alpha1.ReasonWorkloadRefUnread,
+			mode:  attunev1alpha1.UpdateTypeRecommend, when: attunev1alpha1.TemplatePersistenceOnRecommendation,
+			workloads: func() []client.Object { return []client.Object{refRollout()} },
+			recs:      []attunev1alpha1.WorkloadRecommendation{rolloutRecommendation("orders", cpuCur, memCur, cpuRec, memRec)},
+			want:      attunev1alpha1.ReasonTemplateWorkloadRef, wantMsg: templateWorkloadRefMessage,
+		},
+		{
+			name:  "stale unread, no workloadRef rollout",
+			stale: attunev1alpha1.ReasonWorkloadRefUnread,
+			mode:  attunev1alpha1.UpdateTypeRecommend, when: attunev1alpha1.TemplatePersistenceOnRecommendation,
+			workloads: func() []client.Object { return []client.Object{plainRollout()} },
+			recs:      []attunev1alpha1.WorkloadRecommendation{rolloutRecommendation("checkout", cpuCur, memCur, cpuRec, memRec)},
+		},
+		{
+			name:  "stale TemplateWorkloadRef, no workloadRef rollout",
+			stale: attunev1alpha1.ReasonTemplateWorkloadRef,
+			mode:  attunev1alpha1.UpdateTypeRecommend, when: attunev1alpha1.TemplatePersistenceOnRecommendation,
+			workloads: func() []client.Object { return []client.Object{plainRollout()} },
+			recs:      []attunev1alpha1.WorkloadRecommendation{rolloutRecommendation("checkout", cpuCur, memCur, cpuRec, memRec)},
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			workloads := tt.workloads()
+			r := newReconcilerWithClient(workloads...)
+			policy := rolloutPersistPolicy()
+			policy.Spec.UpdateStrategy.Type = tt.mode
+			policy.Spec.UpdateStrategy.TemplatePersistence.When = tt.when
+			if len(tt.errs) > 0 {
+				// Same order as the reconcile: workloadErrors, then the note.
+				policy.Status.WorkloadErrors = tt.errs
+				noteWorkloadRefReadErrors(policy, policy.Status.WorkloadErrors)
+			} else {
+				meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+					Type:    attunev1alpha1.ConditionTemplatePersistence,
+					Status:  metav1.ConditionFalse,
+					Reason:  tt.stale,
+					Message: "left over from an earlier reconcile",
+				})
+			}
+
+			_ = r.applyTemplatePersistence(context.Background(), policy, workloads, tt.recs, tt.when, tt.only)
+
+			cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionTemplatePersistence)
+			if tt.want == "" {
+				assert.Nil(t, cond)
+			} else {
+				require.NotNil(t, cond)
+				assert.Equal(t, metav1.ConditionFalse, cond.Status)
+				assert.Equal(t, tt.want, cond.Reason)
+				assert.Equal(t, tt.wantMsg, cond.Message)
+			}
+			for _, w := range workloads {
+				ro, ok := w.(*argorollout.Rollout)
+				if !ok || ro.Spec.WorkloadRef == nil {
+					continue
+				}
+				var stored argorollout.Rollout
+				require.NoError(t, r.Get(context.Background(), client.ObjectKeyFromObject(ro), &stored))
+				assert.Equal(t, int64(500), stored.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue())
+			}
+			if tt.patched != "" {
+				var healthy argorollout.Rollout
+				require.NoError(t, r.Get(context.Background(), client.ObjectKey{Namespace: policy.Namespace, Name: tt.patched}, &healthy))
+				assert.Equal(t, int64(200), healthy.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue())
+			}
+		})
+	}
+}
+
 func TestRestoreTemplate_RolloutWorkloadRefSkips(t *testing.T) {
 	cpuCur, err := resource.ParseQuantity("200m")
 	require.NoError(t, err)
