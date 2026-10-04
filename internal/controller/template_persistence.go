@@ -346,10 +346,14 @@ func (r *AttunePolicyReconciler) applyTemplatePersistence(
 
 	var history []attunev1alpha1.ResizeHistoryEntry
 	now := metav1.NewTime(r.now())
-	if anyRolloutWorkloadRef(workloads) {
-		markTemplateWorkloadRef(policy)
-	} else {
-		meta.RemoveStatusCondition(&policy.Status.Conditions, attunev1alpha1.ConditionTemplatePersistence)
+	// A failed workloadRef read already owns this condition. Replacing it
+	// with the intentional skip, or deleting it, hides that read error.
+	if !templatePersistenceUnread(policy) {
+		if anyRolloutWorkloadRef(workloads) {
+			markTemplateWorkloadRef(policy)
+		} else {
+			meta.RemoveStatusCondition(&policy.Status.Conditions, attunev1alpha1.ConditionTemplatePersistence)
+		}
 	}
 
 	for _, rec := range recommendations {
@@ -783,6 +787,14 @@ func anyRolloutWorkloadRef(workloads []client.Object) bool {
 	return false
 }
 
+func templatePersistenceUnread(policy *attunev1alpha1.AttunePolicy) bool {
+	if policy == nil {
+		return false
+	}
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionTemplatePersistence)
+	return cond != nil && cond.Reason == attunev1alpha1.ReasonWorkloadRefUnread
+}
+
 // noteWorkloadRefReadErrors records a failed workloadRef read. A later
 // reconcile that can read the reference removes only that reason.
 func noteWorkloadRefReadErrors(policy *attunev1alpha1.AttunePolicy, errs []attunev1alpha1.WorkloadError) {
@@ -812,7 +824,7 @@ func noteWorkloadRefReadErrors(policy *attunev1alpha1.AttunePolicy, errs []attun
 // It does not change Ready. Resize of the Rollout's pods still proceeds
 // from the referenced template when that object can be read.
 func markTemplateWorkloadRef(policy *attunev1alpha1.AttunePolicy) {
-	if policy == nil {
+	if policy == nil || templatePersistenceUnread(policy) {
 		return
 	}
 	meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{

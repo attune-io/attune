@@ -10,6 +10,20 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### Rollout workloadRef read failures stay visible
+
+Template persistence still does not patch a Rollout whose
+`spec.workloadRef` is set. When that object cannot be read, the
+condition reason stays `WorkloadRefUnread` for the rest of the
+reconcile. It is not replaced by `TemplateWorkloadRef`, and it is not
+removed while the read error is still present.
+
+`TemplateWorkloadRef` means the reference was read and the template
+was left alone. A later reconcile with no workloadRef read error
+removes a stale `WorkloadRefUnread`. Resize behavior does not change.
+Observe mode already kept the unread reason. Recommend mode now does
+too.
+
 ### Amazon Managed Prometheus signing
 
 Policies that omit `metricsSource.prometheus.sigv4` stay unsigned. There
@@ -91,6 +105,7 @@ release pull request 889 to add the list.
 - RollingUpdate DaemonSets resize the current revision. The pod label is the hash, not the revision name
 - A QoS check with `spec.resources` uses one rule on both sides
 - A stored HPA CPU base that is missing other containers is repaired. Growth of the same containers keeps the stored original. An annotation an older operator already rewrote is left in place
+- A failed Rollout `workloadRef` read keeps reason `WorkloadRefUnread`. A readable ref still reports `TemplateWorkloadRef`
 - Datadog null points are dropped
 
 ### Stored cooldown of 0s

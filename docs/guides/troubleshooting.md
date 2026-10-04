@@ -1722,6 +1722,27 @@ spec:
   the next reconcile retries when live resources match the applied
   revert target. `attune_revert_failures_total` does not increment.
 
+### Rollout spec.workloadRef
+
+Attune does not patch the Rollout template when `spec.workloadRef` is
+set. The pod template lives on the referenced Deployment, StatefulSet,
+or ReplicaSet.
+
+Tell the two skips apart on `status.conditions`:
+
+- Reason `WorkloadRefUnread` means the referenced object could not be
+  read, or it has no containers. The same text is on
+  `status.workloadErrors`. No recommendation is stored for that
+  Rollout. Fix the name, kind, or RBAC, then wait for the next
+  reconcile. The reason stays until that read succeeds.
+- Reason `TemplateWorkloadRef` means the object was read. Leaving the
+  Rollout template alone is intentional. Recommendations use the
+  referenced pod template. Resize of the Rollout's pods still proceeds
+  from that template.
+
+Recommend mode reports the same reasons. Observe mode does not run
+template persistence, so a failed read keeps `WorkloadRefUnread`.
+
 ### Mid-rollout or no-op
 
 The operator skips patches while a Deployment or StatefulSet is mid-replacement.

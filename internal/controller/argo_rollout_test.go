@@ -659,6 +659,126 @@ func TestApplyTemplatePersistence_RolloutWorkloadRef(t *testing.T) {
 	assert.Equal(t, attunev1alpha1.ReasonMonitoring, ready.Reason)
 }
 
+func TestApplyTemplatePersistence_WorkloadRefUnreadSurvives(t *testing.T) {
+	t.Parallel()
+	cpuCur, err := resource.ParseQuantity("500m")
+	require.NoError(t, err)
+	memCur, err := resource.ParseQuantity("512Mi")
+	require.NoError(t, err)
+	cpuRec, err := resource.ParseQuantity("200m")
+	require.NoError(t, err)
+	memRec, err := resource.ParseQuantity("256Mi")
+	require.NoError(t, err)
+
+	ro := rolloutWithResources("checkout", cpuCur, memCur)
+	ro.Spec.WorkloadRef = &argorollout.WorkloadRef{Name: "missing", Kind: "Deployment", APIVersion: "apps/v1"}
+	r := newReconcilerWithClient(ro)
+	policy := rolloutPersistPolicy()
+	meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+		Type:    attunev1alpha1.ConditionTemplatePersistence,
+		Status:  metav1.ConditionFalse,
+		Reason:  attunev1alpha1.ReasonWorkloadRefUnread,
+		Message: "workloadRef missing not found",
+	})
+
+	_ = r.applyTemplatePersistence(context.Background(), policy, []client.Object{ro},
+		[]attunev1alpha1.WorkloadRecommendation{rolloutRecommendation("checkout", cpuCur, memCur, cpuRec, memRec)},
+		attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
+
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionTemplatePersistence)
+	require.NotNil(t, cond)
+	assert.Equal(t, attunev1alpha1.ReasonWorkloadRefUnread, cond.Reason)
+	assert.Equal(t, "workloadRef missing not found", cond.Message)
+}
+
+func TestApplyTemplatePersistence_StaleUnreadClearsWhenErrorsGone(t *testing.T) {
+	t.Parallel()
+	cpuCur, err := resource.ParseQuantity("500m")
+	require.NoError(t, err)
+	memCur, err := resource.ParseQuantity("512Mi")
+	require.NoError(t, err)
+	cpuRec, err := resource.ParseQuantity("200m")
+	require.NoError(t, err)
+	memRec, err := resource.ParseQuantity("256Mi")
+	require.NoError(t, err)
+
+	ro := rolloutWithResources("checkout", cpuCur, memCur)
+	r := newReconcilerWithClient(ro)
+	policy := rolloutPersistPolicy()
+	meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+		Type:    attunev1alpha1.ConditionTemplatePersistence,
+		Status:  metav1.ConditionFalse,
+		Reason:  attunev1alpha1.ReasonWorkloadRefUnread,
+		Message: "workloadRef missing not found",
+	})
+	noteWorkloadRefReadErrors(policy, nil)
+
+	_ = r.applyTemplatePersistence(context.Background(), policy, []client.Object{ro},
+		[]attunev1alpha1.WorkloadRecommendation{rolloutRecommendation("checkout", cpuCur, memCur, cpuRec, memRec)},
+		attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
+
+	assert.Nil(t, meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionTemplatePersistence))
+}
+
+func TestApplyTemplatePersistence_StaleTemplateWorkloadRefClears(t *testing.T) {
+	t.Parallel()
+	cpuCur, err := resource.ParseQuantity("500m")
+	require.NoError(t, err)
+	memCur, err := resource.ParseQuantity("512Mi")
+	require.NoError(t, err)
+	cpuRec, err := resource.ParseQuantity("200m")
+	require.NoError(t, err)
+	memRec, err := resource.ParseQuantity("256Mi")
+	require.NoError(t, err)
+
+	ro := rolloutWithResources("checkout", cpuCur, memCur)
+	r := newReconcilerWithClient(ro)
+	policy := rolloutPersistPolicy()
+	meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+		Type:    attunev1alpha1.ConditionTemplatePersistence,
+		Status:  metav1.ConditionFalse,
+		Reason:  attunev1alpha1.ReasonTemplateWorkloadRef,
+		Message: templateWorkloadRefMessage,
+	})
+
+	_ = r.applyTemplatePersistence(context.Background(), policy, []client.Object{ro},
+		[]attunev1alpha1.WorkloadRecommendation{rolloutRecommendation("checkout", cpuCur, memCur, cpuRec, memRec)},
+		attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
+
+	assert.Nil(t, meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionTemplatePersistence))
+}
+
+func TestApplyTemplatePersistence_UnreadWithoutWorkloadRefStays(t *testing.T) {
+	t.Parallel()
+	cpuCur, err := resource.ParseQuantity("500m")
+	require.NoError(t, err)
+	memCur, err := resource.ParseQuantity("512Mi")
+	require.NoError(t, err)
+	cpuRec, err := resource.ParseQuantity("200m")
+	require.NoError(t, err)
+	memRec, err := resource.ParseQuantity("256Mi")
+	require.NoError(t, err)
+
+	ro := rolloutWithResources("checkout", cpuCur, memCur)
+	r := newReconcilerWithClient(ro)
+	policy := rolloutPersistPolicy()
+	meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+		Type:    attunev1alpha1.ConditionTemplatePersistence,
+		Status:  metav1.ConditionFalse,
+		Reason:  attunev1alpha1.ReasonWorkloadRefUnread,
+		Message: "workloadRef missing not found",
+	})
+
+	_ = r.applyTemplatePersistence(context.Background(), policy, []client.Object{ro},
+		[]attunev1alpha1.WorkloadRecommendation{rolloutRecommendation("checkout", cpuCur, memCur, cpuRec, memRec)},
+		attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
+
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionTemplatePersistence)
+	require.NotNil(t, cond)
+	assert.Equal(t, attunev1alpha1.ReasonWorkloadRefUnread, cond.Reason)
+	assert.Equal(t, "workloadRef missing not found", cond.Message)
+}
+
 func TestRestoreTemplate_RolloutWorkloadRefSkips(t *testing.T) {
 	cpuCur, err := resource.ParseQuantity("200m")
 	require.NoError(t, err)
@@ -688,6 +808,44 @@ func TestRestoreTemplate_RolloutWorkloadRefSkips(t *testing.T) {
 	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionTemplatePersistence)
 	require.NotNil(t, cond)
 	assert.Equal(t, templateWorkloadRefMessage, cond.Message)
+}
+
+func TestRestoreTemplate_WorkloadRefUnreadSurvives(t *testing.T) {
+	cpuCur, err := resource.ParseQuantity("200m")
+	require.NoError(t, err)
+	memCur, err := resource.ParseQuantity("256Mi")
+	require.NoError(t, err)
+	originalCPU, err := resource.ParseQuantity("500m")
+	require.NoError(t, err)
+
+	ro := rolloutWithResources("checkout", cpuCur, memCur)
+	ro.Spec.WorkloadRef = &argorollout.WorkloadRef{Name: "checkout", Kind: "Deployment", APIVersion: "apps/v1"}
+	r := newReconcilerWithClient(ro)
+	policy := rolloutPersistPolicy()
+	policy.Spec.UpdateStrategy.TemplatePersistence.When = attunev1alpha1.TemplatePersistenceAfterSuccessfulResize
+	meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+		Type:    attunev1alpha1.ConditionTemplatePersistence,
+		Status:  metav1.ConditionFalse,
+		Reason:  attunev1alpha1.ReasonWorkloadRefUnread,
+		Message: "workloadRef missing not found",
+	})
+
+	err = r.restoreTemplateAfterSafetyRevert(context.Background(), policy, []client.Object{ro}, safety.ResizeRecord{
+		WorkloadName: "checkout",
+		Container:    "app",
+		OriginalResources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{corev1.ResourceCPU: originalCPU, corev1.ResourceMemory: memCur},
+		},
+	})
+	require.NoError(t, err)
+
+	var updated argorollout.Rollout
+	require.NoError(t, r.Get(context.Background(), client.ObjectKeyFromObject(ro), &updated))
+	assert.Equal(t, int64(200), updated.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue())
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionTemplatePersistence)
+	require.NotNil(t, cond)
+	assert.Equal(t, attunev1alpha1.ReasonWorkloadRefUnread, cond.Reason)
+	assert.Equal(t, "workloadRef missing not found", cond.Message)
 }
 
 func TestRestoreTemplate_RolloutPatchesRollout(t *testing.T) {
