@@ -22,17 +22,35 @@ jobs:
         with:
           egress-policy: audit
 
-      # OWNER, MEMBER, COLLABORATOR -> ready (trusted, skip inbox)
-      # All others -> needs-triage (external, awaits maintainer review)
+      # Read author_association from the API. The webhook value has marked
+      # MEMBER issues needs-triage. A failed read leaves labels unchanged.
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
-            const assoc = context.payload.issue.author_association;
-            const trusted = ['OWNER', 'MEMBER', 'COLLABORATOR'];
-            const label = trusted.includes(assoc) ? 'ready' : 'needs-triage';
-            await github.rest.issues.addLabels({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              labels: [label],
-            });
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            let fresh;
+            try {
+              fresh = await github.rest.issues.get({ owner, repo, issue_number });
+            } catch (err) {
+              core.warning(`Issue triage left labels unchanged: ${err.message}`);
+              return;
+            }
+            const assoc = fresh.data.author_association || '';
+            const names = new Set((fresh.data.labels || []).map((label) => label.name));
+            const trusted = ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(assoc);
+            if (trusted) {
+              if (!names.has('ready')) {
+                await github.rest.issues.addLabels({ owner, repo, issue_number, labels: ['ready'] });
+              }
+              if (names.has('needs-triage')) {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number, name: 'needs-triage' });
+              }
+              return;
+            }
+            if (names.has('ready')) {
+              return;
+            }
+            if (!names.has('needs-triage')) {
+              await github.rest.issues.addLabels({ owner, repo, issue_number, labels: ['needs-triage'] });
+            }
