@@ -219,6 +219,11 @@ window uses its own percentile and only the samples inside `surge.window`.
 One spike does not switch the window. `minimumDataPoints` still gates the
 long window.
 
+A policy `surge.window` is checked against the inherited history window, so
+admission reads `AttuneNamespaceDefaults` and `AttuneDefaults` only when the
+policy sets `surge.window` and omits `metricsSource.historyWindow`. Other
+policies do not depend on defaults at admission.
+
 ### OOM bump is off until memory.oomBump is set
 
 Memory requests stay on the percentile path unless `memory.oomBump` is set.

@@ -389,6 +389,33 @@ continuing. The condition message includes the failing step, such as
    expected objects exist in the namespace.
 3. Check operator logs for the exact failing API call or validation error.
 
+### Policy admission denied: listing AttuneNamespaceDefaults or AttuneDefaults
+
+**Symptom**: `kubectl apply` of a policy fails with:
+```
+admission webhook "validation.attune.io" denied the request:
+listing AttuneNamespaceDefaults in <namespace>: ...
+```
+or, when the namespace list succeeds and the cluster list fails,
+`listing AttuneDefaults: ...`.
+
+**Cause**: The policy sets `cpu.surge.window` or `memory.surge.window` and
+omits `metricsSource.historyWindow`. The surge window must not be longer
+than the inherited history window, so admission lists the defaults to find
+it. The list failed, so the policy is rejected instead of falling back
+to `168h`.
+
+This is expected while the operator cannot list defaults. Policies without
+a surge window, or with `historyWindow` set, do not read defaults at
+admission and are not affected.
+
+**Fix**:
+
+1. Restore list access to `AttuneNamespaceDefaults` and `AttuneDefaults`
+   for the operator, as for [`InvalidConfig`](#invalidconfig).
+2. Or set `metricsSource.historyWindow` on the policy. The surge window is
+   then checked against that value and no defaults are read.
+
 ### WorkloadDiscoveryFailed
 
 **Symptom**: Ready condition is `False` with reason `WorkloadDiscoveryFailed`.
