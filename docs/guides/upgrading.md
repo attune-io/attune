@@ -80,7 +80,7 @@ release pull request 889 to add the list.
 - A stored `0s` cooldown, safety period, or SLO window can be updated and deleted. A new `0s` is rejected
 - RollingUpdate DaemonSets resize the current revision. The pod label is the hash, not the revision name
 - A QoS check with `spec.resources` uses one rule on both sides
-- A stored HPA CPU base that is missing other containers is repaired. Growth of the same containers keeps the stored original
+- New HPA CPU bases also store `attune.io/original-cpu-request-containers`, and a base with that list is repaired only for containers missing from it. A v0.1.32 base has no list and stays partial once its resized containers changed request, so the CPU target can drop on the first CPU resize after upgrade. See [the troubleshooting entry](troubleshooting.md#cpu-utilization-target-drifted-after-a-second-cpu-resize)
 - Datadog null points are dropped
 
 ### Stored cooldown of 0s
@@ -198,25 +198,104 @@ that pair is rejected at reconcile.
 
 ### HPA auto-tune keeps the stored CPU base
 
-An HPA that Attune has already tuned keeps its stored CPU base when that
-base is at least the pre-resize pod sum. A stored pod-level base below
-that sum is repaired only when the history rows' old sum still fits in
-the stored base. That gap is other containers. The next CPU resize
-replaces `attune.io/original-cpu-request` with the pre-resize sum and
-emits `HPABaseRepaired`. If the history old sum is already above the
-stored base, those containers grew. Attune keeps the stored original and
-adds only containers that have no history row. ContainerResource bases
-are not repaired this way.
+Attune writes the pod-level CPU base `attune.io/original-cpu-request`
+together with `attune.io/original-cpu-request-containers`: the sorted,
+comma-separated names of the containers in that base. Both are written
+on the first write and on every repair, in the same HPA update. Init
+containers, native sidecars included, on any pod of the workload that
+is not Succeeded or Failed are not
+listed and not in the stored base. In a cycle where such a container has
+a CPU history row but is not on the pod Attune reads, or is a regular
+container on that pod, the target of that cycle still counts it and a
+base written in that cycle does not. A base gets the list only on one of those writes, so
+a base stored before this version has none until Attune repairs it or
+you reset it.
 
-Deleting the keys still stores a fresh base on the next resize. Leave
-`attune.io/auto-tune` in place:
+#### Base with a container list
+
+A regular container on the pod that is not in the list is missing from
+the base. The next CPU resize adds that container's CPU from before the
+resize to the base, adds its name to the list, and emits
+`HPABaseRepaired`. A container without a CPU request is listed at `0m`
+without the event, and a later request on it counts as growth. Attune
+adds the container in the first cycle whose HPA write goes through. If
+an earlier write was skipped, for example because the target did not
+change, or failed, changes of that container up to then are part of the
+base.
+
+A container with a CPU history row in this cycle that is not on the pod
+Attune reads counts as one of these containers too, at its old CPU on
+the row, unless it is an init container on another pod of the workload
+that is not Succeeded or Failed.
+
+Nothing else is repaired. A base whose list names every container on the
+pod and every container with a CPU history row in this cycle is kept
+after growth, after a target that happens to match the
+stored pair, after a clamp or a changed band or CPU limit, and after an
+earlier failed HPA update.
+
+A listed container that is not on the pod keeps its share of the base and
+its name in the list. That happens after it was removed or renamed, and
+can happen during a rollout when Attune reads a pod of the revision
+without it. Attune logs `HPA CPU base lists containers that are not on
+the pod; stored base kept` at Info level, and repeats it on every CPU
+resize until you reset the base. The target is then higher than the
+remaining containers need, so the HPA runs fewer replicas. A rename is a
+removal plus an addition: the new name is added and the old share stays,
+so that container counts twice. Reset the base after you remove or rename
+a container. The share is kept on purpose: dropping it would add the
+container again when it comes back, and would grow the base each time a
+rollout alternates between pods with and without it.
+
+A list that Attune cannot read is ignored with an Info log, and the base
+follows the rule below. That covers an empty value, an empty element,
+spaces, and anything that is not a valid container name.
+
+#### Base without a container list
+
+A stored pod-level base without a list, such as every v0.1.32 base, is
+kept when it is at least the pre-resize pod sum. Below that sum it is
+repaired only when both of these hold:
+
+- It equals the old CPU of the containers that have a successful in-place
+  CPU history row in this resize cycle. Then the containers without a
+  row are missing from it.
+- The current HPA target is not the value that the stored target and base
+  give for the pre-resize sum, after `hpaTargetBounds`, the CPU limit cap,
+  and the floor of 1. A match that a clamp produced is ambiguous and also
+  keeps the base.
+
+The next CPU resize then replaces `attune.io/original-cpu-request` with
+the pre-resize sum, stores the container list, and emits
+`HPABaseRepaired`. Any other stored base is kept, including a full base
+after the same containers grew. A partial base whose containers changed
+since the first write stays partial. That gives a lower target and more
+replicas, which for a v0.1.32 base shows up on the first CPU resize after
+upgrade (see
+[Troubleshooting](troubleshooting.md#cpu-utilization-target-drifted-after-a-second-cpu-resize)).
+A base whose target is clamped to the same value also stays as stored,
+and so does a base that the repair would not raise once init containers
+of other pods are left out. An annotation already rewritten by an
+unreleased main build from #947 on is left in place. Memory and ContainerResource bases get no list and are not
+repaired this way.
+
+#### Store a fresh base
+
+First set the HPA CPU utilization target to the percent you want at the
+current pod requests. The first write after the keys are gone stores the
+current target as `attune.io/original-target-cpu`. Then delete these
+keys and leave `attune.io/auto-tune` in place:
 
 - `attune.io/original-target-cpu`
 - `attune.io/original-cpu-request`
+- `attune.io/original-cpu-request-containers`
 - any `attune.io/hpa-cpu-target.*` key
 - any `attune.io/hpa-cpu-base.*` key
 
-The next successful CPU resize stores the full base when the keys are gone.
+The next successful CPU resize that changes the HPA target stores the
+full pod sum as the new base, with its container list. A list key left
+behind on its own is overwritten by that write. Deleting only the list
+key keeps the base and makes it a base without a list.
 
 ### Omitted maxAllowed is not capped
 

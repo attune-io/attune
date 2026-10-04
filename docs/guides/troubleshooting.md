@@ -1086,6 +1086,54 @@ cannot be loaded (API/RBAC failure). Decreases still proceed.
 sum by (namespace, policy, reason) (rate(attune_capacity_skip_total[1h]))
 ```
 
+### CPU utilization target drifted after a second CPU resize
+
+**Symptom**: After an upgrade from v0.1.32, a CPU resize left the HPA CPU
+utilization target lower than the original absolute threshold needs, and
+the HorizontalPodAutoscaler runs more replicas. Less often the target is
+higher than expected and the HPA runs fewer replicas, also after a
+container was removed from the pod template or renamed.
+
+**Cause**: `attune.io/original-cpu-request` on the HPA should hold the pod
+CPU sum from the first auto-tune write. v0.1.32 stored only the resized
+containers, so a sidecar can be missing from it, and it stored no
+container list. Attune repairs such a base only when it still equals the
+old CPU of the containers with a history row from this resize. When
+their request moved since the first write, the base stays partial and
+the target stays low. A higher target has two causes:
+
+- An unreleased main build from #947 on rewrote a full base upward
+  after the same containers grew. Attune does not undo that rewrite.
+- A listed container was removed or renamed.
+  `attune.io/original-cpu-request-containers` still names it, and the
+  base keeps its share on purpose, so the HPA runs fewer replicas.
+  Attune logs `HPA CPU base lists containers that are not on the pod;
+  stored base kept` on every CPU resize until you reset the base.
+
+The rule is in
+[Upgrading](upgrading.md#hpa-auto-tune-keeps-the-stored-cpu-base).
+
+**Fix**:
+
+1. Read the stored base and its container list, and compare them with
+   the regular containers and their CPU requests before the first
+   resize:
+
+   ```bash
+   kubectl get hpa <name> -n <ns> \
+     -o jsonpath='{.metadata.annotations.attune\.io/original-cpu-request}{"\n"}{.metadata.annotations.attune\.io/original-cpu-request-containers}{"\n"}'
+   ```
+
+2. Set the HPA CPU utilization target to the percent you want at the
+   current pod requests. Do this first: the next write stores the current
+   target as `attune.io/original-target-cpu`.
+3. Delete the keys listed in
+   [Upgrading](upgrading.md#hpa-auto-tune-keeps-the-stored-cpu-base),
+   including `attune.io/original-cpu-request-containers`, and leave
+   `attune.io/auto-tune: "true"` in place.
+4. The next successful CPU resize that changes the HPA target stores the
+   full pod sum as a fresh base, with its container list.
+
 ### Memory HPA scaled out after a memory decrease
 
 **Symptom**: Attune lowered a memory request and the HorizontalPodAutoscaler

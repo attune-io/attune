@@ -66,11 +66,40 @@ stays at `200m`. The pod total goes from `600m` to `400m`, and a target of
 80 becomes 120 (`80 * 600 / 400`), not 160 from the app alone.
 
 The first `Resource` adjustment stores the original utilization percent as
-`attune.io/original-target-cpu` and the original pod CPU request as
-`attune.io/original-cpu-request` (`600m` in that example). Later resizes
-reuse those stored values so the absolute threshold does not drift. A
-single-container workload at `200m` and 80% (160m absolute) becomes 40% at
-`400m`, then 20% at `800m`, not 40% again.
+`attune.io/original-target-cpu`, the original pod CPU request as
+`attune.io/original-cpu-request` (`600m` in that example), and the
+containers in that sum as `attune.io/original-cpu-request-containers`
+(`app,sidecar`). Later resizes reuse those stored values so the absolute
+threshold does not drift. A single-container workload at `200m` and 80%
+(160m absolute) becomes 40% at `400m`, then 20% at `800m`, not 40% again.
+
+A container that is not in that list, such as a sidecar added after the
+first write, is missing from the stored base. The next CPU resize that
+changes the HPA target adds its CPU from before the resize to
+`attune.io/original-cpu-request` and its name to the list, and emits
+`HPABaseRepaired` when that CPU is above zero. Init containers, native
+sidecars included, on any pod of the workload that is not Succeeded or
+Failed are never added. A base whose
+list names every container on the pod and every container with a CPU
+history row in this cycle is kept, whatever the requests did since. A
+listed container that left the pod keeps its share of the base, and
+Attune logs it.
+
+Bases stored before this version have no list. Such a stored
+`attune.io/original-cpu-request` below the pre-resize pod sum is
+replaced with that sum only when it equals the old CPU of the containers
+that have a successful in-place CPU row in this resize, and the current
+target is not the value the stored pair gives for that sum, clamped or
+not. Attune treats such a base as holding only the resized containers.
+Any other stored base is kept, including a full base after the same
+containers grew. The repair emits `HPABaseRepaired` and stores the
+list. A v0.1.32 partial base whose resized containers changed request
+since the first write is not repaired, so the CPU target can drop and
+the HPA can add replicas on the first CPU resize after upgrade. See
+[Troubleshooting](troubleshooting.md#cpu-utilization-target-drifted-after-a-second-cpu-resize).
+Native sidecars and init containers stay out of the `Resource` sum. See
+[Upgrading](upgrading.md#hpa-auto-tune-keeps-the-stored-cpu-base) for the
+full rule and how to store a fresh base.
 
 A `ContainerResource` metric uses only the named container. The first
 adjustment stores that container's original percent as
