@@ -10,6 +10,26 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### CronJob policies collect samples
+
+The CronJob controller names each Job `<cronjob>-<scheduled minute>`. The
+minute is the scheduled time in Unix minutes, 8 digits today. Earlier
+versions matched CronJob pods only on a 10-digit stamp, so the CronJob pod
+regex matched no pod and CronJob policies stayed `InsufficientData`. After the upgrade,
+with no YAML change, CronJob policies collect samples. Status
+recommendations, export ConfigMaps (when export is on), and
+`kubectl attune diff` output gain CronJob values.
+
+Running CronJob pods are not resized in place in any mode. New CronJob
+pods can be sized at creation in Recommend (or with no type set), Auto,
+and OneShot. That needs the initial sizing webhook enabled,
+`updateStrategy.initialSizing: true` (on the policy or inherited from
+AttuneDefaults or AttuneNamespaceDefaults), the namespace label
+`attune.io/initial-sizing=enabled`, and confidence at least 0.5 on every
+container of the recommendation. See
+[Initial Sizing](../reference/configuration.md#initial-sizing). Observe
+never sizes pods. Policies for other workload kinds do not change.
+
 ### Amazon Managed Prometheus signing
 
 Policies that omit `metricsSource.prometheus.sigv4` stay unsigned. There
@@ -82,6 +102,7 @@ release pull request 889 to add the list.
 - A QoS check with `spec.resources` uses one rule on both sides
 - A stored HPA CPU base that is missing other containers is repaired. Growth of the same containers keeps the stored original
 - Datadog null points are dropped
+- CronJob policies match pods on the minute stamp and collect samples. With initialSizing, new CronJob pods are sized at creation. Running CronJob pods are not resized
 
 ### Stored cooldown of 0s
 
