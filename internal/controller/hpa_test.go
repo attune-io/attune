@@ -19,8 +19,10 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
+	"github.com/go-logr/logr/funcr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
@@ -32,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
@@ -1295,6 +1298,1089 @@ func TestRetuneHPAAfterResize_FullStoredBaseStays(t *testing.T) {
 	updated := storedHPA(t, cl, "api-server-hpa")
 	assert.Equal(t, int32(96), metricUtil(t, updated, 0))
 	assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest])
+}
+
+// runHPARetuneWithEvents runs one retune with a fake recorder and returns
+// the client and the recorded event notes.
+func runHPARetuneWithEvents(t *testing.T, hpa autoscalingv2.HorizontalPodAutoscaler, pod corev1.Pod, history []attunev1alpha1.ResizeHistoryEntry, bounds ...*attunev1alpha1.HPATargetBounds) (client.Client, []string) {
+	t.Helper()
+	cl, notes, _ := runHPARetuneWithLogs(t, hpa, pod, history, bounds...)
+	return cl, notes
+}
+
+// runHPARetuneWithLogs is runHPARetuneWithEvents that also returns the
+// controller's log output, one JSON object per line.
+func runHPARetuneWithLogs(t *testing.T, hpa autoscalingv2.HorizontalPodAutoscaler, pod corev1.Pod, history []attunev1alpha1.ResizeHistoryEntry, bounds ...*attunev1alpha1.HPATargetBounds) (client.Client, []string, string) {
+	t.Helper()
+	return runHPARetuneWithPods(t, hpa, []corev1.Pod{pod}, history, bounds...)
+}
+
+// runHPARetuneWithPods is runHPARetuneWithLogs for several workload pods.
+// The first pod with a CPU request is the sampled pod.
+func runHPARetuneWithPods(t *testing.T, hpa autoscalingv2.HorizontalPodAutoscaler, pods []corev1.Pod, history []attunev1alpha1.ResizeHistoryEntry, bounds ...*attunev1alpha1.HPATargetBounds) (client.Client, []string, string) {
+	t.Helper()
+	var logged string
+	logger := funcr.NewJSON(func(obj string) { logged += obj + "\n" }, funcr.Options{})
+	ctx := log.IntoContext(context.Background(), logger)
+	scheme := testScheme()
+	in := hpa.DeepCopy()
+	in.ResourceVersion = ""
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(in).Build()
+	recorder := events.NewFakeRecorder(8)
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+	r.Recorder = recorder
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	if len(bounds) > 0 {
+		policy.Spec.UpdateStrategy.HPATargetBounds = bounds[0]
+	}
+	r.retuneHPAAfterResize(ctx, policy, attunev1alpha1.UpdateTypeAuto,
+		history,
+		[]attunev1alpha1.WorkloadRecommendation{{Workload: "api-server", Kind: "Deployment"}},
+		[]autoscalingv2.HorizontalPodAutoscaler{*in},
+		map[string][]corev1.Pod{"api-server": pods})
+	return cl, recorderNotes(recorder), logged
+}
+
+const (
+	logMalformedCPUList = "HPA CPU base container list is malformed"
+	logRemovedCPUList   = "HPA CPU base lists containers that are not on the pod"
+)
+
+func assertNoBaseRepaired(t *testing.T, notes []string) {
+	t.Helper()
+	for _, n := range notes {
+		assert.NotContains(t, n, "HPABaseRepaired")
+	}
+}
+
+func TestRetuneHPAAfterResize_StoredBaseGrowth(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		storedBase  string
+		hpaUtil     int32
+		appFrom     string
+		appTo       string
+		sidecar     string
+		wantTarget  int32
+		wantBase    string
+		wantMessage string
+	}{
+		{
+			name:       "FullStoredBaseIgnoresLaterGrowth",
+			storedBase: "600m", hpaUtil: 68, appFrom: "500m", appTo: "550m", sidecar: "200m",
+			wantTarget: 64, wantBase: "600m",
+			wantMessage: "80 * 600/750 = 64; 74 rewrites the base to 700m",
+		},
+		{
+			name:       "ElseBranchDoesNotDoubleCountSidecar",
+			storedBase: "600m", hpaUtil: 53, appFrom: "700m", appTo: "750m", sidecar: "200m",
+			wantTarget: 50, wantBase: "600m",
+			wantMessage: "80 * 600/950 = 50; 67 adds the sidecar again (800m)",
+		},
+		{
+			name:       "PartialBaseAfterShrinkStaysPartial",
+			storedBase: "400m", hpaUtil: 80, appFrom: "300m", appTo: "250m", sidecar: "200m",
+			wantTarget: 71, wantBase: "400m",
+			wantMessage: "80 * 400/450 = 71; stored 400m != history old 300m, so no repair (88 uses 500m)",
+		},
+		{
+			name:       "FullBaseCoincidentalEqualityKeepsBase",
+			storedBase: "600m", hpaUtil: 60, appFrom: "600m", appTo: "650m", sidecar: "200m",
+			wantTarget: 56, wantBase: "600m",
+			wantMessage: "current 60 = 80 * 600/800 reproduces the stored pair: 80 * 600/850 = 56, not 75 from 800m",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
+				annotationHPAOriginalCPU:        "80",
+				annotationHPAOriginalCPURequest: tt.storedBase,
+			}, cpuResourceMetric(tt.hpaUtil))
+			pod := workloadPod("api-server",
+				podContainer(t, "app", tt.appTo, "1000m"),
+				podContainer(t, "sidecar", tt.sidecar, "1000m"),
+			)
+			cl, notes := runHPARetuneWithEvents(t, hpa, pod,
+				[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", tt.appFrom, tt.appTo)})
+
+			updated := storedHPA(t, cl, "api-server-hpa")
+			assert.Equal(t, tt.wantTarget, metricUtil(t, updated, 0), tt.wantMessage)
+			assert.Equal(t, "80", updated.Annotations[annotationHPAOriginalCPU])
+			assert.Equal(t, tt.wantBase, updated.Annotations[annotationHPAOriginalCPURequest])
+			assertNoBaseRepaired(t, notes)
+		})
+	}
+}
+
+// TestRetuneHPAAfterResize_StoredPairVeto covers the veto on the partial
+// base repair: it applies when the target the stored pair publishes for
+// this cycle's pre-resize sum, after the band and the limit cap, equals the
+// current target exactly. A clamped match is ambiguous and keeps the base.
+func TestRetuneHPAAfterResize_StoredPairVeto(t *testing.T) {
+	t.Parallel()
+	min80 := int32(80)
+	min10 := int32(10)
+	tests := []struct {
+		name         string
+		storedTarget string
+		storedBase   string
+		hpaUtil      int32
+		appFrom      string
+		appTo        string
+		appLimit     string
+		bandMin      *int32
+		wantTarget   int32
+		wantBase     string
+		wantRepair   bool
+		wantMessage  string
+	}{
+		{
+			name:         "BandMinClampAmbiguousKeepsBase",
+			storedTarget: "80", storedBase: "400m", hpaUtil: 80, appFrom: "400m", appTo: "300m", appLimit: "1000m",
+			bandMin:    &min80,
+			wantTarget: 80, wantBase: "400m", wantRepair: false,
+			wantMessage: "80 * 400/600 = 53 publishes Min 80 = current: ambiguous, keep 400m; 80 * 400/500 = 64 stays at Min 80",
+		},
+		{
+			name:         "LimitCapClampAmbiguousKeepsBase",
+			storedTarget: "180", storedBase: "400m", hpaUtil: 110, appFrom: "400m", appTo: "300m", appLimit: "460m",
+			wantTarget: 132, wantBase: "400m", wantRepair: false,
+			wantMessage: "180 * 400/600 = 120 publishes the cap 660/600 = 110 = current: keep 400m; 144 capped to 660/500 = 132",
+		},
+		{
+			name:         "OffByOneTargetDoesNotVeto",
+			storedTarget: "80", storedBase: "400m", hpaUtil: 54, appFrom: "400m", appTo: "300m", appLimit: "1000m",
+			wantTarget: 96, wantBase: "600m", wantRepair: true,
+			wantMessage: "80 * 400/600 = 53 != 54; the operator's own write reproduces exactly, so repair to 96",
+		},
+		{
+			name:         "NonBindingBandKeepsVeto",
+			storedTarget: "80", storedBase: "600m", hpaUtil: 60, appFrom: "600m", appTo: "650m", appLimit: "1000m",
+			bandMin:    &min10,
+			wantTarget: 56, wantBase: "600m", wantRepair: false,
+			wantMessage: "Min 10 does not bind 80 * 600/800 = 60, so the veto holds: 80 * 600/850 = 56",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
+				annotationHPAOriginalCPU:        tt.storedTarget,
+				annotationHPAOriginalCPURequest: tt.storedBase,
+			}, cpuResourceMetric(tt.hpaUtil))
+			pod := workloadPod("api-server",
+				podContainer(t, "app", tt.appTo, tt.appLimit),
+				podContainer(t, "sidecar", "200m", "200m"),
+			)
+			var bounds *attunev1alpha1.HPATargetBounds
+			if tt.bandMin != nil {
+				bounds = &attunev1alpha1.HPATargetBounds{CPU: &attunev1alpha1.HPATargetBound{Min: tt.bandMin}}
+			}
+			cl, notes := runHPARetuneWithEvents(t, hpa, pod,
+				[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", tt.appFrom, tt.appTo)}, bounds)
+
+			updated := storedHPA(t, cl, "api-server-hpa")
+			assert.Equal(t, tt.wantTarget, metricUtil(t, updated, 0), tt.wantMessage)
+			assert.Equal(t, tt.storedTarget, updated.Annotations[annotationHPAOriginalCPU])
+			assert.Equal(t, tt.wantBase, updated.Annotations[annotationHPAOriginalCPURequest])
+			repaired := false
+			for _, n := range notes {
+				if strings.Contains(n, "HPABaseRepaired") {
+					repaired = true
+				}
+			}
+			assert.Equal(t, tt.wantRepair, repaired, "HPABaseRepaired event")
+		})
+	}
+}
+
+// TestRetuneHPAAfterResize_FullBaseBandMinClampKeepsBase walks a full base
+// through growth under a binding band Min and then a shrink whose history
+// old equals the stored base. The clamped target matches what the stored
+// pair publishes, so the base is kept rather than rewritten to the pod sum.
+func TestRetuneHPAAfterResize_FullBaseBandMinClampKeepsBase(t *testing.T) {
+	t.Parallel()
+	min80 := int32(80)
+	bounds := &attunev1alpha1.HPATargetBounds{CPU: &attunev1alpha1.HPATargetBound{Min: &min80}}
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
+		annotationHPAOriginalCPU:        "80",
+		annotationHPAOriginalCPURequest: "600m",
+	}, cpuResourceMetric(80))
+	steps := []struct{ from, to string }{
+		{"400m", "500m"},
+		{"500m", "600m"},
+		{"600m", "400m"},
+	}
+	for _, st := range steps {
+		pod := workloadPod("api-server",
+			podContainer(t, "app", st.to, "1000m"),
+			podContainer(t, "sidecar", "200m", "1000m"),
+		)
+		cl, notes := runHPARetuneWithEvents(t, hpa, pod,
+			[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", st.from, st.to)}, bounds)
+		hpa = storedHPA(t, cl, "api-server-hpa")
+		assert.Equal(t, int32(80), metricUtil(t, hpa, 0), "app %s->%s: target stays at Min 80", st.from, st.to)
+		assert.Equal(t, "80", hpa.Annotations[annotationHPAOriginalCPU])
+		assert.Equal(t, "600m", hpa.Annotations[annotationHPAOriginalCPURequest],
+			"app %s->%s: full base kept (repair would write 800m, target 106)", st.from, st.to)
+		assertNoBaseRepaired(t, notes)
+	}
+}
+
+func TestRetuneHPAAfterResize_FullStoredBaseThirdResizeKeepsOriginal(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
+		annotationHPAOriginalCPU:        "80",
+		annotationHPAOriginalCPURequest: "600m",
+	}, cpuResourceMetric(68))
+	pod := workloadPod("api-server",
+		podContainer(t, "app", "550m", "1000m"),
+		podContainer(t, "sidecar", "200m", "1000m"),
+	)
+	cl, notes := runHPARetuneWithEvents(t, hpa, pod,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "500m", "550m")})
+	first := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(64), metricUtil(t, first, 0), "80 * 600/750 = 64")
+	assert.Equal(t, "600m", first.Annotations[annotationHPAOriginalCPURequest])
+	assertNoBaseRepaired(t, notes)
+
+	pod = workloadPod("api-server",
+		podContainer(t, "app", "600m", "1000m"),
+		podContainer(t, "sidecar", "200m", "1000m"),
+	)
+	cl, notes = runHPARetuneWithEvents(t, first, pod,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "550m", "600m")})
+	second := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(60), metricUtil(t, second, 0), "80 * 600/800 = 60")
+	assert.Equal(t, "80", second.Annotations[annotationHPAOriginalCPU])
+	assert.Equal(t, "600m", second.Annotations[annotationHPAOriginalCPURequest])
+	assertNoBaseRepaired(t, notes)
+}
+
+// cpuBaseAnnotations is a stored pod CPU pair with target 80. A list value,
+// even an empty one, is set when given.
+func cpuBaseAnnotations(base string, list ...string) map[string]string {
+	ann := map[string]string{
+		annotationHPAOriginalCPU:        "80",
+		annotationHPAOriginalCPURequest: base,
+	}
+	if len(list) > 0 {
+		ann[annotationHPAOriginalCPURequestContainers] = list[0]
+	}
+	return ann
+}
+
+func hasBaseRepaired(notes []string) bool {
+	for _, n := range notes {
+		if strings.Contains(n, "HPABaseRepaired") && strings.Contains(n, annotationHPAOriginalCPURequest) {
+			return true
+		}
+	}
+	return false
+}
+
+func nativeSidecar(t *testing.T, name, cpuReq string) corev1.Container {
+	t.Helper()
+	c := podContainer(t, name, cpuReq, "1000m")
+	always := corev1.ContainerRestartPolicyAlways
+	c.RestartPolicy = &always
+	return c
+}
+
+func TestRetuneHPAAfterResize_FirstWriteStoresCPUContainerList(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		ann  map[string]string
+	}{
+		{name: "NoAttuneKeys"},
+		{name: "StaleListWithoutBaseIsOverwritten", ann: map[string]string{annotationHPAOriginalCPURequestContainers: "old"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			hpa := newAutoTuneHPA("api-server-hpa", "Deployment", tt.ann, cpuResourceMetric(80))
+			pod := workloadPod("api-server",
+				podContainer(t, "sidecar", "200m", "1000m"),
+				podContainer(t, "app", "200m", "1000m"),
+			)
+			pod.Spec.InitContainers = []corev1.Container{nativeSidecar(t, "mesh", "100m")}
+			cl, notes := runHPARetuneWithEvents(t, hpa, pod,
+				[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "400m", "200m")})
+
+			updated := storedHPA(t, cl, "api-server-hpa")
+			assert.Equal(t, int32(120), metricUtil(t, updated, 0), "80 * 600/400 = 120; native sidecar mesh is outside the sum")
+			assert.Equal(t, "80", updated.Annotations[annotationHPAOriginalCPU])
+			assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest])
+			assert.Equal(t, "app,sidecar", updated.Annotations[annotationHPAOriginalCPURequestContainers],
+				"first write lists app+sidecar sorted; mesh is not in the Resource sum")
+			assertNoBaseRepaired(t, notes)
+		})
+	}
+}
+
+// TestRetuneHPAAfterResize_FirstWriteListsOffPodRow covers a history row
+// for a container that is not on the sampled pod: podCPUMillis sums it, so
+// the list names it.
+func TestRetuneHPAAfterResize_FirstWriteListsOffPodRow(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", nil, cpuResourceMetric(80))
+	pod := workloadPod("api-server", podContainer(t, "app", "200m", "1000m"))
+	cl, notes := runHPARetuneWithEvents(t, hpa, pod, []attunev1alpha1.ResizeHistoryEntry{
+		cpuHistory("app", "400m", "200m"),
+		cpuHistory("gone", "100m", "50m"),
+	})
+
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(160), metricUtil(t, updated, 0), "80 * (400+100)/(200+50) = 160")
+	assert.Equal(t, "500m", updated.Annotations[annotationHPAOriginalCPURequest])
+	assert.Equal(t, "app,gone", updated.Annotations[annotationHPAOriginalCPURequestContainers],
+		"off-pod row gone is in the base, so it is listed")
+	assertNoBaseRepaired(t, notes)
+}
+
+func TestRetuneHPAAfterResize_CPUListRepairsMissingContainer(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		storedBase  string
+		list        string
+		hpaUtil     int32
+		containers  func(t *testing.T) []corev1.Container
+		history     []attunev1alpha1.ResizeHistoryEntry
+		wantTarget  int32
+		wantBase    string
+		wantList    string
+		wantEvent   bool
+		wantMessage string
+	}{
+		{
+			name: "SidecarAddedAfterFirstWrite", storedBase: "400m", list: "app", hpaUtil: 70,
+			containers: func(t *testing.T) []corev1.Container {
+				return []corev1.Container{podContainer(t, "app", "550m", "1000m"), podContainer(t, "sidecar", "200m", "1000m")}
+			},
+			history:    []attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "500m", "550m")},
+			wantTarget: 64, wantBase: "600m", wantList: "app,sidecar", wantEvent: true,
+			wantMessage: "80 * (400+200)/750 = 64; the legacy rule keeps 400m: 80 * 400/750 = 42",
+		},
+		{
+			name: "LargeSidecarAddedAfterFirstWrite", storedBase: "400m", list: "app", hpaUtil: 70,
+			containers: func(t *testing.T) []corev1.Container {
+				return []corev1.Container{podContainer(t, "app", "550m", "1000m"), podContainer(t, "sidecar", "2000m", "4000m")}
+			},
+			history:    []attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "500m", "550m")},
+			wantTarget: 75, wantBase: "2400m", wantList: "app,sidecar", wantEvent: true,
+			wantMessage: "80 * (400+2000)/2550 = 75 (cap 5000/2550 = 196); the legacy rule gives 80 * 400/2550 = 12",
+		},
+		{
+			name: "SidecarAddedAfterShrink", storedBase: "400m", list: "app", hpaUtil: 80,
+			containers: func(t *testing.T) []corev1.Container {
+				return []corev1.Container{podContainer(t, "app", "250m", "1000m"), podContainer(t, "sidecar", "200m", "1000m")}
+			},
+			history:    []attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "300m", "250m")},
+			wantTarget: 106, wantBase: "600m", wantList: "app,sidecar", wantEvent: true,
+			wantMessage: "80 * (400+200)/450 = 106; the legacy rule keeps 400m: 80 * 400/450 = 71",
+		},
+		{
+			name: "MissingContainerResizedThisCycle", storedBase: "400m", list: "app", hpaUtil: 70,
+			containers: func(t *testing.T) []corev1.Container {
+				return []corev1.Container{podContainer(t, "app", "400m", "1000m"), podContainer(t, "sidecar", "100m", "1000m")}
+			},
+			history:    []attunev1alpha1.ResizeHistoryEntry{cpuHistory("sidecar", "200m", "100m")},
+			wantTarget: 96, wantBase: "600m", wantList: "app,sidecar", wantEvent: true,
+			wantMessage: "sidecar is added at its row From 200m: 80 * 600/500 = 96; the legacy rule gives 80 * 400/500 = 64",
+		},
+		{
+			name: "UnlistedOffPodRowAdded", storedBase: "400m", list: "app", hpaUtil: 80,
+			containers: func(t *testing.T) []corev1.Container {
+				return []corev1.Container{podContainer(t, "app", "300m", "1000m")}
+			},
+			history: []attunev1alpha1.ResizeHistoryEntry{
+				cpuHistory("app", "400m", "300m"),
+				cpuHistory("sidecar", "200m", "100m"),
+			},
+			wantTarget: 120, wantBase: "600m", wantList: "app,sidecar", wantEvent: true,
+			wantMessage: "off-pod sidecar is added at row.old 200m: 80 * 600/(300+100) = 120; the legacy rule gives 80 * 400/400 = 80 (no write)",
+		},
+		{
+			name: "ZeroRequestContainerListedWithoutEvent", storedBase: "600m", list: "app,sidecar", hpaUtil: 68,
+			containers: func(t *testing.T) []corev1.Container {
+				return []corev1.Container{
+					podContainer(t, "app", "550m", "1000m"),
+					podContainer(t, "sidecar", "200m", "1000m"),
+					podContainer(t, "debug", "", ""),
+				}
+			},
+			history:    []attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "500m", "550m")},
+			wantTarget: 64, wantBase: "600m", wantList: "app,debug,sidecar", wantEvent: false,
+			wantMessage: "debug adds 0m: 80 * 600/750 = 64, listed without HPABaseRepaired",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			hpa := newAutoTuneHPA("api-server-hpa", "Deployment", cpuBaseAnnotations(tt.storedBase, tt.list), cpuResourceMetric(tt.hpaUtil))
+			pod := workloadPod("api-server", tt.containers(t)...)
+			cl, notes := runHPARetuneWithEvents(t, hpa, pod, tt.history)
+
+			updated := storedHPA(t, cl, "api-server-hpa")
+			assert.Equal(t, tt.wantTarget, metricUtil(t, updated, 0), tt.wantMessage)
+			assert.Equal(t, "80", updated.Annotations[annotationHPAOriginalCPU])
+			assert.Equal(t, tt.wantBase, updated.Annotations[annotationHPAOriginalCPURequest], tt.wantMessage)
+			assert.Equal(t, tt.wantList, updated.Annotations[annotationHPAOriginalCPURequestContainers])
+			assert.Equal(t, tt.wantEvent, hasBaseRepaired(notes), "HPABaseRepaired naming %s", annotationHPAOriginalCPURequest)
+		})
+	}
+}
+
+func TestRetuneHPAAfterResize_CPUListFullBaseNeverRepairs(t *testing.T) {
+	t.Parallel()
+	min80 := int32(80)
+	tests := []struct {
+		name        string
+		hpaUtil     int32
+		appFrom     string
+		appTo       string
+		bandMin     *int32
+		wantTarget  int32
+		wantMessage string
+	}{
+		{
+			name: "Growth", hpaUtil: 68, appFrom: "500m", appTo: "550m",
+			wantTarget: 64, wantMessage: "80 * 600/750 = 64",
+		},
+		{
+			name: "CoincidentalEquality", hpaUtil: 60, appFrom: "600m", appTo: "650m",
+			wantTarget: 56, wantMessage: "80 * 600/850 = 56, not 80 * 800/850 = 75",
+		},
+		{
+			name: "FailedPriorUpdate", hpaUtil: 80, appFrom: "600m", appTo: "650m",
+			wantTarget: 56, wantMessage: "stale 80 after a failed Update: 80 * 600/850 = 56; without a list 75/800m",
+		},
+		{
+			name: "ClampedMatchWithBand", hpaUtil: 80, appFrom: "600m", appTo: "400m", bandMin: &min80,
+			wantTarget: 80, wantMessage: "80 * 600/600 = 80 = current: skip, nothing written",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			hpa := newAutoTuneHPA("api-server-hpa", "Deployment", cpuBaseAnnotations("600m", "app,sidecar"), cpuResourceMetric(tt.hpaUtil))
+			pod := workloadPod("api-server",
+				podContainer(t, "app", tt.appTo, "1000m"),
+				podContainer(t, "sidecar", "200m", "1000m"),
+			)
+			var bounds *attunev1alpha1.HPATargetBounds
+			if tt.bandMin != nil {
+				bounds = &attunev1alpha1.HPATargetBounds{CPU: &attunev1alpha1.HPATargetBound{Min: tt.bandMin}}
+			}
+			cl, notes := runHPARetuneWithEvents(t, hpa, pod,
+				[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", tt.appFrom, tt.appTo)}, bounds)
+
+			updated := storedHPA(t, cl, "api-server-hpa")
+			assert.Equal(t, tt.wantTarget, metricUtil(t, updated, 0), tt.wantMessage)
+			assert.Equal(t, "80", updated.Annotations[annotationHPAOriginalCPU])
+			assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest], tt.wantMessage)
+			assert.Equal(t, "app,sidecar", updated.Annotations[annotationHPAOriginalCPURequestContainers])
+			assertNoBaseRepaired(t, notes)
+		})
+	}
+}
+
+func TestRetuneHPAAfterResize_CPUListRemovedContainerKeepsBase(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		storedBase  string
+		list        string
+		other       string
+		wantBase    string
+		wantList    string
+		wantEvent   bool
+		wantRemoved string
+		wantMessage string
+	}{
+		{
+			name: "RemovedContainer", storedBase: "800m", list: "app,mesh,sidecar", other: "sidecar",
+			wantBase: "800m", wantList: "app,mesh,sidecar", wantRemoved: `"containers":["mesh"]`,
+			wantMessage: "mesh is gone, base and name kept: 80 * 800/500 = 128",
+		},
+		{
+			name: "RenamedContainer", storedBase: "600m", list: "app,envoy", other: "proxy",
+			wantBase: "800m", wantList: "app,envoy,proxy", wantEvent: true, wantRemoved: `"containers":["envoy"]`,
+			wantMessage: "proxy is added, envoy kept (double count): 80 * (600+200)/500 = 128; without a list 96/600m",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			hpa := newAutoTuneHPA("api-server-hpa", "Deployment", cpuBaseAnnotations(tt.storedBase, tt.list), cpuResourceMetric(100))
+			pod := workloadPod("api-server",
+				podContainer(t, "app", "300m", "1000m"),
+				podContainer(t, tt.other, "200m", "1000m"),
+			)
+			cl, notes, logged := runHPARetuneWithLogs(t, hpa, pod,
+				[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "400m", "300m")})
+
+			updated := storedHPA(t, cl, "api-server-hpa")
+			assert.Equal(t, int32(128), metricUtil(t, updated, 0), tt.wantMessage)
+			assert.Equal(t, tt.wantBase, updated.Annotations[annotationHPAOriginalCPURequest], tt.wantMessage)
+			assert.Equal(t, tt.wantList, updated.Annotations[annotationHPAOriginalCPURequestContainers])
+			assert.Equal(t, tt.wantEvent, hasBaseRepaired(notes), "HPABaseRepaired")
+			assertLogLine(t, logged, logRemovedCPUList, `"hpa":"api-server-hpa"`, tt.wantRemoved)
+			assert.NotContains(t, logged, logMalformedCPUList)
+		})
+	}
+}
+
+// TestRetuneHPAAfterResize_CPUListRolloutAlternationDoesNotRatchet feeds
+// pods of two revisions in turn, as a StatefulSet (partition, OnDelete) or
+// DaemonSet rollout does; a RollingUpdate Deployment mid-rollout skips
+// resizes. Names are append-only, so the base grows once.
+// 192 in run 2 is the inflated target accepted for a missing listed
+// container (FR-013).
+func TestRetuneHPAAfterResize_CPUListRolloutAlternationDoesNotRatchet(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", cpuBaseAnnotations("400m", "app"), cpuResourceMetric(80))
+	runs := []struct {
+		from, to    string
+		sidecar     bool
+		wantTarget  int32
+		wantEvent   bool
+		wantRemoved bool
+		wantMessage string
+	}{
+		{"400m", "300m", true, 96, true, false, "run 1: sidecar added: 80 * 600/500 = 96"},
+		{"300m", "250m", false, 192, false, true, "run 2: old-revision pod without sidecar: 80 * 600/250 = 192 (cap 400)"},
+		{"250m", "300m", true, 96, false, false, "run 3: sidecar back, already listed: 80 * 600/500 = 96"},
+	}
+	for i, run := range runs {
+		containers := []corev1.Container{podContainer(t, "app", run.to, "1000m")}
+		if run.sidecar {
+			containers = append(containers, podContainer(t, "sidecar", "200m", "1000m"))
+		}
+		pod := workloadPod("api-server", containers...)
+		cl, notes, logged := runHPARetuneWithLogs(t, hpa, pod,
+			[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", run.from, run.to)})
+		hpa = storedHPA(t, cl, "api-server-hpa")
+		assert.Equal(t, run.wantTarget, metricUtil(t, hpa, 0), run.wantMessage)
+		assert.Equal(t, "600m", hpa.Annotations[annotationHPAOriginalCPURequest], "run %d", i+1)
+		assert.Equal(t, "app,sidecar", hpa.Annotations[annotationHPAOriginalCPURequestContainers], "run %d", i+1)
+		assert.Equal(t, run.wantEvent, hasBaseRepaired(notes), "run %d HPABaseRepaired", i+1)
+		if run.wantRemoved {
+			assertLogLine(t, logged, logRemovedCPUList, `"hpa":"api-server-hpa"`, `"containers":["sidecar"]`)
+		} else {
+			assert.NotContains(t, logged, logRemovedCPUList, "run %d", i+1)
+		}
+	}
+}
+
+// TestRetuneHPAAfterResize_CPUListSkipsOffPodNativeSidecar covers a
+// native sidecar seen only as a history row of another workload pod. It is
+// an init container there, so a list repair does not add it; once the
+// sampled pod has it as an init container the base still holds app and
+// sidecar only.
+func TestRetuneHPAAfterResize_CPUListSkipsOffPodNativeSidecar(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", cpuBaseAnnotations("600m", "app,sidecar"), cpuResourceMetric(80))
+	runs := []struct {
+		history     []attunev1alpha1.ResizeHistoryEntry
+		pods        func(t *testing.T) []corev1.Pod
+		wantTarget  int32
+		wantMessage string
+	}{
+		{
+			history: []attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "400m", "300m"), cpuHistory("mesh", "100m", "80m")},
+			pods: func(t *testing.T) []corev1.Pod {
+				sampled := workloadPod("api-server", podContainer(t, "app", "300m", "1000m"), podContainer(t, "sidecar", "200m", "1000m"))
+				other := workloadPod("api-server", podContainer(t, "app", "300m", "1000m"), podContainer(t, "sidecar", "200m", "1000m"))
+				other.Name = "api-server-other-pod"
+				other.Spec.InitContainers = []corev1.Container{nativeSidecar(t, "mesh", "80m")}
+				return []corev1.Pod{sampled, other}
+			},
+			wantTarget:  82,
+			wantMessage: "run 1: mesh is not added: 80 * 600/(300+200+80) = 82",
+		},
+		{
+			history: []attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "300m", "250m")},
+			pods: func(t *testing.T) []corev1.Pod {
+				sampled := workloadPod("api-server", podContainer(t, "app", "250m", "1000m"), podContainer(t, "sidecar", "200m", "1000m"))
+				sampled.Spec.InitContainers = []corev1.Container{nativeSidecar(t, "mesh", "80m")}
+				return []corev1.Pod{sampled}
+			},
+			wantTarget:  106,
+			wantMessage: "run 2: mesh is a native sidecar on the sampled pod: 80 * 600/450 = 106",
+		},
+	}
+	for i, run := range runs {
+		cl, notes, logged := runHPARetuneWithPods(t, hpa, run.pods(t), run.history)
+		hpa = storedHPA(t, cl, "api-server-hpa")
+		assert.Equal(t, run.wantTarget, metricUtil(t, hpa, 0), run.wantMessage)
+		assert.Equal(t, "80", hpa.Annotations[annotationHPAOriginalCPU], "run %d", i+1)
+		assert.Equal(t, "600m", hpa.Annotations[annotationHPAOriginalCPURequest], "run %d", i+1)
+		assert.Equal(t, "app,sidecar", hpa.Annotations[annotationHPAOriginalCPURequestContainers], "run %d", i+1)
+		assertNoBaseRepaired(t, notes)
+		assert.NotContains(t, logged, logRemovedCPUList, "run %d", i+1)
+	}
+}
+
+// TestRetuneHPAAfterResize_BaseWriteSkipsOffPodNativeSidecar covers the
+// first write and the repair without a list when a history row belongs to
+// a native sidecar of another workload pod. The target of this cycle uses
+// the podCPUMillis sums, which count the row; the written base is the sum
+// of the listed containers, which leave it out.
+func TestRetuneHPAAfterResize_BaseWriteSkipsOffPodNativeSidecar(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		ann       map[string]string
+		hpaUtil   int32
+		wantEvent bool
+	}{
+		{name: "FirstWrite", hpaUtil: 80},
+		{name: "RepairWithoutList", ann: cpuBaseAnnotations("500m"), hpaUtil: 70, wantEvent: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			hpa := newAutoTuneHPA("api-server-hpa", "Deployment", tt.ann, cpuResourceMetric(tt.hpaUtil))
+			sampled := workloadPod("api-server", podContainer(t, "app", "200m", "1000m"), podContainer(t, "sidecar", "200m", "1000m"))
+			other := workloadPod("api-server", podContainer(t, "app", "200m", "1000m"), podContainer(t, "sidecar", "200m", "1000m"))
+			other.Name = "api-server-other-pod"
+			other.Spec.InitContainers = []corev1.Container{nativeSidecar(t, "mesh", "80m")}
+			cl, notes, _ := runHPARetuneWithPods(t, hpa, []corev1.Pod{sampled, other},
+				[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "400m", "200m"), cpuHistory("mesh", "100m", "80m")})
+
+			updated := storedHPA(t, cl, "api-server-hpa")
+			assert.Equal(t, int32(116), metricUtil(t, updated, 0), "80 * (400+200+100)/(200+200+80) = 116")
+			assert.Equal(t, "80", updated.Annotations[annotationHPAOriginalCPU])
+			assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest],
+				"written base is the sum of the listed containers, without mesh")
+			assert.Equal(t, "app,sidecar", updated.Annotations[annotationHPAOriginalCPURequestContainers])
+			assert.Equal(t, tt.wantEvent, hasBaseRepaired(notes))
+		})
+	}
+}
+
+// TestRetuneHPAAfterResize_RepairWithoutListNeedsGrowthWithoutInitNames
+// covers a base without a list that passes the equality rule only because
+// the stored base holds an init container row of another pod. Leaving that
+// row out adds nothing, so the base is kept and no event is sent.
+func TestRetuneHPAAfterResize_RepairWithoutListNeedsGrowthWithoutInitNames(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", cpuBaseAnnotations("500m"), cpuResourceMetric(70))
+	sampled := workloadPod("api-server", podContainer(t, "app", "200m", "1000m"), podContainer(t, "sidecar", "100m", "1000m"))
+	other := workloadPod("api-server", podContainer(t, "app", "200m", "1000m"), podContainer(t, "sidecar", "100m", "1000m"))
+	other.Name = "api-server-other-pod"
+	other.Spec.InitContainers = []corev1.Container{nativeSidecar(t, "mesh", "80m")}
+	cl, notes, _ := runHPARetuneWithPods(t, hpa, []corev1.Pod{sampled, other},
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "400m", "200m"), cpuHistory("mesh", "100m", "80m")})
+
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(105), metricUtil(t, updated, 0), "stored base kept: 80 * 500/(200+100+80) = 105")
+	assert.Equal(t, "500m", updated.Annotations[annotationHPAOriginalCPURequest])
+	assert.NotContains(t, updated.Annotations, annotationHPAOriginalCPURequestContainers)
+	assertNoBaseRepaired(t, notes)
+}
+
+// assertLogLine asserts that one logged line holds msg and every want.
+func assertLogLine(t *testing.T, logged, msg string, want ...string) {
+	t.Helper()
+	for line := range strings.SplitSeq(logged, "\n") {
+		if !strings.Contains(line, msg) {
+			continue
+		}
+		for _, w := range want {
+			assert.Contains(t, line, w)
+		}
+		return
+	}
+	assert.Failf(t, "log line missing", "no line with %q in:\n%s", msg, logged)
+}
+
+func assertMalformedCPUListLogged(t *testing.T, logged string) {
+	t.Helper()
+	assertLogLine(t, logged, logMalformedCPUList,
+		`"hpa":"api-server-hpa"`, `"annotation":"`+annotationHPAOriginalCPURequestContainers+`"`)
+	assert.NotContains(t, logged, logRemovedCPUList)
+}
+
+// TestRetuneHPAAfterResize_CPUListBandRemovedBetweenResizes reaches the
+// target of 80 through a real band: run 1 clamps to Min 80 and writes
+// nothing, then the band is removed. Run 2 keeps the listed full base,
+// where the rule without a list would repair to 75/800m.
+func TestRetuneHPAAfterResize_CPUListBandRemovedBetweenResizes(t *testing.T) {
+	t.Parallel()
+	min80 := int32(80)
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", cpuBaseAnnotations("600m", "app,sidecar"), cpuResourceMetric(80))
+	runs := []struct {
+		from, to    string
+		bandMin     *int32
+		wantTarget  int32
+		wantMessage string
+	}{
+		{"400m", "600m", &min80, 80, "run 1: 80 * 600/800 = 60, clamped to band Min 80 = current: skip"},
+		{"600m", "650m", nil, 56, "run 2: band removed: 80 * 600/850 = 56; without a list 75/800m"},
+	}
+	for i, run := range runs {
+		pod := workloadPod("api-server",
+			podContainer(t, "app", run.to, "1000m"),
+			podContainer(t, "sidecar", "200m", "1000m"),
+		)
+		var bounds *attunev1alpha1.HPATargetBounds
+		if run.bandMin != nil {
+			bounds = &attunev1alpha1.HPATargetBounds{CPU: &attunev1alpha1.HPATargetBound{Min: run.bandMin}}
+		}
+		cl, notes := runHPARetuneWithEvents(t, hpa, pod,
+			[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", run.from, run.to)}, bounds)
+		hpa = storedHPA(t, cl, "api-server-hpa")
+		assert.Equal(t, run.wantTarget, metricUtil(t, hpa, 0), run.wantMessage)
+		assert.Equal(t, "80", hpa.Annotations[annotationHPAOriginalCPU], "run %d", i+1)
+		assert.Equal(t, "600m", hpa.Annotations[annotationHPAOriginalCPURequest], "run %d", i+1)
+		assert.Equal(t, "app,sidecar", hpa.Annotations[annotationHPAOriginalCPURequestContainers], "run %d", i+1)
+		assertNoBaseRepaired(t, notes)
+	}
+}
+
+func TestRetuneHPAAfterResize_MalformedCPUListIsLegacy(t *testing.T) {
+	t.Parallel()
+	for _, list := range []string{"", "app,,sidecar", "app, sidecar", "App_1", "-app"} {
+		t.Run("Partial/"+list, func(t *testing.T) {
+			t.Parallel()
+			hpa := newAutoTuneHPA("api-server-hpa", "Deployment", cpuBaseAnnotations("400m", list), cpuResourceMetric(80))
+			pod := workloadPod("api-server",
+				podContainer(t, "app", "300m", "1000m"),
+				podContainer(t, "sidecar", "200m", "1000m"),
+			)
+			cl, notes, logged := runHPARetuneWithLogs(t, hpa, pod,
+				[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "400m", "300m")})
+			assertMalformedCPUListLogged(t, logged)
+			updated := storedHPA(t, cl, "api-server-hpa")
+			assert.Equal(t, int32(96), metricUtil(t, updated, 0), "legacy repair: 80 * 600/500 = 96")
+			assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest])
+			assert.Equal(t, "app,sidecar", updated.Annotations[annotationHPAOriginalCPURequestContainers],
+				"legacy repair rewrites the malformed list %q", list)
+			assert.True(t, hasBaseRepaired(notes), "HPABaseRepaired")
+		})
+		t.Run("Growth/"+list, func(t *testing.T) {
+			t.Parallel()
+			hpa := newAutoTuneHPA("api-server-hpa", "Deployment", cpuBaseAnnotations("600m", list), cpuResourceMetric(68))
+			pod := workloadPod("api-server",
+				podContainer(t, "app", "550m", "1000m"),
+				podContainer(t, "sidecar", "200m", "1000m"),
+			)
+			cl, notes, logged := runHPARetuneWithLogs(t, hpa, pod,
+				[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "500m", "550m")})
+			assertMalformedCPUListLogged(t, logged)
+			updated := storedHPA(t, cl, "api-server-hpa")
+			assert.Equal(t, int32(64), metricUtil(t, updated, 0), "legacy keep: 80 * 600/750 = 64")
+			assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest])
+			assert.Equal(t, list, updated.Annotations[annotationHPAOriginalCPURequestContainers],
+				"no base write, so the malformed list %q stays", list)
+			assertNoBaseRepaired(t, notes)
+		})
+	}
+}
+
+func TestRetuneHPAAfterResize_LegacyCPUBaseListWrites(t *testing.T) {
+	t.Parallel()
+	t.Run("RepairWritesList", func(t *testing.T) {
+		t.Parallel()
+		hpa := newAutoTuneHPA("api-server-hpa", "Deployment", cpuBaseAnnotations("400m"), cpuResourceMetric(80))
+		pod := workloadPod("api-server",
+			podContainer(t, "app", "300m", "1000m"),
+			podContainer(t, "sidecar", "200m", "1000m"),
+		)
+		cl, notes := runHPARetuneWithEvents(t, hpa, pod,
+			[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "400m", "300m")})
+		updated := storedHPA(t, cl, "api-server-hpa")
+		assert.Equal(t, int32(96), metricUtil(t, updated, 0), "80 * 600/500 = 96")
+		assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest])
+		assert.Equal(t, "app,sidecar", updated.Annotations[annotationHPAOriginalCPURequestContainers])
+		assert.True(t, hasBaseRepaired(notes), "HPABaseRepaired")
+	})
+	t.Run("NoRepairWritesNoList", func(t *testing.T) {
+		t.Parallel()
+		hpa := newAutoTuneHPA("api-server-hpa", "Deployment", cpuBaseAnnotations("600m"), cpuResourceMetric(68))
+		pod := workloadPod("api-server",
+			podContainer(t, "app", "550m", "1000m"),
+			podContainer(t, "sidecar", "200m", "1000m"),
+		)
+		cl, notes := runHPARetuneWithEvents(t, hpa, pod,
+			[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "500m", "550m")})
+		updated := storedHPA(t, cl, "api-server-hpa")
+		assert.Equal(t, int32(64), metricUtil(t, updated, 0), "80 * 600/750 = 64")
+		_, hasList := updated.Annotations[annotationHPAOriginalCPURequestContainers]
+		assert.False(t, hasList, "a legacy base without a write gets no list (FR-009)")
+		assertNoBaseRepaired(t, notes)
+	})
+}
+
+// TestRetuneHPAAfterResize_CPUListRepairSkippedWhenTargetUnchanged covers
+// the newTarget == currentTarget skip: nothing is written, and the next
+// cycle repairs.
+func TestRetuneHPAAfterResize_CPUListRepairSkippedWhenTargetUnchanged(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", cpuBaseAnnotations("400m", "app"), cpuResourceMetric(64))
+	pod := workloadPod("api-server",
+		podContainer(t, "app", "550m", "1000m"),
+		podContainer(t, "sidecar", "200m", "1000m"),
+	)
+	cl, notes := runHPARetuneWithEvents(t, hpa, pod,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "500m", "550m")})
+	first := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(64), metricUtil(t, first, 0), "80 * 600/750 = 64 = current: skip; the legacy rule writes 42")
+	assert.Equal(t, "400m", first.Annotations[annotationHPAOriginalCPURequest], "skip writes nothing")
+	assert.Equal(t, "app", first.Annotations[annotationHPAOriginalCPURequestContainers], "skip writes nothing")
+	assertNoBaseRepaired(t, notes)
+
+	pod = workloadPod("api-server",
+		podContainer(t, "app", "600m", "1000m"),
+		podContainer(t, "sidecar", "200m", "1000m"),
+	)
+	cl, notes = runHPARetuneWithEvents(t, first, pod,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "550m", "600m")})
+	second := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(60), metricUtil(t, second, 0), "next cycle repairs: 80 * 600/800 = 60")
+	assert.Equal(t, "600m", second.Annotations[annotationHPAOriginalCPURequest])
+	assert.Equal(t, "app,sidecar", second.Annotations[annotationHPAOriginalCPURequestContainers])
+	assert.True(t, hasBaseRepaired(notes), "HPABaseRepaired")
+}
+
+// TestRetuneHPAAfterResize_CPUListOnlyForPodCPUResource covers FR-016:
+// ContainerResource CPU and pod-level memory bases get no list.
+func TestRetuneHPAAfterResize_CPUListOnlyForPodCPUResource(t *testing.T) {
+	t.Parallel()
+	t.Run("ContainerResourceOnly", func(t *testing.T) {
+		t.Parallel()
+		hpa := newAutoTuneHPA("api-server-hpa", "Deployment", nil, cpuContainerMetric("app", 80))
+		pod := workloadPod("api-server",
+			podContainer(t, "app", "200m", "1000m"),
+			podContainer(t, "sidecar", "200m", "1000m"),
+		)
+		cl, _ := runHPARetuneWithEvents(t, hpa, pod,
+			[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "400m", "200m")})
+		updated := storedHPA(t, cl, "api-server-hpa")
+		assert.Equal(t, int32(160), metricUtil(t, updated, 0), "80 * 400/200 = 160")
+		assert.Equal(t, "400m", updated.Annotations[annotationHPACPUBasePrefix+"app"])
+		_, hasList := updated.Annotations[annotationHPAOriginalCPURequestContainers]
+		assert.False(t, hasList, "ContainerResource base gets no list")
+	})
+	t.Run("MemoryResourceWithContainerCPU", func(t *testing.T) {
+		t.Parallel()
+		hpa := newAutoTuneHPA("api-server-hpa", "Deployment", nil,
+			cpuContainerMetric("app", 80),
+			memoryResourceMetric(80),
+		)
+		pod := workloadPod("api-server",
+			mixedContainer(t, "app", "200m", "1000m", "512Mi", "2Gi"),
+			mixedContainer(t, "sidecar", "200m", "1000m", "1Gi", "2Gi"),
+		)
+		cl, _ := runHPARetuneWithEvents(t, hpa, pod, []attunev1alpha1.ResizeHistoryEntry{
+			cpuHistory("app", "400m", "200m"),
+			memoryHistory("app", "1Gi", "512Mi"),
+		})
+		updated := storedHPA(t, cl, "api-server-hpa")
+		assert.Equal(t, "2Gi", updated.Annotations[annotationHPAOriginalMemoryRequest], "memory base was written")
+		assert.Equal(t, "400m", updated.Annotations[annotationHPACPUBasePrefix+"app"], "container CPU base was written")
+		_, hasList := updated.Annotations[annotationHPAOriginalCPURequestContainers]
+		assert.False(t, hasList, "memory and ContainerResource bases get no list")
+	})
+}
+
+func TestCopyHPATuneAnnotations_CPUBaseContainerListAsUnit(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		src, dst map[string]string
+		want     map[string]string
+	}{
+		{
+			name: "StaleBaseWithoutListDropsLiveList",
+			src:  map[string]string{annotationHPAOriginalCPU: "80", annotationHPAOriginalCPURequest: "400m"},
+			dst:  map[string]string{annotationHPAOriginalCPU: "80", annotationHPAOriginalCPURequest: "600m", annotationHPAOriginalCPURequestContainers: "app,sidecar"},
+			want: map[string]string{annotationHPAOriginalCPU: "80", annotationHPAOriginalCPURequest: "400m"},
+		},
+		{
+			name: "BaseWithListCopiesBoth",
+			src:  map[string]string{annotationHPAOriginalCPU: "80", annotationHPAOriginalCPURequest: "600m", annotationHPAOriginalCPURequestContainers: "app,sidecar"},
+			dst:  map[string]string{"other": "x"},
+			want: map[string]string{"other": "x", annotationHPAOriginalCPU: "80", annotationHPAOriginalCPURequest: "600m", annotationHPAOriginalCPURequestContainers: "app,sidecar"},
+		},
+		{
+			name: "NoCPUBaseLeavesList",
+			src:  map[string]string{annotationHPAAutoTune: "true"},
+			dst:  map[string]string{annotationHPAOriginalCPURequest: "600m", annotationHPAOriginalCPURequestContainers: "app"},
+			want: map[string]string{annotationHPAAutoTune: "true", annotationHPAOriginalCPURequest: "600m", annotationHPAOriginalCPURequestContainers: "app"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			copyHPATuneAnnotations(tt.dst, tt.src)
+			assert.Equal(t, tt.want, tt.dst)
+		})
+	}
+}
+
+func TestParseCPUBaseContainers(t *testing.T) {
+	t.Parallel()
+	valid := map[string][]string{
+		"app":               {"app"},
+		"app,sidecar":       {"app", "sidecar"},
+		"sidecar,app":       {"app", "sidecar"},
+		"app,app,sidecar":   {"app", "sidecar"},
+		"a-1,istio-proxy,z": {"a-1", "istio-proxy", "z"},
+	}
+	for in, want := range valid {
+		set, ok := parseCPUBaseContainers(in)
+		require.True(t, ok, "%q is a valid list", in)
+		got := make([]string, 0, len(set))
+		for name := range set {
+			got = append(got, name)
+		}
+		assert.ElementsMatch(t, want, got, "%q", in)
+	}
+	for _, in := range []string{"", ",", "app,", "app,,sidecar", "app, sidecar", " app", "App_1", "-app", "app/x"} {
+		set, ok := parseCPUBaseContainers(in)
+		assert.False(t, ok, "%q is malformed", in)
+		assert.Nil(t, set, "%q yields no partial set", in)
+	}
+}
+
+func TestFormatCPUBaseContainers(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, "app,debug,sidecar", formatCPUBaseContainers(map[string]struct{}{"sidecar": {}, "app": {}, "debug": {}}))
+	assert.Equal(t, "app", formatCPUBaseContainers(map[string]struct{}{"app": {}}))
+}
+
+func TestCPUBaseContainerMillisMatchesPodCPUMillis(t *testing.T) {
+	t.Parallel()
+	initPod := workloadPod("api-server",
+		podContainer(t, "app", "200m", "1000m"),
+		podContainer(t, "sidecar", "200m", "1000m"),
+	)
+	initPod.Spec.InitContainers = []corev1.Container{podContainer(t, "migrate", "50m", "1000m")}
+	tests := []struct {
+		name string
+		pod  corev1.Pod
+		rows map[string]hpaCPURow
+		want map[string]int64
+	}{
+		{
+			name: "ResourceUsesUnchangedLiveContainer",
+			pod: workloadPod("api-server",
+				podContainer(t, "app", "200m", "1000m"),
+				podContainer(t, "sidecar", "200m", "1000m"),
+			),
+			rows: map[string]hpaCPURow{"app": {old: 400, neu: 200, ok: true}},
+			want: map[string]int64{"app": 400, "sidecar": 200},
+		},
+		{
+			name: "InitContainerStaysOutOfPodTotal",
+			pod:  initPod,
+			rows: map[string]hpaCPURow{
+				"app":     {old: 400, neu: 200, ok: true},
+				"migrate": {old: 100, neu: 50, ok: true},
+			},
+			want: map[string]int64{"app": 400, "sidecar": 200},
+		},
+		{
+			name: "OffPodRowIncluded",
+			pod: workloadPod("api-server",
+				podContainer(t, "app", "300m", "1000m"),
+				podContainer(t, "debug", "", ""),
+			),
+			rows: map[string]hpaCPURow{
+				"app":  {old: 400, neu: 300, ok: true},
+				"gone": {old: 200, neu: 100, ok: true},
+			},
+			want: map[string]int64{"app": 400, "debug": 0, "gone": 200},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := cpuBaseContainerMillis(&tt.pod, tt.rows, nil)
+			assert.Equal(t, tt.want, got)
+			oldMilli, _, ok := podCPUMillis(&tt.pod, tt.rows)
+			require.True(t, ok)
+			var sum int64
+			for _, v := range got {
+				sum += v
+			}
+			assert.Equal(t, oldMilli, sum, "per-container values sum to the podCPUMillis old sum")
+		})
+	}
+}
+
+// TestCPUBaseContainerMillisSkipsWorkloadInitNames covers the two places
+// where the per-container set leaves out a name podCPUMillis counts: an
+// init container of another workload pod seen as a history row, or as a
+// regular container of the sampled pod.
+func TestInitContainerNamesSkipsFinishedPods(t *testing.T) {
+	t.Parallel()
+	running := workloadPod("api-server", podContainer(t, "app", "300m", "1000m"))
+	running.Spec.InitContainers = []corev1.Container{nativeSidecar(t, "proxy", "50m")}
+	evicted := workloadPod("api-server", podContainer(t, "app", "300m", "1000m"))
+	evicted.Name = "api-server-evicted"
+	evicted.Status.Phase = corev1.PodFailed
+	evicted.Spec.InitContainers = []corev1.Container{nativeSidecar(t, "mesh", "100m")}
+	done := workloadPod("api-server", podContainer(t, "app", "300m", "1000m"))
+	done.Name = "api-server-done"
+	done.Status.Phase = corev1.PodSucceeded
+	done.Spec.InitContainers = []corev1.Container{nativeSidecar(t, "mesh", "100m")}
+
+	assert.Equal(t, map[string]struct{}{"proxy": {}},
+		initContainerNames([]corev1.Pod{running, evicted, done}),
+		"a mesh native sidecar only on finished pods does not keep mesh out of the base")
+}
+
+func TestCPUBaseContainerMillisSkipsWorkloadInitNames(t *testing.T) {
+	t.Parallel()
+	initNames := map[string]struct{}{"mesh": {}}
+	tests := []struct {
+		name    string
+		pod     corev1.Pod
+		rows    map[string]hpaCPURow
+		want    map[string]int64
+		wantOld int64
+	}{
+		{
+			name: "OffPodRow",
+			pod:  workloadPod("api-server", podContainer(t, "app", "300m", "1000m")),
+			rows: map[string]hpaCPURow{
+				"app":  {old: 400, neu: 300, ok: true},
+				"mesh": {old: 100, neu: 80, ok: true},
+			},
+			want:    map[string]int64{"app": 400},
+			wantOld: 500,
+		},
+		{
+			name: "RegularOnSampledPod",
+			pod: workloadPod("api-server",
+				podContainer(t, "app", "300m", "1000m"),
+				podContainer(t, "mesh", "100m", "1000m"),
+			),
+			rows:    map[string]hpaCPURow{"app": {old: 400, neu: 300, ok: true}},
+			want:    map[string]int64{"app": 400},
+			wantOld: 500,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, cpuBaseContainerMillis(&tt.pod, tt.rows, initNames))
+			oldMilli, _, ok := podCPUMillis(&tt.pod, tt.rows)
+			require.True(t, ok)
+			assert.Equal(t, tt.wantOld, oldMilli, "podCPUMillis still counts mesh")
+		})
+	}
 }
 
 func TestRetuneHPAAfterResize_SecondResizeUsesPodTotal(t *testing.T) {

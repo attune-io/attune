@@ -89,8 +89,11 @@ const (
 	annotationHPAAutoTune           = "attune.io/auto-tune"
 	annotationHPAOriginalCPU        = "attune.io/original-target-cpu"
 	annotationHPAOriginalCPURequest = "attune.io/original-cpu-request"
-	annotationHPACPUTargetPrefix    = "attune.io/hpa-cpu-target."
-	annotationHPACPUBasePrefix      = "attune.io/hpa-cpu-base."
+	// annotationHPAOriginalCPURequestContainers names the containers whose
+	// pre-resize CPU the pod-level base holds (sorted, comma-separated).
+	annotationHPAOriginalCPURequestContainers = "attune.io/original-cpu-request-containers"
+	annotationHPACPUTargetPrefix              = "attune.io/hpa-cpu-target."
+	annotationHPACPUBasePrefix                = "attune.io/hpa-cpu-base."
 
 	// Memory HPA baselines. Pod Resource metrics use the two bare keys.
 	// Every ContainerResource baseline shares one JSON object so a

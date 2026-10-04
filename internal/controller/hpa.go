@@ -18,6 +18,8 @@ package controller
 
 import (
 	"context"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -25,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
@@ -69,6 +72,7 @@ func (r *AttunePolicyReconciler) retuneHPAAfterResize(
 			memRows:         memRows,
 			badMem:          badMem,
 			pod:             pod,
+			initNames:       initContainerNames(pods),
 			requestsOnly:    resourceControlledRequestsOnly(policy, corev1.ResourceCPU),
 			memRequestsOnly: resourceControlledRequestsOnly(policy, corev1.ResourceMemory),
 			rec:             rec,
@@ -147,12 +151,14 @@ type hpaCPURow struct {
 }
 
 // hpaTuneScope is per-metric ratios from history plus one live pod.
+// initNames holds the init container names of every pod of the workload.
 type hpaTuneScope struct {
 	rows            map[string]hpaCPURow
 	badCPU          bool
 	memRows         map[string]hpaCPURow
 	badMem          bool
 	pod             *corev1.Pod
+	initNames       map[string]struct{}
 	requestsOnly    bool
 	memRequestsOnly bool
 	rec             attunev1alpha1.WorkloadRecommendation
@@ -301,6 +307,96 @@ func podCPUMillis(pod *corev1.Pod, rows map[string]hpaCPURow) (oldMilli, newMill
 		newMilli += row.neu
 	}
 	return oldMilli, newMilli, true
+}
+
+// initContainerNames is the set of init container names, native sidecars
+// included, across pods that have not finished. A Succeeded or Failed pod
+// left behind by an eviction does not speak for the current template.
+func initContainerNames(pods []corev1.Pod) map[string]struct{} {
+	names := map[string]struct{}{}
+	for i := range pods {
+		if pods[i].Status.Phase == corev1.PodSucceeded || pods[i].Status.Phase == corev1.PodFailed {
+			continue
+		}
+		for _, c := range pods[i].Spec.InitContainers {
+			names[c.Name] = struct{}{}
+		}
+	}
+	return names
+}
+
+// cpuBaseContainerMillis is the pre-resize CPU per container for the set
+// podCPUMillis sums: spec.containers (row old, else live request, else 0)
+// and off-pod rows that are not init containers (row old). A name in
+// initNames, an init container on some pod of the workload, is left out
+// even where podCPUMillis counts it: a native sidecar seen as a row of
+// another pod, or a container that is regular on the sampled pod and an
+// init container on another.
+func cpuBaseContainerMillis(pod *corev1.Pod, rows map[string]hpaCPURow, initNames map[string]struct{}) map[string]int64 {
+	if pod == nil {
+		return nil
+	}
+	out := make(map[string]int64, len(pod.Spec.Containers)+len(rows))
+	seen := make(map[string]struct{}, len(pod.Spec.Containers)+len(pod.Spec.InitContainers)+len(initNames))
+	for name := range initNames {
+		seen[name] = struct{}{}
+	}
+	for _, c := range pod.Spec.Containers {
+		if _, isInit := seen[c.Name]; isInit {
+			continue
+		}
+		seen[c.Name] = struct{}{}
+		if row, exists := rows[c.Name]; exists && row.ok {
+			out[c.Name] = row.old
+			continue
+		}
+		var v int64
+		if q, has := c.Resources.Requests[corev1.ResourceCPU]; has {
+			v = q.MilliValue()
+		}
+		out[c.Name] = v
+	}
+	for _, c := range pod.Spec.InitContainers {
+		seen[c.Name] = struct{}{}
+	}
+	for name, row := range rows {
+		if _, onPod := seen[name]; onPod || !row.ok {
+			continue
+		}
+		out[name] = row.old
+	}
+	return out
+}
+
+// parseCPUBaseContainers reads the CPU base container list. Every element
+// must be a container name (DNS-1123 label); otherwise the whole list is
+// malformed and ok is false.
+func parseCPUBaseContainers(v string) (map[string]struct{}, bool) {
+	if v == "" {
+		return nil, false
+	}
+	parts := strings.Split(v, ",")
+	set := make(map[string]struct{}, len(parts))
+	for _, p := range parts {
+		if len(validation.IsDNS1123Label(p)) > 0 {
+			return nil, false
+		}
+		set[p] = struct{}{}
+	}
+	return set, true
+}
+
+func sumMillis(m map[string]int64) int64 {
+	var sum int64
+	for _, v := range m {
+		sum += v
+	}
+	return sum
+}
+
+// formatCPUBaseContainers is the sorted, comma-separated list of the keys.
+func formatCPUBaseContainers[V any](set map[string]V) string {
+	return strings.Join(slices.Sorted(maps.Keys(set)), ",")
 }
 
 func liveContainerCPU(pod *corev1.Pod, name string) (reqMilli, limitMilli int64, found bool) {
@@ -468,6 +564,19 @@ func storedHPABase(ann map[string]string, targetKey, baseKey string) (int32, int
 	return int32(v), q.MilliValue(), true
 }
 
+// storedPairReproducesTarget reports whether currentTarget is exactly what
+// the stored target and base publish for this cycle's pre-resize request,
+// after the band and the limit cap. An unclamped match means this operator
+// made the last write at a new request equal to this cycle's old one: that
+// write used the same int32 truncation, so it reproduces exactly. A clamped
+// match is ambiguous, since many stored pairs publish the same number, and
+// it also reports true: under ambiguity the stored base is kept.
+func storedPairReproducesTarget(currentTarget, storedTarget int32, storedMilli int64, basis hpaMetricBasis, band *attunev1alpha1.HPATargetBound) bool {
+	raw := int32(float64(storedTarget) * float64(storedMilli) / float64(basis.oldMilli))
+	want, _, _ := publishHPATarget(raw, basis.limit, hpaRequestQuantity(basis.resName, basis.oldMilli), band)
+	return currentTarget == want
+}
+
 func capHPATarget(newTarget int32, limit, newRequest resource.Quantity) int32 {
 	maxTarget := int32(100)
 	if !newRequest.IsZero() && !limit.IsZero() && limit.Cmp(newRequest) > 0 {
@@ -536,12 +645,20 @@ func copyHPATuneAnnotations(dst, src map[string]string) {
 		annotationHPAAutoTune,
 		annotationHPAOriginalCPU,
 		annotationHPAOriginalCPURequest,
+		annotationHPAOriginalCPURequestContainers,
 		annotationHPAOriginalMemory,
 		annotationHPAOriginalMemoryRequest,
 		annotationHPAOriginalContainerMemory,
 	} {
 		if v, ok := src[k]; ok {
 			dst[k] = v
+		}
+	}
+	// The CPU base and its container list are one unit: a source base
+	// without a list must not keep a list that belongs to another base.
+	if _, hasBase := src[annotationHPAOriginalCPURequest]; hasBase {
+		if _, hasList := src[annotationHPAOriginalCPURequestContainers]; !hasList {
+			delete(dst, annotationHPAOriginalCPURequestContainers)
 		}
 	}
 	for k, v := range src {
@@ -601,6 +718,16 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 			baseTarget := currentTarget
 			baseRequestMilli := basis.oldMilli
 			repairPartialCPU := false
+			// writeCPUList and cpuList carry a list repair to the write below.
+			writeCPUList := false
+			var cpuList string
+			podCPU := basis.resource && basis.resName == string(corev1.ResourceCPU)
+			// perContainer is what a pod CPU base written in this cycle
+			// holds; the written base is the sum of its values.
+			var perContainer map[string]int64
+			if podCPU {
+				perContainer = cpuBaseContainerMillis(scope.pod, scope.rows, scope.initNames)
+			}
 			if basis.containerMemory {
 				if storedTarget, storedMilli, ok := storedContainerMemory(hpa.Annotations, basis.container); ok {
 					baseTarget = storedTarget
@@ -609,23 +736,68 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 			} else if storedTarget, storedMilli, ok := storedHPABase(hpa.Annotations, basis.targetKey, basis.baseKey); ok {
 				baseTarget = storedTarget
 				baseRequestMilli = storedMilli
-				// A stored pod CPU base below this cycle's pre-resize sum can
-				// be missing containers, or it can be the original request
-				// after later growth. ContainerResource bases stay per container.
-				// When the history old sum is still within the stored base, the
-				// gap is other containers: use the pre-resize sum. When history
-				// old already exceeds the stored base, the resized containers
-				// grew, so keep the stored original and add only containers
-				// that have no history row.
-				if basis.resource && basis.resName == string(corev1.ResourceCPU) && storedMilli < basis.oldMilli {
-					historyOld := resourceHistoryOldMilli(scope.pod, scope.rows)
-					if storedMilli >= historyOld {
-						baseRequestMilli = basis.oldMilli
-						repairPartialCPU = true
-					} else if extra := basis.oldMilli - historyOld; extra > 0 {
-						baseRequestMilli = storedMilli + extra
-						repairPartialCPU = true
+				var listed map[string]struct{}
+				listOK := false
+				if podCPU {
+					if v, has := hpa.Annotations[annotationHPAOriginalCPURequestContainers]; has {
+						if listed, listOK = parseCPUBaseContainers(v); !listOK {
+							logger.Info("HPA CPU base container list is malformed; using the rule for bases without a list",
+								"hpa", hpa.Name, "workload", workloadName, "annotation", annotationHPAOriginalCPURequestContainers)
+						}
 					}
+				}
+				switch {
+				case listOK:
+					// The list records which containers the base holds.
+					// A container missing from it is added at this cycle's
+					// pre-resize CPU. A listed container that is not on the
+					// pod keeps its share and its name: dropping it would
+					// add it again on re-add, and ratchet when a rollout
+					// alternates pods with and without it.
+					var removed []string
+					for name := range listed {
+						if _, ok := perContainer[name]; !ok {
+							removed = append(removed, name)
+						}
+					}
+					var added int64
+					for name, v := range perContainer {
+						if _, ok := listed[name]; !ok {
+							listed[name] = struct{}{}
+							added += v
+							writeCPUList = true
+						}
+					}
+					if writeCPUList {
+						baseRequestMilli = storedMilli + added
+						cpuList = formatCPUBaseContainers(listed)
+						repairPartialCPU = added > 0
+					}
+					if len(removed) > 0 {
+						slices.Sort(removed)
+						logger.Info("HPA CPU base lists containers that are not on the pod; stored base kept",
+							"hpa", hpa.Name, "workload", workloadName, "containers", removed)
+					}
+				// Without a list, a stored pod CPU base below this cycle's
+				// pre-resize sum can be missing containers, or it can be the
+				// full original request after later growth; the stored
+				// annotations alone cannot tell which containers the base
+				// held. Repair to the pre-resize sum only when the stored base
+				// equals the history old sum of the resized containers (no
+				// room for the containers without a row) and the current
+				// target is not exactly what the stored pair publishes for
+				// that sum, clamped or not. The published target is used only
+				// as a one-sided veto (see storedPairReproducesTarget). Any
+				// other stored base is kept. ContainerResource bases stay per
+				// container. The base written by the repair leaves out init
+				// containers of other pods, so it must still exceed the
+				// stored base.
+				case podCPU && storedMilli < basis.oldMilli &&
+					storedMilli == resourceHistoryOldMilli(scope.pod, scope.rows) &&
+					!storedPairReproducesTarget(currentTarget, storedTarget, storedMilli, basis, bandFor(scope.policy, basis.resName)) &&
+					sumMillis(perContainer) > storedMilli:
+					baseRequestMilli = basis.oldMilli
+					repairPartialCPU = true
 				}
 			}
 			rawTarget := int32(float64(baseTarget) * float64(baseRequestMilli) / float64(basis.newMilli))
@@ -635,16 +807,30 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 			if newTarget == currentTarget {
 				continue
 			}
-			// First write only. A stored base that differs from this cycle's
-			// sum is the usual second resize, not a cue to rewrite it.
+			// Write the base only on the first write or a repair; a base that
+			// differs from this cycle's sum is the usual second resize.
 			if hpa.Annotations == nil {
 				hpa.Annotations = make(map[string]string)
 			}
 			if basis.containerMemory {
 				rememberContainerMemory(hpa.Annotations, basis.container, currentTarget, basis.oldMilli)
-			} else if basis.targetKey != "" && (hpa.Annotations[basis.targetKey] == "" || repairPartialCPU) {
+			} else if basis.targetKey != "" && (hpa.Annotations[basis.targetKey] == "" || repairPartialCPU || writeCPUList) {
 				hpa.Annotations[basis.targetKey] = strconv.FormatInt(int64(baseTarget), 10)
-				baseQ := hpaRequestQuantity(basis.resName, baseRequestMilli)
+				writeMilli := baseRequestMilli
+				// The base is written with the containers it holds: the
+				// extended list on a list repair, else the containers of
+				// perContainer at their sum (first write, repair without a
+				// list). That sum is podCPUMillis' old sum unless a name in
+				// scope.initNames is in it; the target of this cycle still
+				// uses podCPUMillis.
+				if podCPU {
+					if cpuList == "" {
+						cpuList = formatCPUBaseContainers(perContainer)
+						writeMilli = sumMillis(perContainer)
+					}
+					hpa.Annotations[annotationHPAOriginalCPURequestContainers] = cpuList
+				}
+				baseQ := hpaRequestQuantity(basis.resName, writeMilli)
 				hpa.Annotations[basis.baseKey] = baseQ.String()
 				if repairPartialCPU && r.Recorder != nil && scope.policy != nil {
 					r.Recorder.Eventf(scope.policy, nil, corev1.EventTypeWarning, "HPABaseRepaired", "hpa",
