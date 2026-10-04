@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -1222,6 +1223,37 @@ func TestRetuneHPAAfterResize_PartialStoredBaseUsesPreResizeSum(t *testing.T) {
 		"80 * 600/500 = 96; 64 keeps the partial base and 80 rebases onto the new total")
 	assert.Equal(t, "80", updated.Annotations[annotationHPAOriginalCPU])
 	assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest])
+}
+
+func TestRetuneHPAAfterResize_PartialBaseEventNamesOriginalRequest(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
+		annotationHPAOriginalCPU:        "80",
+		annotationHPAOriginalCPURequest: "400m",
+	}, cpuResourceMetric(80))
+	pod := workloadPod("api-server",
+		podContainer(t, "app", "300m", "1000m"),
+		podContainer(t, "sidecar", "200m", "1000m"),
+	)
+	scheme := testScheme()
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(hpa.DeepCopy()).Build()
+	recorder := events.NewFakeRecorder(4)
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+	r.Recorder = recorder
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	r.retuneHPAAfterResize(context.Background(), policy, attunev1alpha1.UpdateTypeAuto,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "400m", "300m")},
+		[]attunev1alpha1.WorkloadRecommendation{{Workload: "api-server", Kind: "Deployment"}},
+		[]autoscalingv2.HorizontalPodAutoscaler{hpa},
+		map[string][]corev1.Pod{"api-server": {pod}})
+
+	notes := recorderNotes(recorder)
+	require.NotEmpty(t, notes)
+	assert.Contains(t, notes[0], "HPABaseRepaired")
+	assert.Contains(t, notes[0], annotationHPAOriginalCPURequest)
 }
 
 func TestRetuneHPAAfterResize_InitHistoryDoesNotShrinkPartialBase(t *testing.T) {
