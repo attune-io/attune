@@ -721,6 +721,50 @@ func TestValidate_ZeroCooldownRejected(t *testing.T) {
 	assert.Contains(t, err.Error(), "omit the field")
 }
 
+func TestValidateUpdate_StoredZeroDuration(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	old := validPolicy()
+	old.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 0}
+	old.Spec.UpdateStrategy.SafetyObservationPeriod = &metav1.Duration{Duration: 0}
+	window := &metav1.Duration{Duration: 0}
+	old.Spec.UpdateStrategy.SLOGuardrails = []attunev1alpha1.SLOGuardrail{{
+		Name: "latency", Query: "vector(0)", Threshold: "1", EvaluationWindow: window,
+	}}
+
+	same := old.DeepCopy()
+	_, err := validator.ValidateUpdate(context.Background(), old, same)
+	require.NoError(t, err)
+
+	deleting := old.DeepCopy()
+	now := metav1.Now()
+	deleting.DeletionTimestamp = &now
+	deleting.Finalizers = nil
+	_, err = validator.ValidateUpdate(context.Background(), old, deleting)
+	require.NoError(t, err)
+
+	live := validPolicy()
+	live.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: time.Minute}
+	badDelete := live.DeepCopy()
+	badDelete.DeletionTimestamp = &now
+	badDelete.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 0}
+	_, err = validator.ValidateUpdate(context.Background(), live, badDelete)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cooldown must be at least 1m")
+
+	introduced := validPolicy()
+	introduced.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 0}
+	_, err = validator.ValidateUpdate(context.Background(), validPolicy(), introduced)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cooldown must be at least 1m")
+
+	positive := validPolicy()
+	positive.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: time.Minute}
+	zeroed := positive.DeepCopy()
+	zeroed.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 0}
+	_, err = validator.ValidateUpdate(context.Background(), positive, zeroed)
+	require.Error(t, err)
+}
+
 func TestValidate_MinCooldownAccepted(t *testing.T) {
 	validator := &AttunePolicyValidator{}
 	policy := validPolicy()

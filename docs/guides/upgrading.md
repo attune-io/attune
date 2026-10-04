@@ -71,12 +71,14 @@ read ControllerRevisions.
 
 ### Stored cooldown of 0s
 
-A stored `cooldown: 0s` is not a wait. The controller reconciles that
-policy about once an hour, and it can resize. A new apply that still sets
-`0s` is rejected. Omit the field for the 1h default, or set at least `1m`.
-The same floor applies to `safetyObservationPeriod` and an SLO
-`evaluationWindow`. Canary `observationPeriod: 0s` still means the built-in
-observation period.
+A stored `cooldown: 0s` is not a wait. The controller treats it as the 1h
+default. An update that leaves that stored `0s` unchanged is accepted,
+including the update that removes the finalizer, so the object can be
+deleted. A create that sets `0s`, or an update that changes a positive
+duration to `0s`, is still rejected. Omit the field for the 1h default,
+or set at least `1m`. The same rule applies to `safetyObservationPeriod`
+and an SLO `evaluationWindow`. Canary `observationPeriod: 0s` still means
+the built-in observation period.
 
 ### Datadog null points
 
