@@ -182,11 +182,13 @@ that pair is rejected at reconcile.
 
 ### HPA auto-tune keeps the stored CPU base
 
-An HPA that Attune has already tuned keeps its stored CPU base, including
-a partial sum written before this fix. A later resize does not replace
-that base with the full pod total.
+An HPA that Attune has already tuned keeps its stored CPU base when that
+base is at least the pre-resize pod sum. A stored pod-level base below
+that sum is missing containers. The next CPU resize replaces
+`attune.io/original-cpu-request` with the pre-resize sum and emits
+`HPABaseRepaired`. ContainerResource bases are not repaired this way.
 
-To store the full pod base, delete these annotations and leave
+Deleting the keys still stores a fresh base on the next resize. Leave
 `attune.io/auto-tune` in place:
 
 - `attune.io/original-target-cpu`
@@ -194,8 +196,7 @@ To store the full pod base, delete these annotations and leave
 - any `attune.io/hpa-cpu-target.*` key
 - any `attune.io/hpa-cpu-base.*` key
 
-The next successful CPU resize stores the full base. Deleting the keys is
-required. The next resize does not repair an old annotation by itself.
+The next successful CPU resize stores the full base when the keys are gone.
 
 ### Omitted maxAllowed is not capped
 

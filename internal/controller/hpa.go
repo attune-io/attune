@@ -590,6 +590,7 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 			// currentTarget * (old / new) and do not gain a request annotation.
 			baseTarget := currentTarget
 			baseRequestMilli := basis.oldMilli
+			repairPartialCPU := false
 			if basis.containerMemory {
 				if storedTarget, storedMilli, ok := storedContainerMemory(hpa.Annotations, basis.container); ok {
 					baseTarget = storedTarget
@@ -598,6 +599,12 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 			} else if storedTarget, storedMilli, ok := storedHPABase(hpa.Annotations, basis.targetKey, basis.baseKey); ok {
 				baseTarget = storedTarget
 				baseRequestMilli = storedMilli
+				// A stored pod CPU base below this cycle's pre-resize sum is
+				// missing containers. ContainerResource bases stay per container.
+				if basis.resource && basis.resName == string(corev1.ResourceCPU) && storedMilli < basis.oldMilli {
+					baseRequestMilli = basis.oldMilli
+					repairPartialCPU = true
+				}
 			}
 			rawTarget := int32(float64(baseTarget) * float64(baseRequestMilli) / float64(basis.newMilli))
 			oldQ := hpaRequestQuantity(basis.resName, basis.oldMilli)
@@ -613,9 +620,14 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 			}
 			if basis.containerMemory {
 				rememberContainerMemory(hpa.Annotations, basis.container, currentTarget, basis.oldMilli)
-			} else if basis.targetKey != "" && hpa.Annotations[basis.targetKey] == "" {
-				hpa.Annotations[basis.targetKey] = strconv.FormatInt(int64(currentTarget), 10)
-				hpa.Annotations[basis.baseKey] = oldQ.String()
+			} else if basis.targetKey != "" && (hpa.Annotations[basis.targetKey] == "" || repairPartialCPU) {
+				hpa.Annotations[basis.targetKey] = strconv.FormatInt(int64(baseTarget), 10)
+				baseQ := hpaRequestQuantity(basis.resName, baseRequestMilli)
+				hpa.Annotations[basis.baseKey] = baseQ.String()
+				if repairPartialCPU && r.Recorder != nil && scope.policy != nil {
+					r.Recorder.Eventf(scope.policy, nil, corev1.EventTypeWarning, "HPABaseRepaired", "hpa",
+						"Stored %s was below the pre-resize pod sum and was replaced", annotationHPAOriginalCPURequest)
+				}
 			}
 			if basis.resName == string(corev1.ResourceMemory) {
 				logger.Info("Auto-tuning HPA memory target after resize",

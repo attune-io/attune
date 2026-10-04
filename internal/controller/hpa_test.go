@@ -1204,6 +1204,44 @@ func TestRetuneHPAAfterResize_ResourceUsesUnchangedLiveContainer(t *testing.T) {
 	assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest])
 }
 
+func TestRetuneHPAAfterResize_PartialStoredBaseUsesPreResizeSum(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
+		annotationHPAOriginalCPU:        "80",
+		annotationHPAOriginalCPURequest: "400m",
+	}, cpuResourceMetric(80))
+	pod := workloadPod("api-server",
+		podContainer(t, "app", "300m", "1000m"),
+		podContainer(t, "sidecar", "200m", "1000m"),
+	)
+	cl := runHPARetune(t, []autoscalingv2.HorizontalPodAutoscaler{hpa}, &pod,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "400m", "300m")}, nil)
+
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(96), metricUtil(t, updated, 0),
+		"80 * 600/500 = 96; 64 keeps the partial base and 80 rebases onto the new total")
+	assert.Equal(t, "80", updated.Annotations[annotationHPAOriginalCPU])
+	assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest])
+}
+
+func TestRetuneHPAAfterResize_FullStoredBaseStays(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
+		annotationHPAOriginalCPU:        "80",
+		annotationHPAOriginalCPURequest: "600m",
+	}, cpuResourceMetric(80))
+	pod := workloadPod("api-server",
+		podContainer(t, "app", "300m", "1000m"),
+		podContainer(t, "sidecar", "200m", "1000m"),
+	)
+	cl := runHPARetune(t, []autoscalingv2.HorizontalPodAutoscaler{hpa}, &pod,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "400m", "300m")}, nil)
+
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(96), metricUtil(t, updated, 0))
+	assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest])
+}
+
 func TestRetuneHPAAfterResize_SecondResizeUsesPodTotal(t *testing.T) {
 	t.Parallel()
 	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
