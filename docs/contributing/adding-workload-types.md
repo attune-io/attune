@@ -70,10 +70,13 @@ of the same name. Select pods with `spec.selector`, including
 `matchExpressions`. Do not require `ownerReferences` to name the
 Rollout. The pod's controller owner is the child ReplicaSet.
 
-`IsRollingOut` for Rollout compares `status.updatedReplicas` to
-`spec.replicas` (nil `spec.replicas` counts as 1) and also skips
-`Paused`, `Progressing`, and `status.abort: true`. There is no phase
-named `Abort`. Do not copy the Deployment nil-replicas check.
+`IsRollingOut` for Rollout is true when `status.abort` is true or the
+phase is `Paused`, `Progressing`, or `Degraded`. `Degraded` is Argo's
+aborted, timed-out, or invalid-spec phase, so it skips even when abort
+is false and replica counts match. A `Healthy` phase and an empty phase
+are not a rollout when `updatedReplicas` is behind `spec.replicas`.
+There is no phase named `Abort`. Do not copy the Deployment
+nil-replicas check.
 
 ReplicaSet policies must ignore ReplicaSets owned by a Rollout
 (`controller: true`, `apiVersion: argoproj.io/v1alpha1`, `kind: Rollout`),
@@ -174,7 +177,7 @@ Fake-client tests are the gate for an optional CRD. Do not add that CRD
 to the nightly E2E matrix and do not vendor the upstream module.
 
 Cover selector matching (including both stable and canary ReplicaSets),
-the resize gate (`updatedReplicas`, `Paused`, `Progressing`, `abort`),
+the resize gate (`Paused`, `Progressing`, `Degraded`, `abort`, and a Healthy scale-out that must not skip),
 template persistence on the parent object, `spec.workloadRef` leaving
 the template alone, and ReplicaSet owner filtering. The webhook accepts
 the kind and still rejects an unknown kind.

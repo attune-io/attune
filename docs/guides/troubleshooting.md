@@ -1883,8 +1883,10 @@ template persistence, so a failed read keeps `WorkloadRefUnread`.
 
 The operator skips patches while a Deployment or StatefulSet is mid-replacement.
 An Argo Rollout is skipped while it is aborted, Paused, Progressing, or
-`updatedReplicas` is still behind `spec.replicas`. A Healthy Rollout whose
-updated replicas match the spec can still be patched. A no-op also happens
+Degraded. Degraded is an aborted rollout, a progress deadline, or an
+invalid spec, so the skip stays when abort is false and replica counts
+match. A Healthy phase, or an empty phase, is patched even when
+`updatedReplicas` is behind `spec.replicas`. That lag is a scale-out. A no-op also happens
 when the template already matches. Events:
 
 - `TemplatePatched` (Normal) on success

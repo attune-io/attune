@@ -82,6 +82,7 @@ func TestRolloutAdapter_IsRollingOut(t *testing.T) {
 
 	one := int32(1)
 	two := int32(2)
+	four := int32(4)
 	tests := []struct {
 		name    string
 		rollout argorollout.Rollout
@@ -95,17 +96,34 @@ func TestRolloutAdapter_IsRollingOut(t *testing.T) {
 			},
 		},
 		{
-			name: "degraded without abort and updated matches spec",
+			name: "degraded is a stuck rollout when counts match and abort is false",
 			rollout: argorollout.Rollout{
 				Spec:   argorollout.RolloutSpec{Replicas: &one},
 				Status: argorollout.RolloutStatus{UpdatedReplicas: 1, Phase: "Degraded"},
 			},
+			want: true,
+		},
+		{
+			name: "degraded while updated is behind spec still skips",
+			rollout: argorollout.Rollout{
+				Spec:   argorollout.RolloutSpec{Replicas: &two},
+				Status: argorollout.RolloutStatus{UpdatedReplicas: 1, Phase: "Degraded"},
+			},
+			want: true,
 		},
 		{
 			name: "abort with degraded phase",
 			rollout: argorollout.Rollout{
 				Spec:   argorollout.RolloutSpec{Replicas: &one},
 				Status: argorollout.RolloutStatus{UpdatedReplicas: 1, Phase: "Degraded", Abort: true},
+			},
+			want: true,
+		},
+		{
+			name: "abort true while healthy and counts match",
+			rollout: argorollout.Rollout{
+				Spec:   argorollout.RolloutSpec{Replicas: &one},
+				Status: argorollout.RolloutStatus{UpdatedReplicas: 1, Phase: "Healthy", Abort: true},
 			},
 			want: true,
 		},
@@ -126,24 +144,29 @@ func TestRolloutAdapter_IsRollingOut(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "canary holding below spec",
+			name: "healthy scale-out updated 2 spec 4 is not a rollout",
 			rollout: argorollout.Rollout{
-				Spec:   argorollout.RolloutSpec{Replicas: &two},
-				Status: argorollout.RolloutStatus{UpdatedReplicas: 1, Phase: "Healthy"},
+				Spec:   argorollout.RolloutSpec{Replicas: &four},
+				Status: argorollout.RolloutStatus{UpdatedReplicas: 2, Phase: "Healthy"},
 			},
-			want: true,
 		},
 		{
-			name: "nil spec replicas counts as 1 and updated 0 is rolling",
+			name: "nil spec replicas and updated 0 while healthy is not a rollout",
 			rollout: argorollout.Rollout{
 				Status: argorollout.RolloutStatus{UpdatedReplicas: 0, Phase: "Healthy"},
 			},
-			want: true,
 		},
 		{
-			name: "nil spec replicas counts as 1 and updated 1 is promoted",
+			name: "nil spec replicas and updated 1 while healthy is not a rollout",
 			rollout: argorollout.Rollout{
 				Status: argorollout.RolloutStatus{UpdatedReplicas: 1, Phase: "Healthy"},
+			},
+		},
+		{
+			name: "empty phase with updated behind spec is not a rollout",
+			rollout: argorollout.Rollout{
+				Spec:   argorollout.RolloutSpec{Replicas: &two},
+				Status: argorollout.RolloutStatus{UpdatedReplicas: 0},
 			},
 		},
 	}
@@ -387,14 +410,20 @@ func TestRolloutResizeGate(t *testing.T) {
 		updated    int32
 		phase      string
 		abort      bool
+		mode       attunev1alpha1.UpdateType
 		wantResize bool
 		event      string
 	}{
 		{name: "abort", replicas: int32Ptr(1), updated: 1, phase: "Degraded", abort: true, event: "abort true"},
 		{name: "paused at full size", replicas: int32Ptr(2), updated: 2, phase: "Paused", event: "phase Paused"},
 		{name: "progressing at full size", replicas: int32Ptr(2), updated: 2, phase: "Progressing", event: "phase Progressing"},
-		{name: "below desired", replicas: int32Ptr(2), updated: 1, phase: "Healthy", event: "phase Healthy"},
-		{name: "nil replicas updated 0", updated: 0, phase: "Healthy", event: "phase Healthy"},
+		{name: "degraded counts match abort false", replicas: int32Ptr(1), updated: 1, phase: "Degraded", event: "phase Degraded"},
+		{name: "below desired", replicas: int32Ptr(2), updated: 1, phase: "Healthy", wantResize: true},
+		{name: "healthy scale-out auto", replicas: int32Ptr(4), updated: 2, phase: "Healthy", mode: attunev1alpha1.UpdateTypeAuto, wantResize: true},
+		{name: "healthy scale-out oneshot", replicas: int32Ptr(4), updated: 2, phase: "Healthy", mode: attunev1alpha1.UpdateTypeOneShot, wantResize: true},
+		{name: "healthy scale-out canary", replicas: int32Ptr(4), updated: 2, phase: "Healthy", mode: attunev1alpha1.UpdateTypeCanary, wantResize: true},
+		{name: "nil replicas updated 0", updated: 0, phase: "Healthy", wantResize: true},
+		{name: "empty phase behind", replicas: int32Ptr(2), updated: 0, wantResize: true},
 		{name: "healthy", replicas: int32Ptr(1), updated: 1, phase: "Healthy", wantResize: true},
 		{name: "nil replicas updated 1", updated: 1, phase: "Healthy", wantResize: true},
 	}
@@ -438,6 +467,12 @@ func TestRolloutResizeGate(t *testing.T) {
 			policy := newTestPolicy("test-policy", "default")
 			policy.Spec.TargetRef.Kind = argorollout.Kind
 			policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+			if tt.mode != "" {
+				policy.Spec.UpdateStrategy.Type = tt.mode
+			}
+			if tt.mode == attunev1alpha1.UpdateTypeCanary {
+				policy.Spec.UpdateStrategy.Canary = &attunev1alpha1.CanaryConfig{Percentage: 100}
+			}
 			r, rec := newRolloutReconciler([]client.Object{ro}, []*corev1.Pod{pod})
 			result := runRolloutProcess(r, policy, ro, now)
 			requireNonStaleRec(t, result)
@@ -525,8 +560,10 @@ func TestApplyTemplatePersistence_RolloutMidStepDoesNotPatch(t *testing.T) {
 		{name: "paused", phase: "Paused", updated: 1, patch: false},
 		{name: "progressing", phase: "Progressing", updated: 1, patch: false},
 		{name: "abort", phase: "Healthy", abort: true, updated: 1, patch: false},
+		{name: "degraded counts match", phase: "Degraded", updated: 1, patch: false},
 		{name: "healthy", phase: "Healthy", updated: 1, patch: true},
-		{name: "healthy behind", phase: "Healthy", updated: 0, patch: false},
+		{name: "healthy behind", phase: "Healthy", updated: 0, patch: true},
+		{name: "empty phase behind", updated: 0, patch: true},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {

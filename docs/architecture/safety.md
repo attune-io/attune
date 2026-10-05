@@ -340,7 +340,10 @@ Before resizing, the controller checks for potential conflicts:
   because `availableReplicas` is behind, or because a scale-out has not
   finished, when generation is observed and no old pods remain. A
   ReplicaSet is not skipped because `readyReplicas` is behind when
-  generation is observed, so unready pods can be resized.
+  generation is observed, so unready pods can be resized. A Rollout
+  waits on phase `Paused`, `Progressing`, or `Degraded`, and on
+  `status.abort`. A `Healthy` phase, or an empty phase, does not wait
+  because `updatedReplicas` is behind `spec.replicas`.
 - **Opt-out annotation**: workloads with `attune.io/skip: "true"` are
   skipped entirely.
 - **Namespace freeze**: `attune.io/freeze=true` on the namespace skips

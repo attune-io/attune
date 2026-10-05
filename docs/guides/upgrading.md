@@ -10,6 +10,24 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### Healthy Rollout scale-out is resized
+
+A Rollout whose phase is `Healthy`, or whose phase is empty, used to
+skip resize and template persistence while `status.updatedReplicas` was
+behind `spec.replicas`. A nil `spec.replicas` counted as 1, so a new
+Rollout with no updated replicas also waited.
+
+That lag is a scale-out. Argo reports a replica lag as `Progressing`,
+not `Healthy`. Attune now resizes and can patch the template in that
+window. `Paused`, `Progressing`, and `status.abort` still wait.
+`Degraded` also waits, including when replica counts already match and
+`status.abort` is false. Argo uses `Degraded` for an aborted rollout,
+a progress deadline, or an invalid spec.
+
+Deployments, StatefulSets, and DaemonSets are unchanged.
+
+See [Mid-rollout or no-op](troubleshooting.md#mid-rollout-or-no-op).
+
 ### Explain names the container-policy source
 
 `kubectl attune explain` used to print `source: policy` and
