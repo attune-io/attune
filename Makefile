@@ -149,7 +149,7 @@ ci-runner-status: ## Show queued/in-progress CI runs
 verify-quick: lint yaml-lint lint-chainsaw test python-test helm-lint helm-docs-check helm-unittest verify-boilerplate tidy-check verify-doc-defaults verify-helm-rbac verify-dashboard-metrics verify-doc-tool-versions verify-go-version-sync verify-prometheusrule-metrics verify-helm-schema-fields verify-helm-image-tag verify-release-artifacts ## Fast pre-commit checks (no integration tests or govulncheck)
 
 .PHONY: verify
-verify: verify-quick test-integration govulncheck ## Run all CI checks locally (includes integration tests)
+verify: verify-quick test-integration govulncheck ## Lint, tests, Helm, govulncheck, and generated-file freshness
 	@$(MAKE) manifests generate
 	@git diff --quiet --exit-code config/crd/ charts/attune/crds/ api/v1alpha1/zz_generated.deepcopy.go config/rbac/ || \
 		(echo "::error::Generated files are stale. Run 'make manifests generate' and commit." && exit 1)
