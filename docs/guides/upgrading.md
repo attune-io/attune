@@ -10,6 +10,14 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### Namespace defaults check Secret get access
+
+Creating or updating AttuneNamespaceDefaults now requires the admission
+user to get each Secret named by `bearerTokenSecret`, `apiKeySecretRef`,
+or `tokenSecretRef`, in that object's namespace. A missing
+SubjectAccessReview still allows the object, same as a policy. Cluster
+AttuneDefaults is unchanged and still warns.
+
 ### Whole-byte memory limits
 
 With `memory.controlledValues: RequestsAndLimits`, a scaled memory limit

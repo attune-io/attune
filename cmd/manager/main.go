@@ -424,7 +424,9 @@ func main() {
 			os.Exit(1)
 		}
 		if err = ctrl.NewWebhookManagedBy(mgr, &attunev1alpha1.AttuneNamespaceDefaults{}).
-			WithValidator(&webhook.AttuneNamespaceDefaultsValidator{}).
+			WithValidator(&webhook.AttuneNamespaceDefaultsValidator{
+				SecretAccess: webhook.NewSARSecretChecker(clientset),
+			}).
 			Complete(); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "AttuneNamespaceDefaults")
 			os.Exit(1)
