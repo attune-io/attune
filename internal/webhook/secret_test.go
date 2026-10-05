@@ -26,6 +26,7 @@ import (
 	admissionv1 "k8s.io/api/admission/v1"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	authorizationv1 "k8s.io/api/authorization/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	kubefake "k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
@@ -280,4 +281,215 @@ func TestSARSecretChecker_DeniedAndError(t *testing.T) {
 	_, err = checker.CanGetSecret(context.Background(), req, "apps", "boom")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "apiserver unavailable")
+}
+
+func namespaceDefaultsWithBearer(ns, secretName string) *attunev1alpha1.AttuneNamespaceDefaults {
+	return &attunev1alpha1.AttuneNamespaceDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "team-defaults", Namespace: ns},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{
+					Address: "http://prometheus-server.monitoring:80",
+					BearerTokenSecret: &attunev1alpha1.SecretKeyRef{
+						Name: secretName,
+						Key:  "token",
+					},
+				},
+			},
+		},
+	}
+}
+
+func namespaceDefaultsWithDatadog(ns, secretName string) *attunev1alpha1.AttuneNamespaceDefaults {
+	return &attunev1alpha1.AttuneNamespaceDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "team-defaults", Namespace: ns},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				Datadog: &attunev1alpha1.DatadogConfig{
+					Site: "datadoghq.com",
+					APIKeySecretRef: &attunev1alpha1.SecretKeyRef{
+						Name: secretName,
+						Key:  "api-key",
+					},
+				},
+			},
+		},
+	}
+}
+
+func namespaceDefaultsWithGitOpsToken(ns, secretName string) *attunev1alpha1.AttuneNamespaceDefaults {
+	return &attunev1alpha1.AttuneNamespaceDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "team-defaults", Namespace: ns},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Export: &attunev1alpha1.ExportConfig{
+					PullRequest: &attunev1alpha1.GitOpsPullRequestConfig{
+						TokenSecretRef: &attunev1alpha1.SecretKeyRef{
+							Name: secretName,
+							Key:  "token",
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+type denyNamedSecret struct {
+	deny  string
+	calls []secretAccessCall
+}
+
+func (f *denyNamedSecret) CanGetSecret(_ context.Context, req admission.Request, namespace, name string) (bool, error) {
+	f.calls = append(f.calls, secretAccessCall{
+		namespace: namespace,
+		name:      name,
+		user:      req.UserInfo.Username,
+	})
+	return name != f.deny, nil
+}
+
+func TestNamespaceDefaults_SecretAccessDenied(t *testing.T) {
+	checker := &fakeSecretAccess{allowed: false}
+	validator := &AttuneNamespaceDefaultsValidator{SecretAccess: checker}
+	defaults := namespaceDefaultsWithBearer("production", "prom-token")
+
+	_, err := validator.ValidateCreate(admissionUserCtx("alice"), defaults)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must have get on Secret")
+	assert.Contains(t, err.Error(), `namespace "production"`)
+	require.Len(t, checker.calls, 1)
+	assert.Equal(t, "production", checker.calls[0].namespace)
+	assert.Equal(t, "prom-token", checker.calls[0].name)
+}
+
+func TestNamespaceDefaults_DatadogSecretAccessDenied(t *testing.T) {
+	checker := &fakeSecretAccess{allowed: false}
+	validator := &AttuneNamespaceDefaultsValidator{SecretAccess: checker}
+	defaults := namespaceDefaultsWithDatadog("production", "dd-keys")
+
+	_, err := validator.ValidateCreate(admissionUserCtx("alice"), defaults)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must have get on Secret")
+	assert.Contains(t, err.Error(), `namespace "production"`)
+	require.Len(t, checker.calls, 1)
+	assert.Equal(t, "dd-keys", checker.calls[0].name)
+	assert.Equal(t, "production", checker.calls[0].namespace)
+}
+
+func TestNamespaceDefaults_GitOpsTokenSecretAccessDenied(t *testing.T) {
+	checker := &fakeSecretAccess{allowed: false}
+	validator := &AttuneNamespaceDefaultsValidator{SecretAccess: checker}
+	defaults := namespaceDefaultsWithGitOpsToken("production", "git-token")
+
+	_, err := validator.ValidateCreate(admissionUserCtx("alice"), defaults)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must have get on Secret")
+	assert.Contains(t, err.Error(), `namespace "production"`)
+	require.Len(t, checker.calls, 1)
+	assert.Equal(t, "git-token", checker.calls[0].name)
+	assert.Equal(t, "production", checker.calls[0].namespace)
+}
+
+func TestNamespaceDefaults_SecretAccessAllowed(t *testing.T) {
+	checker := &fakeSecretAccess{allowed: true}
+	validator := &AttuneNamespaceDefaultsValidator{SecretAccess: checker}
+	defaults := namespaceDefaultsWithBearer("production", "prom-token")
+
+	_, err := validator.ValidateCreate(admissionUserCtx("alice"), defaults)
+
+	assert.NoError(t, err)
+	require.Len(t, checker.calls, 1)
+	assert.Equal(t, "production", checker.calls[0].namespace)
+	assert.Equal(t, "prom-token", checker.calls[0].name)
+	assert.NotEmpty(t, checker.calls[0].namespace)
+	assert.NotContains(t, checker.calls[0].name, "/")
+	assert.NotContains(t, checker.calls[0].namespace, "/")
+}
+
+func TestNamespaceDefaults_SecondSecretAccessDenied(t *testing.T) {
+	checker := &denyNamedSecret{deny: "git-token"}
+	validator := &AttuneNamespaceDefaultsValidator{SecretAccess: checker}
+	defaults := namespaceDefaultsWithBearer("production", "prom-token")
+	defaults.Spec.UpdateStrategy = &attunev1alpha1.UpdateStrategy{
+		Export: &attunev1alpha1.ExportConfig{
+			PullRequest: &attunev1alpha1.GitOpsPullRequestConfig{
+				TokenSecretRef: &attunev1alpha1.SecretKeyRef{Name: "git-token", Key: "token"},
+			},
+		},
+	}
+
+	_, err := validator.ValidateCreate(admissionUserCtx("alice"), defaults)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must have get on Secret")
+	assert.Contains(t, err.Error(), `Secret "git-token"`)
+	assert.Contains(t, err.Error(), `namespace "production"`)
+	require.Len(t, checker.calls, 2)
+	assert.Equal(t, "prom-token", checker.calls[0].name)
+	assert.Equal(t, "git-token", checker.calls[1].name)
+	assert.Equal(t, "production", checker.calls[0].namespace)
+	assert.Equal(t, "production", checker.calls[1].namespace)
+}
+
+func TestNamespaceDefaults_SecretAccessErrorFailsClosed(t *testing.T) {
+	checker := &fakeSecretAccess{err: errors.New("authorization review failed")}
+	validator := &AttuneNamespaceDefaultsValidator{SecretAccess: checker}
+	defaults := namespaceDefaultsWithBearer("production", "prom-token")
+
+	_, err := validator.ValidateCreate(admissionUserCtx("alice"), defaults)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "authorization review failed")
+}
+
+func TestNamespaceDefaults_NilSecretAccessSkipsCheck(t *testing.T) {
+	validator := &AttuneNamespaceDefaultsValidator{}
+	defaults := namespaceDefaultsWithBearer("production", "prom-token")
+
+	_, err := validator.ValidateCreate(admissionUserCtx("alice"), defaults)
+
+	assert.NoError(t, err)
+}
+
+func TestNamespaceDefaults_MissingAdmissionRequestSkipsSecretAccess(t *testing.T) {
+	checker := &fakeSecretAccess{allowed: false}
+	validator := &AttuneNamespaceDefaultsValidator{SecretAccess: checker}
+	defaults := namespaceDefaultsWithBearer("production", "prom-token")
+
+	_, err := validator.ValidateCreate(context.Background(), defaults)
+
+	assert.NoError(t, err)
+	assert.Empty(t, checker.calls)
+}
+
+func TestNamespaceDefaults_InvalidAddressSkipsSecretAccess(t *testing.T) {
+	checker := &fakeSecretAccess{allowed: false}
+	validator := &AttuneNamespaceDefaultsValidator{SecretAccess: checker}
+	defaults := namespaceDefaultsWithBearer("production", "prom-token")
+	defaults.Spec.MetricsSource.Prometheus.Address = "http://user:pass@prometheus:9090"
+
+	_, err := validator.ValidateCreate(admissionUserCtx("alice"), defaults)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "metricsSource.prometheus.address")
+	assert.Empty(t, checker.calls)
+}
+
+func TestNamespaceDefaults_UpdateSecretAccessDenied(t *testing.T) {
+	checker := &fakeSecretAccess{allowed: false}
+	validator := &AttuneNamespaceDefaultsValidator{SecretAccess: checker}
+	defaults := namespaceDefaultsWithBearer("production", "prom-token")
+
+	_, err := validator.ValidateUpdate(admissionUserCtx("alice"), defaults, defaults)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must have get on Secret")
+	assert.Contains(t, err.Error(), `namespace "production"`)
+	require.Len(t, checker.calls, 1)
+	assert.Equal(t, "prom-token", checker.calls[0].name)
+	assert.Equal(t, "production", checker.calls[0].namespace)
 }

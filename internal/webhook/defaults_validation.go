@@ -37,7 +37,10 @@ import (
 type AttuneDefaultsValidator struct{}
 
 // AttuneNamespaceDefaultsValidator validates AttuneNamespaceDefaults resources.
-type AttuneNamespaceDefaultsValidator struct{}
+type AttuneNamespaceDefaultsValidator struct {
+	// SecretAccess, when set, requires the admission user to get each referenced Secret.
+	SecretAccess SecretAccessChecker
+}
 
 // ValidateCreate validates a new AttuneDefaults.
 func (v *AttuneDefaultsValidator) ValidateCreate(_ context.Context, defaults *attunev1alpha1.AttuneDefaults) (admission.Warnings, error) {
@@ -110,16 +113,19 @@ const DeprecatedClusterDatadogAPIKeyWarning = "metricsSource.datadog.apiKeySecre
 const DeprecatedClusterGitOpsTokenWarning = "updateStrategy.export.pullRequest.tokenSecretRef on AttuneDefaults is deprecated; the Secret name is still read from each AttunePolicy namespace. Put the GitOps token Secret on the policy or AttuneNamespaceDefaults."
 
 // ValidateCreate validates a new AttuneNamespaceDefaults.
-func (v *AttuneNamespaceDefaultsValidator) ValidateCreate(_ context.Context, defaults *attunev1alpha1.AttuneNamespaceDefaults) (admission.Warnings, error) {
+func (v *AttuneNamespaceDefaultsValidator) ValidateCreate(ctx context.Context, defaults *attunev1alpha1.AttuneNamespaceDefaults) (admission.Warnings, error) {
 	timer := operatormetrics.NewWebhookTimer("namespace_defaults_validate_create")
 	defer timer.Observe()
 	w, err := validateDefaultsSpec(defaults.Spec)
+	if err == nil {
+		err = v.checkReferencedSecretAccess(ctx, defaults)
+	}
 	timer.RecordResult(err)
 	return w, err
 }
 
 // ValidateUpdate validates an updated AttuneNamespaceDefaults.
-func (v *AttuneNamespaceDefaultsValidator) ValidateUpdate(_ context.Context, old, defaults *attunev1alpha1.AttuneNamespaceDefaults) (admission.Warnings, error) {
+func (v *AttuneNamespaceDefaultsValidator) ValidateUpdate(ctx context.Context, old, defaults *attunev1alpha1.AttuneNamespaceDefaults) (admission.Warnings, error) {
 	timer := operatormetrics.NewWebhookTimer("namespace_defaults_validate_update")
 	defer timer.Observe()
 	var previous *attunev1alpha1.AttuneDefaultsSpec
@@ -127,6 +133,9 @@ func (v *AttuneNamespaceDefaultsValidator) ValidateUpdate(_ context.Context, old
 		previous = &old.Spec
 	}
 	w, err := validateDefaultsSpecPrevious(defaults.Spec, previous)
+	if err == nil {
+		err = v.checkReferencedSecretAccess(ctx, defaults)
+	}
 	timer.RecordResult(err)
 	return w, err
 }

@@ -72,6 +72,10 @@ func (c *sarSecretChecker) CanGetSecret(ctx context.Context, req admission.Reque
 }
 
 func policySecretNames(policy *attunev1alpha1.AttunePolicy) []string {
+	return referencedSecretNames(&policy.Spec.MetricsSource, policy.Spec.UpdateStrategy)
+}
+
+func referencedSecretNames(ms *attunev1alpha1.MetricsSource, us *attunev1alpha1.UpdateStrategy) []string {
 	seen := make(map[string]struct{})
 	var names []string
 	add := func(name string) {
@@ -84,14 +88,13 @@ func policySecretNames(policy *attunev1alpha1.AttunePolicy) []string {
 		seen[name] = struct{}{}
 		names = append(names, name)
 	}
-	ms := policy.Spec.MetricsSource
-	if ms.Prometheus != nil && ms.Prometheus.BearerTokenSecret != nil {
+	if ms != nil && ms.Prometheus != nil && ms.Prometheus.BearerTokenSecret != nil {
 		add(ms.Prometheus.BearerTokenSecret.Name)
 	}
-	if ms.Datadog != nil && ms.Datadog.APIKeySecretRef != nil {
+	if ms != nil && ms.Datadog != nil && ms.Datadog.APIKeySecretRef != nil {
 		add(ms.Datadog.APIKeySecretRef.Name)
 	}
-	if us := policy.Spec.UpdateStrategy; us != nil && us.Export != nil &&
+	if us != nil && us.Export != nil &&
 		us.Export.PullRequest != nil && us.Export.PullRequest.TokenSecretRef != nil {
 		add(us.Export.PullRequest.TokenSecretRef.Name)
 	}
@@ -113,6 +116,27 @@ func (v *AttunePolicyValidator) checkReferencedSecretAccess(ctx context.Context,
 	}
 	ns := policy.Namespace
 	for _, name := range policySecretNames(policy) {
+		allowed, err := v.SecretAccess.CanGetSecret(ctx, req, ns, name)
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			return fmt.Errorf("the admission user must have get on Secret %q in namespace %q", name, ns)
+		}
+	}
+	return nil
+}
+
+func (v *AttuneNamespaceDefaultsValidator) checkReferencedSecretAccess(ctx context.Context, defaults *attunev1alpha1.AttuneNamespaceDefaults) error {
+	if v.SecretAccess == nil {
+		return nil
+	}
+	req, ok := admissionRequest(ctx)
+	if !ok {
+		return nil
+	}
+	ns := defaults.Namespace
+	for _, name := range referencedSecretNames(defaults.Spec.MetricsSource, defaults.Spec.UpdateStrategy) {
 		allowed, err := v.SecretAccess.CanGetSecret(ctx, req, ns, name)
 		if err != nil {
 			return err
