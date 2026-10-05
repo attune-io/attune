@@ -900,7 +900,7 @@ The long statistic is the published percentile: the max of the overall percentil
 
 When the short window is selected, confidence is copied from the long profile. Percentile and burst use the short profile. CPU and memory choose separately. `memoryFromCpuRatio` does not switch the memory sample set; derived memory follows the surged CPU request. `explanation.<resource>.finalAdjustment` can include `surge` on the resource that used the short window.
 
-The webhook rejects a trigger ratio that is not finite, not greater than 1, or above 100 (`100` is accepted). Empty trigger ratio is unset. Percentile must be 50, 90, 95, or 99. Window must be at least 5m and must not be longer than `metricsSource.historyWindow`, or `168h` when history is unset. A window equal to that limit is accepted. Explicit `0s` is invalid.
+The webhook rejects a trigger ratio that is not finite, not greater than 1, or above 100 (`100` is accepted). Empty trigger ratio is unset. Percentile must be 50, 90, 95, or 99. Window must be at least 5m and on a policy must not be longer than the effective history: `metricsSource.historyWindow` on the policy, then namespace defaults, then cluster defaults, then `168h`. On AttuneDefaults or AttuneNamespaceDefaults, the limit is that object's own `historyWindow`, or `168h`. A window equal to that limit is accepted. The surge check reads defaults only when the policy sets `surge.window` and omits `historyWindow`. The minimum-above-maximum check is a second read when the policy or a named container omits `minAllowed` and sets `maxAllowed`. Explicit `0s` is invalid.
 
 ### 7.6 Memory HPA retune (annotation still required)
 

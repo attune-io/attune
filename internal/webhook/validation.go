@@ -83,14 +83,15 @@ func (v *AttunePolicyValidator) effectiveHistory(ctx context.Context, policy *at
 	if policy != nil && policy.Spec.MetricsSource.HistoryWindow != nil {
 		return policy.Spec.MetricsSource.HistoryWindow, nil
 	}
+	// This lookup reads defaults only to compare a policy surge window with
+	// the inherited history. validateDefaultsBounds is a separate read.
+	if policy == nil || (!surgeWindowSet(&policy.Spec.CPU) && !surgeWindowSet(&policy.Spec.Memory)) {
+		return nil, nil
+	}
 	if v == nil || v.Client == nil {
 		return nil, nil
 	}
-	ns := ""
-	if policy != nil {
-		ns = policy.Namespace
-	}
-	merged, err := combinedDefaults(ctx, v.Client, ns)
+	merged, err := combinedDefaults(ctx, v.Client, policy.Namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -631,6 +632,12 @@ func validateSurgeTriggerRatio(prefix, raw string) error {
 		return fmt.Errorf("%s must be <= %d, got %s", field, attunev1alpha1.MaxSurgeTriggerRatio, raw)
 	}
 	return nil
+}
+
+// surgeWindowSet reports whether rc sets surge.window, the only field
+// validated against the effective history window.
+func surgeWindowSet(rc *attunev1alpha1.ResourceConfig) bool {
+	return rc != nil && rc.Surge != nil && rc.Surge.Window != nil
 }
 
 func surgeHistoryLimit(history *metav1.Duration) time.Duration {

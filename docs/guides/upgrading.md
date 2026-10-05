@@ -464,6 +464,13 @@ window uses its own percentile and only the samples inside `surge.window`.
 One spike does not switch the window. `minimumDataPoints` still gates the
 long window.
 
+A policy `surge.window` is checked against the inherited history window.
+Admission reads `AttuneNamespaceDefaults` and `AttuneDefaults` for that
+check when the policy sets `surge.window` and omits
+`metricsSource.historyWindow`. A policy or named container policy that omits `minAllowed` while
+`maxAllowed` is set lists the same objects for the minimum-above-maximum
+check, including when it sets `historyWindow` or sets no surge window.
+
 ### OOM bump is off until memory.oomBump is set
 
 Memory requests stay on the percentile path unless `memory.oomBump` is set.

@@ -483,6 +483,45 @@ is not rewritten. It stays on this reason until an update sets
 shape fails in admission instead, with
 `cpu.limitMultiplier requires cpu.controlledValues RequestsAndLimits, or remove the multiplier`.
 
+### Policy admission denied: listing AttuneNamespaceDefaults or AttuneDefaults
+
+**Symptom**: `kubectl apply` of a policy fails with:
+
+```text
+admission webhook "validation.attune.io" denied the request:
+listing AttuneNamespaceDefaults in <namespace>: ...
+```
+
+or, when the namespace list succeeds and the cluster list fails,
+`listing AttuneDefaults: ...`.
+
+**Cause**: Admission lists defaults in two cases. A list error rejects
+the policy instead of continuing.
+
+1. The policy sets `cpu.surge.window` or `memory.surge.window` and omits
+   `metricsSource.historyWindow`. The surge window must not be longer
+   than the inherited history window, so admission lists the defaults
+   to find it. A list error rejects the policy instead of falling back
+   to `168h`.
+2. The policy, or a named `containerPolicies` entry, omits `minAllowed`
+   while `maxAllowed` is set. Admission lists defaults to see whether an
+   inherited minimum sits above that maximum. See
+   [Apply rejected: defaults min above policy max](#apply-rejected-defaults-min-above-policy-max)
+   when the list succeeds and the values conflict.
+
+Policies that set `historyWindow`, set no surge window, and do not omit
+a min beside a known max on the policy or a named container do not read
+defaults at admission.
+
+**Fix**:
+
+1. Restore list access to `AttuneNamespaceDefaults` and `AttuneDefaults`
+   for the operator, as for [`InvalidConfig`](#invalidconfig).
+2. When the failure is the surge window, set `metricsSource.historyWindow`
+   on the policy. The surge window is then checked against that value.
+   A policy or named container that still omits `minAllowed` beside a
+   known `maxAllowed` lists defaults for that check.
+
 ### WorkloadDiscoveryFailed
 
 **Symptom**: Ready condition is `False` with reason `WorkloadDiscoveryFailed`.

@@ -277,3 +277,146 @@ func TestValidateDefaults_Surge(t *testing.T) {
 		assert.NoError(t, err)
 	})
 }
+
+// noListReader fails the test on any List call, proving admission did not
+// read defaults.
+type noListReader struct {
+	client.Reader
+	t *testing.T
+}
+
+func (r noListReader) List(context.Context, client.ObjectList, ...client.ListOption) error {
+	r.t.Helper()
+	r.t.Fatalf("admission listed defaults")
+	return nil
+}
+
+// clusterListErrReader serves the namespace defaults list and fails only the
+// cluster defaults list, so a test can tell the two reads apart.
+type clusterListErrReader struct{ client.Reader }
+
+func (r clusterListErrReader) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if _, ok := list.(*attunev1alpha1.AttuneDefaultsList); ok {
+		return fmt.Errorf("cluster list injected")
+	}
+	return r.Reader.List(ctx, list, opts...)
+}
+
+func TestValidate_SurgeHistoryListOnlyWhenNeeded(t *testing.T) {
+	window := func(h time.Duration) *metav1.Duration {
+		return &metav1.Duration{Duration: h}
+	}
+	base := func() *attunev1alpha1.AttunePolicy {
+		p := validPolicy()
+		p.Namespace = "default"
+		return p
+	}
+	fakeReader := surgeValidator(t).Client
+	errReader := func(*testing.T) client.Reader { return errListReader{Reader: fakeReader} }
+	noList := func(t *testing.T) client.Reader { return noListReader{Reader: fakeReader, t: t} }
+	clusterErr := func(*testing.T) client.Reader { return clusterListErrReader{Reader: fakeReader} }
+
+	cases := []struct {
+		name    string
+		mutate  func(*attunev1alpha1.AttunePolicy)
+		reader  func(*testing.T) client.Reader
+		wantErr []string
+	}{
+		{
+			name:   "no surge, no history, list error ignored",
+			mutate: func(*attunev1alpha1.AttunePolicy) {},
+			reader: errReader,
+		},
+		{
+			name:   "no surge, no history, no list",
+			mutate: func(*attunev1alpha1.AttunePolicy) {},
+			reader: noList,
+		},
+		{
+			name: "empty cpu surge block, no history, list error ignored",
+			mutate: func(p *attunev1alpha1.AttunePolicy) {
+				p.Spec.CPU.Surge = &attunev1alpha1.Surge{}
+			},
+			reader: errReader,
+		},
+		{
+			name: "policy history covers the surge window without a list",
+			mutate: func(p *attunev1alpha1.AttunePolicy) {
+				p.Spec.MetricsSource.HistoryWindow = window(24 * time.Hour)
+				p.Spec.CPU.Surge = &attunev1alpha1.Surge{Window: window(2 * time.Hour)}
+			},
+			reader: errReader,
+		},
+		{
+			name: "policy history still bounds the surge window",
+			mutate: func(p *attunev1alpha1.AttunePolicy) {
+				p.Spec.MetricsSource.HistoryWindow = window(24 * time.Hour)
+				p.Spec.CPU.Surge = &attunev1alpha1.Surge{Window: window(48 * time.Hour)}
+			},
+			reader:  errReader,
+			wantErr: []string{"must not exceed historyWindow (24h0m0s)"},
+		},
+		{
+			name: "cpu surge window without history rejects on a list error",
+			mutate: func(p *attunev1alpha1.AttunePolicy) {
+				p.Spec.CPU.Surge = &attunev1alpha1.Surge{Window: window(48 * time.Hour)}
+			},
+			reader:  errReader,
+			wantErr: []string{"listing AttuneNamespaceDefaults in default", "injected"},
+		},
+		{
+			name: "memory surge window without history rejects on a list error",
+			mutate: func(p *attunev1alpha1.AttunePolicy) {
+				p.Spec.Memory.Surge = &attunev1alpha1.Surge{Window: window(2 * time.Hour)}
+			},
+			reader:  errReader,
+			wantErr: []string{"listing AttuneNamespaceDefaults in default", "injected"},
+		},
+		{
+			name: "surge window without history rejects on a cluster list error",
+			mutate: func(p *attunev1alpha1.AttunePolicy) {
+				p.Spec.CPU.Surge = &attunev1alpha1.Surge{Window: window(2 * time.Hour)}
+			},
+			reader:  clusterErr,
+			wantErr: []string{"listing AttuneDefaults: cluster list injected"},
+		},
+		{
+			name: "container surge is rejected as policy-wide without a list",
+			mutate: func(p *attunev1alpha1.AttunePolicy) {
+				p.Spec.ContainerPolicies = []attunev1alpha1.ContainerResourcePolicy{{
+					ContainerName: "app",
+					CPU:           &attunev1alpha1.ResourceConfig{Surge: &attunev1alpha1.Surge{Window: window(2 * time.Hour)}},
+				}}
+			},
+			reader:  noList,
+			wantErr: []string{"surge is policy-wide"},
+		},
+	}
+	for _, tc := range cases {
+		check := func(t *testing.T, err error) {
+			t.Helper()
+			if len(tc.wantErr) == 0 {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			for _, sub := range tc.wantErr {
+				assert.Contains(t, err.Error(), sub)
+			}
+		}
+		t.Run(tc.name+"/create", func(t *testing.T) {
+			policy := base()
+			tc.mutate(policy)
+			v := &AttunePolicyValidator{Client: tc.reader(t)}
+			_, err := v.ValidateCreate(context.Background(), policy)
+			check(t, err)
+		})
+		t.Run(tc.name+"/update", func(t *testing.T) {
+			policy := base()
+			tc.mutate(policy)
+			v := &AttunePolicyValidator{Client: tc.reader(t)}
+			_, err := v.ValidateUpdate(context.Background(), base(), policy)
+			check(t, err)
+		})
+	}
+}
