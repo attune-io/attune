@@ -1424,10 +1424,10 @@ func scaleControlledLimits(policy *attunev1alpha1.AttunePolicy, rec *attunev1alp
 		memControlled = *memCfg.ControlledValues
 	}
 	if cpuControlled == attunev1alpha1.ControlledRequestsAndLimits {
-		rec.Recommended.CPULimit = scaleLimits(currentCPUReq, currentCPULim, rec.Recommended.CPURequest, limitMultiplierRatio(cpuCfg.LimitMultiplier))
+		rec.Recommended.CPULimit = scaleLimits(corev1.ResourceCPU, currentCPUReq, currentCPULim, rec.Recommended.CPURequest, limitMultiplierRatio(cpuCfg.LimitMultiplier))
 	}
 	if memControlled == attunev1alpha1.ControlledRequestsAndLimits {
-		rec.Recommended.MemoryLimit = scaleLimits(currentMemReq, currentMemLim, rec.Recommended.MemoryRequest, limitMultiplierRatio(memCfg.LimitMultiplier))
+		rec.Recommended.MemoryLimit = scaleLimits(corev1.ResourceMemory, currentMemReq, currentMemLim, rec.Recommended.MemoryRequest, limitMultiplierRatio(memCfg.LimitMultiplier))
 	}
 }
 

@@ -1144,6 +1144,28 @@ Guaranteed, use `controlledValues: RequestsAndLimits` so requests stay
 equal to limits. On Kubernetes 1.33, a memory limit decrease may also
 need `resizePolicy: RestartContainer`.
 
+### Fractional memory limit warning
+
+**Symptom**: The operator log shows an API server warning that a memory
+limit has a fractional byte value, such as `1301300m`, when Attune
+patches a Deployment or StatefulSet template (template persistence)
+with `memory.controlledValues: RequestsAndLimits`. The operator logs
+these warnings. They do not appear in `kubectl` output or as events.
+In-place pod resizes return no warning. A pod created through initial
+sizing warns the controller that creates it, so that warning appears in
+the kube-controller-manager log, not the operator log.
+
+**Cause**: Earlier releases scaled the memory limit by a non-integer
+ratio and kept millibyte precision. Both an explicit
+`memory.limitMultiplier` and the live request-to-limit ratio could do
+this.
+
+**Fix**: Upgrade. Scaled memory limits are now rounded up to a whole
+byte. A pod or template that already carries a fractional limit is not
+changed for this alone; the next resize that changes the limit for
+another reason writes a whole-byte value. See
+[Upgrading](upgrading.md#whole-byte-memory-limits).
+
 ### ResourceQuota exceeded
 
 **Symptom**: Operator logs `Skipping resize: quota/limitrange violation`

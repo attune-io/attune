@@ -238,6 +238,7 @@ spec:
     controlledValues: RequestsAndLimits
     # limitMultiplier stays off until set. Omitted keeps the live ratio.
     # limitMultiplier: "1.5"
+    # Scaled memory limits are rounded up to a whole byte.
     # Memory-specific safety
     allowDecrease: false      # default: false (OOM risk), set true only when confident
     # Maximum change per reconciliation cycle

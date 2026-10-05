@@ -498,6 +498,7 @@ func TestScaleLimits(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := scaleLimits(
+				corev1.ResourceCPU,
 				resource.MustParse(tt.currentReq),
 				resource.MustParse(tt.currentLim),
 				resource.MustParse(tt.newReq),
@@ -513,6 +514,7 @@ func TestScaleLimits_OverflowClamped(t *testing.T) {
 	// 1Ki request with 100Gi limit: ratio = 104857600.
 	// New 1Gi request * ratio overflows int64; must preserve existing limit.
 	got := scaleLimits(
+		corev1.ResourceMemory,
 		resource.MustParse("1Ki"),
 		resource.MustParse("100Gi"),
 		resource.MustParse("1Gi"),
