@@ -250,6 +250,104 @@ func TestProcessWorkloads_Auto_ScaleOutStillResizesReadyPods(t *testing.T) {
 	require.Equal(t, 0, countSubstr(recordedEvents(rec), "RolloutInProgress"))
 }
 
+func TestStatefulSetPodSkipped_PartitionHold(t *testing.T) {
+	t.Parallel()
+	// Option B, resizing both revisions once a held partition is stable,
+	// was rejected. Pods on the older revision stay skipped until
+	// currentRevision matches updateRevision. The hash is the signal.
+	// The pod name is not parsed for an ordinal.
+	partition := int32(2)
+	rolling := func(current, update string, generation, observed int64) *appsv1.StatefulSet {
+		return &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{Generation: generation},
+			Spec: appsv1.StatefulSetSpec{
+				UpdateStrategy: appsv1.StatefulSetUpdateStrategy{
+					Type: appsv1.RollingUpdateStatefulSetStrategyType,
+					RollingUpdate: &appsv1.RollingUpdateStatefulSetStrategy{
+						Partition: &partition,
+					},
+				},
+			},
+			Status: appsv1.StatefulSetStatus{
+				ObservedGeneration: observed,
+				CurrentRevision:    current,
+				UpdateRevision:     update,
+			},
+		}
+	}
+	pod := func(hash string) *corev1.Pod {
+		return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+			Name: "db-0",
+			Labels: map[string]string{
+				appsv1.ControllerRevisionHashLabelKey: hash,
+			},
+		}}
+	}
+	tests := []struct {
+		name string
+		sts  *appsv1.StatefulSet
+		pod  *corev1.Pod
+		want bool
+	}{
+		{
+			name: "old revision below a held partition stays skipped",
+			sts:  rolling("rev-old", "rev-new", 1, 1),
+			pod:  pod("rev-old"),
+			want: true,
+		},
+		{
+			name: "update revision is not skipped",
+			sts:  rolling("rev-old", "rev-new", 1, 1),
+			pod:  pod("rev-new"),
+		},
+		{
+			name: "matching revisions skip no pod",
+			sts:  rolling("rev-new", "rev-new", 1, 1),
+			pod:  pod("rev-old"),
+		},
+		{
+			name: "stale generation skips the update revision",
+			sts:  rolling("rev-old", "rev-new", 4, 3),
+			pod:  pod("rev-new"),
+			want: true,
+		},
+		{
+			name: "ondelete old hash is not skipped",
+			sts: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					UpdateStrategy: appsv1.StatefulSetUpdateStrategy{
+						Type: appsv1.OnDeleteStatefulSetStrategyType,
+					},
+				},
+				Status: appsv1.StatefulSetStatus{
+					CurrentRevision: "rev-old",
+					UpdateRevision:  "rev-new",
+				},
+			},
+			pod: pod("rev-old"),
+		},
+		{
+			name: "non rolling strategy is not skipped",
+			sts: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					UpdateStrategy: appsv1.StatefulSetUpdateStrategy{Type: "Recreate"},
+				},
+				Status: appsv1.StatefulSetStatus{
+					CurrentRevision: "rev-old",
+					UpdateRevision:  "rev-new",
+				},
+			},
+			pod: pod("rev-old"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, statefulSetPodSkipped(tt.sts, tt.pod))
+		})
+	}
+}
+
 func TestWorkload_PodSkippedForRollout(t *testing.T) {
 	t.Run("StatefulSet_stale_generation_skips_all_pods", func(t *testing.T) {
 		now := time.Now()

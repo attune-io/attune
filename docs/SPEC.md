@@ -826,6 +826,7 @@ func (r *ResizeEngine) WaitForResize(ctx context.Context, ns, podName,
 | Pod deleted during resize | New pod uses workload template; with opt-in `templatePersistence`, template tracks recommended/applied sizes so replacements start correctly sized (default off) |
 | Node has insufficient resources | Resize marked Deferred; retry on next reconciliation |
 | QoS class would change | Pre-check rejects the resize |
+| StatefulSet partition holds the old revision | Pods whose `controller-revision-hash` is not `status.updateRevision` stay skipped while `currentRevision` and `updateRevision` differ. A stale generation skips every pod. OnDelete pods are resized |
 | LimitRange violation | API server rejects; log and skip |
 | ResourceQuota exceeded | API server rejects; log and skip |
 | Static CPU/Memory Manager | Infeasible for Guaranteed QoS pods; skip with warning |

@@ -344,6 +344,31 @@ does not happen, read the pod-level skip on the policy events.
 Infeasible, or a QoS change. `RolloutInProgress` is only a resize skip
 for Auto, OneShot, and Canary during a real replacement.
 
+### StatefulSet pods below a partition are not resized
+
+**Symptom**: Some pods of a RollingUpdate StatefulSet stay at their
+current requests. Pods whose `controller-revision-hash` matches
+`status.updateRevision` change. Pods on `status.currentRevision` do
+not. The policy emits `RolloutInProgress` for the skipped pods.
+
+**Cause**: A `partition` that has not reached every replica leaves
+`currentRevision` different from `updateRevision` on purpose. Pods
+whose hash is not `updateRevision` stay skipped for as long as those
+two revisions differ. The hold does not end when the StatefulSet stops
+making progress. Attune does not read the pod ordinal.
+
+A stale generation is a different skip. `metadata.generation` ahead of
+`status.observedGeneration` skips every pod, including pods already on
+`updateRevision`. When the generation is observed and the two revision
+strings match, this check skips no pod.
+
+OnDelete is not this skip. Those pods are resized, including pods still
+on the previous template.
+
+**Fix**: Lower `partition`, or wait until `currentRevision` equals
+`updateRevision`, when the older pods should be resized. Leaving the
+partition in place keeps the older pods unchanged.
+
 ### DaemonSet pods are not resized
 
 **Symptom**: Pods of a RollingUpdate DaemonSet stay at their current
