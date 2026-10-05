@@ -113,6 +113,301 @@ func TestCheckPendingSafetyObservations_ObservationElapsed(t *testing.T) {
 	assert.Equal(t, attunev1alpha1.ReasonSafetyEvaluating, cond.Reason)
 }
 
+// elapsedSafetyPod is a tracked pod whose resized-at is already past the
+// default observation period. Callers add kubelet resize status.
+func elapsedSafetyPod(name, resizedAt string) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "default",
+			Labels:    map[string]string{"attune.io/tracked": "true"},
+			Annotations: map[string]string{
+				"attune.io/resized-at":                   resizedAt,
+				"attune.io/resized-workload":             "api-server",
+				"attune.io/resized-containers":           "main",
+				"attune.io/original-cpu-request.main":    "500m",
+				"attune.io/original-memory-request.main": "512Mi",
+				"attune.io/policy":                       "test-policy",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name:  "main",
+				Image: "nginx",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("250m"),
+						corev1.ResourceMemory: resource.MustParse("256Mi"),
+					},
+				},
+			}},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "main", RestartCount: 0},
+			},
+		},
+	}
+}
+
+func TestCheckPendingSafetyObservations_DeferredApplyHoldsTracking(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := elapsedSafetyPod("deferred-pod", resizedAt)
+	pod.Status.Conditions = append(pod.Status.Conditions, corev1.PodCondition{
+		Type:   corev1.PodResizePending,
+		Status: corev1.ConditionTrue,
+		Reason: "Deferred",
+	})
+	policy := newTestPolicy("test-policy", "default")
+	reconciler, fakeClient := newSafetyTestReconciler(pod)
+
+	pending := reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+
+	var updated corev1.Pod
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "deferred-pod", Namespace: "default",
+	}, &updated))
+	assert.True(t, pending, "observation stays pending while the kubelet has not applied the resize")
+	assert.Equal(t, resizedAt, updated.Annotations[annotationResizedAt], "resized-at stays until the kubelet finishes")
+	assert.Equal(t, "true", updated.Annotations[annotationResizeApplyPending])
+	_, hasContainers := updated.Annotations[annotationResizedContainers]
+	assert.True(t, hasContainers, "resized-containers stays while apply is outstanding")
+	assert.Equal(t, "true", updated.Labels[labelTracked], "tracked label stays while apply is outstanding")
+	assert.Equal(t, "500m", updated.Annotations["attune.io/original-cpu-request.main"])
+}
+
+func TestCheckPendingSafetyObservations_OutstandingApplyHoldsTracking(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	tests := []struct {
+		name    string
+		podName string
+		status  corev1.PodStatus
+	}{
+		{
+			name:    "in progress",
+			podName: "hold-in-progress",
+			status: corev1.PodStatus{
+				Conditions: []corev1.PodCondition{{
+					Type:   corev1.PodResizeInProgress,
+					Status: corev1.ConditionTrue,
+				}},
+			},
+		},
+		{
+			name:    "legacy deferred",
+			podName: "hold-legacy-deferred",
+			status: corev1.PodStatus{
+				Resize: corev1.PodResizeStatusDeferred,
+			},
+		},
+		{
+			name:    "legacy in progress",
+			podName: "hold-legacy-in-progress",
+			status: corev1.PodStatus{
+				Resize: corev1.PodResizeStatusInProgress,
+			},
+		},
+		{
+			name:    "pending without a reason",
+			podName: "hold-pending-no-reason",
+			status: corev1.PodStatus{
+				Conditions: []corev1.PodCondition{{
+					Type:   corev1.PodResizePending,
+					Status: corev1.ConditionTrue,
+				}},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pod := elapsedSafetyPod(tt.podName, resizedAt)
+			pod.Status.Phase = corev1.PodRunning
+			pod.Status.Conditions = append(pod.Status.Conditions, tt.status.Conditions...)
+			pod.Status.Resize = tt.status.Resize
+			policy := newTestPolicy("test-policy", "default")
+			reconciler, fakeClient := newSafetyTestReconciler(pod)
+
+			pending := reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+
+			var updated corev1.Pod
+			require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+				Name: pod.Name, Namespace: "default",
+			}, &updated))
+			assert.True(t, pending)
+			assert.Equal(t, resizedAt, updated.Annotations[annotationResizedAt])
+			assert.Equal(t, "true", updated.Annotations[annotationResizeApplyPending])
+			assert.Equal(t, "true", updated.Labels[labelTracked])
+		})
+	}
+}
+
+func TestCheckPendingSafetyObservations_ApplyPendingDoesNotRefreshWhileStillOutstanding(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := elapsedSafetyPod("still-deferred", resizedAt)
+	pod.Annotations[annotationResizeApplyPending] = "true"
+	pod.Status.Conditions = append(pod.Status.Conditions, corev1.PodCondition{
+		Type:   corev1.PodResizePending,
+		Status: corev1.ConditionTrue,
+		Reason: "Deferred",
+	})
+	policy := newTestPolicy("test-policy", "default")
+	reconciler, fakeClient := newSafetyTestReconciler(pod)
+
+	pending := reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+
+	var updated corev1.Pod
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: pod.Name, Namespace: "default",
+	}, &updated))
+	assert.True(t, pending)
+	assert.Equal(t, resizedAt, updated.Annotations[annotationResizedAt], "a later wait must not move the clock")
+	assert.Equal(t, "true", updated.Annotations[annotationResizeApplyPending])
+	assert.Equal(t, "500m", updated.Annotations["attune.io/original-cpu-request.main"])
+}
+
+func TestCheckPendingSafetyObservations_ApplyFinishedRestartsObservation(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := elapsedSafetyPod("applied-pod", resizedAt)
+	pod.Annotations[annotationResizeApplyPending] = "true"
+	before := time.Now().Add(-time.Second)
+	policy := newTestPolicy("test-policy", "default")
+	reconciler, fakeClient := newSafetyTestReconciler(pod)
+
+	pending := reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+
+	var updated corev1.Pod
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: pod.Name, Namespace: "default",
+	}, &updated))
+	assert.True(t, pending, "the restarted window is still open")
+	_, hasMarker := updated.Annotations[annotationResizeApplyPending]
+	assert.False(t, hasMarker, "apply marker is cleared when the kubelet finishes")
+	assert.Equal(t, "main", updated.Annotations[annotationResizedContainers])
+	assert.Equal(t, "500m", updated.Annotations["attune.io/original-cpu-request.main"])
+	assert.Equal(t, "true", updated.Labels[labelTracked])
+	got, err := time.Parse(time.RFC3339, updated.Annotations[annotationResizedAt])
+	require.NoError(t, err)
+	assert.False(t, got.Before(before), "resized-at restarts at apply time, got %s", got)
+	assert.True(t, got.Before(time.Now().Add(time.Minute)))
+}
+
+func TestCheckPendingSafetyObservations_InfeasibleStillCompletes(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	tests := []struct {
+		name    string
+		podName string
+		marker  bool
+	}{
+		{name: "no marker", podName: "infeasible-no-marker", marker: false},
+		{name: "marker from an earlier defer", podName: "infeasible-had-marker", marker: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pod := elapsedSafetyPod(tt.podName, resizedAt)
+			if tt.marker {
+				pod.Annotations[annotationResizeApplyPending] = "true"
+			}
+			pod.Status.Conditions = append(pod.Status.Conditions, corev1.PodCondition{
+				Type:   corev1.PodResizePending,
+				Status: corev1.ConditionTrue,
+				Reason: "Infeasible",
+			})
+			policy := newTestPolicy("test-policy", "default")
+			reconciler, fakeClient := newSafetyTestReconciler(pod)
+
+			pending := reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+
+			var updated corev1.Pod
+			require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+				Name: pod.Name, Namespace: "default",
+			}, &updated))
+			assert.False(t, pending)
+			_, hasResizedAt := updated.Annotations[annotationResizedAt]
+			assert.False(t, hasResizedAt)
+			_, hasMarker := updated.Annotations[annotationResizeApplyPending]
+			assert.False(t, hasMarker)
+			_, hasTracked := updated.Labels[labelTracked]
+			assert.False(t, hasTracked)
+		})
+	}
+}
+
+func TestCheckPendingSafetyObservations_InProgressDuringWindowDoesNotArmSecondPeriod(t *testing.T) {
+	resizedAt := time.Now().Add(-30 * time.Second).UTC().Format(time.RFC3339)
+	pod := elapsedSafetyPod("brief-progress", resizedAt)
+	pod.Status.Conditions = append(pod.Status.Conditions, corev1.PodCondition{
+		Type:   corev1.PodResizeInProgress,
+		Status: corev1.ConditionTrue,
+	})
+	policy := newTestPolicy("test-policy", "default")
+	reconciler, fakeClient := newSafetyTestReconciler(pod)
+
+	pending := reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+
+	var updated corev1.Pod
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: pod.Name, Namespace: "default",
+	}, &updated))
+	assert.True(t, pending, "the original window is still open")
+	assert.Equal(t, resizedAt, updated.Annotations[annotationResizedAt])
+	_, hasMarker := updated.Annotations[annotationResizeApplyPending]
+	assert.False(t, hasMarker, "a brief in-progress condition must not arm a second window")
+	assert.Equal(t, "true", updated.Labels[labelTracked])
+}
+
+func TestCheckPendingSafetyObservations_StaleInProgressCompletes(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := elapsedSafetyPod("stale-progress", resizedAt)
+	pod.Status.Conditions = append(pod.Status.Conditions, corev1.PodCondition{
+		Type:               corev1.PodResizeInProgress,
+		Status:             corev1.ConditionTrue,
+		LastTransitionTime: metav1.NewTime(time.Now().Add(-2 * time.Hour)),
+	})
+	policy := newTestPolicy("test-policy", "default")
+	reconciler, fakeClient := newSafetyTestReconciler(pod)
+
+	pending := reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+
+	var updated corev1.Pod
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: pod.Name, Namespace: "default",
+	}, &updated))
+	assert.False(t, pending)
+	_, hasResizedAt := updated.Annotations[annotationResizedAt]
+	assert.False(t, hasResizedAt, "an hour-old in-progress condition does not hold the window")
+}
+
+func TestCheckPendingSafetyObservations_StaleInProgressAfterMarkerCompletes(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := elapsedSafetyPod("stale-after-marker", resizedAt)
+	pod.Annotations[annotationResizeApplyPending] = "true"
+	pod.Status.Conditions = append(pod.Status.Conditions, corev1.PodCondition{
+		Type:               corev1.PodResizeInProgress,
+		Status:             corev1.ConditionTrue,
+		LastTransitionTime: metav1.NewTime(time.Now().Add(-2 * time.Hour)),
+	})
+	policy := newTestPolicy("test-policy", "default")
+	reconciler, fakeClient := newSafetyTestReconciler(pod)
+
+	pending := reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+
+	var updated corev1.Pod
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: pod.Name, Namespace: "default",
+	}, &updated))
+	assert.False(t, pending, "a stale in-progress condition does not start another window")
+	_, hasResizedAt := updated.Annotations[annotationResizedAt]
+	assert.False(t, hasResizedAt)
+	_, hasMarker := updated.Annotations[annotationResizeApplyPending]
+	assert.False(t, hasMarker)
+	_, hasTracked := updated.Labels[labelTracked]
+	assert.False(t, hasTracked)
+}
+
 func TestCheckPendingSafetyObservations_CleanupPatchFailureKeepsPending(t *testing.T) {
 	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
 	pod := &corev1.Pod{

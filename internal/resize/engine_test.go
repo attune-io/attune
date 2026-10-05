@@ -1021,6 +1021,85 @@ func TestIsResizeDeferred(t *testing.T) {
 	}
 }
 
+func TestResizeApplyOutstanding(t *testing.T) {
+	stale := metav1.NewTime(time.Now().Add(-2 * time.Hour))
+	tests := []struct {
+		name string
+		pod  *corev1.Pod
+		want bool
+	}{
+		{name: "nil", pod: nil, want: false},
+		{name: "no status", pod: &corev1.Pod{}, want: false},
+		{
+			name: "deferred",
+			pod: &corev1.Pod{Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{
+				Type: corev1.PodResizePending, Status: corev1.ConditionTrue, Reason: "Deferred",
+			}}}},
+			want: true,
+		},
+		{
+			name: "pending without a reason",
+			pod: &corev1.Pod{Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{
+				Type: corev1.PodResizePending, Status: corev1.ConditionTrue,
+			}}}},
+			want: true,
+		},
+		{
+			name: "infeasible is not outstanding",
+			pod: &corev1.Pod{Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{
+				Type: corev1.PodResizePending, Status: corev1.ConditionTrue, Reason: "Infeasible",
+			}}}},
+			want: false,
+		},
+		{
+			name: "in progress",
+			pod: &corev1.Pod{Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{
+				Type: corev1.PodResizeInProgress, Status: corev1.ConditionTrue,
+			}}}},
+			want: true,
+		},
+		{
+			name: "false in progress",
+			pod: &corev1.Pod{Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{
+				Type: corev1.PodResizeInProgress, Status: corev1.ConditionFalse,
+			}}}},
+			want: false,
+		},
+		{
+			name: "stale in progress",
+			pod: &corev1.Pod{Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{
+				Type: corev1.PodResizeInProgress, Status: corev1.ConditionTrue, LastTransitionTime: stale,
+			}}}},
+			want: false,
+		},
+		{
+			name: "legacy deferred",
+			pod:  &corev1.Pod{Status: corev1.PodStatus{Resize: corev1.PodResizeStatusDeferred}},
+			want: true,
+		},
+		{
+			name: "legacy in progress",
+			pod:  &corev1.Pod{Status: corev1.PodStatus{Resize: corev1.PodResizeStatusInProgress}},
+			want: true,
+		},
+		{
+			name: "legacy infeasible",
+			pod:  &corev1.Pod{Status: corev1.PodStatus{Resize: corev1.PodResizeStatusInfeasible}},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, ResizeApplyOutstanding(tt.pod))
+			if tt.name == "stale in progress" {
+				assert.True(t, InProgressStale(tt.pod))
+			} else {
+				assert.False(t, InProgressStale(tt.pod))
+			}
+		})
+	}
+}
+
 func TestResizeDeferredSince(t *testing.T) {
 	ts := metav1.NewTime(time.Unix(1_700_000_000, 0).UTC())
 	pod := &corev1.Pod{
