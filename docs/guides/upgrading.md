@@ -46,6 +46,24 @@ ClusterRole. Policies that do not set `kind: Rollout` do not change.
 Attune does not install the Rollout CRD. A Rollout policy stays Ready
 False with reason `WorkloadCRDMissing` until Argo Rollouts is installed.
 
+With `spec.workloadRef` set, `TemplatePersistence` can be False with one
+of two reasons. `WorkloadRefUnread` is set whether or not template
+persistence is on. It means `spec.workloadRef` has an empty name or an
+unsupported kind, or the referenced object could not be read or has no
+containers; the error is also in `status.workloadErrors`.
+`TemplateWorkloadRef` is set only with template persistence on, and only
+on a reconcile that reaches the template persistence step (Observe mode
+and other early exits skip it). It means no reference read failed and
+Attune left the Rollout template alone. `WorkloadRefUnread` wins while any
+reference read fails, and clears once every reference can be read.
+`status.workloadErrors` keeps at most 10 entries, so with more failing
+workloads a reference error can be dropped from it and the reason may not
+show.
+
+What changes on upgrade: a `WorkloadRefUnread` reason that template
+persistence used to overwrite with `TemplateWorkloadRef`, or remove, now
+stays. Resize behavior, defaults, and the CRD schema do not change.
+
 ### Resize during a rollout
 
 Recommendations are still computed while pods are being replaced. Which
