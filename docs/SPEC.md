@@ -223,9 +223,11 @@ spec:
     # startupBoost:          # optional CPU cold-start multiplier
     #   multiplier: "2.0"
     #   duration: 2m
-    #   # excludeFromHistory: true drops CPU samples until
-    #   # CreationTimestamp + duration + rateWindow. Omitted keeps
-    #   # today's percentile. Deleted pods stay until historyWindow.
+    #   # excludeFromHistory: true drops CPU samples from
+    #   # attune.io/startup-boost-at when that stamp is set and not
+    #   # before creation, otherwise from CreationTimestamp, until that
+    #   # start plus duration plus rateWindow. Omitted keeps today's
+    #   # percentile. Deleted pods stay until historyWindow.
     #   # A recreated name keeps samples older than the new CreationTimestamp.
 
   memory:
@@ -577,11 +579,14 @@ Inspired by VPA's decorator pattern, but with critical improvements:
 
 When `cpu.startupBoost.excludeFromHistory` is true, the Prometheus CPU
 query is `max by (pod, container)` so each pod and container is one
-series. CPU samples before pod CreationTimestamp plus duration plus the
-rate window are dropped, then the remaining pod series are reduced with
-`podAggregation`. Nil and false keep today's percentile. Memory samples
-are unchanged. Deleted pods stay until `historyWindow`. A recreated
-pod name keeps samples older than the new CreationTimestamp.
+series. The exclusion window starts at `attune.io/startup-boost-at`
+when that stamp is set and not before creation, otherwise at
+CreationTimestamp. CPU samples from that start until start plus duration
+plus the rate window are dropped, then the remaining pod series are
+reduced with `podAggregation`. A sample at the cutoff stays. Nil and
+false keep today's percentile. Memory samples are unchanged. Deleted
+pods stay until `historyWindow`. A recreated pod name keeps samples
+older than the new CreationTimestamp.
 
 ```
 Raw Prometheus Data

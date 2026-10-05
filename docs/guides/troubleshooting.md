@@ -783,17 +783,33 @@ Use the explanation chain (percentile → overhead → confidence → bounds →
 - Never resizes with tiny delta: change filter; expected when already near target
 - Stuck on node capacity: Deferred/Infeasible section below
 
+### CPU percentile stayed high after a boost
+
+**Symptom**: `cpu.startupBoost.excludeFromHistory` is true, the boost has
+ended, and the CPU recommendation is still high.
+
+**Cause**: Compare `attune.io/startup-boost-at` with the pod's
+`creationTimestamp`. The window starts at that stamp when it is present
+and not before creation. Samples between creation and the stamp stay, so
+a spike in that gap still trains the percentile. Samples from the stamp
+until stamp plus `startupBoost.duration` plus the rate window are
+dropped. A missing or unreadable stamp starts at creation, so a spike
+after that creation window stays. A sample exactly at the cutoff stays.
+
+**What it is not**: Omitting `excludeFromHistory`. Nil and false keep
+every CPU sample. Memory samples are not part of this window.
+
 ### High CPU after startup samples are excluded
 
 **Symptom**: `cpu.startupBoost.excludeFromHistory` is true and the CPU
 recommendation is still high.
 
 **Cause**: Deleted pods stay in the series until `historyWindow`, because
-there is no `CreationTimestamp` to cut on. A recreated pod keeps samples
-older than its new creation time. The cutoff is creation plus
-`startupBoost.duration` plus the rate window, so points near the end of
-startup can still count. A series with no pod label is not filtered
-(explanation note `startupExcluded=skipped`).
+there is no creation time or stamp to cut on. A recreated pod keeps
+samples older than its new creation time. The cutoff is the boost stamp,
+or creation when that stamp is missing, plus `startupBoost.duration`
+plus the rate window, so points at the cutoff still count. A series with
+no pod label is not filtered (explanation note `startupExcluded=skipped`).
 
 **What it is not**: Setting `excludeFromHistory` to false. False keeps
 today's percentile and is not the fix for a stuck high recommendation.

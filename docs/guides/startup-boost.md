@@ -38,16 +38,18 @@ plus `duration` elapses and dest returns to the steady-state
 recommendation. Container Ready is not checked.
 
 `excludeFromHistory` is separate from the boost apply. When it is true,
-CPU samples that fall before pod `CreationTimestamp` plus `duration`
-plus the rate window are left out of the percentile. Sample timestamps
-are the end of `rate()`, so the rate window is part of the cutoff. A
-sample exactly at the cutoff stays. Nil and false keep today's
-percentile. Memory samples are unchanged. Deleted pods stay in history
-until `historyWindow`, because there is no `CreationTimestamp` to cut
-on. A recreated pod keeps samples older than its new creation time.
-A series with no pod label is left unfiltered. Prometheus uses
-`max by (pod, container)` for that CPU query so each pod and container
-is one series. The boost annotation is not the cutoff.
+CPU samples from the boost window are left out of the percentile. The
+window starts at `attune.io/startup-boost-at` when that stamp is set
+and not before pod creation. A missing or unreadable stamp starts at
+`CreationTimestamp`. The cutoff is that start plus `duration` plus the
+rate window. Sample timestamps are the end of `rate()`, so the rate
+window is part of the cutoff. A sample exactly at the cutoff stays.
+Nil and false keep today's percentile. Memory samples are unchanged.
+Deleted pods stay in history until `historyWindow`, because there is
+no creation time or stamp to cut on. A recreated pod keeps samples
+older than its new creation time. A series with no pod label is left
+unfiltered. Prometheus uses `max by (pod, container)` for that CPU
+query so each pod and container is one series.
 
 If the boosted CPU would exceed `maxAllowed` or the node's allocatable
 CPU, the boost is capped. `RequestsOnly` also dest-caps leftover dest
@@ -100,7 +102,7 @@ spec:
 |-------|------|-------------|-------------|
 | `multiplier` | string | > 1.0, <= 10.0 | Scales the recommended CPU request during startup |
 | `duration` | Duration | >= 10s, <= 1h | Maximum time the boost remains active |
-| `excludeFromHistory` | bool | omitted (false) | When true, drop CPU samples from creation until `CreationTimestamp` plus `duration` plus `rateWindow`. Samples older than creation stay. Nil and false keep today's percentile. Deleted pods stay until `historyWindow`. |
+| `excludeFromHistory` | bool | omitted (false) | When true, drop CPU samples from `attune.io/startup-boost-at` when that stamp is set and not before creation, otherwise from `CreationTimestamp`, until that start plus `duration` plus `rateWindow`. A sample at the cutoff stays. Samples older than creation stay. Nil and false keep today's percentile. Deleted pods stay until `historyWindow`. |
 
 ### Choosing a multiplier
 

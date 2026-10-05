@@ -655,3 +655,161 @@ func podAt(name string, created time.Time) corev1.Pod {
 		},
 	}
 }
+
+func podAtWithBoostStamp(name string, created time.Time, stamp string) corev1.Pod {
+	pod := podAt(name, created)
+	if stamp == "" {
+		return pod
+	}
+	pod.Annotations = map[string]string{annotationStartupBoostAt: stamp}
+	return pod
+}
+
+func TestStartupHistory_MemorySpikeInBoostWindowStays(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	policy := newTestPolicy("test-policy", "default")
+	minPoints := int32(8)
+	policy.Spec.MetricsSource.MinimumDataPoints = &minPoints
+	rate := metav1.Duration{Duration: time.Minute}
+	policy.Spec.MetricsSource.RateWindow = &rate
+	policy.Spec.CPU.Overhead = "0"
+	policy.Spec.CPU.MaxChangePercent = int32Ptr(100)
+	policy.Spec.Memory.Overhead = "0"
+	policy.Spec.Memory.MaxChangePercent = int32Ptr(100)
+	policy.Spec.CPU.StartupBoost = &attunev1alpha1.StartupBoost{
+		Multiplier:         "2.0",
+		Duration:           metav1.Duration{Duration: time.Minute},
+		ExcludeFromHistory: boolPtr(true),
+	}
+	created := now.Add(-30 * time.Second)
+	stamp := now.Add(-10 * time.Second)
+	young := podAtWithBoostStamp("young", created, stamp.Format(time.RFC3339))
+	old := podAt("old", now.Add(-2*time.Hour))
+	deploy := newTestDeployment("api-server", "default", nil)
+	reconciler := newReconcilerWithClient()
+	reconciler.SetNowFunc(func() time.Time { return now })
+
+	mem := make([]rsmetrics.Sample, 12)
+	for i := range mem {
+		mem[i] = rsmetrics.Sample{
+			Timestamp: stamp.Add(time.Duration(i+1) * time.Second),
+			Value:     1024 * 1024 * 1024,
+			Pod:       "young",
+		}
+	}
+	mc := &mockCollector{
+		queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			if strings.Contains(query, "container_cpu_usage_seconds_total") {
+				return map[string][]rsmetrics.Sample{
+					"main": append(steadyPodSamples(now, "old", 12, 0.05), rsmetrics.Sample{
+						Timestamp: now, Value: 10, Pod: "young",
+					}),
+				}, nil
+			}
+			assert.Contains(t, query, "max by (container)")
+			assert.NotContains(t, query, "max by (pod, container)")
+			return map[string][]rsmetrics.Sample{"main": mem}, nil
+		},
+	}
+
+	rec, _, _, _, _, err := reconciler.computeRecommendations(
+		context.Background(), policy, deploy, mc, nil, nil, nil, nil, []corev1.Pod{young, old})
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	require.Len(t, rec.Containers, 1)
+	cpuCeiling, parseErr := resource.ParseQuantity("400m")
+	require.NoError(t, parseErr)
+	assert.True(t, rec.Containers[0].Recommended.CPURequest.Cmp(cpuCeiling) < 0,
+		"young spike after the stamp must not set the CPU rec, got %s", rec.Containers[0].Recommended.CPURequest.String())
+	memFloor, parseErr := resource.ParseQuantity("700Mi")
+	require.NoError(t, parseErr)
+	assert.True(t, rec.Containers[0].Recommended.MemoryRequest.Cmp(memFloor) > 0,
+		"memory samples inside the boost window must stay, got %s", rec.Containers[0].Recommended.MemoryRequest.String())
+}
+
+func TestFilterStartupCPUSamples_UsesBoostStamp(t *testing.T) {
+	t.Parallel()
+
+	created := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
+	boost := time.Minute
+	rateWindow := time.Minute
+	stamp := created.Add(30 * time.Second)
+	cutoff := stamp.Add(boost).Add(rateWindow)
+	creationCutoff := created.Add(boost).Add(rateWindow)
+	beforeCreate := created.Add(-time.Minute)
+	between := created.Add(10 * time.Second)
+	during := stamp.Add(10 * time.Second)
+
+	creationSamples := []rsmetrics.Sample{
+		{Timestamp: beforeCreate, Value: 3, Pod: "web"},
+		{Timestamp: created.Add(time.Second), Value: 9, Pod: "web"},
+		{Timestamp: creationCutoff, Value: 2, Pod: "web"},
+	}
+
+	tests := []struct {
+		name    string
+		pod     corev1.Pod
+		samples []rsmetrics.Sample
+		want    []float64
+		dropped bool
+	}{
+		{
+			name: "later stamp drops the boost and keeps the pre-stamp sample",
+			pod:  podAtWithBoostStamp("web", created, stamp.Format(time.RFC3339)),
+			samples: []rsmetrics.Sample{
+				{Timestamp: beforeCreate, Value: 3, Pod: "web"},
+				{Timestamp: between, Value: 1, Pod: "web"},
+				{Timestamp: during, Value: 9, Pod: "web"},
+				{Timestamp: cutoff, Value: 2, Pod: "web"},
+			},
+			want:    []float64{3, 1, 2},
+			dropped: true,
+		},
+		{
+			name:    "stamp equal to creation matches the creation cutoff",
+			pod:     podAtWithBoostStamp("web", created, created.Format(time.RFC3339)),
+			samples: creationSamples,
+			want:    []float64{3, 2},
+			dropped: true,
+		},
+		{
+			name:    "missing annotation keeps the creation cutoff",
+			pod:     podAt("web", created),
+			samples: creationSamples,
+			want:    []float64{3, 2},
+			dropped: true,
+		},
+		{
+			name: "stamp before creation does not drop earlier history",
+			pod:  podAtWithBoostStamp("web", created, created.Add(-10*time.Minute).Format(time.RFC3339)),
+			samples: []rsmetrics.Sample{
+				{Timestamp: created.Add(-9 * time.Minute), Value: 4, Pod: "web"},
+				{Timestamp: created.Add(time.Second), Value: 9, Pod: "web"},
+				{Timestamp: creationCutoff, Value: 2, Pod: "web"},
+			},
+			want:    []float64{4, 2},
+			dropped: true,
+		},
+		{
+			name:    "malformed stamp keeps the creation cutoff",
+			pod:     podAtWithBoostStamp("web", created, "not-a-timestamp"),
+			samples: creationSamples,
+			want:    []float64{3, 2},
+			dropped: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := filterStartupCPUSamples(tt.samples, []corev1.Pod{tt.pod}, boost, rateWindow, rsmetrics.PodAggregationNone)
+			require.Equal(t, tt.dropped, got.Dropped)
+			gotValues := make([]float64, len(got.Samples))
+			for i, sample := range got.Samples {
+				gotValues[i] = sample.Value
+			}
+			require.Equal(t, tt.want, gotValues)
+		})
+	}
+}

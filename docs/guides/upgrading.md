@@ -10,6 +10,21 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### Opt-in startup exclusion follows the boost stamp
+
+`cpu.startupBoost.excludeFromHistory: true` used to drop CPU samples
+from pod creation. The window now starts at `attune.io/startup-boost-at`
+when that stamp is set and not before creation. A later stamp drops the
+boosted samples. The CPU recommendation can fall on the next reconcile.
+Auto, OneShot, and Canary can lower the request, still subject to
+`allowDecrease`, `maxDecreasePercent`, and `minAllowed`.
+
+Policies that omit `startupBoost`, or omit `excludeFromHistory`, do not
+change. A boost stamped at creation does not change. Memory samples are
+not filtered.
+
+See [CPU percentile stayed high after a boost](troubleshooting.md#cpu-percentile-stayed-high-after-a-boost).
+
 ### Lowering maxAllowed during an OOM hold takes effect on the next reconcile
 
 A held `memory.oomBump` floor used to be published again with no clamp
