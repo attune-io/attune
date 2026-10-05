@@ -200,7 +200,18 @@ the owner name in `PodName`. See
 [CronJob pod name does not match](troubleshooting.md#cronjob-pod-name-does-not-match).
 
 CronJobs on a supported cluster that the old 10-digit pattern missed
-can now produce samples.
+can now produce samples. Status recommendations, export ConfigMaps
+(when export is on), and `kubectl attune diff` gain CronJob values.
+
+Running CronJob pods are not resized in place in any mode. New CronJob
+pods can be sized at creation in Recommend (or with no type set), Auto,
+and OneShot. That needs the initial sizing webhook enabled,
+`updateStrategy.initialSizing: true` (on the policy or inherited from
+AttuneDefaults or AttuneNamespaceDefaults), the namespace label
+`attune.io/initial-sizing=enabled`, and confidence at least 0.5 on every
+container of the recommendation. See
+[Initial Sizing](../reference/configuration.md#initial-sizing). Observe
+never sizes pods. Policies for other workload kinds do not change.
 
 ### Policy limit multiplier requires RequestsAndLimits
 
@@ -332,6 +343,7 @@ release pull request 889 to add the list.
 - A stored HPA CPU base that is missing other containers is repaired. Growth of the same containers keeps the stored original. An annotation an older operator already rewrote is left in place
 - A failed Rollout `workloadRef` read keeps reason `WorkloadRefUnread`. A readable ref still reports `TemplateWorkloadRef`
 - Datadog null points are dropped
+- CronJob policies match pods on the minute stamp and collect samples. With initialSizing, new CronJob pods are sized at creation. Running CronJob pods are not resized
 
 ### Stored cooldown of 0s
 

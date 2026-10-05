@@ -1220,12 +1220,14 @@ func TestWorkload_JobIndexedCompletionRegex(t *testing.T) {
 	assert.True(t, plainRe.MatchString("nightly-29453760-fghij"), "8-digit minute stamp")
 	assert.True(t, plainRe.MatchString("nightly-100000000-fghij"), "9-digit minute stamp")
 	assert.False(t, plainRe.MatchString("nightly-1700000000-fghij"), "10-digit seconds stamp")
+	assert.False(t, plainRe.MatchString("nightly-1767225600-fghij"), "10-digit seconds stamp")
 	assert.False(t, plainRe.MatchString("nightly-29453760"), "job name is not a pod name")
 
 	indexedRe := regexp.MustCompile("^(?:" + r.getPodRegex(cronJob) + ")$")
 	assert.True(t, indexedRe.MatchString("nightly-29453760-3-fghij"))
 	assert.True(t, indexedRe.MatchString("nightly-100000000-3-fghij"))
 	assert.False(t, indexedRe.MatchString("nightly-1700000000-3-fghij"))
+	assert.False(t, indexedRe.MatchString("nightly-1767225600-3-fghij"))
 	assert.False(t, indexedRe.MatchString("nightly-29453760"))
 }
 

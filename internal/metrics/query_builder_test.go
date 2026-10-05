@@ -310,6 +310,7 @@ func TestCloudWatchPodNameMatchesController(t *testing.T) {
 		{"cronjob full pod", `nightly-[0-9]{8,9}-[a-z0-9]{5}`, "nightly-29453760-fghij", true},
 		{"cronjob nine digit job", `nightly-[0-9]{8,9}-[a-z0-9]{5}`, "nightly-100000000", true},
 		{"cronjob ten digit job", `nightly-[0-9]{8,9}-[a-z0-9]{5}`, "nightly-1700000000", false},
+		{"cronjob seconds stamp", `nightly-[0-9]{8,9}-[a-z0-9]{5}`, "nightly-1767225600", false},
 		{"indexed cron job name", `nightly-[0-9]{8,9}-[0-9]+-[a-z0-9]{5}`, "nightly-29453760", true},
 		{"indexed cron index", `nightly-[0-9]{8,9}-[0-9]+-[a-z0-9]{5}`, "nightly-29453760-3", false},
 		{"indexed cron pod", `nightly-[0-9]{8,9}-[0-9]+-[a-z0-9]{5}`, "nightly-29453760-3-fghij", true},

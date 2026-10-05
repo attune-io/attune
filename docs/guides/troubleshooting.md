@@ -156,6 +156,53 @@ or label names have been relabeled.
    check that the `namespace`, `pod`, and `container` label names match.
    Some Prometheus configurations relabel these.
 
+### CronJob policy stays InsufficientData
+
+**Symptom**: A policy with `targetRef.kind: CronJob` stays `InsufficientData`
+although its Jobs have run.
+
+**Cause**: Attune finds CronJob pods by name. The pod name does not have
+the shape Attune queries.
+
+**Fix**:
+
+1. List the pods of the CronJob's Jobs:
+
+    ```bash
+    kubectl get pods -n <namespace> -l batch.kubernetes.io/job-name
+    ```
+
+2. Compare the names with the two shapes Attune matches. The minute is the
+   scheduled time in Unix minutes (8 digits today, 9 later):
+
+    - `<cronjob>-<minute>-<5 characters>`, for example `nightly-29453760-fghij`
+    - `<cronjob>-<minute>-<index>-<5 characters>` when the job template sets
+      `completionMode: Indexed`, for example `nightly-29453760-3-fghij`
+
+3. Check that the backend has samples for those names. Batch pods are
+   short-lived, so use a range query. A non-indexed template uses
+   `pod=~"<cronjob>-[0-9]{8,9}-[a-z0-9]{5}"`:
+
+    ```bash
+    kubectl run prom-check --image=curlimages/curl --restart=Never --rm --attach --command -- \
+      curl -s -G 'http://prometheus-server.monitoring:80/api/v1/query' \
+      --data-urlencode 'query=count by (pod) (last_over_time(container_memory_working_set_bytes{namespace="<namespace>",pod=~"<cronjob>-[0-9]{8,9}-[a-z0-9]{5}"}[1d]))'
+    ```
+
+   An `Indexed` template uses
+   `pod=~"<cronjob>-[0-9]{8,9}-[0-9]+-[a-z0-9]{5}"`:
+
+    ```bash
+    kubectl run prom-check --image=curlimages/curl --restart=Never --rm --attach --command -- \
+      curl -s -G 'http://prometheus-server.monitoring:80/api/v1/query' \
+      --data-urlencode 'query=count by (pod) (last_over_time(container_memory_working_set_bytes{namespace="<namespace>",pod=~"<cronjob>-[0-9]{8,9}-[0-9]+-[a-z0-9]{5}"}[1d]))'
+    ```
+
+4. A CronJob name longer than 48 characters does not match. Kubernetes
+   cuts the pod name prefix to 58 characters, which removes the
+   separator before the random suffix or part of the minute stamp. An
+   `Indexed` template reaches that limit with a shorter name.
+
 ### NoWorkloadsFound
 
 **Symptom**: Ready condition is `False` with reason `NoWorkloadsFound`.
