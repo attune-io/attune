@@ -262,7 +262,7 @@ func TestPlanWorkloadOOMBump(t *testing.T) {
 			maxAllowed:  i64ptr(cap250),
 			pods:        []corev1.Pod{oomBumpPod("a", "app", "300Mi", oomKilledStatus(later, 2), stored(1, live200, floor300, now, 1, hold), false)},
 			wantPub:     true,
-			wantBytes:   floor300,
+			wantBytes:   cap250,
 			wantNote:    true,
 			wantStamps:  1,
 			wantCount:   1,
@@ -362,6 +362,10 @@ func TestPlanWorkloadOOMBump(t *testing.T) {
 				if tt.wantAnnOnly {
 					assert.True(t, stamp.AnnotationOnly)
 					assert.Empty(t, stamp.Result)
+				}
+				if tt.name == "maxAllowed below live consumes once" {
+					assert.True(t, got.QuietClamp)
+					assert.Equal(t, floor300, got.QuietClampFrom)
 				}
 			}
 		})
