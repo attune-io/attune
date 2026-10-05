@@ -373,6 +373,8 @@ not via CEL `x-kubernetes-validations` markers. The webhook enforces:
 
 `containerPolicies` is a field-wise list on `AttunePolicySpec` only. A literal name beats `*` per field, and `*` beats the merged policy block. v1 honors `percentile`, `overhead`, `minAllowed`, `maxAllowed`, `burstSensitivity`, `maxChangePercent`, `maxIncreasePercent`, `maxDecreasePercent`, `allowDecrease`, and `controlledValues`. An omitted container `maxAllowed` inherits `*` and then the policy block, and is uncapped only when that effective value is nil. Known sidecars stay excluded by default. Normal init containers are not managed. Policy-wide `startupBoost`, `memoryFromCpuRatio`, `decreaseUsageMarginPercent`, `limitMultiplier`, `oomBump`, and `surge` still apply from the policy block to every non-excluded container, and a container max caps startup boost and a policy memory OOM bump. After the field-wise merge, minAllowed above maxAllowed is rejected, including a defaults min when the container omits min and a max is already known. A stored min above a non-zero max stays clamped to that max until the next update. Container maxAllowed uses the same 256-core and 16Ti ceilings. There is no new Prometheus metric.
 
+At resize time, a Guaranteed memory `limitMultiplier` is not an admission check. The limit is the multiplier times the engine request, then the request is raised to that limit so the pod stays Guaranteed. The applied request can exceed `memory.maxAllowed`. `maxAllowed` still caps the engine request. That raise is not the in-hold `oomBump` clamp. A CPU multiplier that would leave Guaranteed is skipped before `UpdateResize` and is not evicted, including when `resizeMethod` is `InPlaceOrRecreate`. `RequestsOnly` does not apply the multiplier.
+
 #### Printer Columns
 
 ```go
@@ -826,6 +828,7 @@ func (r *ResizeEngine) WaitForResize(ctx context.Context, ns, podName,
 | Pod deleted during resize | New pod uses workload template; with opt-in `templatePersistence`, template tracks recommended/applied sizes so replacements start correctly sized (default off) |
 | Node has insufficient resources | Resize marked Deferred; retry on next reconciliation |
 | QoS class would change | Pre-check rejects the resize |
+| Guaranteed memory limitMultiplier | The request is raised to the multiplied limit and can exceed `memory.maxAllowed`. The pod stays Guaranteed. A CPU multiplier that would leave Guaranteed is skipped and is not evicted. `RequestsOnly` does not apply the multiplier |
 | StatefulSet partition holds the old revision | Pods whose `controller-revision-hash` is not `status.updateRevision` stay skipped while `currentRevision` and `updateRevision` differ. A stale generation skips every pod. OnDelete pods are resized |
 | LimitRange violation | API server rejects; log and skip |
 | ResourceQuota exceeded | API server rejects; log and skip |

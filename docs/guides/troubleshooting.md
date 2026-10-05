@@ -1040,9 +1040,16 @@ when the sent requests and limits would no longer match.
 
 A Guaranteed pod will not accept a CPU multiplier above 1 in place. The
 CPU request and limit would differ, so the resize is skipped and the pod
-is not evicted. A memory multiplier on an already Guaranteed pod raises
-the memory request to the new limit and the resize proceeds. That applied
-request can exceed `maxAllowed`.
+is not evicted. `resizeMethod: InPlaceOrRecreate` does not evict that
+pod either. `RequestsOnly` does not apply the multiplier.
+
+A memory multiplier on an already Guaranteed pod sets the limit to the
+multiplier times the engine request, then raises the memory request to
+that limit. The resize proceeds and the pod stays Guaranteed. That
+applied request can exceed `memory.maxAllowed`. The excess is not a
+failed cap. `maxAllowed` capped the engine request. It does not cap
+this raise. Capping only the request would make the pod Burstable, and
+the QoS skip would then block the resize.
 
 **Fix**: For Burstable, raise the limit that already equals the new
 request, or choose a request that stays below that limit. Set

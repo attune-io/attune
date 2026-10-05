@@ -371,6 +371,9 @@ func TestComputeRecommendations_RequestsAndLimits_ExplicitTwo(t *testing.T) {
 }
 
 func TestComputeRecommendations_LimitMultiplierMaxAllowedCapsRequest(t *testing.T) {
+	// The applied memory request above maxAllowed must stay equal to the
+	// multiplied memory limit. Capping only that request would make memory
+	// Burstable (issue 970).
 	policy := newTestPolicy("test-policy", "default")
 	both := attunev1alpha1.ControlledRequestsAndLimits
 	two := "2"
@@ -463,6 +466,8 @@ func TestExecuteResizes_GuaranteedCPUMultiplierSkipsWithoutEviction(t *testing.T
 }
 
 func TestExecuteResizes_GuaranteedMemoryMultiplierProceeds(t *testing.T) {
+	// 512Mi above maxAllowed is required so the request stays equal to the
+	// limit. Capping only the request would change QoS (issue 970).
 	const workload = "gmem"
 	pod := runningPod(t, workload, "200m", "256Mi", "200m", "256Mi", corev1.PodQOSGuaranteed)
 	policy := requestsAndLimitsPolicy(workload)

@@ -355,7 +355,12 @@ Before resizing, the controller checks for potential conflicts:
 - **QoS preservation**: a resize that would change QoS class is skipped
   before `UpdateResize` (Burstable to Guaranteed, BestEffort to
   Burstable, or Guaranteed to Burstable). Init containers count. For
-  Guaranteed pods, requests must stay equal to limits.
+  Guaranteed pods, requests must stay equal to limits. A memory
+  `limitMultiplier` raises the request to the multiplied limit, so the
+  applied request can exceed `memory.maxAllowed` and the pod stays
+  Guaranteed. `maxAllowed` capped the engine request. It does not cap
+  that raise. A CPU multiplier that would leave Guaranteed is skipped
+  and is not evicted. `RequestsOnly` does not apply the multiplier.
 - **HPA coexistence**: an informational notice is logged but resizing proceeds.
   See [HPA Coexistence](../guides/hpa-coexistence.md).
 - **HPA memory targets**: when `attune.io/auto-tune` is `"true"`, a successful
