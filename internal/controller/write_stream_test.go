@@ -134,3 +134,87 @@ func TestApplyTemplatePersistence_MatchingTemplateIssuesNoPatch(t *testing.T) {
 	assert.Empty(t, history)
 	assert.Equal(t, 0, patches, "cached template already at want must not Patch")
 }
+
+// templatePatchCountForMemoryLimit persists a 200Mi / 699050667 memory
+// recommendation onto a Deployment template whose memory limit is
+// templateLimit and returns the number of Patch calls.
+func templatePatchCountForMemoryLimit(t *testing.T, templateLimit string) int {
+	t.Helper()
+	scheme := testScheme()
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "app",
+						Image: "nginx",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    parseQty(t, "200m"),
+								corev1.ResourceMemory: parseQty(t, "200Mi"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceMemory: parseQty(t, templateLimit),
+							},
+						},
+					}},
+				},
+			},
+		},
+		Status: appsv1.DeploymentStatus{Replicas: 1, UpdatedReplicas: 1, AvailableReplicas: 1},
+	}
+
+	patches := 0
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Patch: func(ctx context.Context, cw client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+				patches++
+				return cw.Patch(ctx, obj, patch, opts...)
+			},
+		}).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+
+	policy := newTestPolicy("p", "default")
+	both := attunev1alpha1.ControlledRequestsAndLimits
+	policy.Spec.Memory.ControlledValues = &both
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: boolPtr(true),
+		When:    attunev1alpha1.TemplatePersistenceOnRecommendation,
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "app",
+			Current: attunev1alpha1.ResourceValues{
+				CPURequest:    parseQty(t, "200m"),
+				MemoryRequest: parseQty(t, "200Mi"),
+				MemoryLimit:   parseQty(t, templateLimit),
+			},
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest:    parseQty(t, "200m"),
+				MemoryRequest: parseQty(t, "200Mi"),
+				MemoryLimit:   parseQty(t, "699050667"),
+			},
+		}},
+	}}
+	r.applyTemplatePersistence(context.Background(), policy, []client.Object{deploy}, recs,
+		attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
+	return patches
+}
+
+func TestApplyTemplatePersistence_FractionalMemoryLimitAloneIssuesNoPatch(t *testing.T) {
+	assert.Equal(t, 0, templatePatchCountForMemoryLimit(t, "699050666666m"),
+		"a fractional template limit that rounds up to the rec must not Patch")
+}
+
+func TestApplyTemplatePersistence_MemoryLimitOneByteShortPatches(t *testing.T) {
+	assert.Equal(t, 1, templatePatchCountForMemoryLimit(t, "699050666"),
+		"a template limit one byte below the rec must Patch")
+}

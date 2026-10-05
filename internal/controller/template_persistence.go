@@ -215,15 +215,27 @@ func canaryBlocksTemplatePersistence(policy *attunev1alpha1.AttunePolicy) bool {
 	return cs.Phase != attunev1alpha1.CanaryPhaseFullRollout
 }
 
-// resourcesEqual compares requests/limits for CPU and memory only.
+// resourcesEqual compares requests/limits for CPU and memory only. Limits
+// use limitQuantityEqual, so memory limits compare at whole-byte precision.
 func resourcesEqual(a, b corev1.ResourceRequirements) bool {
-	return quantityEqual(a.Requests, b.Requests, corev1.ResourceCPU) &&
-		quantityEqual(a.Requests, b.Requests, corev1.ResourceMemory) &&
-		quantityEqual(a.Limits, b.Limits, corev1.ResourceCPU) &&
-		quantityEqual(a.Limits, b.Limits, corev1.ResourceMemory)
+	return resourcesCompare(a, b, true)
 }
 
-func quantityEqual(a, b corev1.ResourceList, name corev1.ResourceName) bool {
+// resourcesExactEqual is resourcesEqual without byte precision. The pod
+// envelope must use it: a fractional pod limit byte-equal to a rounded
+// container limit is still below it, and the API rejects that.
+func resourcesExactEqual(a, b corev1.ResourceRequirements) bool {
+	return resourcesCompare(a, b, false)
+}
+
+func resourcesCompare(a, b corev1.ResourceRequirements, byteLimits bool) bool {
+	return quantityEqual(a.Requests, b.Requests, corev1.ResourceCPU, false) &&
+		quantityEqual(a.Requests, b.Requests, corev1.ResourceMemory, false) &&
+		quantityEqual(a.Limits, b.Limits, corev1.ResourceCPU, byteLimits) &&
+		quantityEqual(a.Limits, b.Limits, corev1.ResourceMemory, byteLimits)
+}
+
+func quantityEqual(a, b corev1.ResourceList, name corev1.ResourceName, limit bool) bool {
 	qa, oka := a[name]
 	qb, okb := b[name]
 	if !oka && !okb {
@@ -238,6 +250,9 @@ func quantityEqual(a, b corev1.ResourceList, name corev1.ResourceName) bool {
 			return true
 		}
 		return false
+	}
+	if limit {
+		return limitQuantityEqual(name, qa, qb)
 	}
 	return qa.Equal(qb)
 }
@@ -609,7 +624,7 @@ func raiseTemplateEnvelope(spec *corev1.PodSpec, live *corev1.ResourceRequiremen
 	if raised == nil {
 		return false
 	}
-	if spec.Resources != nil && resourcesEqual(*spec.Resources, *raised) {
+	if spec.Resources != nil && resourcesExactEqual(*spec.Resources, *raised) {
 		return false
 	}
 	spec.Resources = raised

@@ -10,6 +10,31 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### Whole-byte memory limits
+
+With `memory.controlledValues: RequestsAndLimits`, a scaled memory limit
+is now rounded up to a whole byte. This covers an explicit
+`memory.limitMultiplier` and the live request-to-limit ratio used when
+the multiplier is omitted. Earlier builds kept millibyte precision when
+the product was not whole, and could write a limit such as `1301300m`.
+The new limit is then less than one byte higher than before. A whole
+product is unchanged. CPU limits keep millicore precision. API server
+warnings about fractional byte values on this path stop. No policy edit
+and no CRD change are needed.
+
+Memory limits are compared at byte precision, with a fractional value
+counted as the next whole byte. A pod or workload template that already
+carries a fractional memory limit written by an earlier build is not
+resized or patched for this alone. The next resize or template patch
+that changes the limit, or the request, for another reason writes a
+whole-byte value.
+
+`Auto`, `Canary`, and `OneShot` apply the whole-byte limit to pods.
+`Recommend` shows it but does not resize pods. With template persistence
+`when: OnRecommendation`, `Recommend` writes it into the template when
+the template changes for another reason. `Observe` neither resizes pods
+nor patches templates.
+
 ### CronJob policies collect samples
 
 The CronJob controller names each Job `<cronjob>-<scheduled minute>`. The
@@ -120,6 +145,7 @@ release pull request 889 to add the list.
 - A QoS check with `spec.resources` uses one rule on both sides
 - A stored HPA CPU base that is missing other containers is repaired. Growth of the same containers keeps the stored original
 - Datadog null points are dropped
+- Scaled memory limits are rounded up to a whole byte. A fractional limit already on a pod or template is not changed for this alone
 - CronJob policies match pods on the minute stamp and collect samples. With initialSizing, new CronJob pods are sized at creation. Running CronJob pods are not resized
 
 ### Stored cooldown of 0s

@@ -21,6 +21,7 @@ import (
 	"math"
 	"strconv"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
@@ -171,7 +172,8 @@ func getCostPricing(defaults *attunev1alpha1.AttuneDefaults) (cpuPerCoreHour, me
 // multiplier when it is non-nil. A zero current request or limit returns a
 // zero quantity so the limit stays omitted. Overflow keeps the current limit.
 // A NaN, Inf, or non-positive ratio returns newReq.
-func scaleLimits(currentReq, currentLim, newReq resource.Quantity, multiplier *float64) resource.Quantity {
+// A scaled memory limit is rounded up to a whole byte; CPU keeps millicores.
+func scaleLimits(name corev1.ResourceName, currentReq, currentLim, newReq resource.Quantity, multiplier *float64) resource.Quantity {
 	if currentReq.IsZero() || currentLim.IsZero() {
 		// Return zero so buildResizeTarget excludes this limit from the target.
 		// Setting limit = request would change the pod's QoS class.
@@ -185,10 +187,31 @@ func scaleLimits(currentReq, currentLim, newReq resource.Quantity, multiplier *f
 		return newReq.DeepCopy()
 	}
 	product := float64(newReq.MilliValue()) * ratio
-	if product > float64(math.MaxInt64) || product < 0 {
+	if product >= float64(math.MaxInt64) || product < 0 {
 		return currentLim.DeepCopy()
 	}
+	if name == corev1.ResourceMemory {
+		return *resource.NewQuantity(ceilWholeBytes(product), currentLim.Format)
+	}
 	return *resource.NewMilliQuantity(int64(product), currentLim.Format)
+}
+
+// wholeByteEpsilon is the relative distance from a whole byte that
+// ceilWholeBytes treats as floating-point noise. The product carries a few
+// ulps of error (about 1e-15 relative); 1e-14 leaves a wide margin while a
+// genuine fraction is dropped only below 1e-14 of the value (under one byte
+// up to about 100 TB, far below a millibyte at realistic limits).
+const wholeByteEpsilon = 1e-14
+
+// ceilWholeBytes rounds a non-negative millibyte product, already checked to
+// be below MaxInt64, up to a whole byte. A product within wholeByteEpsilon of
+// a whole byte is that byte, so float noise above a whole product adds none.
+func ceilWholeBytes(milli float64) int64 {
+	b := milli / 1000
+	if r := math.Round(b); math.Abs(b-r) <= wholeByteEpsilon*b {
+		return int64(r)
+	}
+	return int64(math.Ceil(b))
 }
 
 // limitMultiplierRatio parses an explicit limitMultiplier. Nil means omitted,

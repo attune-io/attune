@@ -1875,11 +1875,21 @@ func (r *AttunePolicyReconciler) buildResizePreChecks(ctx context.Context, polic
 func targetLimitsMatchLive(live, target corev1.ResourceList) bool {
 	for res, targetQty := range target {
 		liveQty, ok := live[res]
-		if !ok || liveQty.Cmp(targetQty) != 0 {
+		if !ok || !limitQuantityEqual(res, liveQty, targetQty) {
 			return false
 		}
 	}
 	return true
+}
+
+// limitQuantityEqual compares a limit exactly, except memory at whole-byte
+// precision: Value() rounds up, so a fractional limit written by an earlier
+// build equals its rounded-up byte and rounding alone resizes nothing.
+func limitQuantityEqual(name corev1.ResourceName, a, b resource.Quantity) bool {
+	if name == corev1.ResourceMemory {
+		return a.Value() == b.Value()
+	}
+	return a.Cmp(b) == 0
 }
 
 // shouldSkipResize runs pre-checks and returns whether to skip the resize

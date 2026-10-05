@@ -695,12 +695,12 @@ func TestMergeTemplateResources_ClampsHoldRequestToLeftoverLimit(t *testing.T) {
 func TestQuantityEqual_MissingAsZero(t *testing.T) {
 	a := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("0")}
 	b := corev1.ResourceList{}
-	assert.True(t, quantityEqual(a, b, corev1.ResourceCPU))
-	assert.True(t, quantityEqual(b, a, corev1.ResourceCPU))
+	assert.True(t, quantityEqual(a, b, corev1.ResourceCPU, false))
+	assert.True(t, quantityEqual(b, a, corev1.ResourceCPU, false))
 	assert.False(t, quantityEqual(
 		corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m")},
 		b,
-		corev1.ResourceCPU,
+		corev1.ResourceCPU, false,
 	))
 }
 
@@ -2942,4 +2942,85 @@ func TestTemplatePersistenceBlockedByRollout(t *testing.T) {
 			assert.Equal(t, tt.want, templatePersistenceBlockedByRollout(tt.obj))
 		})
 	}
+}
+
+// A CPU change writes the rounded container memory limit; the pod-level
+// limit must then be raised exactly, not kept because it is byte-equal.
+func TestApplyTemplatePersistence_FractionalPodLimitRaisedToContainerLimit(t *testing.T) {
+	scheme := testScheme()
+	fractional := parseQty(t, "699050666666m")
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "app",
+						Image: "nginx",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    parseQty(t, "200m"),
+								corev1.ResourceMemory: parseQty(t, "200Mi"),
+							},
+							Limits: corev1.ResourceList{corev1.ResourceMemory: fractional},
+						},
+					}},
+					Resources: &corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    parseQty(t, "1"),
+							corev1.ResourceMemory: parseQty(t, "200Mi"),
+						},
+						Limits: corev1.ResourceList{corev1.ResourceMemory: fractional},
+					},
+				},
+			},
+		},
+		Status: appsv1.DeploymentStatus{Replicas: 1, UpdatedReplicas: 1, AvailableReplicas: 1},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+
+	policy := newTestPolicy("p", "default")
+	both := attunev1alpha1.ControlledRequestsAndLimits
+	policy.Spec.Memory.ControlledValues = &both
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: boolPtr(true),
+		When:    attunev1alpha1.TemplatePersistenceOnRecommendation,
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "app",
+			Current: attunev1alpha1.ResourceValues{
+				CPURequest:    parseQty(t, "200m"),
+				MemoryRequest: parseQty(t, "200Mi"),
+				MemoryLimit:   fractional,
+			},
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest:    parseQty(t, "500m"),
+				MemoryRequest: parseQty(t, "200Mi"),
+				MemoryLimit:   parseQty(t, "699050667"),
+			},
+		}},
+	}}
+	history := r.applyTemplatePersistence(context.Background(), policy, []client.Object{deploy}, recs,
+		attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
+	require.Len(t, history, 1)
+	assert.Equal(t, attunev1alpha1.ResizeResultTemplatePatched, history[0].Result)
+
+	var updated appsv1.Deployment
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(deploy), &updated))
+	podSpec := updated.Spec.Template.Spec
+	containerLim := podSpec.Containers[0].Resources.Limits[corev1.ResourceMemory]
+	assert.True(t, containerLim.Equal(parseQty(t, "699050667")), "container limit %s", containerLim.String())
+	require.NotNil(t, podSpec.Resources)
+	podLim := podSpec.Resources.Limits[corev1.ResourceMemory]
+	assert.GreaterOrEqual(t, podLim.Cmp(containerLim), 0,
+		"pod limit %s must cover container limit %s", podLim.String(), containerLim.String())
 }
