@@ -56,7 +56,13 @@ const (
 	// exist and were combined (3-tier merge); individual fields may come from either layer.
 	sourceMergedDefaults = "merged defaults (namespace+cluster)"
 	sourceBuiltIn        = "built-in default"
-	unsetValue           = "<unset>"
+	// Container rows use the shorter built-in word. Other explain lines
+	// keep sourceBuiltIn.
+	sourceBuiltInContainer  = "built-in"
+	sourceDefaults          = "defaults"
+	sourceNamespaceDefaults = "namespace defaults"
+	sourceClusterDefaults   = "cluster defaults"
+	unsetValue              = "<unset>"
 )
 
 var gvr = schema.GroupVersionResource{
@@ -86,6 +92,10 @@ var namespaceDefaultsGVR = schema.GroupVersionResource{
 type selectedDefaults struct {
 	defaults *attunev1alpha1.AttuneDefaults
 	source   string
+	// namespace and cluster are the objects before CombineDefaultsLayers.
+	// Nil when that layer is absent. Container rows use them to name the layer.
+	namespace *attunev1alpha1.AttuneDefaults
+	cluster   *attunev1alpha1.AttuneDefaults
 }
 
 type dynamicClientFactory func(kubeconfigPath, context string) (dynamic.Interface, string, error)
@@ -1261,7 +1271,12 @@ func fetchSelectedDefaults(ctx context.Context, dynClient dynamic.Interface, nam
 	} else if namespaceDefaults != nil {
 		source = sourceNamespace
 	}
-	return selectedDefaults{defaults: combined, source: source}, nil
+	return selectedDefaults{
+		defaults:  combined,
+		source:    source,
+		namespace: namespaceDefaults,
+		cluster:   clusterDefaults,
+	}, nil
 }
 
 func fetchSingleDefaults(ctx context.Context, dynClient dynamic.Interface, resource schema.GroupVersionResource, namespace string) (*attunev1alpha1.AttuneDefaults, error) {
@@ -1595,7 +1610,7 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 		printEffectiveField("  OOM bump hold", getNestedString(item, "spec", "memory", "oomBump", "hold"), hold, selected, defaultsBump && memDefaults.OOMBump.Hold != nil)
 	}
 
-	printContainerPolicies(effective)
+	printContainerPolicies(item, effective, selected)
 
 	if blocked := resizeBlockedCLIReason(item); blocked != "" {
 		msg := getConditionMessage(item, "ResizeBlocked")
@@ -1818,58 +1833,222 @@ func formatInt64Field(obj unstructured.Unstructured, fields ...string) string {
 	return strconv.FormatInt(val, 10)
 }
 
-func printContainerPolicies(policy *attunev1alpha1.AttunePolicy) {
+func printContainerPolicies(item unstructured.Unstructured, policy *attunev1alpha1.AttunePolicy, selected selectedDefaults) {
 	rows := attunev1alpha1.ExplainContainerPolicies(policy)
 	if len(rows) == 0 {
 		return
 	}
 	fmt.Println("  Container policies:")
+	cpuOrigin := newContainerSideOrigin(item, selected, "cpu")
+	memoryOrigin := newContainerSideOrigin(item, selected, "memory")
 	for _, row := range rows {
 		fmt.Printf("    %s:\n", row.ContainerName)
-		printContainerPolicySide("CPU", row.CPU, row.CPUSources, attunev1alpha1.DefaultCPUPercentile)
-		printContainerPolicySide("Memory", row.Memory, row.MemorySources, attunev1alpha1.DefaultMemoryPercentile)
+		printContainerPolicySide("CPU", row.CPU, row.CPUSources, attunev1alpha1.DefaultCPUPercentile, cpuOrigin)
+		printContainerPolicySide("Memory", row.Memory, row.MemorySources, attunev1alpha1.DefaultMemoryPercentile, memoryOrigin)
 	}
 }
 
-func printContainerPolicySide(label string, rc attunev1alpha1.ResourceConfig, sources attunev1alpha1.ContainerPolicyFieldSources, builtinPercentile int32) {
-	pctValue, pctSource, pctConfigured := formatContainerPercentile(rc.Percentile, sources.Percentile, builtinPercentile)
+// containerFieldOrigin is one policy-block field before a container or "*"
+// overlay. policySet means the raw policy object set it. inherited is empty
+// when defaults did not supply it.
+type containerFieldOrigin struct {
+	policySet bool
+	inherited string
+}
+
+type containerSideOrigin struct {
+	percentile       containerFieldOrigin
+	maxAllowed       containerFieldOrigin
+	controlledValues containerFieldOrigin
+}
+
+func newContainerSideOrigin(item unstructured.Unstructured, selected selectedDefaults, side string) containerSideOrigin {
+	return containerSideOrigin{
+		percentile:       containerFieldOriginFor(item, selected, side, "percentile"),
+		maxAllowed:       containerFieldOriginFor(item, selected, side, "maxAllowed"),
+		controlledValues: containerFieldOriginFor(item, selected, side, "controlledValues"),
+	}
+}
+
+func containerFieldOriginFor(item unstructured.Unstructured, selected selectedDefaults, side, field string) containerFieldOrigin {
+	origin := containerFieldOrigin{policySet: policySideSet(item, side, field)}
+	if origin.policySet {
+		return origin
+	}
+	origin.inherited = inheritedContainerSource(selected, side, field)
+	return origin
+}
+
+func policySideSet(item unstructured.Unstructured, side, field string) bool {
+	switch field {
+	case "percentile":
+		n, ok := nestedInt(item, "spec", side, "percentile")
+		return ok && n != 0
+	case "maxAllowed":
+		return nestedPresent(item, "spec", side, "maxAllowed")
+	case "controlledValues":
+		return getNestedString(item, "spec", side, "controlledValues") != ""
+	default:
+		return false
+	}
+}
+
+func nestedPresent(obj unstructured.Unstructured, fields ...string) bool {
+	val, found, err := unstructured.NestedFieldNoCopy(obj.Object, fields...)
+	if err != nil || !found || val == nil {
+		return false
+	}
+	text, ok := val.(string)
+	if ok {
+		return text != ""
+	}
+	return true
+}
+
+func nestedInt(obj unstructured.Unstructured, fields ...string) (int64, bool) {
+	val, found, err := unstructured.NestedFieldNoCopy(obj.Object, fields...)
+	if err != nil || !found || val == nil {
+		return 0, false
+	}
+	switch n := val.(type) {
+	case int64:
+		return n, true
+	case int32:
+		return int64(n), true
+	case int:
+		return int64(n), true
+	case float64:
+		if math.IsNaN(n) || math.IsInf(n, 0) {
+			return 0, false
+		}
+		return int64(n), true
+	case json.Number:
+		i, convErr := n.Int64()
+		if convErr != nil {
+			return 0, false
+		}
+		return i, true
+	default:
+		return 0, false
+	}
+}
+
+// inheritedContainerSource reports the defaults layer that would fill an
+// omitted policy field. Namespace wins over cluster, matching
+// CombineDefaultsLayers. A combined object with no layer pointers stays
+// "defaults" unless selected.source already names one layer.
+func inheritedContainerSource(selected selectedDefaults, side, field string) string {
+	if defaultsFieldSet(defaultsSide(selected.namespace, side), field) {
+		return sourceNamespaceDefaults
+	}
+	if defaultsFieldSet(defaultsSide(selected.cluster, side), field) {
+		return sourceClusterDefaults
+	}
+	if !defaultsFieldSet(defaultsSide(selected.defaults, side), field) {
+		return ""
+	}
+	switch selected.source {
+	case sourceNamespace:
+		return sourceNamespaceDefaults
+	case sourceCluster:
+		return sourceClusterDefaults
+	default:
+		return sourceDefaults
+	}
+}
+
+func defaultsSide(defaults *attunev1alpha1.AttuneDefaults, side string) *attunev1alpha1.ResourceConfig {
+	if defaults == nil {
+		return nil
+	}
+	if side == "cpu" {
+		return defaults.Spec.CPU
+	}
+	return defaults.Spec.Memory
+}
+
+func defaultsFieldSet(rc *attunev1alpha1.ResourceConfig, field string) bool {
+	if rc == nil {
+		return false
+	}
+	switch field {
+	case "percentile":
+		return rc.Percentile != 0
+	case "maxAllowed":
+		return rc.MaxAllowed != nil
+	case "controlledValues":
+		return rc.ControlledValues != nil && *rc.ControlledValues != ""
+	default:
+		return false
+	}
+}
+
+func printContainerPolicySide(label string, rc attunev1alpha1.ResourceConfig, sources attunev1alpha1.ContainerPolicyFieldSources, builtinPercentile int32, origin containerSideOrigin) {
+	pctValue, pctSource, pctConfigured := formatContainerPercentile(rc.Percentile, sources.Percentile, builtinPercentile, origin.percentile)
 	fmt.Printf("      %s percentile: %s (source: %s, configured: %s)\n", label, pctValue, pctSource, pctConfigured)
-	maxValue, maxSource, maxConfigured := formatContainerMax(rc.MaxAllowed, sources.MaxAllowed)
+	maxValue, maxSource, maxConfigured := formatContainerMax(rc.MaxAllowed, sources.MaxAllowed, origin.maxAllowed)
 	fmt.Printf("      %s max allowed: %s (source: %s, configured: %s)\n", label, maxValue, maxSource, maxConfigured)
-	cvValue, cvSource, cvConfigured := formatContainerControlledValues(rc.ControlledValues, sources.ControlledValues)
+	cvValue, cvSource, cvConfigured := formatContainerControlledValues(rc.ControlledValues, sources.ControlledValues, origin.controlledValues)
 	fmt.Printf("      %s controlled values: %s (source: %s, configured: %s)\n", label, cvValue, cvSource, cvConfigured)
 }
 
-func formatContainerPercentile(value int32, source attunev1alpha1.ContainerPolicySource, builtin int32) (effective, src, configured string) {
+func formatContainerPercentile(value int32, source attunev1alpha1.ContainerPolicySource, builtin int32, origin containerFieldOrigin) (effective, src, configured string) {
+	if source == attunev1alpha1.ContainerPolicySourceContainer || source == attunev1alpha1.ContainerPolicySourceWildcard {
+		shown := strconv.FormatInt(int64(value), 10)
+		if value == 0 {
+			return strconv.FormatInt(int64(builtin), 10), string(source), unsetValue
+		}
+		return shown, string(source), shown
+	}
 	if value == 0 {
-		return strconv.FormatInt(int64(builtin), 10), sourceBuiltIn, unsetValue
+		return strconv.FormatInt(int64(builtin), 10), sourceBuiltInContainer, unsetValue
 	}
 	shown := strconv.FormatInt(int64(value), 10)
-	if source == "" || source == attunev1alpha1.ContainerPolicySourcePolicy {
-		return shown, sourcePolicy, unsetValue
-	}
-	return shown, string(source), shown
+	return shown, policyBlockSource(origin), shown
 }
 
-func formatContainerMax(value *resource.Quantity, source attunev1alpha1.ContainerPolicySource) (effective, src, configured string) {
+func formatContainerMax(value *resource.Quantity, source attunev1alpha1.ContainerPolicySource, origin containerFieldOrigin) (effective, src, configured string) {
+	if source == attunev1alpha1.ContainerPolicySourceContainer || source == attunev1alpha1.ContainerPolicySourceWildcard {
+		if value == nil {
+			return "none", string(source), unsetValue
+		}
+		shown := value.String()
+		return shown, string(source), shown
+	}
 	if value == nil {
-		return "none", sourcePolicy, unsetValue
+		return "none", sourceBuiltInContainer, unsetValue
 	}
 	shown := value.String()
-	if source == "" || source == attunev1alpha1.ContainerPolicySourcePolicy {
-		return shown, sourcePolicy, unsetValue
-	}
-	return shown, string(source), shown
+	return shown, policyBlockSource(origin), shown
 }
 
-func formatContainerControlledValues(value *string, source attunev1alpha1.ContainerPolicySource) (effective, src, configured string) {
-	if value == nil || *value == "" {
-		return attunev1alpha1.DefaultControlledValues, sourceBuiltIn, unsetValue
+func formatContainerControlledValues(value *string, source attunev1alpha1.ContainerPolicySource, origin containerFieldOrigin) (effective, src, configured string) {
+	shown := attunev1alpha1.DefaultControlledValues
+	if value != nil && *value != "" {
+		shown = *value
 	}
-	if source == "" || source == attunev1alpha1.ContainerPolicySourcePolicy {
-		return *value, sourcePolicy, unsetValue
+	if source == attunev1alpha1.ContainerPolicySourceContainer || source == attunev1alpha1.ContainerPolicySourceWildcard {
+		if value == nil || *value == "" {
+			return shown, string(source), unsetValue
+		}
+		return shown, string(source), shown
 	}
-	return *value, string(source), *value
+	// ApplyBuiltInDefaults writes RequestsOnly when the field was omitted,
+	// so a filled value on the merged policy is not a policy setting.
+	if !origin.policySet && origin.inherited == "" {
+		return shown, sourceBuiltInContainer, unsetValue
+	}
+	return shown, policyBlockSource(origin), shown
+}
+
+func policyBlockSource(origin containerFieldOrigin) string {
+	if origin.policySet {
+		return sourcePolicy
+	}
+	if origin.inherited != "" {
+		return origin.inherited
+	}
+	return sourcePolicy
 }
 
 func formatInt32Val(value int32) string {

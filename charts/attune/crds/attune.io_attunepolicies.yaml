@@ -295,12 +295,15 @@ spec:
                               description: |-
                                 ExcludeFromHistory, when true, drops CPU samples from the
                                 percentile while a pod is inside startupBoost.duration plus the
-                                rate window. The cutoff is pod CreationTimestamp plus duration
-                                plus rateWindow. Sample timestamps are the end of rate().
-                                Nil and false keep today's percentile. Memory samples are unchanged.
-                                Deleted pods stay in history until historyWindow because there is
-                                no CreationTimestamp to cut on. A series with no pod label is left
-                                unfiltered.
+                                rate window. The window starts at attune.io/startup-boost-at when
+                                that stamp is set and not before CreationTimestamp, otherwise at
+                                CreationTimestamp. The cutoff is that start plus duration plus
+                                rateWindow. A sample at the cutoff stays. Sample timestamps are
+                                the end of rate(). Nil and false keep today's percentile. Memory
+                                samples are unchanged. Deleted pods stay in history until
+                                historyWindow because there is no creation time or stamp to cut
+                                on. Samples older than CreationTimestamp stay. A series with no
+                                pod label is left unfiltered.
                               type: boolean
                             multiplier:
                               description: |-
@@ -546,12 +549,15 @@ spec:
                               description: |-
                                 ExcludeFromHistory, when true, drops CPU samples from the
                                 percentile while a pod is inside startupBoost.duration plus the
-                                rate window. The cutoff is pod CreationTimestamp plus duration
-                                plus rateWindow. Sample timestamps are the end of rate().
-                                Nil and false keep today's percentile. Memory samples are unchanged.
-                                Deleted pods stay in history until historyWindow because there is
-                                no CreationTimestamp to cut on. A series with no pod label is left
-                                unfiltered.
+                                rate window. The window starts at attune.io/startup-boost-at when
+                                that stamp is set and not before CreationTimestamp, otherwise at
+                                CreationTimestamp. The cutoff is that start plus duration plus
+                                rateWindow. A sample at the cutoff stays. Sample timestamps are
+                                the end of rate(). Nil and false keep today's percentile. Memory
+                                samples are unchanged. Deleted pods stay in history until
+                                historyWindow because there is no creation time or stamp to cut
+                                on. Samples older than CreationTimestamp stay. A series with no
+                                pod label is left unfiltered.
                               type: boolean
                             multiplier:
                               description: |-
@@ -799,12 +805,15 @@ spec:
                         description: |-
                           ExcludeFromHistory, when true, drops CPU samples from the
                           percentile while a pod is inside startupBoost.duration plus the
-                          rate window. The cutoff is pod CreationTimestamp plus duration
-                          plus rateWindow. Sample timestamps are the end of rate().
-                          Nil and false keep today's percentile. Memory samples are unchanged.
-                          Deleted pods stay in history until historyWindow because there is
-                          no CreationTimestamp to cut on. A series with no pod label is left
-                          unfiltered.
+                          rate window. The window starts at attune.io/startup-boost-at when
+                          that stamp is set and not before CreationTimestamp, otherwise at
+                          CreationTimestamp. The cutoff is that start plus duration plus
+                          rateWindow. A sample at the cutoff stays. Sample timestamps are
+                          the end of rate(). Nil and false keep today's percentile. Memory
+                          samples are unchanged. Deleted pods stay in history until
+                          historyWindow because there is no creation time or stamp to cut
+                          on. Samples older than CreationTimestamp stay. A series with no
+                          pod label is left unfiltered.
                         type: boolean
                       multiplier:
                         description: |-
@@ -1067,12 +1076,15 @@ spec:
                         description: |-
                           ExcludeFromHistory, when true, drops CPU samples from the
                           percentile while a pod is inside startupBoost.duration plus the
-                          rate window. The cutoff is pod CreationTimestamp plus duration
-                          plus rateWindow. Sample timestamps are the end of rate().
-                          Nil and false keep today's percentile. Memory samples are unchanged.
-                          Deleted pods stay in history until historyWindow because there is
-                          no CreationTimestamp to cut on. A series with no pod label is left
-                          unfiltered.
+                          rate window. The window starts at attune.io/startup-boost-at when
+                          that stamp is set and not before CreationTimestamp, otherwise at
+                          CreationTimestamp. The cutoff is that start plus duration plus
+                          rateWindow. A sample at the cutoff stays. Sample timestamps are
+                          the end of rate(). Nil and false keep today's percentile. Memory
+                          samples are unchanged. Deleted pods stay in history until
+                          historyWindow because there is no creation time or stamp to cut
+                          on. Samples older than CreationTimestamp stay. A series with no
+                          pod label is left unfiltered.
                         type: boolean
                       multiplier:
                         description: |-

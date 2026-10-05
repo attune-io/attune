@@ -172,6 +172,38 @@ func TestUnsetMax_DefaultsMaxStillClamps(t *testing.T) {
 	assert.True(t, resource.MustParse("8").Equal(*expl.MaxBound))
 }
 
+func TestStoredMinAboveMax_ClampsToMax(t *testing.T) {
+	policy := unsetMaxPolicy()
+	cpuMin, err := resource.ParseQuantity("500m")
+	require.NoError(t, err)
+	cpuMax, err := resource.ParseQuantity("200m")
+	require.NoError(t, err)
+	policy.Spec.CPU.MinAllowed = &cpuMin
+	policy.Spec.CPU.MaxAllowed = &cpuMax
+	policy.Spec.CPU.MaxIncreasePercent = int32Ptr(1000)
+
+	memMin, err := resource.ParseQuantity("2Gi")
+	require.NoError(t, err)
+	memMax, err := resource.ParseQuantity("1Gi")
+	require.NoError(t, err)
+	policy.Spec.Memory.MinAllowed = &memMin
+	policy.Spec.Memory.MaxAllowed = &memMax
+	policy.Spec.Memory.MaxIncreasePercent = int32Ptr(1000)
+
+	cpuEngine, memEngine := buildRecommendationEngines(policy)
+	cpuCurrent, err := resource.ParseQuantity("100m")
+	require.NoError(t, err)
+	cpuGot, cpuExpl, _ := cpuEngine.RecommendWithExplanation(cpuProfile(0.1), cpuCurrent)
+	assert.Equal(t, "max", cpuExpl.BoundsApplied)
+	assert.True(t, cpuMax.Equal(cpuGot), "published %s", cpuGot.String())
+
+	memCurrent, err := resource.ParseQuantity("100Mi")
+	require.NoError(t, err)
+	memGot, memExpl, _ := memEngine.RecommendWithExplanation(memoryProfile(100*1024*1024), memCurrent)
+	assert.Equal(t, "max", memExpl.BoundsApplied)
+	assert.True(t, memMax.Equal(memGot), "published %s", memGot.String())
+}
+
 func TestUnsetMax_DefaultsMinBelowFloorWins(t *testing.T) {
 	policy := unsetMaxPolicy()
 	defs := &attunev1alpha1.AttuneDefaults{}

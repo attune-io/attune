@@ -54,6 +54,26 @@ func TestParseCooldown_ZeroAndNegativeUseDefault(t *testing.T) {
 	}
 }
 
+func TestParseCooldown_MergedDefaultsZeroStaysOneHour(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Cooldown = nil
+	defs := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Cooldown: &metav1.Duration{Duration: 0},
+			},
+		},
+	}
+	r := NewAttunePolicyReconciler()
+	r.mergeDefaults(policy, defs)
+	r.applyBuiltInDefaults(policy)
+	require.NotNil(t, policy.Spec.UpdateStrategy.Cooldown)
+	assert.Equal(t, time.Duration(0), policy.Spec.UpdateStrategy.Cooldown.Duration,
+		"built-in defaults fill a nil cooldown, not a stored 0s")
+	assert.Equal(t, time.Hour, r.parseCooldown(policy))
+}
+
 func TestReconcile_NoWorkloads_ZeroCooldownRequeuesAtDefault(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	policy.Finalizers = []string{finalizerName}

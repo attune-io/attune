@@ -250,6 +250,104 @@ func TestProcessWorkloads_Auto_ScaleOutStillResizesReadyPods(t *testing.T) {
 	require.Equal(t, 0, countSubstr(recordedEvents(rec), "RolloutInProgress"))
 }
 
+func TestStatefulSetPodSkipped_PartitionHold(t *testing.T) {
+	t.Parallel()
+	// Option B, resizing both revisions once a held partition is stable,
+	// was rejected. Pods on the older revision stay skipped until
+	// currentRevision matches updateRevision. The hash is the signal.
+	// The pod name is not parsed for an ordinal.
+	partition := int32(2)
+	rolling := func(current, update string, generation, observed int64) *appsv1.StatefulSet {
+		return &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{Generation: generation},
+			Spec: appsv1.StatefulSetSpec{
+				UpdateStrategy: appsv1.StatefulSetUpdateStrategy{
+					Type: appsv1.RollingUpdateStatefulSetStrategyType,
+					RollingUpdate: &appsv1.RollingUpdateStatefulSetStrategy{
+						Partition: &partition,
+					},
+				},
+			},
+			Status: appsv1.StatefulSetStatus{
+				ObservedGeneration: observed,
+				CurrentRevision:    current,
+				UpdateRevision:     update,
+			},
+		}
+	}
+	pod := func(hash string) *corev1.Pod {
+		return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+			Name: "db-0",
+			Labels: map[string]string{
+				appsv1.ControllerRevisionHashLabelKey: hash,
+			},
+		}}
+	}
+	tests := []struct {
+		name string
+		sts  *appsv1.StatefulSet
+		pod  *corev1.Pod
+		want bool
+	}{
+		{
+			name: "old revision below a held partition stays skipped",
+			sts:  rolling("rev-old", "rev-new", 1, 1),
+			pod:  pod("rev-old"),
+			want: true,
+		},
+		{
+			name: "update revision is not skipped",
+			sts:  rolling("rev-old", "rev-new", 1, 1),
+			pod:  pod("rev-new"),
+		},
+		{
+			name: "matching revisions skip no pod",
+			sts:  rolling("rev-new", "rev-new", 1, 1),
+			pod:  pod("rev-old"),
+		},
+		{
+			name: "stale generation skips the update revision",
+			sts:  rolling("rev-old", "rev-new", 4, 3),
+			pod:  pod("rev-new"),
+			want: true,
+		},
+		{
+			name: "ondelete old hash is not skipped",
+			sts: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					UpdateStrategy: appsv1.StatefulSetUpdateStrategy{
+						Type: appsv1.OnDeleteStatefulSetStrategyType,
+					},
+				},
+				Status: appsv1.StatefulSetStatus{
+					CurrentRevision: "rev-old",
+					UpdateRevision:  "rev-new",
+				},
+			},
+			pod: pod("rev-old"),
+		},
+		{
+			name: "non rolling strategy is not skipped",
+			sts: &appsv1.StatefulSet{
+				Spec: appsv1.StatefulSetSpec{
+					UpdateStrategy: appsv1.StatefulSetUpdateStrategy{Type: "Recreate"},
+				},
+				Status: appsv1.StatefulSetStatus{
+					CurrentRevision: "rev-old",
+					UpdateRevision:  "rev-new",
+				},
+			},
+			pod: pod("rev-old"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, statefulSetPodSkipped(tt.sts, tt.pod))
+		})
+	}
+}
+
 func TestWorkload_PodSkippedForRollout(t *testing.T) {
 	t.Run("StatefulSet_stale_generation_skips_all_pods", func(t *testing.T) {
 		now := time.Now()
@@ -386,17 +484,40 @@ func TestWorkload_PodSkippedForRollout(t *testing.T) {
 		require.Equal(t, 0, countSubstr(recordedEvents(rec), "RolloutInProgress"))
 	})
 
-	t.Run("DaemonSet_legacy_annotation_and_OnDelete", func(t *testing.T) {
+	t.Run("DaemonSet_revision_is_hash_label_only", func(t *testing.T) {
 		r := NewAttunePolicyReconciler()
-		ds := &appsv1.DaemonSet{}
-		pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
-			podTemplateGenerationAnnotation: "rev-a",
+		rolling := &appsv1.DaemonSet{}
+		onDelete := &appsv1.DaemonSet{Spec: appsv1.DaemonSetSpec{
+			UpdateStrategy: appsv1.DaemonSetUpdateStrategy{Type: appsv1.OnDeleteDaemonSetStrategyType},
+		}}
+		hashPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{
+			appsv1.ControllerRevisionHashLabelKey: "rev-a",
 		}}}
-		require.False(t, r.podSkippedForRollout(ds, pod, "rev-a"))
-		require.True(t, r.podSkippedForRollout(ds, pod, "rev-b"))
-		require.False(t, r.podSkippedForRollout(ds, pod, ""))
-		ds.Spec.UpdateStrategy.Type = appsv1.OnDeleteDaemonSetStrategyType
-		require.False(t, r.podSkippedForRollout(ds, pod, "rev-b"))
+		wrongAnn := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+			"pod-template-generation": "rev-a",
+		}}}
+		legacyAnn := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+			appsv1.DeprecatedTemplateGeneration: "rev-a",
+		}}}
+		cases := []struct {
+			name    string
+			ds      *appsv1.DaemonSet
+			pod     *corev1.Pod
+			current string
+			skip    bool
+		}{
+			{name: "hash matches", ds: rolling, pod: hashPod, current: "rev-a", skip: false},
+			{name: "hash differs", ds: rolling, pod: hashPod, current: "rev-b", skip: true},
+			{name: "pod-template-generation is not a revision", ds: rolling, pod: wrongAnn, current: "rev-a", skip: true},
+			{name: "deprecated template generation is not a revision", ds: rolling, pod: legacyAnn, current: "rev-a", skip: true},
+			{name: "empty current hash does not skip", ds: rolling, pod: wrongAnn, current: "", skip: false},
+			{name: "OnDelete does not compare hashes", ds: onDelete, pod: hashPod, current: "rev-b", skip: false},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				require.Equal(t, tc.skip, r.podSkippedForRollout(tc.ds, tc.pod, tc.current))
+			})
+		}
 	})
 
 	t.Run("Deployment_paused_skips_old_pod_template_hash", func(t *testing.T) {
@@ -449,6 +570,86 @@ func TestWorkload_PodSkippedForRollout(t *testing.T) {
 			podMap("ds", pod), nil, nil)
 		require.Equal(t, 1, count)
 		require.Equal(t, 0, countSubstr(recordedEvents(rec), "DaemonSetRevisionUnavailable"))
+	})
+
+	t.Run("DaemonSet_revision_list_uses_pod_selector_and_owner", func(t *testing.T) {
+		ds := testDaemonSet(t, 3, 5)
+		owned := controllerRev("ds-abc123", "abc123", 2, ds.UID)
+		other := controllerRev("foreign-zzz", "zzz999", 9, types.UID("other-uid"))
+		pod := burstableResizePod("ds-current", "ds")
+		pod.Labels[appsv1.ControllerRevisionHashLabelKey] = "abc123"
+		policy := newTestPolicy("test-policy", "default")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+		r, rec := newRolloutReconciler([]client.Object{ds, owned, other}, []*corev1.Pod{pod})
+		probe := &revisionListProbe{Client: r.Client}
+		r.Client = probe
+
+		hash, err := r.currentDaemonSetRevisionName(context.Background(), ds)
+		require.NoError(t, err)
+		require.Equal(t, "abc123", hash)
+		require.Equal(t, []string{"app=ds"}, probe.selectors)
+
+		count, _ := r.executeResizes(context.Background(), policy, []client.Object{ds},
+			[]attunev1alpha1.WorkloadRecommendation{risingCPURecommendation("ds")},
+			podMap("ds", pod), nil, nil)
+		require.Equal(t, 1, count)
+		require.Contains(t, resizedPodNames(r.Clientset.(*kubefake.Clientset)), pod.Name)
+		require.Equal(t, 0, countSubstr(recordedEvents(rec), "DaemonSetRevisionUnavailable"))
+	})
+
+	t.Run("DaemonSet_selector_that_hides_owned_revision_skips", func(t *testing.T) {
+		ds := testDaemonSet(t, 3, 5)
+		hidden := &appsv1.ControllerRevision{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "ds-abc123",
+				Namespace: "default",
+				Labels: map[string]string{
+					appsv1.ControllerRevisionHashLabelKey: "abc123",
+				},
+				OwnerReferences: []metav1.OwnerReference{{
+					APIVersion: "apps/v1",
+					Kind:       "DaemonSet",
+					Name:       ds.Name,
+					UID:        ds.UID,
+				}},
+			},
+			Revision: 2,
+		}
+		pod := burstableResizePod("ds-current", "ds")
+		pod.Labels[appsv1.ControllerRevisionHashLabelKey] = "abc123"
+		policy := newTestPolicy("test-policy", "default")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+		r, rec := newRolloutReconciler([]client.Object{ds, hidden}, []*corev1.Pod{pod})
+		probe := &revisionListProbe{Client: r.Client}
+		r.Client = probe
+
+		hash, err := r.currentDaemonSetRevisionName(context.Background(), ds)
+		require.Error(t, err)
+		require.Empty(t, hash)
+
+		count, _ := r.executeResizes(context.Background(), policy, []client.Object{ds},
+			[]attunev1alpha1.WorkloadRecommendation{risingCPURecommendation("ds")},
+			podMap("ds", pod), nil, nil)
+		require.Equal(t, 0, count)
+		require.Empty(t, resizedPodNames(r.Clientset.(*kubefake.Clientset)))
+		require.Equal(t, 1, countSubstr(recordedEvents(rec), "DaemonSetRevisionUnavailable"))
+	})
+
+	t.Run("DaemonSet_OnDelete_does_not_list_controllerrevisions", func(t *testing.T) {
+		ds := testDaemonSet(t, 3, 5)
+		ds.Spec.UpdateStrategy.Type = appsv1.OnDeleteDaemonSetStrategyType
+		pod := burstableResizePod("ds-pod", "ds")
+		policy := newTestPolicy("test-policy", "default")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+		r, _ := newRolloutReconciler([]client.Object{ds}, []*corev1.Pod{pod})
+		probe := &revisionListProbe{Client: r.Client}
+		r.Client = probe
+
+		count, _ := r.executeResizes(context.Background(), policy, []client.Object{ds},
+			[]attunev1alpha1.WorkloadRecommendation{risingCPURecommendation("ds")},
+			podMap("ds", pod), nil, nil)
+		require.Equal(t, 1, count)
+		require.Equal(t, 0, probe.crLists)
 	})
 
 	t.Run("DaemonSet_missing_hash_label_skips_every_pod", func(t *testing.T) {
@@ -640,13 +841,16 @@ func testDaemonSet(t *testing.T, updated, desired int32) *appsv1.DaemonSet {
 }
 
 func controllerRev(name, hash string, rev int64, owner types.UID) *appsv1.ControllerRevision {
+	// app=ds is testDaemonSet's pod selector. The revision list uses it.
+	lbls := map[string]string{"app": "ds"}
+	if hash != "" {
+		lbls[appsv1.ControllerRevisionHashLabelKey] = hash
+	}
 	return &appsv1.ControllerRevision{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: "default",
-			Labels: map[string]string{
-				appsv1.ControllerRevisionHashLabelKey: hash,
-			},
+			Labels:    lbls,
 			OwnerReferences: []metav1.OwnerReference{{
 				APIVersion: "apps/v1",
 				Kind:       "DaemonSet",
@@ -656,6 +860,28 @@ func controllerRev(name, hash string, rev int64, owner types.UID) *appsv1.Contro
 		},
 		Revision: rev,
 	}
+}
+
+// revisionListProbe records ControllerRevision list selectors. An empty
+// string means the call had no label selector.
+type revisionListProbe struct {
+	client.Client
+	selectors []string
+	crLists   int
+}
+
+func (p *revisionListProbe) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if _, ok := list.(*appsv1.ControllerRevisionList); ok {
+		p.crLists++
+		lo := &client.ListOptions{}
+		lo.ApplyOptions(opts)
+		sel := ""
+		if lo.LabelSelector != nil {
+			sel = lo.LabelSelector.String()
+		}
+		p.selectors = append(p.selectors, sel)
+	}
+	return p.Client.List(ctx, list, opts...)
 }
 
 // rejectControllerRevisionCacheList fails the test if the cache client lists

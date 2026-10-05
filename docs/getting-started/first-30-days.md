@@ -150,8 +150,10 @@ notready, throttle, or slo:&lt;name&gt; for SLO guardrail breaches).
   `updateStrategy.sloGuardrails` in the [configuration reference](../reference/configuration.md#slo-guardrails).
 - **Startup boost**: for JVM or other cold-start heavy apps, enable
   `cpu.startupBoost` so pods get temporary CPU headroom at start, then
-  scale back. `excludeFromHistory: true` drops CPU samples until creation
-  plus duration plus the rate window; omitted keeps today's percentile.
+  scale back. `excludeFromHistory: true` drops CPU samples from
+  `attune.io/startup-boost-at` when that stamp is set, otherwise from
+  creation, until that start plus duration plus the rate window; omitted
+  keeps today's percentile.
   See the [startup boost guide](../guides/startup-boost.md).
 
 !!! warning

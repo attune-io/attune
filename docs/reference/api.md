@@ -104,8 +104,8 @@ spec:
     # surge: {}
     minAllowed: "1m"             # omitted floor is 1m; an explicit value replaces it
     maxAllowed: "4000m"          # example explicit cap, not the omitted default. Omitted means no maximum. Admission rejects above 256 cores. "0" is a real cap.
-    controlledValues: RequestsAndLimits  # default is RequestsOnly. A limitMultiplier requires RequestsAndLimits on this same object.
-    # limitMultiplier: "2"     # off until set. Omitted keeps the live request-to-limit ratio. "1" forces the limit equal to the request. A container with no current limit keeps that limit omitted. Maximum 100. maxAllowed caps the request, not the limit.
+    controlledValues: RequestsAndLimits  # default is RequestsOnly. A set limitMultiplier on this policy requires RequestsAndLimits here at admission.
+    # limitMultiplier: "2"     # off until set. Omitted keeps the live request-to-limit ratio. "1" forces the limit equal to the request and still needs RequestsAndLimits. Omitted mode is rejected. Defaults may omit the mode. A stored policy is not rewritten. A container with no current limit keeps that limit omitted. Maximum 100. maxAllowed caps the request, not the limit.
     maxChangePercent: 50       # max CPU change per cycle (default: 50)
     maxIncreasePercent: 50     # max increase per cycle (default: 50)
     maxDecreasePercent: 30     # max decrease per cycle (default: 30)
@@ -310,8 +310,7 @@ the estimator chain: `rawPercentile`, `overhead`, `afterOverhead`,
 | Type | Reasons | Description |
 |------|---------|-------------|
 | `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `MetricsUnavailable` (alias `PrometheusUnavailable`), `InvalidConfig`, `WorkloadDiscoveryFailed`, `WorkloadCRDMissing`, `ConflictCheckFailed`, `Paused`, `PrometheusSeriesCapped` | Overall health. `PrometheusSeriesCapped` keeps Ready True: the reconcile succeeded and the query result is partial. See [Ready reason: PrometheusSeriesCapped](../guides/scaling.md#ready-reason-prometheusseriescapped). `WorkloadCRDMissing` means `targetRef.kind` is `Rollout` and the `argoproj.io/v1alpha1` Rollout CRD is not installed. |
-| `TemplatePersistence` | `TemplateWorkloadRef` | False when a Rollout `spec.workloadRef` is set, so Attune does not patch that template. Ready is unchanged. |
-| `TemplatePersistence` | `WorkloadRefUnread` | False when a Rollout `spec.workloadRef` has an empty name or an unsupported kind, or its object cannot be read or has no containers. The error is also in `status.workloadErrors`. Takes precedence over `TemplateWorkloadRef` while any reference read fails. Ready is unchanged. |
+| `TemplatePersistence` | `TemplateWorkloadRef`, `WorkloadRefUnread` | `TemplateWorkloadRef` is False when a Rollout `spec.workloadRef` was read, so Attune does not patch that template. Ready is unchanged. `WorkloadRefUnread` is False when that object cannot be read. Template persistence does not replace `WorkloadRefUnread` in the same reconcile. |
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Latest reconcile, only in resize modes. `InProgress` means this cycle resized at least one workload in place, or a conflict retry merged a successful in-place row written during this reconcile. A success from an earlier hour does not count. `CooldownActive` means every workload that has a recommendation this cycle is still cooling and this cycle resized nothing. `Idle` means this cycle resized nothing and cooldown is not active. |
 | `Degraded` | `HighRevertRate` | High revert rate detected (3+ of last 5 reverted) |
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Whether the current time is within the configured resize schedule window |
@@ -358,14 +357,15 @@ View them with `kubectl describe attunepolicy <name>` or
 | `WorkloadIdle` | Normal | Apply skipped for this workload because HPA `ScaledToZero` is True, or `spec.replicas` is 0 |
 | `HPAConflict` | Warning | An HPA targets the same workload and may conflict with resizing |
 | `HPATargetClamped` | Normal | An auto-tuned CPU or memory utilization target was clamped by `updateStrategy.hpaTargetBounds` after the limit cap. The resize still applies. One event per clamped metric. |
+| `HPABaseRepaired` | Warning | A stored pod CPU base equaled the history old sum, was below the pre-resize pod sum, and the HPA update that rewrote `attune.io/original-cpu-request` succeeded. A failed update does not emit this. Growth of a full stored base does not emit this. One event per successful HPA update. |
 | `VPAConflict` | Warning | An applying VPA (`updateMode` other than `Off`, or unset) targets the same workload. Recommend-only (`Off`) is coexistence, not a conflict. |
 | `ConfigClamped` | Warning | A policy field was clamped to its allowed range at runtime |
 | `ExportFailed` | Warning | Failed to export recommendations to ConfigMap |
 | `RestartOnResize` | Normal | Container will restart on resize due to `RestartContainer` resize policy |
 | `MemoryLimitClamped` | Normal | Memory limit decrease skipped due to K8s v1.33 restriction |
 | `PolicyConflict` | Warning | Multiple policies target the same workload |
-| `RolloutInProgress` | Normal | Resize skip for Auto, OneShot, and Canary during a RollingUpdate replacement. Recommendations are still computed. `Recreate` and OnDelete are not a skip: those pods are resized. A RollingUpdate Deployment is not skipped because `availableReplicas` is behind, or because a scale-out has not finished, when generation is observed and no old pods remain. A ReplicaSet is not skipped because `readyReplicas` is behind when generation is observed, so unready pods can be resized. A Rollout message includes the phase, and `abort true` when `status.abort` is set. |
-| `DaemonSetRevisionUnavailable` | Warning | Resize skipped for every pod of a RollingUpdate DaemonSet because `controllerrevisions` could not be listed. OnDelete does not emit this. |
+| `RolloutInProgress` | Normal | Resize skip for Auto, OneShot, and Canary during a RollingUpdate replacement. Recommendations are still computed. `Recreate` and OnDelete are not a skip: those pods are resized. A RollingUpdate Deployment is not skipped because `availableReplicas` is behind, or because a scale-out has not finished, when generation is observed and no old pods remain. A ReplicaSet is not skipped because `readyReplicas` is behind when generation is observed, so unready pods can be resized. A Rollout waits on phase `Paused`, `Progressing`, or `Degraded`, and on `status.abort`. `Degraded` still waits when abort is false and replica counts match. A `Healthy` or empty phase does not wait because `updatedReplicas` is behind `spec.replicas`. The message includes the phase, and `abort true` when `status.abort` is set. |
+| `DaemonSetRevisionUnavailable` | Warning | Resize skipped for every pod of a RollingUpdate DaemonSet because the current ControllerRevision could not be read: the list failed, the revision has no hash label, or an owned revision does not match the DaemonSet pod selector. OnDelete does not emit this. |
 | `WorkloadOptOut` | Normal | Workload opted out via annotation |
 
 Events use 1-hour deduplication to prevent log spam. Identical events are emitted at most once per hour; condition changes produce new events immediately. Specific events can be suppressed per-policy using the `attune.io/suppress-warnings` annotation (comma-separated list of event reasons).
@@ -430,11 +430,21 @@ A `limitMultiplier` fails reconcile with `InvalidConfig` when
 `controlledValues` is `RequestsOnly` after merge. An unset value is
 filled with `RequestsOnly` by built-in defaults. `RequestsAndLimits` on
 AttuneDefaults is inherited by a policy that omits the field, so that
-pair does not fail. A policy that sets `RequestsOnly` while the
-multiplier comes only from defaults fails the same way. Set
-`RequestsAndLimits` on the same object as the multiplier. Admission
-does not see that inherited pair. The check runs after built-in
-defaults.
+pair does not fail. A policy that sets `RequestsOnly` does not copy a
+defaults multiplier. A policy that omits `controlledValues` still
+copies it, then becomes `RequestsOnly`, and fails. Set
+`RequestsAndLimits` on that policy, or remove the multiplier from
+defaults. A defaults object may still store a multiplier without
+`RequestsAndLimits`. Admission does not see the inherited pair. The
+check runs after built-in defaults.
+
+Admission rejects a multiplier set on the policy unless that same
+block is already `RequestsAndLimits`. The message is
+`cpu.limitMultiplier requires cpu.controlledValues RequestsAndLimits, or remove the multiplier`
+(and the same sentence for memory). `RequestsOnly` plus a multiplier
+is still rejected by the earlier check. An object already stored
+without the mode is not rewritten. It stays `InvalidConfig` until an
+update sets `RequestsAndLimits` or removes the multiplier.
 
 A policy that already sets `metricsSource.cloudwatch` does not inherit
 `cpuUnit` from AttuneDefaults. Empty `cpuUnit` on that policy means

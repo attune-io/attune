@@ -168,8 +168,8 @@ func TestIsSuccessfulInPlaceHistory_LegacySuccessCounts(t *testing.T) {
 func TestCycleDeltaForCount(t *testing.T) {
 	start := time.Date(2026, 9, 29, 12, 0, 0, 800_000_000, time.UTC)
 	sameSecond := metav1.NewTime(time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC))
-	atCutoff := metav1.NewTime(start.Add(-time.Second))
-	beforeCutoff := metav1.NewTime(start.Add(-time.Second).Add(-time.Millisecond))
+	atCutoff := metav1.NewTime(start.Add(-time.Second).Truncate(time.Second))
+	beforeCutoff := metav1.NewTime(start.Add(-time.Second).Truncate(time.Second).Add(-time.Millisecond))
 	hourOld := metav1.NewTime(start.Add(-time.Hour))
 	row := func(ts metav1.Time, workload string) attunev1alpha1.ResizeHistoryEntry {
 		return attunev1alpha1.ResizeHistoryEntry{Timestamp: ts, Workload: workload}
@@ -204,6 +204,15 @@ func TestCycleDeltaForCount(t *testing.T) {
 			delta:      []attunev1alpha1.ResizeHistoryEntry{row(atCutoff, "edge")},
 			cycleStart: start,
 			want:       []string{"edge"},
+		},
+		{
+			name: "truncated stamp just after the next second counts",
+			delta: []attunev1alpha1.ResizeHistoryEntry{row(
+				metav1.NewTime(time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)),
+				"rolled",
+			)},
+			cycleStart: time.Date(2026, 9, 29, 12, 0, 1, 20_000_000, time.UTC),
+			want:       []string{"rolled"},
 		},
 		{
 			name:       "stamp before the cutoff is dropped",

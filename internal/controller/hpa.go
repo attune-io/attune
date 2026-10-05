@@ -571,6 +571,7 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 		}
 
 		foundAdjustable := false
+		repairedCPU := false
 		pending := make([]hpaPendingTarget, 0, len(hpa.Spec.Metrics))
 		var clamps []hpaClampNote
 		for j := range hpa.Spec.Metrics {
@@ -609,21 +610,15 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 			} else if storedTarget, storedMilli, ok := storedHPABase(hpa.Annotations, basis.targetKey, basis.baseKey); ok {
 				baseTarget = storedTarget
 				baseRequestMilli = storedMilli
-				// A stored pod CPU base below this cycle's pre-resize sum can
-				// be missing containers, or it can be the original request
-				// after later growth. ContainerResource bases stay per container.
-				// When the history old sum is still within the stored base, the
-				// gap is other containers: use the pre-resize sum. When history
-				// old already exceeds the stored base, the resized containers
-				// grew, so keep the stored original and add only containers
-				// that have no history row.
+				// Replace the stored base only when it equals the history old
+				// sum. The gap is containers with no history row. A larger
+				// stored value is already a full pod, and this cycle's pod
+				// sum includes later growth. A smaller stored value may
+				// already include the sidecar, so adding it counts twice.
 				if basis.resource && basis.resName == string(corev1.ResourceCPU) && storedMilli < basis.oldMilli {
 					historyOld := resourceHistoryOldMilli(scope.pod, scope.rows)
-					if storedMilli >= historyOld {
+					if storedMilli == historyOld {
 						baseRequestMilli = basis.oldMilli
-						repairPartialCPU = true
-					} else if extra := basis.oldMilli - historyOld; extra > 0 {
-						baseRequestMilli = storedMilli + extra
 						repairPartialCPU = true
 					}
 				}
@@ -646,9 +641,8 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 				hpa.Annotations[basis.targetKey] = strconv.FormatInt(int64(baseTarget), 10)
 				baseQ := hpaRequestQuantity(basis.resName, baseRequestMilli)
 				hpa.Annotations[basis.baseKey] = baseQ.String()
-				if repairPartialCPU && r.Recorder != nil && scope.policy != nil {
-					r.Recorder.Eventf(scope.policy, nil, corev1.EventTypeWarning, "HPABaseRepaired", "hpa",
-						"Stored %s was below the pre-resize pod sum and was replaced", annotationHPAOriginalCPURequest)
+				if repairPartialCPU {
+					repairedCPU = true
 				}
 			}
 			if basis.resName == string(corev1.ResourceMemory) {
@@ -707,6 +701,10 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 		if err := r.Update(ctx, &fresh); err != nil {
 			logger.Error(err, "Failed to update HPA target", "hpa", hpa.Name)
 			continue
+		}
+		if repairedCPU && r.Recorder != nil && scope.policy != nil {
+			r.Recorder.Eventf(scope.policy, nil, corev1.EventTypeWarning, "HPABaseRepaired", "hpa",
+				"Stored %s was below the pre-resize pod sum and was replaced", annotationHPAOriginalCPURequest)
 		}
 		for _, note := range clamps {
 			r.emitEventOnce(scope.policy, corev1.EventTypeNormal, "HPATargetClamped", "hpa", "%s", note.message)

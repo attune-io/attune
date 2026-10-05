@@ -549,7 +549,7 @@
                     },
                     "for": {
                       "type": "string",
-                      "default": "1h"
+                      "default": "5m"
                     },
                     "severity": {
                       "type": "string",

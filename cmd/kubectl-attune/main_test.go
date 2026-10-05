@@ -2793,6 +2793,52 @@ func TestPrintExplain_CloudWatchCPUUnitSource(t *testing.T) {
 	assert.Contains(t, out, "CloudWatch CPU unit: Nanocores (source: policy, configured: Nanocores)")
 }
 
+func TestPrintExplain_RequestsOnlyDoesNotInheritLimitMultiplier(t *testing.T) {
+	policy := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "attune.io/v1alpha1",
+		"kind":       "AttunePolicy",
+		"metadata": map[string]interface{}{
+			"name":      "requests-only",
+			"namespace": "default",
+		},
+		"spec": map[string]interface{}{
+			"cpu":    map[string]interface{}{"controlledValues": "RequestsOnly"},
+			"memory": map[string]interface{}{"controlledValues": "RequestsOnly"},
+		},
+	}}
+	two := "2"
+	both := attunev1alpha1.ControlledRequestsAndLimits
+	defaults := &attunev1alpha1.AttuneDefaults{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "attune.io/v1alpha1", Kind: "AttuneDefaults"},
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{
+				LimitMultiplier:  &two,
+				ControlledValues: &both,
+			},
+			Memory: &attunev1alpha1.ResourceConfig{
+				LimitMultiplier:  &two,
+				ControlledValues: &both,
+			},
+		},
+	}
+	out := explainOutput(t, policy, defaults)
+	assert.NotContains(t, out, "Limit multiplier")
+	assert.Contains(t, out, "Controlled values: RequestsOnly (source: policy, configured: RequestsOnly)")
+
+	omitted := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "attune.io/v1alpha1",
+		"kind":       "AttunePolicy",
+		"metadata": map[string]interface{}{
+			"name":      "omitted-mode",
+			"namespace": "default",
+		},
+		"spec": map[string]interface{}{},
+	}}
+	out = explainOutput(t, omitted, defaults)
+	assert.Contains(t, out, "Limit multiplier: 2 (source: cluster default, configured: <unset>)")
+}
+
 func TestPrintExplain_ObservationPeriodFromCanaryShowsConfigured(t *testing.T) {
 	policy := &unstructured.Unstructured{Object: map[string]interface{}{
 		"apiVersion": "attune.io/v1alpha1",

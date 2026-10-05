@@ -101,7 +101,7 @@ Each alert rule supports `enabled`, `for`, and `severity`. Some rules have addit
 | `requestsClamped` | info | 1h | | Fires when recommended requests are clamped to limits |
 | `staleRecommendations` | warning | 1h | | Fires when recommendations are marked stale due to Prometheus data gaps |
 | `revertFailures` | critical | 5m | | Fires when resize revert operations fail |
-| `oomBumpCapped` | info | 1h | | Fires when an OOM bump is capped at `maxBumps` or clamped to `maxAllowed`. The whole PrometheusRule stays off until `metrics.prometheusRule.enabled` is true. This alert does not turn `memory.oomBump` on. |
+| `oomBumpCapped` | info | 5m | | Fires when one or more OOM bumps in the last hour are capped at `maxBumps` or clamped to `maxAllowed`. One sample is enough. The whole PrometheusRule stays off until `metrics.prometheusRule.enabled` is true. This alert does not turn `memory.oomBump` on. |
 
 To disable a specific rule:
 
@@ -198,7 +198,7 @@ Cluster-wide credentials belong on the operator. A policy
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `prometheusAuth.useServiceAccountToken` | bool | `false` | Send operator Prometheus bearer auth for addresses from cluster `AttuneDefaults`. Not used for policy or namespace-defaults addresses, auto-discovery, or when `Authorization` headers are already set (`--prometheus-use-service-account-token`). |
-| `prometheusAuth.existingSecret.name` | string | `""` | Secret in the **operator** namespace (`--prometheus-bearer-token-secret`). Same address rules as `useServiceAccountToken`. Empty disables. A policy-set `bearerTokenSecret` is read in the policy namespace and does not fall back. An inherited cluster name falls back only on NotFound. |
+| `prometheusAuth.existingSecret.name` | string | `""` | Secret in the **operator** namespace (`--prometheus-bearer-token-secret`). Same address rules as `useServiceAccountToken`. Empty disables. A policy-set `bearerTokenSecret` is read in the policy namespace and does not fall back. An inherited cluster name falls back only on NotFound. Attune trims both ends of the token and keeps interior spaces. |
 | `prometheusAuth.existingSecret.key` | string | `token` | Key in that Secret (`--prometheus-bearer-token-key`). |
 | `prometheusAuth.queryServiceAccount.create` | bool | `false` | Create a dedicated query ServiceAccount and TokenRequest it instead of the manager token (`--prometheus-query-service-account`). |
 | `prometheusAuth.queryServiceAccount.name` | string | `""` | Query SA name. Empty uses `<release>-prometheus-query` when create is true. |
@@ -211,7 +211,7 @@ Cluster-wide Datadog credentials belong on the operator. A policy or
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `datadogAuth.existingSecret.name` | string | `""` | Secret in the **operator** namespace (`--datadog-api-key-secret`). Used only when cluster `AttuneDefaults` chose the Datadog block. Empty keeps the policy-namespace lookup of an inherited name. |
-| `datadogAuth.existingSecret.key` | string | `api-key` | API key field in that Secret (`--datadog-api-key-secret-key`). An optional `app-key` in the same Secret is still read. |
+| `datadogAuth.existingSecret.key` | string | `api-key` | API key field in that Secret (`--datadog-api-key-secret-key`). An optional `app-key` in the same Secret is still read. Attune trims both ends of each value and keeps interior spaces. A whitespace-only `app-key` is omitted. |
 
 ## OpenShift
 
@@ -272,10 +272,10 @@ itself was admitted.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `cpu.minAllowed` | quantity | 1m | Minimum CPU recommendation when the field is omitted. An explicit value, including one below 1m, replaces this floor. When both bounds are set, must be less than or equal to `cpu.maxAllowed`. |
-| `cpu.maxAllowed` | quantity | (none) | Maximum CPU recommendation (for example `"4000m"`). Must not exceed 256 cores. Omitted means no maximum. |
-| `memory.minAllowed` | quantity | 4Mi | Minimum memory recommendation when the field is omitted. An explicit value replaces this floor. When both bounds are set, must be less than or equal to `memory.maxAllowed`. |
-| `memory.maxAllowed` | quantity | (none) | Maximum memory recommendation (for example `"8Gi"`). Must not exceed 16Ti. |
+| `cpu.minAllowed` | quantity | 1m | Minimum CPU recommendation when the field is omitted. An explicit value, including one below 1m, replaces this floor. When both bounds are set on the same object, must be less than or equal to `cpu.maxAllowed`. On an AttunePolicy, admission also rejects a min from `AttuneDefaults` or `AttuneNamespaceDefaults` when this object omits min and a max is already known. A stored min above a non-zero max stays until the next update. The recommendation is then clamped to that max (`boundsApplied` is `max`). |
+| `cpu.maxAllowed` | quantity | (none) | Maximum CPU recommendation (for example `"4000m"`). Must not exceed 256 cores. Omitted means no maximum. A new AttunePolicy write fails when a defaults min is above this max. A stored min above a non-zero max is clamped to this max until the object is updated. A zero max keeps the raised floor. |
+| `memory.minAllowed` | quantity | 4Mi | Minimum memory recommendation when the field is omitted. An explicit value replaces this floor. When both bounds are set on the same object, must be less than or equal to `memory.maxAllowed`. On an AttunePolicy, admission also rejects a min from `AttuneDefaults` or `AttuneNamespaceDefaults` when this object omits min and a max is already known. A stored min above a non-zero max stays until the next update. The recommendation is then clamped to that max (`boundsApplied` is `max`). |
+| `memory.maxAllowed` | quantity | (none) | Maximum memory recommendation (for example `"8Gi"`). Must not exceed 16Ti. Omitted means no maximum. An in-hold `memory.oomBump` floor above this value is published at the cap. The stored floor is not rewritten. A new AttunePolicy write fails when a defaults min is above this max. A stored min above a non-zero max is clamped to this max until the object is updated. A Guaranteed raise after `memory.limitMultiplier` can set the live pod request above this cap. It does not raise the status recommendation. The cap still applies to the engine request before that raise. That raise is not the in-hold `oomBump` clamp. |
 
 The 256-core and 16Ti values are admission caps only. They reject
 oversized `maxAllowed`; they do not inject a default clamp when the
@@ -290,7 +290,20 @@ is published at the cap on this cycle. Memory `allowDecrease` defaults
 to false, so a live memory request above the max stays at the current
 request until decrease is enabled. An omitted `maxAllowed` is not
 capped. `"0"` is a real cap, not an omitted maximum. An explicit
-`minAllowed` below 1m or 4Mi replaces the built-in floor.
+`minAllowed` below 1m or 4Mi replaces the built-in floor. Admission
+compares min and max after the defaults merge on AttunePolicy writes.
+The policy value wins when it is set. A missing min is taken from
+`AttuneNamespaceDefaults` when that object sets one, otherwise from
+`AttuneDefaults`, and only when a max is already known on the policy
+or a container. The error names both
+quantities and both objects. A defaults list error fails only that
+write. A policy that sets its own min does not list defaults to
+discover a max. `kubectl attune explain` may show an invalid merged
+pair. Explain does not reject the object. An in-hold
+`memory.oomBump` floor above `maxAllowed` is published at that cap on
+the next reconcile. The annotation floor and `holdUntil` stay. Default
+memory `allowDecrease` still keeps the live request until decrease is
+allowed. The recommendation records that skip.
 
 ### Cost Pricing
 
@@ -317,7 +330,7 @@ that do not set them explicitly. Policy-level values always take precedence.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `type` | string | `Recommend` | `Observe`, `Recommend`, `OneShot`, `Canary`, `Auto`. OneShot applies at most one needing pod per cycle. Replicas that are already at the applied target, or that are blocked by QoS, node pressure, quota, or Infeasible plus InPlaceOnly, are skipped so another replica can still resize. |
-| `cooldown` | duration | `1h` | Minimum time between resizes of the same workload. Other apps on the same policy are not locked. When every matched app is still cooling, the next reconcile waits only until the soonest per-app window expires (a watch event does not restart a full cooldown). A new `0s` is rejected: omit the field for the 1h default. The shortest accepted value is 1m. An update that keeps a stored `0s` is accepted. Changing a positive value to `0s` is rejected. A stored `0s` is treated as 1h, also when a policy inherits it. This applies to policies and both defaults kinds. |
+| `cooldown` | duration | `1h` | Minimum time between resizes of the same workload. Other apps on the same policy are not locked. When every matched app is still cooling, the next reconcile waits only until the soonest per-app window expires (a watch event does not restart a full cooldown). Zero is invalid on create: omit the field for the 1h default. The shortest accepted value is 1m. An `AttunePolicy`, `AttuneDefaults`, or `AttuneNamespaceDefaults` object already stored with `0s` can be updated while that value stays, and the controller still waits 1h, including when a policy omits cooldown and inherits `0s`. Changing a positive duration to `0s` is rejected. |
 | `autoRevert` | bool | `true` | Revert unsafe resizes automatically |
 | `resizeMethod` | string | `InPlaceOnly` | `InPlaceOnly` or `InPlaceOrRecreate` |
 | `maxConcurrentResizes` | int32 | `1` (built-in when unset) | Max pods to resize simultaneously. Omitted on the policy so AttuneDefaults can apply before the built-in 1. |
@@ -329,7 +342,7 @@ that do not set them explicitly. Policy-level values always take precedence.
 | `maxMemoryIncreasePerMinute` | quantity | (none) | Max aggregate memory increase per wall-clock minute (token bucket) |
 | `schedule` | object | (none) | Time windows, days of week, timezone |
 | `export` | object | (none) | Metrics export configuration |
-| `safetyObservationPeriod` | duration | `5m` | Post-resize observation window. Omit the field for 5m. A new `0s` is rejected. The shortest accepted value is 1m. An update that keeps a stored `0s` is accepted. Changing a positive value to `0s` is rejected. A stored `0s` is treated as unset: the canary `observationPeriod` if set, else 5m. This applies to policies and both defaults kinds. |
+| `safetyObservationPeriod` | duration | `5m` | Post-resize observation window. Omit the field for 5m. Zero is invalid on create, and changing a positive duration to `0s` is rejected. The shortest accepted value is 1m. A stored `0s` on `AttunePolicy`, `AttuneDefaults`, or `AttuneNamespaceDefaults` can stay through an unrelated update and is treated as unset (5m, or a positive canary period). |
 | `sloGuardrails` | list | `[]` | Application-level SLO PromQL checks after resize |
 | `canary` | object | (none) | Canary rollout (`percentage`, `observationPeriod`, `autoPromote`). Omitted or `0s` `observationPeriod` uses the built-in observation period, not a rejected value. `autoPromote` defaults to false. When true, a clean observation period resizes the remaining pods. When false, switch the policy to Auto yourself. CREATE sizing, startup boost, and HPA stay off for an app until that app is promoted. |
 | `initialSizing` | bool | `false` | Enable mutating webhook for pod creation |
@@ -461,7 +474,7 @@ operator queries. The wizard inherit option uses that omit shape.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `metricsSource.prometheus.bearerTokenSecret` | object | (optional) | Secret `name` + `key` for a bearer token in the **policy** namespace (`AttunePolicy` or `AttuneNamespaceDefaults`). Deprecated on cluster `AttuneDefaults`: the name is still inherited and read in each policy namespace; use `prometheusAuth` or `openshift.bindClusterMonitoringView` instead. Amazon Managed Prometheus does not use this Secret. |
+| `metricsSource.prometheus.bearerTokenSecret` | object | (optional) | Secret `name` + `key` for a bearer token in the **policy** namespace (`AttunePolicy` or `AttuneNamespaceDefaults`). Deprecated on cluster `AttuneDefaults`: the name is still inherited and read in each policy namespace; use `prometheusAuth` or `openshift.bindClusterMonitoringView` instead. Amazon Managed Prometheus does not use this Secret. Attune trims both ends of the token and keeps interior spaces. |
 | `metricsSource.prometheus.sigv4.region` | string | (required when `sigv4` is set) | AWS region of the Amazon Managed Prometheus workspace, for example `us-east-1`. There is no default. Attune signs queries with SigV4 service `aps`. Omitted `sigv4` does not sign. Do not combine with `bearerTokenSecret`, an `Authorization` header, or an `X-Amz-*` header. |
 | `metricsSource.prometheus.sigv4.roleArn` | string | (optional) | IAM role ARN to assume. Empty uses the pod identity chain (IRSA or Pod Identity). The role needs `aps:QueryMetrics`. |
 | `metricsSource.prometheus.tls.insecureSkipVerify` | bool | `false` | Skip TLS certificate verification. Use only for a self-signed development endpoint. Prefer the cluster CA when you have the bundle. |
@@ -471,7 +484,7 @@ operator queries. The wizard inherit option uses that omit shape.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `metricsSource.datadog.site` | string | `datadoghq.com` | Datadog site (e.g., `datadoghq.eu`, `us5.datadoghq.com`, `ddog-gov.com`) |
-| `metricsSource.datadog.apiKeySecretRef.name` | string | (required) | Secret name for the Datadog API key. On `AttunePolicy` or `AttuneNamespaceDefaults` the Secret is in that namespace. On cluster `AttuneDefaults` the name is still copied onto each policy; set `datadogAuth.existingSecret` so a cluster-chosen block reads the operator namespace instead. |
+| `metricsSource.datadog.apiKeySecretRef.name` | string | (required) | Secret name for the Datadog API key. On `AttunePolicy` or `AttuneNamespaceDefaults` the Secret is in that namespace. On cluster `AttuneDefaults` the name is still copied onto each policy; set `datadogAuth.existingSecret` so a cluster-chosen block reads the operator namespace instead. Attune trims both ends of the API key and the optional `app-key`, and keeps interior spaces. A whitespace-only `app-key` is omitted. |
 | `metricsSource.datadog.apiKeySecretRef.key` | string | (required) | Key within the Secret that holds the API key. When `datadogAuth.existingSecret` is set for a cluster-chosen Datadog block, the data key is `datadogAuth.existingSecret.key` (`--datadog-api-key-secret-key`), not this inherited key. |
 
 ### CloudWatch Container Insights
@@ -495,7 +508,11 @@ caps apply to `AttunePolicy`, `AttuneDefaults`, and
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `targetRef.kind` | string | `Deployment` | Workload kind. One of `Deployment`, `StatefulSet`, `DaemonSet`, `CronJob`, `Job`, `ReplicaSet`, or `Rollout`. `Rollout` is `argoproj.io/v1alpha1` from Argo Rollouts. Attune does not install that CRD and does not watch it. A policy that sets `kind: Rollout` before the CRD exists becomes Ready False with reason `WorkloadCRDMissing` and retries. Other policies are unchanged. Pods are selected with `spec.selector`, including `matchExpressions`. The pod owner is the child ReplicaSet. Resize waits while the Rollout phase is `Paused` or `Progressing`, while `status.abort` is true, or while `status.updatedReplicas` is behind `spec.replicas` (a nil `spec.replicas` counts as 1). Recommendations are still stored. Template persistence patches the Rollout `spec.template`, not the child ReplicaSet. If `spec.workloadRef` is set and `spec.template` has no containers, recommendations use the referenced Deployment, StatefulSet, or ReplicaSet pod template. The Rollout template is still not patched. If that object cannot be read, or it has no containers, `TemplatePersistence` is False with reason `WorkloadRefUnread`. CREATE initial sizing does not resolve a Rollout owner. CronJob pods are matched as `<cronjob>-<minute>-<5 characters>`, or `<cronjob>-<minute>-<index>-<5 characters>` when the job template sets `completionMode: Indexed`. The minute is the scheduled time in Unix minutes that the CronJob controller puts in the Job name (8 digits today, 9 later). It is not a 10-digit Unix timestamp. |
+| `targetRef.kind` | string | `Deployment` | Workload kind. One of `Deployment`, `StatefulSet`, `DaemonSet`, `CronJob`, `Job`, `ReplicaSet`, or `Rollout`. `Rollout` is `argoproj.io/v1alpha1` from Argo Rollouts. Attune does not install that CRD and does not watch it. A policy that sets `kind: Rollout` before the CRD exists becomes Ready False with reason `WorkloadCRDMissing` and retries. Other policies are unchanged. Pods are selected with `spec.selector`, including `matchExpressions`. The pod owner is the child ReplicaSet. Resize waits while the Rollout phase is `Paused`, `Progressing`, or `Degraded`, or while `status.abort` is true. `Degraded` is an aborted, timed-out, or invalid spec, so it waits even when `status.abort` is false and replica counts match. A `Healthy` phase, or an empty phase, does not wait because `status.updatedReplicas` is behind `spec.replicas`. That lag is a scale-out. Argo reports a replica lag as `Progressing`. Recommendations are still stored. Template persistence patches the Rollout `spec.template`, not the child ReplicaSet. If `spec.workloadRef` is set and `spec.template` has no containers, recommendations use the referenced Deployment, StatefulSet, or ReplicaSet pod template. The Rollout template is still not patched. If that object cannot be read, or it has no containers, `TemplatePersistence` is False with reason `WorkloadRefUnread`, and that reason stays for the reconcile. A readable reference uses reason `TemplateWorkloadRef` instead. CREATE initial sizing does not resolve a Rollout owner. A CronJob pod name ends in the CronJob controller minute stamp (unix time divided by 60: 8 digits until 2160-02-18, 9 digits after that) and a 5-character hash. Indexed completion inserts the completion index before that hash. The suffix is not a 10-digit unix-seconds timestamp. |
+
+### Resize while a StatefulSet partition is held
+
+A RollingUpdate StatefulSet resizes a pod whose `controller-revision-hash` matches `status.updateRevision`. Pods on the older revision stay skipped while `status.currentRevision` and `status.updateRevision` differ. A held `partition` keeps that difference on purpose, so those pods stay skipped until the revisions match. The pod ordinal is not read. A stale generation (`metadata.generation` ahead of `status.observedGeneration`) skips every pod, including pods already on `updateRevision`. OnDelete is not this skip. Those pods are resized.
 
 ### spec.paused
 
@@ -565,15 +582,18 @@ v1 reads these fields from a container entry: `percentile`, `overhead`,
 
 Per field, a literal container name wins over `*`, and `*` wins over the
 merged policy block. That block is already merged from the policy, then
-`AttuneNamespaceDefaults`, then `AttuneDefaults`. Percentile `0`, overhead
+`AttuneNamespaceDefaults`, then `AttuneDefaults`. `kubectl attune explain`
+prints that winner as `container`, `wildcard`, `policy`, `namespace defaults`,
+`cluster defaults`, `defaults`, or `built-in`. Percentile `0`, overhead
 `""`, and nil pointers are unset. Overhead `"0"` is set and does not
 inherit `"20"`. An unset CPU `allowDecrease` still allows decreases. An
 unset memory `allowDecrease` still blocks them. An omitted
 `maxAllowed` inherits `*` and then the policy max. A container entry
 cannot clear a policy max. The effective value is uncapped only when
 it is still nil. Same-block minAllowed above maxAllowed on a container
-entry is rejected by the webhook. The CRD quantity rule stays on
-`spec.cpu` and `spec.memory` only. Copying it onto each of the 100
+entry is rejected by the webhook. A defaults min is included when the
+container omits min and the effective max is already known. The CRD
+quantity rule stays on `spec.cpu` and `spec.memory` only. Copying it onto each of the 100
 container entries exceeds the API server CEL cost budget.
 
 `excludedContainers` and `excludeKnownSidecars` win before any container
@@ -588,8 +608,9 @@ even when it is named here.
 rejects them on a container entry. Policy-level copies still apply to
 every container that is not excluded. A container `maxAllowed` caps
 policy startup boost and a policy memory OOM bump. After the field-wise
-merge, `minAllowed` above `maxAllowed` is rejected. Container
-`maxAllowed` uses the same 256-core and 16Ti ceilings as `spec.cpu` and
+merge, `minAllowed` above `maxAllowed` is rejected, including a
+defaults min when the container omits min and a max is already known.
+Container `maxAllowed` uses the same 256-core and 16Ti ceilings as `spec.cpu` and
 `spec.memory`. No extra Prometheus metric is emitted for this list.
 
 ```yaml
@@ -653,9 +674,9 @@ Per-resource fields in `cpu` and `memory` that limit how much a recommendation c
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `controlledValues` | string | `RequestsOnly` | `RequestsOnly` adjusts only requests and keeps the live limit. `RequestsAndLimits` scales the limit with the request. Omitted `limitMultiplier` keeps the live ratio. Explicit `"1"` forces equality. `maxAllowed` caps the request, not the limit. `RequestsOnly` can still change QoS when a live limit already equals the new request. That resize is skipped. |
-| `cpu.limitMultiplier` | string | (none) | Multiple applied to the new CPU request when `cpu.controlledValues` is `RequestsAndLimits`. Omitted keeps the live request-to-limit ratio. Explicit `"1"` forces the limit equal to the new request. A container with no current limit keeps that limit omitted. `RequestsOnly` plus a multiplier on the same object is rejected. `AttuneDefaults` may carry a multiplier without `RequestsAndLimits`. A policy that inherits that multiplier and still resolves to `RequestsOnly` after merge becomes `InvalidConfig`. Minimum `1`. Maximum `100`. Values below 1 are rejected because a limit cannot be smaller than its request. Zero, negative, NaN, Inf, and values above 100 are rejected. `maxAllowed` caps the request, not the limit. |
-| `memory.limitMultiplier` | string | (none) | Multiple applied to the new memory request when `memory.controlledValues` is `RequestsAndLimits`. Omitted keeps the live request-to-limit ratio. Explicit `"1"` sets the limit to the new request, rounded up to a whole byte. Scaled memory limits are rounded up to a whole byte, with or without a multiplier, to float64 precision: a product within 1e-14 (relative) of a whole byte snaps to that byte. CPU limits keep millicore precision. A container with no current limit keeps that limit omitted. `RequestsOnly` plus a multiplier on the same object is rejected. `AttuneDefaults` may carry a multiplier without `RequestsAndLimits`. A policy that inherits that multiplier and still resolves to `RequestsOnly` after merge becomes `InvalidConfig`. Minimum `1`. Maximum `100`. Values below 1 are rejected because a limit cannot be smaller than its request. Zero, negative, NaN, Inf, and values above 100 are rejected. `maxAllowed` caps the request, not the limit. |
+| `controlledValues` | string | `RequestsOnly` | `RequestsOnly` adjusts only requests and keeps the live limit. `RequestsAndLimits` scales the limit with the request. Omitted `limitMultiplier` keeps the live ratio. Explicit `"1"` forces equality. `maxAllowed` caps the engine request, not the limit. A Guaranteed memory raise can set the applied request above `memory.maxAllowed`. `RequestsOnly` can still change QoS when a live limit already equals the new request. That resize is skipped. |
+| `cpu.limitMultiplier` | string | (none) | Multiple applied to the new CPU request when `cpu.controlledValues` is `RequestsAndLimits`. Omitted keeps the live request-to-limit ratio. Explicit `"1"` forces the limit equal to the new request. CPU limits keep millicore precision. A container with no current limit keeps that limit omitted. `RequestsOnly` plus a multiplier on the same object is rejected. A multiplier set on the policy also requires `RequestsAndLimits` on that same object when `controlledValues` is omitted or empty. Admission rejects that apply. A stored object is not rewritten and stays `InvalidConfig` until edited. `AttuneDefaults` may carry a multiplier without `RequestsAndLimits`. A policy that sets `controlledValues: RequestsOnly` does not inherit that multiplier. A policy that omits `controlledValues` still inherits it, then built-in defaults fill `RequestsOnly`, and reconcile reports `InvalidConfig`. Minimum `1`. Maximum `100`. Values below 1 are rejected because a limit cannot be smaller than its request. Zero, negative, NaN, Inf, and values above 100 are rejected. `maxAllowed` caps the engine request, not the limit. A multiplier that would change a Guaranteed pod to another QoS class is skipped and is not evicted. `resizeMethod: InPlaceOrRecreate` does not evict that pod either. |
+| `memory.limitMultiplier` | string | (none) | Multiple applied to the new memory request when `memory.controlledValues` is `RequestsAndLimits`. Omitted keeps the live request-to-limit ratio. Explicit `"1"` sets the limit to the new request, rounded up to a whole byte. Scaled memory limits are rounded up to a whole byte, with or without a multiplier, to float64 precision: a product within 1e-14 (relative) of a whole byte snaps to that byte. A container with no current limit keeps that limit omitted. `RequestsOnly` plus a multiplier on the same object is rejected. A multiplier set on the policy also requires `RequestsAndLimits` on that same object when `controlledValues` is omitted or empty. Admission rejects that apply. A stored object is not rewritten and stays `InvalidConfig` until edited. `AttuneDefaults` may carry a multiplier without `RequestsAndLimits`. A policy that sets `controlledValues: RequestsOnly` does not inherit that multiplier. A policy that omits `controlledValues` still inherits it, then built-in defaults fill `RequestsOnly`, and reconcile reports `InvalidConfig`. Minimum `1`. Maximum `100`. Values below 1 are rejected because a limit cannot be smaller than its request. Zero, negative, NaN, Inf, and values above 100 are rejected. `maxAllowed` caps the engine request, not the limit. On a Guaranteed pod the request is raised to the multiplied limit so the request stays equal to the limit. That applied request can exceed `memory.maxAllowed`. The pod stays Guaranteed. |
 
 When `controlledValues` is `RequestsAndLimits`, HPA auto-tune caps the CPU
 utilization target using the multiplied CPU limit. A limit above
@@ -677,7 +698,7 @@ Temporarily increases CPU requests for newly created or restarted pods to accele
 |-------|------|---------|-------------|
 | `startupBoost.multiplier` | string | (none) | Scales the recommended CPU request during startup. For example, `"3.0"` means 3x the steady-state recommendation. Must be > 1.0 and <= 10.0. This is not `limitMultiplier`. During the boost window the CPU limit is the greater of the boosted request and the steady multiplied limit, not the boosted request times `limitMultiplier`. Expiry restores that steady limit. |
 | `startupBoost.duration` | duration | (none) | How long the boost lasts before reducing to the steady-state recommendation. Must be >= 10s and <= 1h. CREATE and live reconcile dest-cap the boosted request at leftover dest when `controlledValues` is `RequestsOnly`. When it is `RequestsAndLimits` and a rec dest is set, dest-cap uses that rec dest (leftover dest is not a skip). Job and CronJob pods skip CREATE boost because expiry cannot run. |
-| `startupBoost.excludeFromHistory` | bool | omitted (false) | When true, drop CPU samples from the percentile while the pod is inside startup. The cutoff is pod `CreationTimestamp` plus `startupBoost.duration` plus `rateWindow`. A sample at the cutoff stays. Nil and false keep today's percentile. Memory samples are unchanged. Deleted pods stay in history until `historyWindow` because there is no `CreationTimestamp` to cut on. A recreated pod keeps samples older than its new `CreationTimestamp`. A series with no pod label is left unfiltered. |
+| `startupBoost.excludeFromHistory` | bool | omitted (false) | When true, drop CPU samples from the percentile while the pod is inside startup. The window starts at `attune.io/startup-boost-at` when that annotation is set and not before pod creation, otherwise at `CreationTimestamp`. The cutoff is that start plus `startupBoost.duration` plus `rateWindow`. A sample at the cutoff stays. Nil and false keep today's percentile. Memory samples are unchanged. Deleted pods stay in history until `historyWindow` because there is no creation time or stamp to cut on. A recreated pod keeps samples older than its new `CreationTimestamp`. A series with no pod label is left unfiltered. |
 
 `startupBoost` is policy-wide. A container `maxAllowed` from
 `containerPolicies` caps the boosted CPU. `memoryFromCpuRatio`,
@@ -711,7 +732,7 @@ Shortens the history window while recent usage is hot. The block is absent by de
 | `cpu.surge` / `memory.surge` | object | absent | Off until this object is set. `{}` turns the feature on and fills trigger ratio, percentile, and window. |
 | `surge.triggerRatio` | string | `1.5` when the block is set | Short percentile divided by the long-window percentile. Must be greater than 1 and at most 100. Empty is filled with `1.5`. |
 | `surge.percentile` | int | `99` when the block is set | Percentile of the short window. One of 50, 90, 95, 99. This does not replace the parent percentile on the long window. |
-| `surge.window` | duration | `30m` when the block is set | How far back the short window reaches. At least 5m. On a policy, must not be longer than the effective history: `metricsSource.historyWindow` on the policy, then namespace defaults, then cluster defaults, then `168h`. On AttuneDefaults or AttuneNamespaceDefaults, the limit is that object's own `historyWindow`, or `168h`. A window equal to that limit is accepted. A policy that sets `historyWindow` needs no defaults read at admission. Explicit `0s` is invalid. |
+| `surge.window` | duration | `30m` when the block is set | How far back the short window reaches. At least 5m. On a policy, must not be longer than the effective history: `metricsSource.historyWindow` on the policy, then namespace defaults, then cluster defaults, then `168h`. On AttuneDefaults or AttuneNamespaceDefaults, the limit is that object's own `historyWindow`, or `168h`. A window equal to that limit is accepted. A policy that sets `historyWindow` needs no defaults read for the surge check. It still lists defaults when the policy or a named container omits `minAllowed` and sets `maxAllowed`. Explicit `0s` is invalid. |
 
 The long statistic is still the max of the overall percentile and the 24 hour-of-day percentiles, at the parent percentile. The short statistic is the overall percentile only, of finite samples inside the window. Attune fires when the window drops older finite samples, at least 3 finite samples remain (and at least half of `window / queryStep` when the step is positive), and the short percentile is at least `triggerRatio` times the long percentile. A long percentile of 0 fires when the short percentile is positive. One spike in the short window does not fire. `minimumDataPoints` still gates the long window only. When the short window is selected, confidence stays the long window's confidence. Burst still runs on the chosen profile. `explanation.<resource>.finalAdjustment` includes `surge` on the resource that used the short window. `memoryFromCpuRatio` follows the CPU request and does not switch the memory sample set.
 
@@ -738,9 +759,13 @@ Raises the memory request after `OOMKilled`. The block is absent by default, so 
 | `oomBump.ratio` | string | `1.2` when the block is set | Multiplies the original memory request at each successful step. Minimum 1. Maximum 10. `"1.2"` means 20 percent per step. |
 | `oomBump.minBump` | quantity | `100Mi` when the block is set | Added to the original request once per successful step. Must be positive. The step uses whichever of the ratio and this floor is larger. |
 | `oomBump.maxBumps` | int32 | `3` when the block is set | Integer from 1 through 10. How many successful steps are allowed from the original request. When `maxAllowed` is omitted, this is the only cap. |
-| `oomBump.hold` | duration | `24h` when the block is set | How long the applied floor stays above a lower percentile. Minimum `1m`. Maximum `168h`. Expiry does not clear the original request stored on the pod. |
+| `oomBump.hold` | duration | `24h` when the block is set | How long the applied floor stays above a lower percentile. Minimum `1m`. Maximum `168h`. A newer OOM during the hold still steps above the live request. Auto, OneShot, and Canary record that signal on the pod. The hold stops the percentile from falling below the floor. It does not ignore a new OOM. Expiry does not clear the original request stored on the pod. |
 
-The step is `max(ceil(origin * ratio^count), origin + minBump * count)`, then `maxAllowed`. Origin is the live memory request before the first bump of the streak, not the latest live request and not the pod template. After `hold` expires, recommendations follow the normal percentile, `allowDecrease`, and template rules. A later OOM can step again from that same origin until `maxBumps`.
+The step is `max(ceil(origin * ratio^count), origin + minBump * count)`, then `maxAllowed`. Origin is the live memory request before the first bump of the streak, not the latest live request and not the pod template. During hold, a newer OOM whose next origin step is not above the live request takes one step from that live request and keeps the original origin. Auto, OneShot, and Canary record this `oomAt` and restart on the pod. The step is still clamped to `maxAllowed`. When `maxAllowed` is already at or below the live request, Auto, OneShot, and Canary store the signal once as skipped and `count` does not increase. Recommend and Observe do not write that stamp, so the same OOM still counts as `skipped` on every reconcile. After `hold` expires, recommendations follow the normal percentile, `allowDecrease`, and template rules. A later OOM can step again from that same origin until `maxBumps`.
+
+A held floor is published again on later reconciles. If `maxAllowed` is set and that floor is above it, the published request is the cap. Omitted `maxAllowed` does not cap. The stored floor, count, and `holdUntil` stay. The clamp does not extend the hold and is not a new OOM. A new OOM step is still clamped once inside the step math and is not clamped again below `maxAllowed`. Default memory `allowDecrease` is false. A clamp below the highest in-hold pod request is not resized until decrease is allowed. That request can sit above the workload template when template persistence is off. The recommendation keeps it and records the `allowDecrease` skip. A replica still under the cap is raised only to the cap. When `allowDecrease` is true, the recommendation shows the cap. Recommend does not resize. Observe does not resize. Auto, OneShot, and Canary resize down only when decrease is allowed.
+
+A safety revert keeps the memory request at or above the bump floor. It raises a positive memory limit to that floor only when this container's effective `controlledValues` is `RequestsAndLimits`. An empty `containerPolicies` list uses `spec.memory.controlledValues`. A literal container name beats `*`, and `*` beats the policy block. A zero or missing limit is not created. `oomBump` itself is not settable on a container entry.
 
 Attune stores the streak on the pod annotation `attune.io/oom-bump.<container>`. The container name must fit so the name segment `oom-bump.<container>` is at most 63 characters. The name is not truncated. The value is `count=<n>,origin=<qty>,floor=<qty>,oomAt=<RFC3339>,restart=<n>,holdUntil=<RFC3339>`.
 
@@ -761,7 +786,7 @@ Application-level PromQL checks evaluated after each resize during the safety ob
 | `updateStrategy.sloGuardrails[].query` | string | (required) | PromQL query returning a scalar. Supports `{{ .Namespace }}`, `{{ .WorkloadName }}`, `{{ .PodName }}` template variables. |
 | `updateStrategy.sloGuardrails[].threshold` | string | (required) | Value that triggers a revert |
 | `updateStrategy.sloGuardrails[].comparison` | string | `above` | `above` (revert when value > threshold) or `below` |
-| `updateStrategy.sloGuardrails[].evaluationWindow` | duration | `5m` | How long after resize to check. Omit the field for 5m. A new `0s` is rejected. The shortest accepted value is 1m. An update that keeps a stored `0s` at the same list index is accepted. Changing a positive value to `0s` is rejected. A stored `0s` is treated as 5m. This applies to policies and both defaults kinds. |
+| `updateStrategy.sloGuardrails[].evaluationWindow` | duration | `5m` | How long after resize to check. Omit the field for 5m. Zero is invalid on create, and changing a positive window to `0s` is rejected. An unchanged stored `0s` on `AttunePolicy`, `AttuneDefaults`, or `AttuneNamespaceDefaults` is accepted only when the stored entry at the same list index is also `0s`, and uses the 5m default. The shortest accepted positive value is 1m. |
 
 Example:
 
@@ -820,8 +845,8 @@ The controller sets these conditions on each `AttunePolicy`:
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Set when `updateStrategy.schedule` is configured; indicates whether the current time is within an allowed resize window |
 | `ResizeBlocked` | `NamespaceFrozen`, `HPAListUnavailable`, `VPAListUnavailable`, `PodsDeferred`, `PodsInfeasible`, `PodsDeferredAndInfeasible` | Namespace freeze kill-switch, HPA or VPA list failure (in-place resize, persist, boost, and CREATE skipped), or pods stuck Deferred or Infeasible; see troubleshooting "NamespaceFrozen", "HPAListUnavailable", "VPAListUnavailable", and "Deferred or Infeasible resize" |
 | `SafetyObservation` | `Observing`, `Evaluating`, `RestorePending`, `Incomplete` | True while pods still carry `attune.io` resize-tracking annotations. Derived from those annotations each reconcile; not a second in-memory store. Removed when no tracked pods remain. |
-| `TemplatePersistence` | `TemplateWorkloadRef` | False when template persistence is on, a Rollout `spec.workloadRef` is set, and no reference read failed. Attune left that template alone on purpose. When the Rollout template has no containers, recommendations read the referenced pod template. Ready stays independent. Removed when no targeted Rollout has `spec.workloadRef`. |
-| `TemplatePersistence` | `WorkloadRefUnread` | False when `spec.workloadRef` has an empty name or an unsupported kind, or the referenced object cannot be read or has no containers. The message and `status.workloadErrors` carry the error. No recommendation is stored for that Rollout. Kept while any reference read fails in this reconcile, even when another Rollout's reference was read. `status.workloadErrors` keeps at most 10 entries, so with more failing workloads a reference error can be dropped and this reason may not show. Replaced by `TemplateWorkloadRef`, or removed, on a later reconcile that reads every reference. |
+| `TemplatePersistence` | `TemplateWorkloadRef` | False when a Rollout `spec.workloadRef` was read. Attune does not patch that template. Recommendations still read the referenced pod template. Ready stays independent. This reason is not written over `WorkloadRefUnread`. Removed when no targeted Rollout has `spec.workloadRef` and the unread reason is not set. |
+| `TemplatePersistence` | `WorkloadRefUnread` | False when the referenced object cannot be read or has no containers. No recommendation is stored for that Rollout. Template persistence leaves this reason in place for that reconcile, including Recommend mode. Removed on a later reconcile whose workload errors no longer include a workloadRef read failure. |
 | `GitOpsPullRequest` | `PullRequestOpen`, `PullRequestFailed`, `GitOpsEndpointBlocked`, `NoDrift`, `PullRequestUnchanged`, `PullRequestCooldown`, `PullRequestDryRun`, `PullRequestDisabled` | Opt-in `export.pullRequest` automation status (see [GitOps integration](../guides/gitops-integration.md)) |
 
 `explanation.memory.finalAdjustment` can include `oomBump` when the published memory request was raised or held by `memory.oomBump`. The block is absent by default, so this note is not written until `oomBump` is set.

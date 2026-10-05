@@ -46,21 +46,47 @@ type startupHistoryFilter struct {
 	Skipped bool
 }
 
+// startupExclusionStart is where CPU history exclusion begins for one
+// live pod. A readable attune.io/startup-boost-at at or after creation
+// is the start. A missing, malformed, or earlier stamp is ignored so a
+// reused pod name does not lose samples from before this pod existed.
+func startupExclusionStart(pod *corev1.Pod) time.Time {
+	created := pod.CreationTimestamp.Time
+	if pod.Annotations == nil {
+		return created
+	}
+	raw := pod.Annotations[annotationStartupBoostAt]
+	if raw == "" {
+		return created
+	}
+	stamp, err := time.Parse(time.RFC3339, raw)
+	if err != nil || stamp.Before(created) {
+		return created
+	}
+	return stamp
+}
+
 // filterStartupCPUSamples drops CPU points that fall inside a live pod's
 // startup window, then re-aggregates the surviving pod-labeled series.
 //
-// The cutoff is pod CreationTimestamp plus boost plus rateWindow. A point
-// exactly at the cutoff stays. Samples older than CreationTimestamp stay,
-// so a recreated pod name keeps its earlier history. Sample timestamps are
-// the end of rate(). Deleted pods have no CreationTimestamp to cut on, so
+// The window starts at startupExclusionStart. The cutoff is that start
+// plus boost plus rateWindow. A point exactly at the cutoff stays.
+// Samples older than CreationTimestamp stay. Sample timestamps are the
+// end of rate(). Deleted pods have no creation time and no stamp, so
 // their series stay until historyWindow. A series with an empty pod label
-// is left unchanged
-// and is not folded into Max or Avg. A numeric 0 after the cutoff stays.
-// Pods with no surviving points are omitted.
+// is left unchanged and is not folded into Max or Avg. A numeric 0 after
+// the cutoff stays. Pods with no surviving points are omitted.
 func filterStartupCPUSamples(samples []rsmetrics.Sample, pods []corev1.Pod, boost time.Duration, rateWindow time.Duration, mode rsmetrics.PodAggregationMode) startupHistoryFilter {
-	createdAt := make(map[string]time.Time, len(pods))
+	type podWindow struct {
+		created time.Time
+		start   time.Time
+	}
+	windows := make(map[string]podWindow, len(pods))
 	for i := range pods {
-		createdAt[pods[i].Name] = pods[i].CreationTimestamp.Time
+		windows[pods[i].Name] = podWindow{
+			created: pods[i].CreationTimestamp.Time,
+			start:   startupExclusionStart(&pods[i]),
+		}
 	}
 
 	byPod := make(map[string][]rsmetrics.Sample)
@@ -75,7 +101,7 @@ func filterStartupCPUSamples(samples []rsmetrics.Sample, pods []corev1.Pod, boos
 			skipped = true
 			continue
 		}
-		created, live := createdAt[sample.Pod]
+		win, live := windows[sample.Pod]
 		if !live {
 			// No live pod with this name. Keep the series. Do not mark
 			// Skipped: deleted pods stay until historyWindow.
@@ -85,10 +111,12 @@ func filterStartupCPUSamples(samples []rsmetrics.Sample, pods []corev1.Pod, boos
 			byPod[sample.Pod] = append(byPod[sample.Pod], sample)
 			continue
 		}
-		cutoff := created.Add(boost).Add(rateWindow)
-		// A recreated pod reuses the name. Points from the previous
-		// incarnation are older than CreationTimestamp and stay.
-		if !sample.Timestamp.Before(created) && sample.Timestamp.Before(cutoff) {
+		cutoff := win.start.Add(boost).Add(rateWindow)
+		// A reused pod name keeps points older than this pod. A stamp
+		// before creation is not a window, so those points stay.
+		inThisPod := !sample.Timestamp.Before(win.created)
+		inWindow := !sample.Timestamp.Before(win.start) && sample.Timestamp.Before(cutoff)
+		if inThisPod && inWindow {
 			dropped = true
 			continue
 		}

@@ -256,16 +256,21 @@ func TestPlanWorkloadOOMBump(t *testing.T) {
 			wantWork:   true,
 		},
 		{
-			name:       "maxAllowed below live does not stamp",
-			block:      empty,
-			container:  "app",
-			maxAllowed: i64ptr(cap250),
-			pods:       []corev1.Pod{oomBumpPod("a", "app", "300Mi", oomKilledStatus(later, 2), stored(1, live200, floor300, now, 1, hold), false)},
-			wantPub:    true,
-			wantBytes:  floor300,
-			wantNote:   true,
-			wantNow:    []string{oomBumpSkipped},
-			wantWork:   true,
+			name:        "maxAllowed below live consumes once",
+			block:       empty,
+			container:   "app",
+			maxAllowed:  i64ptr(cap250),
+			pods:        []corev1.Pod{oomBumpPod("a", "app", "300Mi", oomKilledStatus(later, 2), stored(1, live200, floor300, now, 1, hold), false)},
+			wantPub:     true,
+			wantBytes:   cap250,
+			wantNote:    true,
+			wantStamps:  1,
+			wantCount:   1,
+			wantOrigin:  live200,
+			wantFloor:   floor300,
+			wantNow:     []string{oomBumpSkipped},
+			wantWork:    true,
+			wantAnnOnly: true,
 		},
 		{
 			name:      "slash in the container name is skipped",
@@ -357,6 +362,10 @@ func TestPlanWorkloadOOMBump(t *testing.T) {
 				if tt.wantAnnOnly {
 					assert.True(t, stamp.AnnotationOnly)
 					assert.Empty(t, stamp.Result)
+				}
+				if tt.name == "maxAllowed below live consumes once" {
+					assert.True(t, got.QuietClamp)
+					assert.Equal(t, floor300, got.QuietClampFrom)
 				}
 			}
 		})
@@ -611,6 +620,92 @@ func TestPlanWorkloadOOMBump_CappedDoesNotRepeat(t *testing.T) {
 	assert.Equal(t, floor300, second.PublishBytes)
 }
 
+func TestPlanWorkloadOOMBump_InHoldNewOOMStepsAboveLive(t *testing.T) {
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	later := now.Add(time.Minute)
+	origin := qtyBytes(t, "256Mi")
+	floor := qtyBytes(t, "384Mi")
+	live := qtyBytes(t, "1Gi")
+	above := qtyBytes(t, "1280Mi")
+	ratio := "1.5"
+	block := &attunev1alpha1.OOMBump{Ratio: &ratio}
+	minBump := attunev1alpha1.DefaultOOMBumpMinBump.Value()
+	stored := oomBumpRecord{
+		Count: 1, Origin: origin, Floor: floor,
+		OOMAt: now.Add(-time.Hour), Restart: 1, HoldUntil: now.Add(time.Hour),
+	}
+	raw, err := formatOOMBumpRecord(stored)
+	require.NoError(t, err)
+	originStep, originResult, bumpErr := oomBumpBytes(origin, minBump, live, ratio, stored.Count+1, nil)
+	require.NoError(t, bumpErr)
+	assert.Equal(t, oomBumpSkipped, originResult, "frozen origin step is not above live")
+	assert.LessOrEqual(t, originStep, live)
+
+	tests := []struct {
+		name         string
+		newOOM       bool
+		maxAllowed   *int64
+		wantCount    int
+		wantAbove    bool
+		wantEqualMax bool
+		wantSkipped  bool
+		wantOnly     bool
+	}{
+		{name: "steps above live", newOOM: true, wantCount: 2, wantAbove: true},
+		{name: "clamped to maxAllowed above live", newOOM: true, maxAllowed: &above, wantCount: 2, wantAbove: true, wantEqualMax: true},
+		{name: "maxAllowed at live consumes once", newOOM: true, maxAllowed: &live, wantCount: 1, wantSkipped: true, wantOnly: true},
+		{name: "no new oom keeps the floor", newOOM: false, wantCount: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			finished := stored.OOMAt
+			restart := stored.Restart
+			if tt.newOOM {
+				finished = later
+				restart = 2
+			}
+			pod := oomBumpPod("a", "app", "1Gi", oomKilledStatus(finished, restart), raw, false)
+			first := planWorkloadOOMBump(block, "app", false, 0, false, tt.maxAllowed, raw, []corev1.Pod{pod}, now, nil)
+			require.True(t, first.UsePublish)
+			if !tt.newOOM {
+				assert.Equal(t, floor, first.PublishBytes)
+				assert.Empty(t, first.Stamps)
+				assert.Empty(t, first.MetricNow)
+				return
+			}
+			require.Len(t, first.Stamps, 1)
+			stamp := first.Stamps[0]
+			assert.Equal(t, tt.wantOnly, stamp.AnnotationOnly)
+			assert.Equal(t, origin, stamp.Stamp.Origin)
+			assert.Equal(t, tt.wantCount, stamp.Stamp.Count)
+			assert.True(t, stamp.Stamp.OOMAt.Equal(finished))
+			assert.Equal(t, restart, stamp.Stamp.Restart)
+			if tt.wantSkipped {
+				assert.Equal(t, []string{oomBumpSkipped}, first.MetricNow)
+				assert.Equal(t, floor, stamp.Stamp.Floor)
+				assert.Equal(t, floor, first.PublishBytes)
+			} else {
+				assert.NotContains(t, first.MetricNow, oomBumpSkipped)
+				assert.Greater(t, first.PublishBytes, live)
+				assert.Greater(t, stamp.Stamp.Floor, live)
+				if tt.wantEqualMax {
+					assert.Equal(t, *tt.maxAllowed, first.PublishBytes)
+					assert.Equal(t, oomBumpClamped, stamp.Result)
+				}
+			}
+
+			updated, fmtErr := formatOOMBumpRecord(stamp.Stamp)
+			require.NoError(t, fmtErr)
+			nextPod := oomBumpPod("a", "app", "1Gi", oomKilledStatus(finished, restart), updated, false)
+			second := planWorkloadOOMBump(block, "app", false, 0, false, tt.maxAllowed, updated, []corev1.Pod{nextPod}, now, nil)
+			assert.Empty(t, second.MetricNow)
+			for _, again := range second.Stamps {
+				assert.Equal(t, tt.wantCount, again.Stamp.Count)
+			}
+		})
+	}
+}
+
 func TestPlanWorkloadOOMBump_RevertedPodDoesNotInheritSibling(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	consumedAt := now.Add(-2 * time.Hour)
@@ -661,6 +756,78 @@ func TestPlanWorkloadOOMBump_RevertedPodDoesNotInheritSibling(t *testing.T) {
 	assert.Equal(t, live100, later.Stamps[0].Stamp.Origin)
 	assert.Equal(t, bump100, later.Stamps[0].bumpBytes)
 	assert.NotEqual(t, 3, later.Stamps[0].Stamp.Count)
+}
+
+func TestPlanWorkloadOOMBump_HeldFloorReclampsToMaxAllowed(t *testing.T) {
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	floor := qtyBytes(t, "512Mi")
+	trigger := now.Add(-time.Hour)
+	raw, err := formatOOMBumpRecord(oomBumpRecord{
+		Count: 1, Origin: floor, Floor: floor,
+		OOMAt: trigger, Restart: 1, HoldUntil: now.Add(time.Hour),
+	})
+	require.NoError(t, err)
+	pod := oomBumpPod("a", "app", "512Mi", oomKilledStatus(trigger, 1), raw, false)
+	block := &attunev1alpha1.OOMBump{}
+
+	cap256 := qtyBytes(t, "256Mi")
+	clamped := planWorkloadOOMBump(block, "app", false, 0, false, &cap256, raw, []corev1.Pod{pod}, now, nil)
+	assert.True(t, clamped.UsePublish)
+	assert.Equal(t, cap256, clamped.PublishBytes)
+	assert.True(t, clamped.QuietClamp)
+	assert.Equal(t, floor, clamped.QuietClampFrom)
+	assert.NotContains(t, clamped.MetricNow, oomBumpClamped)
+	assert.Empty(t, clamped.Stamps)
+	stored, ok := parseOOMBumpRecord(clamped.WorkloadValue)
+	require.True(t, ok)
+	assert.Equal(t, floor, stored.Floor)
+	assert.Equal(t, raw, clamped.WorkloadValue)
+
+	above := qtyBytes(t, "1Gi")
+	under := planWorkloadOOMBump(block, "app", false, 0, false, &above, raw, []corev1.Pod{pod}, now, nil)
+	assert.Equal(t, floor, under.PublishBytes)
+	assert.False(t, under.QuietClamp)
+
+	uncapped := planWorkloadOOMBump(block, "app", false, 0, false, nil, raw, []corev1.Pod{pod}, now, nil)
+	assert.Equal(t, floor, uncapped.PublishBytes)
+	assert.False(t, uncapped.QuietClamp)
+
+	tied := planWorkloadOOMBump(block, "app", false, floor, true, &cap256, raw, []corev1.Pod{pod}, now, nil)
+	assert.Equal(t, cap256, tied.PublishBytes)
+	assert.True(t, tied.QuietClamp)
+	assert.Equal(t, floor, tied.QuietClampFrom)
+
+	higher := qtyBytes(t, "1Gi")
+	left := planWorkloadOOMBump(block, "app", false, higher, true, &cap256, raw, []corev1.Pod{pod}, now, nil)
+	assert.Equal(t, higher, left.PublishBytes, "a higher settled percentile is not a held-floor reclamp")
+	assert.False(t, left.QuietClamp)
+
+	plain := oomBumpPod("c", "app", "512Mi", nil, "", false)
+	onlyPct := planWorkloadOOMBump(block, "app", false, floor, true, &cap256, "", []corev1.Pod{plain}, now, nil)
+	assert.Equal(t, floor, onlyPct.PublishBytes)
+	assert.False(t, onlyPct.QuietClamp)
+	assert.False(t, onlyPct.Note)
+
+	freshCap := qtyBytes(t, "256Mi")
+	fresh := oomBumpPod("b", "app", "200Mi", oomKilledStatus(now, 1), "", false)
+	stepped := planWorkloadOOMBump(block, "app", false, 0, false, &freshCap, "", []corev1.Pod{fresh}, now, nil)
+	assert.Equal(t, freshCap, stepped.PublishBytes)
+	assert.False(t, stepped.QuietClamp)
+	require.Len(t, stepped.Stamps, 1)
+	assert.Equal(t, oomBumpClamped, stepped.Stamps[0].Result)
+	assert.Equal(t, freshCap, stepped.Stamps[0].Stamp.Floor)
+	assert.NotContains(t, stepped.MetricNow, oomBumpClamped)
+
+	combined := planWorkloadOOMBump(block, "app", false, 0, false, &freshCap, raw, []corev1.Pod{fresh}, now, nil)
+	assert.Equal(t, freshCap, combined.PublishBytes)
+	assert.False(t, combined.QuietClamp)
+	require.NotEmpty(t, combined.Stamps)
+	for _, st := range combined.Stamps {
+		if st.AnnotationOnly {
+			continue
+		}
+		assert.GreaterOrEqual(t, st.Stamp.Floor, freshCap)
+	}
 }
 
 func TestStripClearedOOMBumps(t *testing.T) {

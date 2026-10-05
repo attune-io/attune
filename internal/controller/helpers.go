@@ -709,14 +709,15 @@ func resizeHistoryDelta(saved, fetched []attunev1alpha1.ResizeHistoryEntry) []at
 }
 
 // cycleDeltaForCount drops delta rows that finished before this
-// reconcile. Status timestamps are whole seconds, so a stamp up to one
-// second before cycleStart still belongs to this cycle. A zero
-// cycleStart keeps every row. A zero timestamp has no clock to reject.
+// reconcile. Status timestamps are whole seconds. A stamp one second
+// before cycleStart still belongs to this cycle, and that stamp is
+// stored at the start of its second. The cutoff is that whole second.
+// A zero cycleStart keeps every row. A zero timestamp has no clock to reject.
 func cycleDeltaForCount(delta []attunev1alpha1.ResizeHistoryEntry, cycleStart time.Time) []attunev1alpha1.ResizeHistoryEntry {
 	if cycleStart.IsZero() {
 		return delta
 	}
-	cutoff := cycleStart.Add(-time.Second)
+	cutoff := cycleStart.Add(-time.Second).Truncate(time.Second)
 	kept := make([]attunev1alpha1.ResizeHistoryEntry, 0, len(delta))
 	for _, entry := range delta {
 		if entry.Timestamp.IsZero() || !entry.Timestamp.Time.Before(cutoff) {
@@ -1495,4 +1496,49 @@ func (r *AttunePolicyReconciler) enforceAllowDecrease(
 	explain.FinalAdjustment = fmt.Sprintf("%s decrease from %s to %s blocked by allowDecrease=false",
 		resourceType, current.String(), unclamped)
 	return clamped
+}
+
+// suppressOOMDecrease puts a lowered OOM publish back when memory
+// decreases are blocked. The baseline is the workload template, or the
+// highest in-hold pod memory request when that is higher. The explanation
+// keeps the oomBump note and records the same allowDecrease skip a normal
+// recommendation uses. A request that is not lower is left alone, so a
+// later limit multiplier can still raise a Guaranteed pod above maxAllowed.
+func (r *AttunePolicyReconciler) suppressOOMDecrease(
+	policy *attunev1alpha1.AttunePolicy,
+	containerName string,
+	rec *attunev1alpha1.ContainerRecommendation,
+	explanation *attunev1alpha1.ContainerRecommendationExplanation,
+	pods []corev1.Pod,
+	now time.Time,
+) {
+	if r == nil || rec == nil {
+		return
+	}
+	_, memOK := containerDecreaseAllowed(policy, containerName)
+	baseline := rec.Current.MemoryRequest
+	if live, ok := maxInHoldLiveMemory(pods, containerName, now); ok && live.Cmp(baseline) > 0 {
+		baseline = live
+	}
+	if memOK || rec.Recommended.MemoryRequest.Cmp(baseline) >= 0 {
+		return
+	}
+	prior := ""
+	if explanation != nil && explanation.Memory != nil {
+		prior = explanation.Memory.FinalAdjustment
+	}
+	var memExplain recommendation.RecommendationExplanation
+	clamped := r.enforceAllowDecrease(false, rec.Recommended.MemoryRequest, baseline, &memExplain, policy, containerName, "memory")
+	rec.Recommended.MemoryRequest = clamped
+	note := appendNote(prior, memExplain.FinalAdjustment)
+	if explanation == nil {
+		return
+	}
+	// Keep the estimator fields. Replacing the whole object would drop
+	// the percentile and bounds that were already recorded.
+	if explanation.Memory == nil {
+		explanation.Memory = toAPIRecommendationExplanation(memExplain)
+	}
+	explanation.Memory.FinalAdjustment = note
+	explanation.Memory.Final = memExplain.Final
 }

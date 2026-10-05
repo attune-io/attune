@@ -92,6 +92,9 @@ then polls the container status until the new resources are reported or an
     including Burstable to Guaranteed and BestEffort to Burstable.
     The skip happens before `UpdateResize`, so the pod is not evicted.
     For Guaranteed pods, requests must stay equal to limits.
+    A memory limit multiplier raises the request to the new limit.
+    That request can exceed `maxAllowed`. A CPU multiplier that would
+    leave Guaranteed is skipped and the pod is not evicted.
 
 ## Safety system
 

@@ -29,13 +29,15 @@ multi-pod sample pool. Caps such as `maxPodsInMetricsQuery` and
 When `cpu.startupBoost.excludeFromHistory` is true, the Prometheus CPU
 query is `max by (pod, container)` so each pod and container is one series
 before the series cap. cAdvisor per-core series collapse the same way
-`max by (container)` does today. CPU points before pod `CreationTimestamp`
-plus `startupBoost.duration` plus the rate window are removed, then the
-surviving pod series are reduced with `podAggregation` (Max, Avg, or
-None). Nil and false keep today's percentile. Memory samples are not
-filtered. Deleted pods stay until `historyWindow`. A recreated pod keeps
-samples older than its new `CreationTimestamp`. A series with no pod
-label is left unfiltered.
+`max by (container)` does today. The window starts at
+`attune.io/startup-boost-at` when that stamp is set and not before
+creation, otherwise at `CreationTimestamp`. CPU points from that start
+until start plus `startupBoost.duration` plus the rate window are removed,
+then the surviving pod series are reduced with `podAggregation` (Max, Avg,
+or None). A point at the cutoff stays. Nil and false keep today's
+percentile. Memory samples are not filtered. Deleted pods stay until
+`historyWindow`. A recreated pod keeps samples older than its new
+`CreationTimestamp`. A series with no pod label is left unfiltered.
 
 ### Usage surge (off until set)
 

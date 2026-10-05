@@ -284,7 +284,9 @@ func (r *AttunePolicyReconciler) isRollingOut(workload client.Object) bool {
 //   - StatefulSet: <name>-<ordinal>
 //   - DaemonSet: <name>-<pod-hash>
 //   - Job: <name>-<pod-hash>
-//   - CronJob: <name>-<scheduled-minute>-<pod-hash> (Unix minutes, set by the CronJob controller)
+//   - CronJob: <name>-<minute-stamp>-<pod-hash>, or indexed
+//     <name>-<minute-stamp>-<index>-<pod-hash>. The stamp is unix
+//     minutes (8 or 9 digits), not a 10-digit unix-seconds suffix.
 func (r *AttunePolicyReconciler) getPodRegex(workload client.Object) string {
 	name := rsmetrics.EscapePromQLRegex(workload.GetName())
 	if a := newWorkloadAdapter(workload); a != nil {
@@ -295,10 +297,7 @@ func (r *AttunePolicyReconciler) getPodRegex(workload client.Object) string {
 }
 
 const (
-	// podTemplateGenerationAnnotation is the legacy DaemonSet revision
-	// identity used when controller-revision-hash is empty.
-	podTemplateGenerationAnnotation = "pod-template-generation"
-	deploymentRevisionAnnotation    = "deployment.kubernetes.io/revision"
+	deploymentRevisionAnnotation = "deployment.kubernetes.io/revision"
 )
 
 // generationStale is true only when the spec generation is ahead of the
@@ -438,13 +437,7 @@ func daemonSetPodSkipped(ds *appsv1.DaemonSet, pod *corev1.Pod, currentHash stri
 }
 
 func daemonSetPodRevision(pod *corev1.Pod) string {
-	if h := podLabel(pod, appsv1.ControllerRevisionHashLabelKey); h != "" {
-		return h
-	}
-	if pod.Annotations == nil {
-		return ""
-	}
-	return pod.Annotations[podTemplateGenerationAnnotation]
+	return podLabel(pod, appsv1.ControllerRevisionHashLabelKey)
 }
 
 func pausedDeploymentPodSkipped(dep *appsv1.Deployment, pod *corev1.Pod, currentHash string) bool {
@@ -523,21 +516,25 @@ func (r *AttunePolicyReconciler) currentDaemonSetRevisionName(ctx context.Contex
 	if reader == nil {
 		return "", fmt.Errorf("listing ControllerRevisions: client is nil")
 	}
-	var list appsv1.ControllerRevisionList
-	if err := reader.List(ctx, &list, client.InNamespace(ds.Namespace)); err != nil {
+	selector, err := metav1.LabelSelectorAsSelector(ds.Spec.Selector)
+	if err != nil {
+		return "", fmt.Errorf("listing ControllerRevisions: %w", err)
+	}
+	best, err := newestOwnedControllerRevision(ctx, reader, ds, selector)
+	if err != nil {
 		return "", err
 	}
-	var best *appsv1.ControllerRevision
-	for i := range list.Items {
-		rev := &list.Items[i]
-		if !objectOwnedBy(rev, ds.UID) {
-			continue
-		}
-		if best == nil || rev.Revision > best.Revision {
-			best = rev
-		}
-	}
 	if best == nil {
+		// A selector that hides an owned revision must not look like a
+		// DaemonSet with no history. That case resizes every pod. The
+		// unfiltered list runs only after the selector list found none.
+		hidden, herr := newestOwnedControllerRevision(ctx, reader, ds, nil)
+		if herr != nil {
+			return "", herr
+		}
+		if hidden != nil {
+			return "", fmt.Errorf("current ControllerRevision %s does not match DaemonSet %s selector %q", hidden.Name, ds.Name, selector.String())
+		}
 		return "", nil
 	}
 	// The DaemonSet controller stores only the hash on the pod. The object
@@ -551,6 +548,31 @@ func (r *AttunePolicyReconciler) currentDaemonSetRevisionName(ctx context.Contex
 		return "", fmt.Errorf("current ControllerRevision %s has no %s label", best.Name, appsv1.ControllerRevisionHashLabelKey)
 	}
 	return hash, nil
+}
+
+func newestOwnedControllerRevision(ctx context.Context, reader client.Reader, ds *appsv1.DaemonSet, selector labels.Selector) (*appsv1.ControllerRevision, error) {
+	var list appsv1.ControllerRevisionList
+	opts := []client.ListOption{client.InNamespace(ds.Namespace)}
+	if selector != nil && selector.String() != "" {
+		opts = append(opts, client.MatchingLabelsSelector{Selector: selector})
+	}
+	if err := reader.List(ctx, &list, opts...); err != nil {
+		return nil, err
+	}
+	var best *appsv1.ControllerRevision
+	for i := range list.Items {
+		rev := &list.Items[i]
+		if !objectOwnedBy(rev, ds.UID) {
+			continue
+		}
+		if best == nil || rev.Revision > best.Revision {
+			best = rev
+		}
+	}
+	if best == nil {
+		return nil, nil
+	}
+	return best.DeepCopy(), nil
 }
 
 func (r *AttunePolicyReconciler) currentPausedDeploymentHash(ctx context.Context, dep *appsv1.Deployment) (string, error) {

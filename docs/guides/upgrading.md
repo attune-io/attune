@@ -35,15 +35,198 @@ whole-byte value.
 the template changes for another reason. `Observe` neither resizes pods
 nor patches templates.
 
-### CronJob policies collect samples
+### Healthy Rollout scale-out is resized
 
-The CronJob controller names each Job `<cronjob>-<scheduled minute>`. The
-minute is the scheduled time in Unix minutes, 8 digits today. Earlier
-versions matched CronJob pods only on a 10-digit stamp, so the CronJob pod
-regex matched no pod and CronJob policies stayed `InsufficientData`. After the upgrade,
-with no YAML change, CronJob policies collect samples. Status
-recommendations, export ConfigMaps (when export is on), and
-`kubectl attune diff` output gain CronJob values.
+A Rollout whose phase is `Healthy`, or whose phase is empty, used to
+skip resize and template persistence while `status.updatedReplicas` was
+behind `spec.replicas`. A nil `spec.replicas` counted as 1, so a new
+Rollout with no updated replicas also waited.
+
+That lag is a scale-out. Argo reports a replica lag as `Progressing`,
+not `Healthy`. Attune now resizes and can patch the template in that
+window. `Paused`, `Progressing`, and `status.abort` still wait.
+`Degraded` also waits, including when replica counts already match and
+`status.abort` is false. Argo uses `Degraded` for an aborted rollout,
+a progress deadline, or an invalid spec.
+
+Deployments, StatefulSets, and DaemonSets are unchanged.
+
+See [Mid-rollout or no-op](troubleshooting.md#mid-rollout-or-no-op).
+
+### Explain names the container-policy source
+
+`kubectl attune explain` used to print `source: policy` and
+`configured: <unset>` for a container percentile the policy had set, and
+for a max nobody set. A percentile set on the policy now prints that
+number as the configured value. An unset max prints `source: built-in`.
+A max copied from defaults prints `defaults`, `namespace defaults`, or
+`cluster defaults`. Named entries and `*` are unchanged. Recommendations,
+admission, and resize do not read these labels.
+
+### One capped OOM bump can raise AttuneOOMBumpCapped
+
+Chart installs that set `metrics.prometheusRule.enabled` and left
+`oomBumpCapped` at the defaults used to miss a single capped or clamped
+bump. The expression was a one-hour `rate()`, and the alert also waited
+`1h`, so that one sample usually aged out before the alert fired.
+
+The chart expression is now:
+
+```promql
+sum by (namespace, policy) (increase(attune_oom_bump_total{result=~"capped|clamped"}[1h])) > 0
+```
+
+The previous expression was:
+
+```promql
+sum by (namespace, policy) (rate(attune_oom_bump_total{result=~"capped|clamped"}[1h])) > 0
+```
+
+The default pending window is 5m. Severity stays info. A value set on
+`oomBumpCapped.for` is kept. `metrics.prometheusRule.enabled` stays
+false, so an install that does not turn the object on still has no
+PrometheusRule. The alert does not turn `memory.oomBump` on. Resizes
+do not change.
+
+A PrometheusRule copied outside this chart is not rewritten. Replace
+that copy with the `increase` expression above.
+
+`AttuneMemoryLimitUnsafe` is unchanged.
+
+### Defaults min above a policy max is rejected
+
+A policy that omits `minAllowed` and sets `maxAllowed` used to be
+admitted when `AttuneDefaults` or `AttuneNamespaceDefaults` carried a
+higher min. That apply now fails. The error names both values and both
+objects. A container max is included when `*` and the policy omit max.
+
+A policy that sets its own min is unchanged, even when defaults carry a
+higher min. A max with no defaults min anywhere is unchanged. Omitted
+max stays uncapped.
+
+Objects already stored keep reconciling until the next update. A stored
+min above a non-zero max is clamped to the max. The recommendation
+explanation says `max`. That runtime result does not change on upgrade.
+
+See [Apply rejected: defaults min above policy max](troubleshooting.md#apply-rejected-defaults-min-above-policy-max).
+
+### Prometheus and Datadog secrets ignore surrounding whitespace
+
+A Prometheus bearer token or a Datadog API key with a leading or
+trailing newline used to be sent unchanged. The provider then
+returned 401 or 403. Attune now trims both ends before the value is
+used. Spaces in the middle of the value stay. A whitespace-only
+bearer token or API key is rejected as empty when the Secret is
+read. A whitespace-only Datadog app key is treated as unset and is
+not sent.
+
+A secret that already authenticated does not change. A secret that
+failed only because of surrounding whitespace starts working on the
+next reconcile. No policy YAML change. Auto can resize once metrics
+flow. Recommend and Observe start showing recommendations.
+
+A GitOps pull-request token read from a Secret is trimmed the same way.
+
+See [401 after a trailing newline in a Secret](troubleshooting.md#401-after-a-trailing-newline-in-a-secret).
+
+### Opt-in startup exclusion follows the boost stamp
+
+`cpu.startupBoost.excludeFromHistory: true` used to drop CPU samples
+from pod creation. The window now starts at `attune.io/startup-boost-at`
+when that stamp is set and not before creation. A later stamp drops the
+boosted samples. The CPU recommendation can fall on the next reconcile.
+Auto, OneShot, and Canary can lower the request, still subject to
+`allowDecrease`, `maxDecreasePercent`, and `minAllowed`.
+
+Policies that omit `startupBoost`, or omit `excludeFromHistory`, do not
+change. A boost stamped at creation does not change. Memory samples are
+not filtered.
+
+See [CPU percentile stayed high after a boost](troubleshooting.md#cpu-percentile-stayed-high-after-a-boost).
+
+### Lowering maxAllowed during an OOM hold takes effect on the next reconcile
+
+A held `memory.oomBump` floor used to be published again with no clamp
+after `memory.maxAllowed` was lowered or added. The next reconcile now
+publishes that cap. The stored floor and `holdUntil` stay. The clamp is
+not a new OOM.
+
+Omitted `maxAllowed` is still uncapped. Default memory `allowDecrease`
+is false, so a pod already above the new cap is not resized down. The
+request that stays is the highest in-hold pod request, not the workload
+template. Template persistence defaults to off, so that floor can sit
+above the template. A replica still under the cap is raised only to the
+cap. The recommendation keeps that live request and records the
+`allowDecrease` skip. Set `memory.allowDecrease` to true to let Auto,
+OneShot, and Canary resize down to the cap. Recommend shows that recommendation and
+does not resize. Observe does not resize.
+
+`attune_oom_bump_total{result="clamped"}` increments once for that floor
+and cap per operator process, including when the request does not move.
+It does not increment on every reconcile. A restart counts that pair
+once more. A new OOM step that is clamped still counts only after the
+resize succeeds.
+
+Policies that omit `memory.oomBump` do not change. A Guaranteed pod
+whose limit multiplier raises the request to the multiplied limit still
+does that, including when the multiplied limit is above `maxAllowed`.
+
+See [Request stayed above maxAllowed during an OOM hold](troubleshooting.md#request-stayed-above-maxallowed-during-an-oom-hold).
+
+### A second OOM during hold steps above live
+
+During `memory.oomBump.hold`, a newer OOM publishes one memory request
+above the live request when the next step from the original origin is
+not already above live. The origin stays the start of the streak.
+`maxBumps` and `maxAllowed` still cap the step. Auto, OneShot, and
+Canary resize to that step. Recommend stores the recommendation and
+does not resize. Observe does not resize.
+
+If `maxAllowed` is already at or below the live request, the request
+does not move. Auto, OneShot, and Canary store that signal on the pod,
+so that OOM counts once as `attune_oom_bump_total{result="skipped"}`.
+Recommend and Observe do not write the stamp, so the same OOM still
+counts on every reconcile. A chart of the whole `skipped` series does
+not become a per-event count: a budget skip, or a Guaranteed pod with
+`RequestsOnly`, still increments on every reconcile.
+`AttuneOOMBumpCapped` still keys off `capped` and `clamped`.
+
+Policies that omit `memory.oomBump` do not change. The default hold
+stays 24h.
+
+### OOM revert follows container controlledValues
+
+An OOM-bump revert raises a positive memory limit to the bump floor only
+when that container's effective `controlledValues` is `RequestsAndLimits`.
+An empty `containerPolicies` list still uses `spec.memory.controlledValues`,
+so policies with no per-container mode do not change.
+
+A container set to `RequestsOnly` keeps its limit. A container set to
+`RequestsAndLimits` gets the limit raised, including when the policy
+block says `RequestsOnly`. `*` and an exact name follow the usual
+overlay. A zero or missing limit is not created. `oomBump` stays
+policy-wide. The request floor is unchanged. New resizes run only in
+Auto, OneShot, and Canary. A pod already under safety observation
+still reverts in Recommend and Observe when `autoRevert` is on (the
+default). `autoRevert: false` skips the revert in every mode.
+
+### CronJob pods match the minute stamp
+
+A CronJob pod name uses the minute stamp from the CronJob controller
+(unix time divided by 60). That stamp is 8 digits until 2160-02-18
+and 9 digits after that. Kubernetes 1.32 and later do not write the pre-1.21
+10-digit unix-seconds suffix.
+
+Prometheus queries and CloudWatch owner-name matching accept that
+8- or 9-digit stamp. A non-indexed pod is `<cronjob>-<stamp>-<hash>`.
+An indexed pod is `<cronjob>-<stamp>-<index>-<hash>`. A 10-digit
+suffix does not match. No policy YAML change. CloudWatch still matches
+the owner name in `PodName`. See
+[CronJob pod name does not match](troubleshooting.md#cronjob-pod-name-does-not-match).
+
+CronJobs on a supported cluster that the old 10-digit pattern missed
+can now produce samples. Status recommendations, export ConfigMaps
+(when export is on), and `kubectl attune diff` gain CronJob values.
 
 Running CronJob pods are not resized in place in any mode. New CronJob
 pods can be sized at creation in Recommend (or with no type set), Auto,
@@ -54,6 +237,47 @@ AttuneDefaults or AttuneNamespaceDefaults), the namespace label
 container of the recommendation. See
 [Initial Sizing](../reference/configuration.md#initial-sizing). Observe
 never sizes pods. Policies for other workload kinds do not change.
+
+### Policy limit multiplier requires RequestsAndLimits
+
+A policy that sets `cpu.limitMultiplier` or `memory.limitMultiplier`
+must set `controlledValues: RequestsAndLimits` on that same block.
+Admission rejects an omitted or empty mode. `RequestsOnly` with a
+multiplier was already rejected.
+
+An object already stored without that mode is not rewritten. Reconcile
+still reports `InvalidConfig` until an update sets `RequestsAndLimits`
+or removes the multiplier. `AttuneDefaults` and
+`AttuneNamespaceDefaults` may still store a multiplier without the
+mode. A policy that omits the multiplier still inherits it.
+
+### RequestsOnly does not inherit a limit multiplier
+
+A policy that sets `cpu.controlledValues` or `memory.controlledValues`
+to `RequestsOnly` no longer copies `limitMultiplier` from
+`AttuneDefaults` or `AttuneNamespaceDefaults`. The live limit stays,
+and that policy is no longer `InvalidConfig` because of a defaults
+multiplier.
+
+A policy that omits `controlledValues` still copies the multiplier.
+Built-in defaults then fill `RequestsOnly`, and reconcile still reports
+`InvalidConfig`. Set `RequestsAndLimits` on that policy, or remove the
+multiplier from defaults. A defaults object may still store a
+multiplier without `RequestsAndLimits`.
+
+### Rollout workloadRef read failures stay visible
+
+Template persistence still does not patch a Rollout whose
+`spec.workloadRef` is set. When that object cannot be read, the
+condition reason stays `WorkloadRefUnread` for the rest of the
+reconcile. It is not replaced by `TemplateWorkloadRef`, and it is not
+removed while the read error is still present.
+
+`TemplateWorkloadRef` means the reference was read and the template
+was left alone. A later reconcile with no workloadRef read error
+removes a stale `WorkloadRefUnread`. Resize behavior does not change.
+Observe mode already kept the unread reason. Recommend mode now does
+too.
 
 ### Amazon Managed Prometheus signing
 
@@ -78,9 +302,13 @@ unsupported kind, or the referenced object could not be read or has no
 containers; the error is also in `status.workloadErrors`.
 `TemplateWorkloadRef` is set only with template persistence on, and only
 on a reconcile that reaches the template persistence step (Observe mode
-and other early exits skip it). It means no reference read failed and
-Attune left the Rollout template alone. `WorkloadRefUnread` wins while any
-reference read fails, and clears once every reference can be read.
+and other early exits skip it). It means Attune left the Rollout template
+alone and this reconcile's recorded errors did not include a workloadRef
+read failure. `WorkloadRefUnread` wins while a recorded workload error is
+a workloadRef read failure. Template persistence does not replace that
+reason in the same reconcile, including a safety restore. A later
+reconcile whose workload errors no longer include that failure removes it.
+
 `status.workloadErrors` keeps at most 10 entries, so with more failing
 workloads a reference error can be dropped from it and the reason may not
 show.
@@ -132,18 +360,35 @@ If that list fails, Attune skips every pod of that DaemonSet and emits
 `DaemonSetRevisionUnavailable`. It does not resize them. OnDelete does not
 read ControllerRevisions.
 
+The list uses the DaemonSet pod selector, then the owner UID. Resize
+decisions stay the same when that selector matches the current revision.
+The call returns fewer objects. No new RBAC rule and no user action. An
+owned revision the selector does not match still skips the DaemonSet.
+
+Attune reads only the pod label `controller-revision-hash`. It does not
+read `pod-template-generation`. Pods that have the hash label resize the
+same way. A pod with no hash label is still skipped when the current hash
+is known.
+
 ### Copy into the next release notes
 
 These behaviors change when the operator is upgraded, with no YAML edit.
 The generated notes for the next release must list them. Do not edit
 release pull request 889 to add the list.
 
+- Lowering `memory.maxAllowed` during a `memory.oomBump` hold publishes the cap on the next reconcile. The stored floor stays. Default memory `allowDecrease` still refuses the decrease until it is enabled
+- A newer OOM during `memory.oomBump.hold` steps above the live request. In Auto, OneShot, and Canary, a step that cannot rise counts once as `skipped`. Recommend and Observe still count that skip on every reconcile
+- An OOM-bump revert raises a memory limit only when that container's effective `controlledValues` is `RequestsAndLimits`
+- CronJob pod names match an 8- or 9-digit minute stamp. A 10-digit unix-seconds suffix does not match
 - Omitted `maxAllowed` is not capped
 - CloudWatch `cpuUnit` empty means Millicores
-- A stored `0s` cooldown, safety period, or SLO window can be updated and deleted. A new `0s` is rejected
+- A stored `0s` cooldown, safety period, or SLO window on a policy or on defaults can be updated and deleted. A new `0s` is rejected. A stored `0s` cooldown still waits 1h
+- A policy that sets `limitMultiplier` must set `controlledValues: RequestsAndLimits` on that same object. Admission rejects the apply. A stored policy stays `InvalidConfig` until edited
+- A policy that sets `controlledValues: RequestsOnly` does not inherit `limitMultiplier`. Omitting `controlledValues` still inherits it and can be `InvalidConfig`
 - RollingUpdate DaemonSets resize the current revision. The pod label is the hash, not the revision name
 - A QoS check with `spec.resources` uses one rule on both sides
-- A stored HPA CPU base that is missing other containers is repaired. Growth of the same containers keeps the stored original
+- A stored HPA CPU base that is missing other containers is repaired. Growth of the same containers keeps the stored original. An annotation an older operator already rewrote is left in place
+- A failed Rollout `workloadRef` read keeps reason `WorkloadRefUnread`. A readable ref still reports `TemplateWorkloadRef`
 - Datadog null points are dropped
 - Scaled memory limits are rounded up to a whole byte. A fractional limit already on a pod or template is not changed for this alone
 - CronJob policies match pods on the minute stamp and collect samples. With initialSizing, new CronJob pods are sized at creation. Running CronJob pods are not resized
@@ -151,23 +396,23 @@ release pull request 889 to add the list.
 ### Stored cooldown of 0s
 
 A stored `cooldown: 0s` is not a wait. The controller treats it as the 1h
-default. A policy that inherits a stored `0s` cooldown from
-`AttuneDefaults` or `AttuneNamespaceDefaults` also waits 1h.
-
-The rule applies to `AttunePolicy`, `AttuneDefaults` and
-`AttuneNamespaceDefaults`. An update that leaves a stored `0s` unchanged
-is accepted. On a policy, that includes the update that removes the
-finalizer, so the object can be deleted. On a defaults object, an
-unrelated edit is accepted, including removing a finalizer that another
-tool added. Attune adds no finalizer to defaults objects. Defaults have
-no delete-time skip, so another invalid field still blocks the edit.
-
-A create that sets `0s`, or an update that changes a positive duration
-to `0s`, is still rejected. Omit the field for the 1h default, or set at
-least `1m`. The same rule applies to `safetyObservationPeriod` and an SLO
-`evaluationWindow`. It does not apply to `historyWindow`, which must
-still be at least 1h. Canary `observationPeriod: 0s` still means the
-built-in observation period.
+default, including when a policy omits cooldown and inherits `0s` from
+`AttuneDefaults` or `AttuneNamespaceDefaults`. An update that leaves that
+stored `0s` unchanged is accepted on `AttunePolicy`, `AttuneDefaults`, and
+`AttuneNamespaceDefaults`, including the update that removes the finalizer,
+so the object can be deleted. Attune adds no finalizer to defaults objects.
+On a defaults object, an unrelated edit is accepted, including removing a
+finalizer that another tool added. Defaults have no delete-time skip, so
+another invalid field still blocks the edit. A create that sets `0s`, or an
+update that changes a positive duration to `0s`, is still rejected. Omit the
+field for the 1h default, or set at least `1m`. The same admission rule
+applies to `safetyObservationPeriod` (a stored `0s` is unset, so the
+controller uses 5m or a positive canary period) and an SLO
+`evaluationWindow` (a stored `0s` uses 5m, and is accepted only when the
+stored entry at the same list index is also `0s`). Canary
+`observationPeriod: 0s` still means the built-in observation period.
+`historyWindow` below 1h stays rejected on every write, including an
+unchanged `0s`.
 
 ### Datadog null points
 
@@ -219,10 +464,12 @@ window uses its own percentile and only the samples inside `surge.window`.
 One spike does not switch the window. `minimumDataPoints` still gates the
 long window.
 
-A policy `surge.window` is checked against the inherited history window, so
-admission reads `AttuneNamespaceDefaults` and `AttuneDefaults` only when the
-policy sets `surge.window` and omits `metricsSource.historyWindow`. Other
-policies do not depend on defaults at admission.
+A policy `surge.window` is checked against the inherited history window.
+Admission reads `AttuneNamespaceDefaults` and `AttuneDefaults` for that
+check when the policy sets `surge.window` and omits
+`metricsSource.historyWindow`. A policy or named container policy that omits `minAllowed` while
+`maxAllowed` is set lists the same objects for the minimum-above-maximum
+check, including when it sets `historyWindow` or sets no surge window.
 
 ### OOM bump is off until memory.oomBump is set
 
@@ -272,21 +519,32 @@ Guaranteed pod raises the memory request to the new limit and the resize
 proceeds. That applied request can exceed `maxAllowed`.
 
 `RequestsOnly` plus a multiplier on the same object is rejected.
-`AttuneDefaults` may carry a multiplier without `RequestsAndLimits`. After
-merge, a policy that still omits `controlledValues` is `RequestsOnly`, so
-that pair is rejected at reconcile.
+`AttuneDefaults` may carry a multiplier without `RequestsAndLimits`. A
+policy that sets `RequestsOnly` does not inherit that multiplier. A
+policy that omits `controlledValues` still inherits it, then resolves
+to `RequestsOnly`, so that pair is rejected at reconcile.
 
 ### HPA auto-tune keeps the stored CPU base
 
-An HPA that Attune has already tuned keeps its stored CPU base when that
-base is at least the pre-resize pod sum. A stored pod-level base below
-that sum is repaired only when the history rows' old sum still fits in
-the stored base. That gap is other containers. The next CPU resize
-replaces `attune.io/original-cpu-request` with the pre-resize sum and
-emits `HPABaseRepaired`. If the history old sum is already above the
-stored base, those containers grew. Attune keeps the stored original and
-adds only containers that have no history row. ContainerResource bases
-are not repaired this way.
+An HPA annotated `attune.io/auto-tune: "true"` stores the pod CPU total
+on the first Resource retune. Later resizes reuse that stored request.
+
+A stored base is replaced only when it equals the history old sum of
+`spec.containers` and the live pod total is larger. That gap is
+containers with no history row. The update writes the pre-resize pod
+sum to `attune.io/original-cpu-request` and emits `HPABaseRepaired` only
+after that HPA update succeeds. A failed write does not emit the
+Warning.
+
+A stored base above that history sum stays, including after the same
+containers grow. A stored base below that history sum also stays.
+Attune does not add the no-history containers on top of it, because
+that base may already include them. Init containers and native
+sidecars stay out of the Resource sum. ContainerResource bases are not
+repaired this way.
+
+An annotation that an older operator already replaced with a grown sum
+is left as stored. This release does not write the earlier number back.
 
 Deleting the keys still stores a fresh base on the next resize. Leave
 `attune.io/auto-tune` in place:

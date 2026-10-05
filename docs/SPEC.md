@@ -223,9 +223,11 @@ spec:
     # startupBoost:          # optional CPU cold-start multiplier
     #   multiplier: "2.0"
     #   duration: 2m
-    #   # excludeFromHistory: true drops CPU samples until
-    #   # CreationTimestamp + duration + rateWindow. Omitted keeps
-    #   # today's percentile. Deleted pods stay until historyWindow.
+    #   # excludeFromHistory: true drops CPU samples from
+    #   # attune.io/startup-boost-at when that stamp is set and not
+    #   # before creation, otherwise from CreationTimestamp, until that
+    #   # start plus duration plus rateWindow. Omitted keeps today's
+    #   # percentile. Deleted pods stay until historyWindow.
     #   # A recreated name keeps samples older than the new CreationTimestamp.
 
   memory:
@@ -359,16 +361,20 @@ status:
 Validation is implemented in the admission webhook (`internal/webhook/validation.go`),
 not via CEL `x-kubernetes-validations` markers. The webhook enforces:
 
-- `minAllowed <= maxAllowed` for both CPU and memory resource configs
+- `minAllowed <= maxAllowed` for both CPU and memory resource configs. On an AttunePolicy write, a min inherited from AttuneNamespaceDefaults or AttuneDefaults is included when the policy omits min and a max is already known on the policy or a container. A stored inverted pair is not rechecked until the next update. A stored min above a non-zero max is clamped to that max and `boundsApplied` is `max`
 - `cpu.maxAllowed` must not exceed 256 cores; `memory.maxAllowed` must not exceed 16Ti (AttunePolicy and AttuneDefaults)
 - Canary config required when `updateStrategy.type` is `Canary`
-- `historyWindow` bounded between 1h and 720h (30 days)
+- `historyWindow` bounded between 1h and 720h (30 days), including an unchanged stored value below 1h
+- `cooldown`, `safetyObservationPeriod`, and an SLO `evaluationWindow` must be at least 1m on create. An unchanged stored `0s` is accepted on `AttunePolicy`, `AttuneDefaults`, and `AttuneNamespaceDefaults`, including a finalizer clear. Changing a positive duration to `0s` is rejected. A stored cooldown of `0s` is not a wait: the controller uses 1h, including after defaults merge. A stored safety period of `0s` is unset (5m, or a positive canary period). A stored SLO window of `0s` uses 5m
 - `burstSensitivity` bounded between 0 and 10.0
+- A set `limitMultiplier` on an AttunePolicy requires `controlledValues: RequestsAndLimits` on that same CPU or memory block. Omitted and empty modes are rejected. `RequestsOnly` with a multiplier stays rejected by the earlier check. An empty multiplier stays unset, and `"1"` is not exempt. AttuneDefaults and AttuneNamespaceDefaults may still store a multiplier without the mode. A stored policy is not rewritten
 - All float fields (percentile, overhead, etc.) reject NaN and Inf
 - Prometheus address SSRF protection (scheme, host, and IP validation)
 - `containerPolicies` entries: duplicate `containerName`, a second `*`, and an empty `containerName` are rejected. `startupBoost`, `memoryFromCpuRatio`, `decreaseUsageMarginPercent`, `limitMultiplier`, `oomBump`, and `surge` on a container entry are rejected because they stay policy-wide in v1. `minAllowed <= maxAllowed` still applies to each container `cpu` and `memory` block in the webhook. The CRD quantity rule stays on `spec.cpu` and `spec.memory`, because copying it onto each containerPolicies entry exceeds the API server CEL cost budget.
 
-`containerPolicies` is a field-wise list on `AttunePolicySpec` only. A literal name beats `*` per field, and `*` beats the merged policy block. v1 honors `percentile`, `overhead`, `minAllowed`, `maxAllowed`, `burstSensitivity`, `maxChangePercent`, `maxIncreasePercent`, `maxDecreasePercent`, `allowDecrease`, and `controlledValues`. An omitted container `maxAllowed` inherits `*` and then the policy block, and is uncapped only when that effective value is nil. Known sidecars stay excluded by default. Normal init containers are not managed. Policy-wide `startupBoost`, `memoryFromCpuRatio`, `decreaseUsageMarginPercent`, `limitMultiplier`, `oomBump`, and `surge` still apply from the policy block to every non-excluded container, and a container max caps startup boost and a policy memory OOM bump. After the field-wise merge, minAllowed above maxAllowed is rejected, and container maxAllowed uses the same 256-core and 16Ti ceilings. There is no new Prometheus metric.
+`containerPolicies` is a field-wise list on `AttunePolicySpec` only. A literal name beats `*` per field, and `*` beats the merged policy block. v1 honors `percentile`, `overhead`, `minAllowed`, `maxAllowed`, `burstSensitivity`, `maxChangePercent`, `maxIncreasePercent`, `maxDecreasePercent`, `allowDecrease`, and `controlledValues`. An omitted container `maxAllowed` inherits `*` and then the policy block, and is uncapped only when that effective value is nil. Known sidecars stay excluded by default. Normal init containers are not managed. Policy-wide `startupBoost`, `memoryFromCpuRatio`, `decreaseUsageMarginPercent`, `limitMultiplier`, `oomBump`, and `surge` still apply from the policy block to every non-excluded container, and a container max caps startup boost and a policy memory OOM bump. After the field-wise merge, minAllowed above maxAllowed is rejected, including a defaults min when the container omits min and a max is already known. A stored min above a non-zero max stays clamped to that max until the next update. Container maxAllowed uses the same 256-core and 16Ti ceilings. There is no new Prometheus metric.
+
+At resize time, a Guaranteed memory `limitMultiplier` is not an admission check. The limit is the multiplier times the engine request, then the request is raised to that limit so the pod stays Guaranteed. The applied request can exceed `memory.maxAllowed`. `maxAllowed` still caps the engine request. That raise is not the in-hold `oomBump` clamp. A CPU multiplier that would leave Guaranteed is skipped before `UpdateResize` and is not evicted, including when `resizeMethod` is `InPlaceOrRecreate`. `RequestsOnly` does not apply the multiplier.
 
 #### Printer Columns
 
@@ -438,8 +444,7 @@ spec:
 | Condition Type | Reasons | Description |
 |---------------|---------|-------------|
 | `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `MetricsUnavailable` (alias `PrometheusUnavailable`), `InvalidConfig`, `WorkloadDiscoveryFailed`, `WorkloadCRDMissing`, `ConflictCheckFailed`, `Paused`, `PrometheusSeriesCapped` | Overall health. `PrometheusSeriesCapped` keeps Ready True and means the query result was partial. `WorkloadCRDMissing` means a Rollout policy's CRD is not installed |
-| `TemplatePersistence` | `TemplateWorkloadRef` | False when a Rollout `spec.workloadRef` is set. Attune does not patch that template |
-| `TemplatePersistence` | `WorkloadRefUnread` | False when a Rollout `spec.workloadRef` has an empty name or an unsupported kind, or its object cannot be read or has no containers. Takes precedence over `TemplateWorkloadRef` |
+| `TemplatePersistence` | `TemplateWorkloadRef`, `WorkloadRefUnread` | `TemplateWorkloadRef` is False when a Rollout `spec.workloadRef` was read. Attune does not patch that template. `WorkloadRefUnread` stays when that read failed. It is not replaced in the same reconcile |
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation |
 | `Degraded` | `HighRevertRate` | Some resizes failing |
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Whether the current time is within the configured resize schedule window |
@@ -577,11 +582,14 @@ Inspired by VPA's decorator pattern, but with critical improvements:
 
 When `cpu.startupBoost.excludeFromHistory` is true, the Prometheus CPU
 query is `max by (pod, container)` so each pod and container is one
-series. CPU samples before pod CreationTimestamp plus duration plus the
-rate window are dropped, then the remaining pod series are reduced with
-`podAggregation`. Nil and false keep today's percentile. Memory samples
-are unchanged. Deleted pods stay until `historyWindow`. A recreated
-pod name keeps samples older than the new CreationTimestamp.
+series. The exclusion window starts at `attune.io/startup-boost-at`
+when that stamp is set and not before creation, otherwise at
+CreationTimestamp. CPU samples from that start until start plus duration
+plus the rate window are dropped, then the remaining pod series are
+reduced with `podAggregation`. A sample at the cutoff stays. Nil and
+false keep today's percentile. Memory samples are unchanged. Deleted
+pods stay until `historyWindow`. A recreated pod name keeps samples
+older than the new CreationTimestamp.
 
 ```
 Raw Prometheus Data
@@ -821,6 +829,8 @@ func (r *ResizeEngine) WaitForResize(ctx context.Context, ns, podName,
 | Pod deleted during resize | New pod uses workload template; with opt-in `templatePersistence`, template tracks recommended/applied sizes so replacements start correctly sized (default off) |
 | Node has insufficient resources | Resize marked Deferred; retry on next reconciliation |
 | QoS class would change | Pre-check rejects the resize |
+| Guaranteed memory limitMultiplier | The request is raised to the multiplied limit and can exceed `memory.maxAllowed`. The pod stays Guaranteed. A CPU multiplier that would leave Guaranteed is skipped and is not evicted. `RequestsOnly` does not apply the multiplier |
+| StatefulSet partition holds the old revision | Pods whose `controller-revision-hash` is not `status.updateRevision` stay skipped while `currentRevision` and `updateRevision` differ. A stale generation skips every pod. OnDelete pods are resized |
 | LimitRange violation | API server rejects; log and skip |
 | ResourceQuota exceeded | API server rejects; log and skip |
 | Static CPU/Memory Manager | Infeasible for Guaranteed QoS pods; skip with warning |
@@ -878,9 +888,9 @@ Before any resize:
 
 Memory requests stay on the percentile path unless `memory.oomBump` is set. An empty `oomBump: {}` turns the feature on and fills ratio `1.2`, minBump `100Mi`, maxBumps `3`, and hold `24h`. CPU rejects the block. The step is `max(ceil(origin * ratio^count), origin + minBump * count)`, then `maxAllowed`. Origin is the live memory request before the first bump of the streak, not the latest live request and not the pod template. When `maxAllowed` is omitted, `maxBumps` is the only cap. The count increments only after a successful resize. The streak is stored on `attune.io/oom-bump.<container>`. The name segment `oom-bump.<container>` must be at most 63 characters.
 
-After `hold` expires, recommendations follow the normal percentile, allowDecrease, and template rules. Hold expiry does not clear the original request stored on the pod. A later OOM can step again from that same origin until `maxBumps`. During hold, the bump floor blocks a memory revert below the floor. An OOMKill verdict does not undo the bump. A non-OOM termination still reverts. Throttle, NotReady, and SLO still revert CPU. A Guaranteed pod with `RequestsOnly` is skipped. Attune does not evict to change QoS.
+After `hold` expires, recommendations follow the normal percentile, allowDecrease, and template rules. Hold expiry does not clear the original request stored on the pod. A later OOM can step again from that same origin until `maxBumps`. During hold, a newer OOM whose next step from the frozen origin is not above the live request takes one step from that live request and keeps the origin. Auto, OneShot, and Canary record this `oomAt` and restart on the pod. The request stays clamped to `maxAllowed`. When `maxAllowed` is already at or below the live request, Auto, OneShot, and Canary consume the signal once as skipped and the count does not increase. Recommend and Observe do not write that stamp, so the same OOM still counts as skipped on every reconcile. The hold stops a lower percentile from replacing the floor. It does not ignore a new OOM. During hold, the bump floor blocks a memory revert below the floor. A positive memory limit below the floor is raised only when that container's effective `controlledValues` is `RequestsAndLimits`. An empty `containerPolicies` list uses the policy memory block. A zero or missing limit is not created. `oomBump` stays on the policy block. An OOMKill verdict does not undo the bump. A non-OOM termination still reverts. Throttle, NotReady, and SLO still revert CPU. A Guaranteed pod with `RequestsOnly` is skipped. Attune does not evict to change QoS.
 
-`explanation.memory.finalAdjustment` can include `oomBump`. The counter is `attune_oom_bump_total` with result `applied`, `clamped`, `capped`, or `skipped`.
+`explanation.memory.finalAdjustment` can include `oomBump`. The counter is `attune_oom_bump_total` with result `applied`, `clamped`, `capped`, or `skipped`. When `maxAllowed` drops below a held floor, the next recommendation publishes the cap and leaves the stored floor in place. Omitted `maxAllowed` does not add a cap. Default memory `allowDecrease` is false, so the highest in-hold pod request stays above the cap. That request is not the workload template. A replica still under the cap is raised only to the cap. The recommendation records the skip. A quiet reclamp counts `clamped` once per floor and cap per process. A new OOM step is clamped once in the step math and is not clamped again below `maxAllowed`.
 
 ### 7.5 Usage surge (off until set)
 
@@ -890,7 +900,7 @@ The long statistic is the published percentile: the max of the overall percentil
 
 When the short window is selected, confidence is copied from the long profile. Percentile and burst use the short profile. CPU and memory choose separately. `memoryFromCpuRatio` does not switch the memory sample set; derived memory follows the surged CPU request. `explanation.<resource>.finalAdjustment` can include `surge` on the resource that used the short window.
 
-The webhook rejects a trigger ratio that is not finite, not greater than 1, or above 100 (`100` is accepted). Empty trigger ratio is unset. Percentile must be 50, 90, 95, or 99. Window must be at least 5m and on a policy must not be longer than the effective history: `metricsSource.historyWindow` on the policy, then namespace defaults, then cluster defaults, then `168h`. On AttuneDefaults or AttuneNamespaceDefaults, the limit is that object's own `historyWindow`, or `168h`. A window equal to that limit is accepted. Admission reads defaults only when the policy sets `surge.window` and omits `historyWindow`. Explicit `0s` is invalid.
+The webhook rejects a trigger ratio that is not finite, not greater than 1, or above 100 (`100` is accepted). Empty trigger ratio is unset. Percentile must be 50, 90, 95, or 99. Window must be at least 5m and on a policy must not be longer than the effective history: `metricsSource.historyWindow` on the policy, then namespace defaults, then cluster defaults, then `168h`. On AttuneDefaults or AttuneNamespaceDefaults, the limit is that object's own `historyWindow`, or `168h`. A window equal to that limit is accepted. The surge check reads defaults only when the policy sets `surge.window` and omits `historyWindow`. The minimum-above-maximum check is a second read when the policy or a named container omits `minAllowed` and sets `maxAllowed`. Explicit `0s` is invalid.
 
 ### 7.6 Memory HPA retune (annotation still required)
 

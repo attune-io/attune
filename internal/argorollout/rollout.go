@@ -50,7 +50,8 @@ type WorkloadRef struct {
 
 // RolloutSpec is the subset of an Argo Rollout spec that Attune reads.
 type RolloutSpec struct {
-	// Replicas is the desired replica count. Nil counts as 1 for rollout gates.
+	// Replicas is the desired replica count. The resize gate does not
+	// treat a nil value as 1. It uses status.abort and phase only.
 	Replicas *int32 `json:"replicas,omitempty"`
 	// Selector selects pods managed by this Rollout.
 	Selector *metav1.LabelSelector `json:"selector,omitempty"`

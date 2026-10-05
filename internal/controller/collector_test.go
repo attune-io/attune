@@ -518,7 +518,8 @@ func TestResolveDatadogCollector_MissingKeyInSecret(t *testing.T) {
 
 	_, _, err := reconciler.resolveDatadogCollector(context.Background(), policy, datadogAuthContext{})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "Datadog API key")
+	assert.Contains(t, err.Error(), "not found")
+	assert.NotContains(t, err.Error(), "empty")
 }
 
 func TestResolveDatadogCollector_CachesCollector(t *testing.T) {

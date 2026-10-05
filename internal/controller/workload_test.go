@@ -1203,6 +1203,7 @@ func TestWorkload_JobIndexedCompletionRegex(t *testing.T) {
 	assert.Contains(t, a.PodNameRegexSuffix(), "[0-9]+")
 
 	cronJob := &batchv1.CronJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "nightly"},
 		Spec: batchv1.CronJobSpec{
 			JobTemplate: batchv1.JobTemplateSpec{
 				Spec: batchv1.JobSpec{CompletionMode: &indexed},
@@ -1211,11 +1212,23 @@ func TestWorkload_JobIndexedCompletionRegex(t *testing.T) {
 	}
 	ca := newWorkloadAdapter(cronJob)
 	require.NotNil(t, ca)
-	suffix := ca.PodNameRegexSuffix()
-	assert.Equal(t, "-[0-9]{8,9}-[0-9]+-[a-z0-9]{5}", suffix)
-	re := regexp.MustCompile("^(?:nightly" + suffix + ")$")
-	assert.True(t, re.MatchString("nightly-29453760-3-fghij"))
-	assert.False(t, re.MatchString("nightly-1767225600-3-fghij"))
+	assert.Equal(t, "-[0-9]{8,9}-[0-9]+-[a-z0-9]{5}", ca.PodNameRegexSuffix())
+
+	r := NewAttunePolicyReconciler()
+	plain := &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: "nightly"}}
+	plainRe := regexp.MustCompile("^(?:" + r.getPodRegex(plain) + ")$")
+	assert.True(t, plainRe.MatchString("nightly-29453760-fghij"), "8-digit minute stamp")
+	assert.True(t, plainRe.MatchString("nightly-100000000-fghij"), "9-digit minute stamp")
+	assert.False(t, plainRe.MatchString("nightly-1700000000-fghij"), "10-digit seconds stamp")
+	assert.False(t, plainRe.MatchString("nightly-1767225600-fghij"), "10-digit seconds stamp")
+	assert.False(t, plainRe.MatchString("nightly-29453760"), "job name is not a pod name")
+
+	indexedRe := regexp.MustCompile("^(?:" + r.getPodRegex(cronJob) + ")$")
+	assert.True(t, indexedRe.MatchString("nightly-29453760-3-fghij"))
+	assert.True(t, indexedRe.MatchString("nightly-100000000-3-fghij"))
+	assert.False(t, indexedRe.MatchString("nightly-1700000000-3-fghij"))
+	assert.False(t, indexedRe.MatchString("nightly-1767225600-3-fghij"))
+	assert.False(t, indexedRe.MatchString("nightly-29453760"))
 }
 
 func TestQueryMetricsGrouped_InfoAndErrorOmitQuery(t *testing.T) {

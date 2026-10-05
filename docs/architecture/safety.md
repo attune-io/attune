@@ -130,7 +130,7 @@ For configuration examples, template variables, and operational tips, see the
 
 ### Memory OOM bump hold
 
-`memory.oomBump` is off until the block is set. An empty `oomBump: {}` turns it on. While the pod annotation `holdUntil` is still in the future, the bump floor blocks a memory revert below that floor. An OOMKill verdict does not undo the bump. A non-OOM termination still reverts, including memory. Throttle, NotReady, and SLO still revert CPU, and those verdicts keep memory at or above the floor for the rest of hold. Hold expiry does not clear the original request stored on the pod. Attune does not evict a pod to change QoS. A Guaranteed pod with `RequestsOnly` is skipped.
+`memory.oomBump` is off until the block is set. An empty `oomBump: {}` turns it on. The memory request is chosen by the estimator, including its `maxAllowed` cap, then replaced by the OOM floor when that floor is higher. When the published value is that in-hold floor and it is above `maxAllowed`, the request is clamped to the cap. Default memory `allowDecrease` false then keeps the highest in-hold pod request, not the workload template, and does not raise another replica above the cap. A percentile with no in-hold floor stays where the estimator left it. The stored annotation keeps the uncapped floor. While the pod annotation `holdUntil` is still in the future, the bump floor blocks a memory revert below that floor. A newer OOM during that hold still steps above the live request. Auto, OneShot, and Canary record that `oomAt` and restart on the pod. The hold stops the percentile from falling below the floor. It does not ignore a new OOM. When `maxAllowed` is already at or below the live request, Auto, OneShot, and Canary consume the signal once and the request stays. Recommend and Observe do not write that stamp, so the same OOM still counts as skipped on every reconcile. An OOMKill verdict does not undo the bump. A non-OOM termination still reverts, including memory. Throttle, NotReady, and SLO still revert CPU, and those verdicts keep memory at or above the floor for the rest of hold. On that revert, a positive memory limit below the floor is raised only when the container's effective `controlledValues` is `RequestsAndLimits`. An empty `containerPolicies` list uses the policy memory block. A zero or missing limit is left alone. `oomBump` stays on the policy, not on a container entry. Hold expiry does not clear the original request stored on the pod. Attune does not evict a pod to change QoS. A Guaranteed pod with `RequestsOnly` is skipped.
 
 ## Observation period
 
@@ -340,7 +340,10 @@ Before resizing, the controller checks for potential conflicts:
   because `availableReplicas` is behind, or because a scale-out has not
   finished, when generation is observed and no old pods remain. A
   ReplicaSet is not skipped because `readyReplicas` is behind when
-  generation is observed, so unready pods can be resized.
+  generation is observed, so unready pods can be resized. A Rollout
+  waits on phase `Paused`, `Progressing`, or `Degraded`, and on
+  `status.abort`. A `Healthy` phase, or an empty phase, does not wait
+  because `updatedReplicas` is behind `spec.replicas`.
 - **Opt-out annotation**: workloads with `attune.io/skip: "true"` are
   skipped entirely.
 - **Namespace freeze**: `attune.io/freeze=true` on the namespace skips
@@ -352,7 +355,12 @@ Before resizing, the controller checks for potential conflicts:
 - **QoS preservation**: a resize that would change QoS class is skipped
   before `UpdateResize` (Burstable to Guaranteed, BestEffort to
   Burstable, or Guaranteed to Burstable). Init containers count. For
-  Guaranteed pods, requests must stay equal to limits.
+  Guaranteed pods, requests must stay equal to limits. A memory
+  `limitMultiplier` raises the request to the multiplied limit, so the
+  applied request can exceed `memory.maxAllowed` and the pod stays
+  Guaranteed. `maxAllowed` capped the engine request. It does not cap
+  that raise. A CPU multiplier that would leave Guaranteed is skipped
+  and is not evicted. `RequestsOnly` does not apply the multiplier.
 - **HPA coexistence**: an informational notice is logged but resizing proceeds.
   See [HPA Coexistence](../guides/hpa-coexistence.md).
 - **HPA memory targets**: when `attune.io/auto-tune` is `"true"`, a successful

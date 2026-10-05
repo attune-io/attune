@@ -280,10 +280,14 @@ func (a *cronJobAdapter) PodSpec() *corev1.PodSpec {
 func (a *cronJobAdapter) IsRollingOut() bool { return false }
 
 func (a *cronJobAdapter) PodNameRegexSuffix() string {
+	// CronJob controller stamps are unix minutes: 8 digits until
+	// 2160-02-18 and 9 digits after that. Attune requires 1.32+, which
+	// does not write the pre-1.21 10-digit unix-seconds suffix.
+	const minuteStamp = "-[0-9]{8,9}"
 	if a.Spec.JobTemplate.Spec.CompletionMode != nil && *a.Spec.JobTemplate.Spec.CompletionMode == batchv1.IndexedCompletion {
-		return "-[0-9]{8,9}-[0-9]+-[a-z0-9]{5}"
+		return minuteStamp + "-[0-9]+-[a-z0-9]{5}"
 	}
-	return "-[0-9]{8,9}-[a-z0-9]{5}"
+	return minuteStamp + "-[a-z0-9]{5}"
 }
 
 func (a *cronJobAdapter) IsBatch() bool { return true }
@@ -399,22 +403,18 @@ func (a *rolloutAdapter) PodSpec() *corev1.PodSpec {
 }
 
 func (a *rolloutAdapter) IsRollingOut() bool {
-	// Abort is status.abort, not a phase. Phases are Healthy, Degraded,
-	// Progressing, and Paused. A held blue-green preview can be Paused
-	// with updatedReplicas already equal to spec.replicas. A 100% canary
-	// still in analysis is Progressing with the same replica match.
+	// Abort is status.abort, not a phase. Degraded is Argo's aborted,
+	// timed-out, or invalid-spec phase, so it skips even when abort is
+	// false. A replica lag is Progressing, so a Healthy or empty phase
+	// with updatedReplicas behind spec is a scale-out.
 	if a.Status.Abort {
 		return true
 	}
 	switch a.Status.Phase {
-	case "Paused", "Progressing":
+	case "Paused", "Progressing", "Degraded":
 		return true
 	}
-	desired := int32(1)
-	if a.Spec.Replicas != nil {
-		desired = *a.Spec.Replicas
-	}
-	return a.Status.UpdatedReplicas < desired
+	return false
 }
 
 // PodNameRegexSuffix matches the Deployment pod suffix. Rollout pods are

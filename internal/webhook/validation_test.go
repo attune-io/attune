@@ -976,7 +976,10 @@ func TestValidate_LimitMultiplier(t *testing.T) {
 		{name: "not a number", cv: &both, value: limitMultPtr("abc"), wantErr: "not a valid number"},
 		{name: "requests only", cv: &only, value: limitMultPtr("2"), wantErr: "RequestsOnly"},
 		{name: "requests only empty is unset", cv: &only, value: limitMultPtr("")},
-		{name: "multiplier without controlled values", value: limitMultPtr("2")},
+		{name: "requests only without multiplier", cv: &only},
+		{name: "multiplier without controlled values", value: limitMultPtr("2"), wantErr: "RequestsAndLimits"},
+		{name: "one without controlled values", value: limitMultPtr("1"), wantErr: "RequestsAndLimits"},
+		{name: "empty controlled values", cv: limitMultPtr(""), value: limitMultPtr("2"), wantErr: "RequestsAndLimits"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -994,6 +997,16 @@ func TestValidate_LimitMultiplier(t *testing.T) {
 			assert.Contains(t, err.Error(), tt.wantErr)
 		})
 	}
+
+	t.Run("memory multiplier without controlled values", func(t *testing.T) {
+		policy := validPolicy()
+		policy.Spec.Memory.LimitMultiplier = limitMultPtr("2")
+		_, err := (&AttunePolicyValidator{}).ValidateCreate(context.Background(), policy)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "memory.limitMultiplier")
+		assert.Contains(t, err.Error(), "RequestsAndLimits")
+		assert.NotContains(t, err.Error(), "cpu.limitMultiplier")
+	})
 }
 
 func TestValidate_OOMBump(t *testing.T) {

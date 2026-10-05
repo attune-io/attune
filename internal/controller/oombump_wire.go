@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -57,6 +58,8 @@ func oomBumpMaxBumps(policy *attunev1alpha1.AttunePolicy) int {
 
 // planContainerOOMBump plans one container and emits skipped or capped now.
 // Applied and clamped wait until the resize annotation is stored.
+// A quiet reclamp of a held floor counts clamped once per floor and cap
+// in this process, including when no resize runs.
 // Recommend mode publishes the floor and does not keep a stamp.
 func (r *AttunePolicyReconciler) planContainerOOMBump(
 	ctx context.Context,
@@ -103,6 +106,27 @@ func (r *AttunePolicyReconciler) planContainerOOMBump(
 	for _, result := range plan.MetricNow {
 		operatormetrics.OOMBumpTotal.WithLabelValues(policy.Namespace, policy.Name, result).Inc()
 	}
+	if plan.QuietClamp {
+		var wlNS, wlName string
+		if workload != nil {
+			wlNS = workload.GetNamespace()
+			wlName = workload.GetName()
+		}
+		// Count outside MetricNow. That slice is incremented on every
+		// call, including Recommend and Observe, before the mode check.
+		if r.noteQuietOOMClamp(quietClampKey{
+			policyNS:   policy.Namespace,
+			policyName: policy.Name,
+			policyUID:  string(policy.UID),
+			workloadNS: wlNS,
+			workload:   wlName,
+			container:  container,
+			from:       plan.QuietClampFrom,
+			to:         plan.PublishBytes,
+		}) {
+			operatormetrics.OOMBumpTotal.WithLabelValues(policy.Namespace, policy.Name, oomBumpClamped).Inc()
+		}
+	}
 	if plan.Event != "" && r.Recorder != nil {
 		r.Recorder.Eventf(policy, nil, corev1.EventTypeNormal, plan.Event, "resize",
 			"OOM bump for container %s is capped at maxBumps", container)
@@ -119,6 +143,47 @@ func (r *AttunePolicyReconciler) planContainerOOMBump(
 		)
 	}
 	return plan
+}
+
+// quietClampCap is how many distinct floor-to-cap pairs one process
+// remembers. Past that, the set resets and a pair can count once more.
+const quietClampCap = 4096
+
+type quietClampKey struct {
+	policyNS   string
+	policyName string
+	policyUID  string
+	workloadNS string
+	workload   string
+	container  string
+	from       int64
+	to         int64
+}
+
+type quietClampSet struct {
+	mu   sync.Mutex
+	seen map[quietClampKey]struct{}
+}
+
+// noteQuietOOMClamp is true the first time this process sees the pair.
+func (r *AttunePolicyReconciler) noteQuietOOMClamp(key quietClampKey) bool {
+	if r == nil {
+		return false
+	}
+	r.quietClampOnce.Do(func() {
+		r.quietClamp = &quietClampSet{seen: make(map[quietClampKey]struct{})}
+	})
+	set := r.quietClamp
+	set.mu.Lock()
+	defer set.mu.Unlock()
+	if _, ok := set.seen[key]; ok {
+		return false
+	}
+	if len(set.seen) >= quietClampCap {
+		set.seen = make(map[quietClampKey]struct{})
+	}
+	set.seen[key] = struct{}{}
+	return true
 }
 
 // applyOOMBumpToRecommendation overwrites the memory request when the plan
@@ -158,6 +223,8 @@ func (r *AttunePolicyReconciler) oomBumpFallbackRec(
 	rec := newContainerRecommendation(in.container, 0, 0, in.now)
 	explanation := &attunev1alpha1.ContainerRecommendationExplanation{}
 	applyOOMBumpToRecommendation(&rec, explanation, plan)
+	// The fallback publish can lower memory before limit scaling.
+	r.suppressOOMDecrease(in.policy, in.container.Name, &rec, explanation, in.pods, in.now)
 	if explanation.Memory != nil || explanation.CPU != nil {
 		rec.Explanation = explanation
 	}
@@ -207,8 +274,7 @@ func (r *AttunePolicyReconciler) oomBumpRevertGate(
 	}
 	if decision.Floor > 0 {
 		adjusted := record
-		raiseLimit := policy.Spec.Memory.ControlledValues != nil &&
-			*policy.Spec.Memory.ControlledValues == attunev1alpha1.ControlledRequestsAndLimits
+		raiseLimit := !containerControlledRequestsOnly(policy, record.Container, corev1.ResourceMemory)
 		adjusted.OriginalResources = raiseMemoryFloor(record.OriginalResources, decision.Floor, raiseLimit)
 		return adjusted, false
 	}
@@ -217,7 +283,7 @@ func (r *AttunePolicyReconciler) oomBumpRevertGate(
 
 // raiseMemoryFloor copies requirements and raises a lower memory request.
 // A missing or zero limit stays unset. A positive limit below the floor is
-// raised only when memory controlledValues is RequestsAndLimits.
+// raised only when this container's effective mode controls limits.
 func raiseMemoryFloor(src corev1.ResourceRequirements, floorBytes int64, raiseLimit bool) corev1.ResourceRequirements {
 	out := src.DeepCopy()
 	floor := resource.NewQuantity(floorBytes, resource.BinarySI)
@@ -544,16 +610,27 @@ func (r *AttunePolicyReconciler) staleOOMBumpRecommendation(
 
 // staleOOMBumpTarget prefers a non-annotation stamp's origin-math bytes.
 // Otherwise it is the highest in-hold floor on the pods or the workload.
+// A set maxAllowed caps either target. Nil stays uncapped. Zero is a ceiling.
 func (r *AttunePolicyReconciler) staleOOMBumpTarget(
 	policy *attunev1alpha1.AttunePolicy,
 	workload client.Object,
 	pods []corev1.Pod,
 	container string,
 ) (int64, bool) {
-	if bytes, ok := r.pendingOOMBumpBytes(policy, workload, container); ok {
-		return bytes, true
+	target, ok := r.pendingOOMBumpBytes(policy, workload, container)
+	if !ok {
+		target, ok = r.heldOOMBumpFloor(policy, workload, pods, container)
 	}
-	return r.heldOOMBumpFloor(policy, workload, pods, container)
+	if !ok {
+		return 0, false
+	}
+	if cap := oomBumpMaxAllowed(effectiveMemoryMaxAllowed(policy, container)); cap != nil && target > *cap {
+		target = *cap
+	}
+	if target <= 0 {
+		return 0, false
+	}
+	return target, true
 }
 
 func (r *AttunePolicyReconciler) pendingOOMBumpBytes(policy *attunev1alpha1.AttunePolicy, workload client.Object, container string) (int64, bool) {

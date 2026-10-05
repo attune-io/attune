@@ -281,6 +281,13 @@ type AttunePolicyReconciler struct {
 	// stores them. Nil in tests that build the reconciler as a struct literal.
 	oomBumps *oomBumpPending
 
+	// quietClamp counts a held-floor clamp once per distinct floor and cap
+	// in this process. Nil until the first clamp. A restart counts that
+	// pair once more. eventDedup is the wrong tool: its 1h TTL would
+	// recount every hour. Rewriting the stored floor would change the hold.
+	quietClampOnce sync.Once
+	quietClamp     *quietClampSet
+
 	// evictionLocks serializes last-replica List+Evict per workload so two
 	// concurrent resize goroutines cannot both observe running==2 and evict.
 	// Key is namespace+"/"+workloadName. Entries are deleted on release.
@@ -770,9 +777,10 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// resizeHistory is a 50-entry cap, not a time window, so counting every
 	// successful in-place row keeps Resizing=InProgress after the apply.
 	// Conflict retry appends fetched rows whose normalized identity is not
-	// already in this snapshot. Identity ignores timestamp. The count still
-	// drops delta rows strictly older than this reconcile's start minus one
-	// second; those rows stay in history.
+	// already in this snapshot. Identity ignores timestamp. The count drops
+	// delta rows strictly before the start of the second that contains this
+	// reconcile's start minus one second (cycleDeltaForCount). Those rows
+	// stay in history.
 	if isResizeMode(mode) && allCooling && newResizedCount == 0 {
 		logger.Info("Cooldown active for all matched workloads, skipping resize")
 		r.emitEventOnce(&policy, corev1.EventTypeNormal, "CooldownActive", "resize",

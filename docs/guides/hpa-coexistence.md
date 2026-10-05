@@ -68,8 +68,16 @@ stays at `200m`. The pod total goes from `600m` to `400m`, and a target of
 The first `Resource` adjustment stores the original utilization percent as
 `attune.io/original-target-cpu` and the original pod CPU request as
 `attune.io/original-cpu-request` (`600m` in that example). Later resizes
-reuse those stored values so the absolute threshold does not drift. A
-single-container workload at `200m` and 80% (160m absolute) becomes 40% at
+reuse those stored values so the absolute threshold does not drift.
+Attune replaces that stored request only when it equals the history old
+sum of `spec.containers` and other containers have no history row. A
+stored full-pod base stays across later growth. A stored base that is
+already below the history old sum also stays, so a sidecar already
+inside it is not added again. Init containers and native sidecars stay
+out of the Resource sum. `HPABaseRepaired` means the update that rewrote
+that stored request succeeded. A failed HPA update does not emit the
+Warning. A value an older operator already replaced is left in place.
+A single-container workload at `200m` and 80% (160m absolute) becomes 40% at
 `400m`, then 20% at `800m`, not 40% again.
 
 A `ContainerResource` metric uses only the named container. The first

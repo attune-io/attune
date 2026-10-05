@@ -33,16 +33,16 @@ import (
 	rsmetrics "github.com/attune-io/attune/internal/metrics"
 	"github.com/attune-io/attune/internal/operatormetrics"
 	"github.com/attune-io/attune/internal/validation"
+	pkgdefaults "github.com/attune-io/attune/pkg/defaults"
 )
 
 // AttunePolicyValidator implements the typed Validator interface for AttunePolicy.
 type AttunePolicyValidator struct {
 	// SecretAccess, when set, requires the admission user to get each referenced Secret.
 	SecretAccess SecretAccessChecker
-	// Client loads AttuneDefaults only when a policy sets cpu.surge.window or
-	// memory.surge.window and omits historyWindow, the one field admission
-	// checks against inherited defaults. Nil keeps the built-in window so unit
-	// tests do not need a cluster.
+	// Client loads AttuneDefaults when a policy omits historyWindow for a
+	// surge window, or omits minAllowed while a max is already known. Nil
+	// keeps the built-in history and does not invent a min.
 	Client client.Reader
 }
 
@@ -83,8 +83,8 @@ func (v *AttunePolicyValidator) effectiveHistory(ctx context.Context, policy *at
 	if policy != nil && policy.Spec.MetricsSource.HistoryWindow != nil {
 		return policy.Spec.MetricsSource.HistoryWindow, nil
 	}
-	// Only a policy surge window is checked against the history window, so
-	// admission reads defaults for nothing else.
+	// This lookup reads defaults only to compare a policy surge window with
+	// the inherited history. validateDefaultsBounds is a separate read.
 	if policy == nil || (!surgeWindowSet(&policy.Spec.CPU) && !surgeWindowSet(&policy.Spec.Memory)) {
 		return nil, nil
 	}
@@ -109,10 +109,6 @@ func (v *AttunePolicyValidator) validate(ctx context.Context, old, policy *attun
 	if us == nil {
 		us = &attunev1alpha1.UpdateStrategy{}
 	}
-	var oldUS *attunev1alpha1.UpdateStrategy
-	if old != nil {
-		oldUS = old.Spec.UpdateStrategy
-	}
 
 	// Validate shared ResourceConfig fields (overhead, burstSensitivity,
 	// memoryFromCpuRatio, percentile, bounds, startupBoost) for CPU and memory.
@@ -127,7 +123,19 @@ func (v *AttunePolicyValidator) validate(ctx context.Context, old, policy *attun
 	if err := validateResourceConfigFields("memory", &policy.Spec.Memory, history); err != nil {
 		return warnings, err
 	}
+	// Built-in defaults fill RequestsOnly after admission. A policy multiplier
+	// with no mode would become InvalidConfig at reconcile. Defaults objects
+	// may still store the multiplier alone.
+	if err := policyMultiplierRequiresMode("cpu", &policy.Spec.CPU); err != nil {
+		return warnings, err
+	}
+	if err := policyMultiplierRequiresMode("memory", &policy.Spec.Memory); err != nil {
+		return warnings, err
+	}
 	if err := validateContainerPolicies(policy, history); err != nil {
+		return warnings, err
+	}
+	if err := v.validateDefaultsBounds(ctx, policy); err != nil {
 		return warnings, err
 	}
 
@@ -161,7 +169,7 @@ func (v *AttunePolicyValidator) validate(ctx context.Context, old, policy *attun
 	// Validate safetyObservationPeriod has a minimum floor.
 	if us.SafetyObservationPeriod != nil {
 		if err := validateDurationFloorAllowZero("updateStrategy.safetyObservationPeriod",
-			us.SafetyObservationPeriod.Duration, sameStoredZero(strategyDuration(oldUS, true), us.SafetyObservationPeriod)); err != nil {
+			us.SafetyObservationPeriod.Duration, sameStoredZero(strategyDuration(old, true), us.SafetyObservationPeriod)); err != nil {
 			return warnings, err
 		}
 	}
@@ -193,7 +201,7 @@ func (v *AttunePolicyValidator) validate(ctx context.Context, old, policy *attun
 	// Validate cooldown has a minimum floor to prevent resource exhaustion via tight reconciliation loops.
 	if us.Cooldown != nil {
 		if err := validateDurationFloorAllowZero("updateStrategy.cooldown",
-			us.Cooldown.Duration, sameStoredZero(strategyDuration(oldUS, false), us.Cooldown)); err != nil {
+			us.Cooldown.Duration, sameStoredZero(strategyDuration(old, false), us.Cooldown)); err != nil {
 			return warnings, err
 		}
 	}
@@ -492,6 +500,19 @@ func validateOverhead(resource, overhead string) error {
 	return nil
 }
 
+// policyMultiplierRequiresMode rejects a set multiplier unless this policy
+// block already says RequestsAndLimits. Empty multiplier stays unset.
+// RequestsOnly is reported by validateLimitMultiplier.
+func policyMultiplierRequiresMode(prefix string, rc *attunev1alpha1.ResourceConfig) error {
+	if rc.LimitMultiplier == nil || *rc.LimitMultiplier == "" {
+		return nil
+	}
+	if rc.ControlledValues != nil && *rc.ControlledValues == attunev1alpha1.ControlledRequestsAndLimits {
+		return nil
+	}
+	return fmt.Errorf("%s.limitMultiplier requires %s.controlledValues RequestsAndLimits, or remove the multiplier", prefix, prefix)
+}
+
 func validateLimitMultiplier(prefix string, rc *attunev1alpha1.ResourceConfig) error {
 	if rc == nil || rc.LimitMultiplier == nil || *rc.LimitMultiplier == "" {
 		return nil
@@ -722,9 +743,6 @@ func validateBurstSensitivity(resource string, value *string) error {
 	return nil
 }
 
-// validateDurationFloorAllowZero rejects a zero, negative, or sub-minute duration.
-// Zero is not a wait: omit the field to keep the built-in default.
-// allowStoredZero is for an update that keeps a stored 0s.
 func validateDurationFloorAllowZero(field string, d time.Duration, allowStoredZero bool) error {
 	if d == 0 {
 		if allowStoredZero {
@@ -739,14 +757,14 @@ func sameStoredZero(old, neu *metav1.Duration) bool {
 	return old != nil && neu != nil && old.Duration == 0 && neu.Duration == 0
 }
 
-func strategyDuration(us *attunev1alpha1.UpdateStrategy, safety bool) *metav1.Duration {
-	if us == nil {
+func strategyDuration(policy *attunev1alpha1.AttunePolicy, safety bool) *metav1.Duration {
+	if policy == nil || policy.Spec.UpdateStrategy == nil {
 		return nil
 	}
 	if safety {
-		return us.SafetyObservationPeriod
+		return policy.Spec.UpdateStrategy.SafetyObservationPeriod
 	}
-	return us.Cooldown
+	return policy.Spec.UpdateStrategy.Cooldown
 }
 
 // validatePositiveDurationFloor allows zero. Canary observationPeriod is a
@@ -970,6 +988,128 @@ func validatePrometheusSigV4(prometheus *attunev1alpha1.PrometheusConfig) error 
 		return fmt.Errorf("metricsSource.prometheus.sigv4.roleArn: %w", err)
 	}
 	return nil
+}
+
+// validateDefaultsBounds rejects a defaults min that sits above a max
+// already set on the policy or a container. The list runs only when some
+// effective side still omits min and already has a max. A nil client does
+// not invent a floor.
+func (v *AttunePolicyValidator) validateDefaultsBounds(ctx context.Context, policy *attunev1alpha1.AttunePolicy) error {
+	if policy == nil || !omittedMinWithKnownMax(policy) {
+		return nil
+	}
+	if v == nil || v.Client == nil {
+		return nil
+	}
+	nsDefaults, clusterDefaults, err := defaultsLayers(ctx, v.Client, policy.Namespace)
+	if err != nil {
+		return err
+	}
+	merged := pkgdefaults.CombineDefaultsLayers(clusterDefaults, nsDefaults)
+	if merged == nil {
+		return nil
+	}
+	copy := policy.DeepCopy()
+	pkgdefaults.MergeDefaults(copy, merged)
+	if err := defaultsBoundSide("", "cpu", &policy.Spec.CPU, &copy.Spec.CPU, nsDefaults, clusterDefaults, false); err != nil {
+		return err
+	}
+	if err := defaultsBoundSide("", "memory", &policy.Spec.Memory, &copy.Spec.Memory, nsDefaults, clusterDefaults, true); err != nil {
+		return err
+	}
+	return defaultsContainerBounds(policy, copy, nsDefaults, clusterDefaults)
+}
+
+func omittedMinWithKnownMax(policy *attunev1alpha1.AttunePolicy) bool {
+	if minOmittedMaxSet(&policy.Spec.CPU) || minOmittedMaxSet(&policy.Spec.Memory) {
+		return true
+	}
+	seen := map[string]struct{}{}
+	for i := range policy.Spec.ContainerPolicies {
+		name := policy.Spec.ContainerPolicies[i].ContainerName
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		cpu, mem := attunev1alpha1.EffectiveContainerResources(policy, name)
+		if minOmittedMaxSet(&cpu) || minOmittedMaxSet(&mem) {
+			return true
+		}
+	}
+	return false
+}
+
+func minOmittedMaxSet(rc *attunev1alpha1.ResourceConfig) bool {
+	return rc != nil && rc.MinAllowed == nil && rc.MaxAllowed != nil
+}
+
+func defaultsContainerBounds(original, merged *attunev1alpha1.AttunePolicy, nsDefaults, clusterDefaults *attunev1alpha1.AttuneDefaults) error {
+	seen := map[string]struct{}{}
+	for i := range original.Spec.ContainerPolicies {
+		name := original.Spec.ContainerPolicies[i].ContainerName
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		beforeCPU, beforeMem := attunev1alpha1.EffectiveContainerResources(original, name)
+		afterCPU, afterMem := attunev1alpha1.EffectiveContainerResources(merged, name)
+		if err := defaultsBoundSide(name, "cpu", &beforeCPU, &afterCPU, nsDefaults, clusterDefaults, false); err != nil {
+			return err
+		}
+		if err := defaultsBoundSide(name, "memory", &beforeMem, &afterMem, nsDefaults, clusterDefaults, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func defaultsBoundSide(container, side string, before, after *attunev1alpha1.ResourceConfig, nsDefaults, clusterDefaults *attunev1alpha1.AttuneDefaults, memory bool) error {
+	if before == nil || before.MaxAllowed == nil || before.MinAllowed != nil {
+		return nil
+	}
+	if after == nil || after.MinAllowed == nil {
+		return nil
+	}
+	if after.MinAllowed.Cmp(*before.MaxAllowed) <= 0 {
+		return nil
+	}
+	origin, ok := defaultsMinOrigin(nsDefaults, clusterDefaults, memory)
+	if !ok {
+		return nil
+	}
+	if container == "" {
+		return fmt.Errorf("%s minAllowed (%s) from %s is above maxAllowed (%s) on the policy",
+			side, after.MinAllowed.String(), origin, before.MaxAllowed.String())
+	}
+	return fmt.Errorf("containerPolicies %q %s minAllowed (%s) from %s is above maxAllowed (%s)",
+		container, side, after.MinAllowed.String(), origin, before.MaxAllowed.String())
+}
+
+func defaultsMinOrigin(nsDefaults, clusterDefaults *attunev1alpha1.AttuneDefaults, memory bool) (string, bool) {
+	if layerHasMin(nsDefaults, memory) {
+		return fmt.Sprintf("AttuneNamespaceDefaults %s/%s", nsDefaults.Namespace, nsDefaults.Name), true
+	}
+	if layerHasMin(clusterDefaults, memory) {
+		return fmt.Sprintf("AttuneDefaults %q", clusterDefaults.Name), true
+	}
+	return "", false
+}
+
+func layerHasMin(obj *attunev1alpha1.AttuneDefaults, memory bool) bool {
+	if obj == nil {
+		return false
+	}
+	rc := obj.Spec.CPU
+	if memory {
+		rc = obj.Spec.Memory
+	}
+	return rc != nil && rc.MinAllowed != nil
 }
 
 // ValidatePrometheusAddress delegates to the shared validation package.

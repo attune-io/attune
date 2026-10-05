@@ -702,12 +702,12 @@ func TestGetPodRegex(t *testing.T) {
 			want:     "data-migrate-[0-9]+-[a-z0-9]{5}",
 		},
 		{
-			name:     "CronJob uses timestamp and hash suffix pattern",
+			name:     "CronJob uses minute stamp and hash suffix pattern",
 			workload: &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: "nightly-report"}},
 			want:     "nightly-report-[0-9]{8,9}-[a-z0-9]{5}",
 		},
 		{
-			name:     "Indexed CronJob uses timestamp, index, and hash suffix pattern",
+			name:     "Indexed CronJob uses minute stamp, index, and hash suffix pattern",
 			workload: &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: "nightly-report"}, Spec: batchv1.CronJobSpec{JobTemplate: batchv1.JobTemplateSpec{Spec: batchv1.JobSpec{CompletionMode: ptrCompletionMode(batchv1.IndexedCompletion)}}}},
 			want:     "nightly-report-[0-9]{8,9}-[0-9]+-[a-z0-9]{5}",
 		},
@@ -1070,6 +1070,41 @@ func TestReadSecretKey_KeyNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "key \"token\" not found")
 }
 
+func TestReadSecretKey_TrimsEnds(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		want    string
+		wantErr bool
+	}{
+		{name: "trailing newline", raw: "token\n", want: "token"},
+		{name: "whitespace only", raw: " \n", wantErr: true},
+		{name: "interior space", raw: "ab cd", want: "ab cd"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "prom-token", Namespace: "default"},
+				Data:       map[string][]byte{"token": []byte(tt.raw)},
+			}
+			scheme := testScheme()
+			r := NewAttunePolicyReconciler()
+			r.Scheme = scheme
+			r.Client = fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
+
+			got, err := r.readSecretKey(context.Background(), "default", "prom-token", "token")
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Empty(t, got)
+				assert.Contains(t, err.Error(), "empty")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 // ---------- updateStatusWithRetry ----------
 
 func TestUpdateStatusWithRetry_SuccessFirstAttempt(t *testing.T) {
@@ -1220,8 +1255,12 @@ func TestUpdateStatusWithRetry_PreservesHigherResizedCount(t *testing.T) {
 
 		// Blank Method + Success is legacy in-place. A literal "InPlace"
 		// check would drop it. Timestamp is not the membership key.
+		// The stored stamp is a whole second. cycleStart is just after the
+		// next second so a late event in the previous second still falls
+		// inside the one-second slack after RFC3339 truncation.
+		boundary := time.Now().UTC().Truncate(time.Second)
 		fetched := attunev1alpha1.ResizeHistoryEntry{
-			Timestamp: metav1.Now(),
+			Timestamp: metav1.NewTime(boundary),
 			Workload:  "api-server",
 			Container: "main",
 			Resource:  "cpu",
@@ -1237,16 +1276,14 @@ func TestUpdateStatusWithRetry_PreservesHigherResizedCount(t *testing.T) {
 		concurrent.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{fetched}
 		require.NoError(t, fakeClient.Status().Update(ctx, &concurrent))
 
-		// Non-zero start, within a second of the stamp. Whole-second
-		// RFC3339 truncation must still count as this cycle.
-		cycleStart := time.Now()
+		cycleStart := boundary.Add(time.Second + 20*time.Millisecond)
 		err := reconciler.updateStatusWithRetry(ctx, &p, key, nil, false, cycleStart)
 		require.NoError(t, err)
 
 		var final attunev1alpha1.AttunePolicy
 		require.NoError(t, fakeClient.Get(ctx, key, &final))
 		assert.GreaterOrEqual(t, final.Status.Workloads.Resized, int32(1),
-			"a same-second success the saved snapshot did not have is this cycle")
+			"a previous-second truncated success missing from the snapshot is this cycle")
 		assert.Equal(t, int32(1), final.Status.Workloads.Pending)
 		require.NotEmpty(t, final.Status.ResizeHistory)
 		assert.Equal(t, "api-server", final.Status.ResizeHistory[0].Workload)
@@ -1851,9 +1888,10 @@ func TestGetPodRegex_BatchPatternsDoNotMatchSimilarlyNamedWorkloads(t *testing.T
 	assert.False(t, jobRegex.MatchString("data-migrate-v2-abc12"))
 
 	cronRegex := regexp.MustCompile("^" + r.getPodRegex(&batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: "nightly-report"}}) + "$")
-	assert.True(t, cronRegex.MatchString("nightly-report-28601940-abc12"))
-	assert.False(t, cronRegex.MatchString("nightly-report-v2-28601940-abc12"))
-	assert.False(t, cronRegex.MatchString("nightly-report-1716116400-abc12"), "10-digit Unix seconds is not a CronJob Job stamp")
+	assert.True(t, cronRegex.MatchString("nightly-report-29453760-abc12"))
+	assert.True(t, cronRegex.MatchString("nightly-report-100000000-abc12"))
+	assert.False(t, cronRegex.MatchString("nightly-report-1716116400-abc12"))
+	assert.False(t, cronRegex.MatchString("nightly-report-v2-29453760-abc12"))
 }
 
 // TestGetPodRegex_CronJobMinuteStamp pins the CronJob Job-name stamp: the
