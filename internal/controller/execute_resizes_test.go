@@ -629,7 +629,8 @@ func TestExecuteResizes_OOMClampRespectsLiveRequest(t *testing.T) {
 		t.Helper()
 		deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 		scheme := testScheme()
-		objs := []client.Object{deploy}
+		objs := make([]client.Object, 0, 1+len(pods))
+		objs = append(objs, deploy)
 		copies := make([]runtime.Object, 0, len(pods))
 		for _, p := range pods {
 			objs = append(objs, p)
