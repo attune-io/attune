@@ -274,7 +274,7 @@ and [Troubleshooting: GitOps PR failing](../guides/troubleshooting.md#gitops-pr-
 
 ### attune_memory_limit_decrease_total
 
-Outcomes of memory **limit** decrease attempts (Kubernetes 1.35+ live
+Outcomes of memory **limit** decrease attempts (Kubernetes 1.34+ live
 decrease path and platform clamps on older clusters).
 
 | Label | Description |
@@ -286,7 +286,7 @@ decrease path and platform clamps on older clusters).
 | `result` | Meaning |
 |----------|---------|
 | `applied` | In-place resize applied a lower memory limit |
-| `clamped_platform` | Limit decrease blocked because cluster rejects NotRequired decreases (typically 1.33–1.34) |
+| `clamped_platform` | Limit decrease blocked because cluster rejects NotRequired decreases (Kubernetes 1.33 and earlier) |
 | `clamped_usage` | Target limit raised above recent usage + `decreaseUsageMarginPercent` |
 | `skipped_unsafe` | Usage floor equaled the current limit (no safe decrease) |
 

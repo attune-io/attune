@@ -1294,17 +1294,18 @@ func TestClampMemoryLimitForPolicy_AllowInPlaceDecrease(t *testing.T) {
 	target := corev1.ResourceRequirements{
 		Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("512Mi")},
 	}
-	// Pre-1.35: clamp preserves current limit.
+	// Before 1.34: clamp preserves current limit.
 	clamped := ClampMemoryLimitForPolicy(pod, "app", target, false)
 	assert.True(t, resource.MustParse("1Gi").Equal(clamped.Limits[corev1.ResourceMemory]))
-	// 1.35+: allow live decrease.
+	// 1.34+: allow live decrease.
 	unclamped := ClampMemoryLimitForPolicy(pod, "app", target, true)
 	assert.True(t, resource.MustParse("512Mi").Equal(unclamped.Limits[corev1.ResourceMemory]))
 }
 
 func TestAllowsInPlaceMemoryLimitDecrease(t *testing.T) {
 	assert.False(t, AllowsInPlaceMemoryLimitDecrease("v1.33.0"))
-	assert.False(t, AllowsInPlaceMemoryLimitDecrease("v1.34.7"))
+	assert.True(t, AllowsInPlaceMemoryLimitDecrease("v1.34.0"))
+	assert.True(t, AllowsInPlaceMemoryLimitDecrease("v1.34.7"))
 	assert.True(t, AllowsInPlaceMemoryLimitDecrease("v1.35.0"))
 	assert.True(t, AllowsInPlaceMemoryLimitDecrease("v1.35.4-k3s1"))
 	assert.True(t, AllowsInPlaceMemoryLimitDecrease("v1.36.0+abc"))

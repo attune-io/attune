@@ -76,7 +76,7 @@ path: canary blast-radius control, startup boost, and SLO-backed auto-revert.
 - **Mandatory bounds** (no unbounded recommendations)
 - **GitOps export** (versioned recommendation ConfigMaps) and optional [PR automation](guides/gitops-integration.md#pull-request-automation-opt-in-phase-b)
 - **Multi-cluster fleet** reporting and Grafana ([multi-cluster guide](guides/multi-cluster.md#fleet-observability-with-federated-prometheus))
-- **Memory usage floor** when decreasing limits on Kubernetes 1.35+
+- **Memory usage floor** when decreasing limits on Kubernetes 1.34+
 - **Runtime profiles** for safer memory defaults by language
 - **Capacity and pressure awareness** with reclaimed-request signals for bin packing
 

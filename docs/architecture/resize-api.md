@@ -24,8 +24,8 @@ limit increases take effect immediately.
 
 | Cluster | Behavior |
 |---------|----------|
-| Kubernetes **1.33–1.34** | API rejects in-place memory limit decreases when `resizePolicy` for memory is `NotRequired` (default). Attune **clamps** the limit (keeps the higher current value) unless policy is `RestartContainer`. |
-| Kubernetes **1.35+** (GA) | Live memory limit decreases are allowed. The kubelet does a best-effort check against current usage; a race can still OOM if usage spikes after the check. Attune detects the version at startup and **skips the platform clamp** so decreases can apply when `allowDecrease` permits. Attune also applies a **client-side usage floor**: target limit must stay above recent usage (recommendation raw percentile) times `(1 + decreaseUsageMarginPercent/100)` (default 10%). Directional `maxDecreasePercent` still steps large shrinks over multiple cycles. |
+| Kubernetes **1.33 and earlier** | Kubernetes 1.33 rejects in-place memory limit decreases when `resizePolicy` for memory is `NotRequired` (default). Attune **clamps** the limit (keeps the higher current value) unless policy is `RestartContainer`. |
+| Kubernetes **1.34+** | Live memory limit decreases are allowed. The kubelet does a best-effort check against current usage; a race can still OOM if usage spikes after the check. Attune detects the version at startup and **skips the platform clamp** so decreases can apply when `allowDecrease` permits. Attune also applies a **client-side usage floor**: target limit must stay above recent usage (recommendation raw percentile) times `(1 + decreaseUsageMarginPercent/100)` (default 10%). Directional `maxDecreasePercent` still steps large shrinks over multiple cycles. |
 
 ## How Attune uses it
 
@@ -60,7 +60,7 @@ Before calling `UpdateResize`, the controller runs several safety checks:
    match the recommendation (compares against the live pod, not the
    Deployment template).
 2. **Memory limit platform clamp**: On clusters that reject live memory
-   limit decreases (`NotRequired` policy, typically 1.33–1.34), preserves
+   limit decreases (`NotRequired` policy, Kubernetes 1.33 and earlier), preserves
    the higher current limit.
 3. **Memory limit usage floor**: When decreasing a memory limit, raises
    the target if it would fall at or below recent usage plus
@@ -287,13 +287,14 @@ stateDiagram-v2
 
 ## Limits and caveats
 
-- **Memory limit decreases**: Kubernetes forbids decreasing a container's
-  memory limit in-place unless the container's `resizePolicy` for memory is
-  set to `RestartContainer`. If your pod uses `NotRequired` (the default) or
-  has no resize policy, the operator will clamp the memory limit to the
-  current value and only decrease the memory request. To allow memory limit
-  decreases without a restart, upgrade to Kubernetes 1.35+ where this
-  restriction was relaxed.
+- **Memory limit decreases**: On Kubernetes 1.33 and earlier, the API
+  forbids decreasing a container's memory limit in place unless the
+  container's `resizePolicy` for memory is `RestartContainer`. If the pod
+  uses `NotRequired` (the default) or has no resize policy, Attune clamps
+  the memory limit to the current value and only decreases the memory
+  request. Kubernetes 1.34 and newer allow that decrease without a
+  restart. Attune skips the platform clamp on those clusters and still
+  applies the usage floor.
 - **Memory request decreases**: The kernel only reclaims memory when the
   working set drops below the new limit. If the application holds onto
   allocated memory, the decrease has no practical effect until the process

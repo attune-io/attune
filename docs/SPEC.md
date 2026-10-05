@@ -763,6 +763,12 @@ CREATE initial sizing does not look at owner replica count.
       - Start safety observation window
 ```
 
+On Kubernetes 1.33 and earlier, a NotRequired memory limit decrease is
+clamped to the current limit. Kubernetes 1.34 and newer allow that
+decrease. Attune skips the platform clamp from 1.34 on. The usage floor
+still raises a limit that would sit at or below recent usage plus
+`memory.decreaseUsageMarginPercent`.
+
 ### 6.2 client-go Resize Pattern
 
 ```go

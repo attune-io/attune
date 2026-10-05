@@ -227,7 +227,7 @@ type AttunePolicyReconciler struct {
 	// blocker recomputes when not resizing (0 = recompute every reconcile).
 	BlockerRefreshInterval time.Duration
 	// AllowInPlaceMemoryLimitDecrease is true when the cluster is Kubernetes
-	// 1.35+ (live memory limit decreases permitted). Wired at manager startup.
+	// 1.34+ (live memory limit decreases permitted). Wired at manager startup.
 	// Prefer Capabilities when set; this bool stays for existing tests.
 	AllowInPlaceMemoryLimitDecrease bool
 	// Capabilities is the process-start cluster feature set. Optional; tests

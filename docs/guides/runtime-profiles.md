@@ -42,9 +42,9 @@ spec:
 Admission warns if `runtimeProfile` is `java`/`python`/`nodejs` and
 `memory.allowDecrease: true`.
 
-## Interaction with Kubernetes 1.35+ memory decreases
+## Interaction with Kubernetes 1.34+ memory decreases
 
-On 1.35+, Attune can apply live memory limit decreases when the platform
+On 1.34 and newer, Attune can apply live memory limit decreases when the platform
 allows them. Profiles that set `allowDecrease=false` still block Attune
 from recommending or applying decreases until you opt in. See the
 architecture [resize API](../architecture/resize-api.md) notes and

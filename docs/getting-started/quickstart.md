@@ -31,7 +31,7 @@ This quick start gets you to recommendations. When you are ready to go further:
 | Multi-cluster fleet reports and dashboards | [Multi-cluster](../guides/multi-cluster.md#fleet-observability-with-federated-prometheus) |
 | GitOps ConfigMap export and optional PR automation | [GitOps integration](../guides/gitops-integration.md) |
 | Application SLO checks after resize (latency, errors) | [SLO guardrails](../guides/slo-guardrails.md) |
-| Memory limit decrease safety (usage floor on 1.35+) | [Resize API](../architecture/resize-api.md) and [troubleshooting OOM](../guides/troubleshooting.md#oom-after-memory-limit-decrease) |
+| Memory limit decrease safety (usage floor on 1.34+) | [Resize API](../architecture/resize-api.md) and [troubleshooting OOM](../guides/troubleshooting.md#oom-after-memory-limit-decrease) |
 | Language runtime defaults (Java, Python, Go, Node) | [Runtime profiles](../guides/runtime-profiles.md) |
 | Cold-start CPU headroom | [Startup boost](../guides/startup-boost.md). `excludeFromHistory: true` drops CPU samples from `attune.io/startup-boost-at` when that stamp is set, otherwise from creation, until that start plus duration plus the rate window; omitted keeps today's percentile. |
 | Memory after OOMKilled | An optional memory OOM bump can raise the request after OOMKilled and is off until set. |
