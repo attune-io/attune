@@ -709,14 +709,15 @@ func resizeHistoryDelta(saved, fetched []attunev1alpha1.ResizeHistoryEntry) []at
 }
 
 // cycleDeltaForCount drops delta rows that finished before this
-// reconcile. Status timestamps are whole seconds, so a stamp up to one
-// second before cycleStart still belongs to this cycle. A zero
-// cycleStart keeps every row. A zero timestamp has no clock to reject.
+// reconcile. Status timestamps are whole seconds. A stamp one second
+// before cycleStart still belongs to this cycle, and that stamp is
+// stored at the start of its second. The cutoff is that whole second.
+// A zero cycleStart keeps every row. A zero timestamp has no clock to reject.
 func cycleDeltaForCount(delta []attunev1alpha1.ResizeHistoryEntry, cycleStart time.Time) []attunev1alpha1.ResizeHistoryEntry {
 	if cycleStart.IsZero() {
 		return delta
 	}
-	cutoff := cycleStart.Add(-time.Second)
+	cutoff := cycleStart.Add(-time.Second).Truncate(time.Second)
 	kept := make([]attunev1alpha1.ResizeHistoryEntry, 0, len(delta))
 	for _, entry := range delta {
 		if entry.Timestamp.IsZero() || !entry.Timestamp.Time.Before(cutoff) {
