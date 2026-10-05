@@ -32,6 +32,7 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
@@ -502,4 +503,73 @@ func TestResizeContainer_FailedRevertStaysInPlace(t *testing.T) {
 	for _, e := range entries {
 		assert.Equal(t, attunev1alpha1.ResizeResultFailed, e.Result)
 	}
+}
+
+func TestResizeContainer_FailedRevertStillTracksPod(t *testing.T) {
+	// Persist fails, revert fails, and the one follow-up tracking patch
+	// lands. Observation lists the pod by the tracked label.
+	pod := newResizePod("api-server", "200m", "256Mi", "500m", "512Mi")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod.DeepCopy()).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+
+	resizeCalls := 0
+	clientset.PrependReactor("update", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		updateAction, ok := action.(k8stesting.UpdateAction)
+		if !ok || updateAction.GetSubresource() != "resize" {
+			return false, nil, nil
+		}
+		resizeCalls++
+		if resizeCalls >= 2 {
+			return true, nil, fmt.Errorf("simulated revert failure")
+		}
+		return false, nil, nil
+	})
+
+	r := NewAttunePolicyReconciler()
+	r.Client = &failFirstPodPatchClient{Client: fakeClient}
+	r.Scheme = scheme
+	r.Clientset = clientset
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	containerRec := attunev1alpha1.ContainerRecommendation{
+		Name: "main",
+		Current: attunev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("200m"),
+			MemoryRequest: resource.MustParse("256Mi"),
+		},
+		Recommended: attunev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("500m"),
+			MemoryRequest: resource.MustParse("256Mi"),
+		},
+	}
+	target, _ := buildResizeTarget(containerRec)
+
+	entries, outcome := r.resizeContainer(context.Background(), resizeParams{
+		Policy:       policy,
+		Pod:          pod,
+		Workload:     deploy,
+		WorkloadName: "api-server",
+		ContainerRec: containerRec,
+		Target:       target,
+		Resizer:      resize.NewPodResizer(clientset, ctrl.Log),
+		Monitor:      safety.NewMonitor(clientset, ctrl.Log),
+		Now:          metav1.Now(),
+		LiveApplied:  true,
+	})
+	assert.Equal(t, resizeOutcomeInPlace, outcome)
+	assert.GreaterOrEqual(t, resizeCalls, 2, "UpdateResize must apply, then RevertPod must fail")
+	require.NotEmpty(t, entries)
+	for _, e := range entries {
+		assert.Equal(t, attunev1alpha1.ResizeResultFailed, e.Result)
+	}
+
+	var listed corev1.PodList
+	require.NoError(t, r.List(context.Background(), &listed,
+		client.InNamespace(pod.Namespace),
+		client.MatchingLabels{labelTracked: "true"}))
+	require.Len(t, listed.Items, 1)
+	require.Equal(t, pod.Name, listed.Items[0].Name)
 }

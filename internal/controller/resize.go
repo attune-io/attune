@@ -18,7 +18,10 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 	"sync"
@@ -32,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -1276,6 +1280,11 @@ func (r *AttunePolicyReconciler) resizeContainer(
 	}
 	if reason, err := r.persistResizeAnnotations(ctx, pod, containerRec, policy.Name, workloadName, now, restartCount, oomStamp); err != nil {
 		if revert(reason) {
+			// Revert did not land. One tracking write records the resize that is still applied.
+			if _, trackErr := r.writeResizeTracking(ctx, pod, containerRec, policy.Name, workloadName, now, restartCount, oomStamp); trackErr != nil {
+				logger.Error(trackErr, "Failed to write resize tracking after revert failed",
+					"pod", pod.Name, "reason", reason)
+			}
 			return history, resizeOutcomeInPlace
 		}
 		return history, resizeOutcomeNone
@@ -1314,15 +1323,16 @@ func (r *AttunePolicyReconciler) resizeContainer(
 	return history, resizeOutcomeInPlace
 }
 
-// persistResizeAnnotations re-fetches the pod from the API server (to get a
-// fresh resourceVersion after the in-place resize) and writes the tracking
-// annotations that mark the pod as resized. On failure it returns a non-empty
-// revert reason so the caller can revert the resize.
-//
-// The update is retried on conflict because the kubelet concurrently updates
-// pod status (conditions, containerStatuses) after a resize, bumping
-// resourceVersion. In multi-container pods the second container's annotation
-// persist races with the kubelet's status write from the first resize.
+// errTrackingRefetch is a Clientset Get failure from writeResizeTracking.
+// persistResizeAnnotations returns it immediately as re-fetch-failed.
+var errTrackingRefetch = errors.New("re-fetch pod for resize tracking")
+
+// persistResizeAnnotations re-fetches the pod from the API server and writes
+// tracking labels and annotations with a metadata merge patch. The patch
+// carries only keys this write changed and has no resourceVersion, so a
+// kubelet status write does not conflict with it and a concurrent annotation
+// update is left alone. A conflict on the patch itself is retried with
+// backoff. On exhaustion the caller reverts the resize.
 //
 // A non-conflict write error (timeout after the apiserver committed) is not
 // treated as failure when a follow-up Get shows this persist's tracking
@@ -1341,51 +1351,30 @@ func (r *AttunePolicyReconciler) persistResizeAnnotations(
 	logger := log.FromContext(ctx)
 
 	const maxRetries = 3
+	backoff := retry.DefaultBackoff
 	for attempt := range maxRetries {
-		// Re-fetch directly from API server (not informer cache) to get
-		// fresh resourceVersion after UpdateResize. See #37.
-		freshPod, getErr := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
-		if getErr != nil {
-			logger.Error(getErr, "Failed to re-fetch pod after resize, reverting to avoid untracked resize", "pod", pod.Name)
-			return "re-fetch-failed", getErr
-		}
-
-		freshPod.Annotations = ensureAnnotations(freshPod.Annotations)
-		freshPod.Annotations[annotationResizedAt] = now.UTC().Format(time.RFC3339)
-		freshPod.Annotations[annotationResizedWorkload] = workloadName
-		if freshPod.Labels == nil {
-			freshPod.Labels = make(map[string]string)
-		}
-		freshPod.Labels[labelTracked] = "true"
-		freshPod.Annotations[annotationPolicy] = policyName
-		appendResizedContainer(freshPod, containerRec.Name)
-		// Snapshot the pre-resize live container. rec.Current is the
-		// pod-template value and is stale after an earlier in-place resize.
-		current := liveContainerCurrent(pod, containerRec)
-		freshPod.Annotations[annotationOriginalCPUPrefix+containerRec.Name] = current.CPURequest.String()
-		freshPod.Annotations[annotationOriginalMemoryPrefix+containerRec.Name] = current.MemoryRequest.String()
-		if !current.CPULimit.IsZero() {
-			freshPod.Annotations[annotationOriginalCPULimitPrefix+containerRec.Name] = current.CPULimit.String()
-		}
-		if !current.MemoryLimit.IsZero() {
-			freshPod.Annotations[annotationOriginalMemoryLimitPrefix+containerRec.Name] = current.MemoryLimit.String()
-		}
-		freshPod.Annotations[annotationOriginalRestartCountPrefix+containerRec.Name] = strconv.FormatInt(int64(restartCount), 10)
-		if oomStamp != "" {
-			if key, keyOK := oomBumpKey(containerRec.Name); keyOK {
-				freshPod.Annotations[key] = oomStamp
+		if attempt > 0 {
+			wait := backoff.Step()
+			timer := time.NewTimer(wait)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return "annotation-persist-failed", ctx.Err()
+			case <-timer.C:
 			}
 		}
-
-		updateErr := r.Update(ctx, freshPod)
-		if updateErr == nil {
-			// Propagate the fresh pod (with updated resourceVersion and annotations)
-			// back to the caller so subsequent container resizes on the same pod
-			// do not need an additional API Get.
+		freshPod, writeErr := r.writeResizeTracking(ctx, pod, containerRec, policyName, workloadName, now, restartCount, oomStamp)
+		if writeErr == nil {
+			// Propagate the patched pod so later containers on this pod
+			// see the tracking keys and the resourceVersion from the patch.
 			*pod = *freshPod
 			return "", nil
 		}
-		if apierrors.IsConflict(updateErr) {
+		if errors.Is(writeErr, errTrackingRefetch) {
+			logger.Error(writeErr, "Failed to re-fetch pod after resize, reverting to avoid untracked resize", "pod", pod.Name)
+			return "re-fetch-failed", writeErr
+		}
+		if apierrors.IsConflict(writeErr) {
 			logger.Info("Annotation update conflict, retrying", "pod", pod.Name, "attempt", attempt+1, "maxRetries", maxRetries)
 			continue
 		}
@@ -1394,20 +1383,101 @@ func (r *AttunePolicyReconciler) persistResizeAnnotations(
 		confirmed, confirmErr := r.confirmTrackingAnnotations(ctx, pod.Namespace, pod.Name, freshPod, containerRec.Name)
 		if confirmErr != nil {
 			logger.Error(confirmErr, "Failed to confirm annotation persist after write error",
-				"pod", pod.Name, "writeError", updateErr.Error())
-			return "annotation-persist-failed", updateErr
+				"pod", pod.Name, "writeError", writeErr.Error())
+			return "annotation-persist-failed", writeErr
 		}
 		if confirmed != nil {
 			logger.Info("Annotation persist write error after committed tracking annotations; treating as success",
-				"pod", pod.Name, "writeError", updateErr.Error())
+				"pod", pod.Name, "writeError", writeErr.Error())
 			*pod = *confirmed
 			return "", nil
 		}
-		logger.Error(updateErr, "Failed to persist resize tracking annotations, reverting resize", "pod", pod.Name)
-		return "annotation-persist-failed", updateErr
+		logger.Error(writeErr, "Failed to persist resize tracking annotations, reverting resize", "pod", pod.Name)
+		return "annotation-persist-failed", writeErr
 	}
 	logger.Error(nil, "Exhausted annotation persist retries, reverting resize", "pod", pod.Name, "maxRetries", maxRetries)
 	return "annotation-persist-conflict", fmt.Errorf("exhausted %d annotation persist retries", maxRetries)
+}
+
+// writeResizeTracking reads the live pod and merge-patches tracking
+// labels and annotations. The patch does not include resourceVersion.
+func (r *AttunePolicyReconciler) writeResizeTracking(
+	ctx context.Context,
+	pod *corev1.Pod,
+	containerRec attunev1alpha1.ContainerRecommendation,
+	policyName string,
+	workloadName string,
+	now metav1.Time,
+	restartCount int32,
+	oomStamp string,
+) (*corev1.Pod, error) {
+	freshPod, getErr := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
+	if getErr != nil {
+		return nil, fmt.Errorf("%w: %w", errTrackingRefetch, getErr)
+	}
+
+	beforeAnn := maps.Clone(freshPod.Annotations)
+	beforeLabels := maps.Clone(freshPod.Labels)
+	freshPod.Annotations = ensureAnnotations(freshPod.Annotations)
+	freshPod.Annotations[annotationResizedAt] = now.UTC().Format(time.RFC3339)
+	freshPod.Annotations[annotationResizedWorkload] = workloadName
+	if freshPod.Labels == nil {
+		freshPod.Labels = make(map[string]string)
+	}
+	freshPod.Labels[labelTracked] = "true"
+	freshPod.Annotations[annotationPolicy] = policyName
+	appendResizedContainer(freshPod, containerRec.Name)
+	// Snapshot the pre-resize live container. rec.Current is the
+	// pod-template value and is stale after an earlier in-place resize.
+	current := liveContainerCurrent(pod, containerRec)
+	freshPod.Annotations[annotationOriginalCPUPrefix+containerRec.Name] = current.CPURequest.String()
+	freshPod.Annotations[annotationOriginalMemoryPrefix+containerRec.Name] = current.MemoryRequest.String()
+	if !current.CPULimit.IsZero() {
+		freshPod.Annotations[annotationOriginalCPULimitPrefix+containerRec.Name] = current.CPULimit.String()
+	}
+	if !current.MemoryLimit.IsZero() {
+		freshPod.Annotations[annotationOriginalMemoryLimitPrefix+containerRec.Name] = current.MemoryLimit.String()
+	}
+	freshPod.Annotations[annotationOriginalRestartCountPrefix+containerRec.Name] = strconv.FormatInt(int64(restartCount), 10)
+	if oomStamp != "" {
+		if key, keyOK := oomBumpKey(containerRec.Name); keyOK {
+			freshPod.Annotations[key] = oomStamp
+		}
+	}
+
+	raw, err := resizeTrackingMergePatch(beforeAnn, beforeLabels, freshPod)
+	if err != nil {
+		return freshPod, err
+	}
+	if err := r.Patch(ctx, freshPod, client.RawPatch(types.MergePatchType, raw)); err != nil {
+		return freshPod, err
+	}
+	return freshPod, nil
+}
+
+// resizeTrackingMergePatch sends only keys this write changed. A nil value
+// would delete a key, so unchanged keys are omitted rather than copied.
+// Copying the whole map would overwrite a concurrent annotation update
+// with the Get snapshot.
+func resizeTrackingMergePatch(beforeAnn, beforeLabels map[string]string, pod *corev1.Pod) ([]byte, error) {
+	anns := map[string]any{}
+	for k, v := range pod.Annotations {
+		if beforeAnn[k] != v {
+			anns[k] = v
+		}
+	}
+	labels := map[string]any{}
+	for k, v := range pod.Labels {
+		if beforeLabels[k] != v {
+			labels[k] = v
+		}
+	}
+	return json.Marshal(map[string]any{
+		"metadata": map[string]any{
+			"annotations": anns,
+			"labels":      labels,
+		},
+	})
 }
 
 // Confirm uses a detached budget so a cancelled or timed-out persist ctx

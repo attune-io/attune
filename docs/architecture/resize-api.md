@@ -105,7 +105,7 @@ Before calling `UpdateResize`, the controller runs several safety checks:
 
 After a successful resize, the operator:
 
-1. Writes tracking annotations to the pod (see table below).
+1. Writes tracking annotations and the tracked label with a metadata merge patch (see table below). A kubelet status update does not conflict with that patch.
 2. If `autoRevert: true`, monitors the pod for safety violations (OOMKill,
    CPU throttle, restart spikes, NotReady).
 3. Records the operation in `status.resizeHistory`.

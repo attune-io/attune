@@ -37,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	kubefake "k8s.io/client-go/kubernetes/fake"
@@ -2002,6 +2003,28 @@ func (f *failOnPodUpdateClient) Update(ctx context.Context, obj client.Object, o
 	return f.Client.Update(ctx, obj, opts...)
 }
 
+func (f *failOnPodUpdateClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+	if _, ok := obj.(*corev1.Pod); ok {
+		return fmt.Errorf("simulated annotation update failure")
+	}
+	return f.Client.Patch(ctx, obj, patch, opts...)
+}
+
+// failFirstPodPatchClient fails the first pod Patch, then delegates.
+// Persist hits the failure. The tracking write after a failed revert is the second Patch.
+type failFirstPodPatchClient struct {
+	client.Client
+	failed bool
+}
+
+func (f *failFirstPodPatchClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+	if _, ok := obj.(*corev1.Pod); ok && !f.failed {
+		f.failed = true
+		return fmt.Errorf("simulated annotation update failure")
+	}
+	return f.Client.Patch(ctx, obj, patch, opts...)
+}
+
 // commitThenTimeoutPodClient commits the pod Update, mirrors it into the
 // Clientset (persist confirm Get is a Clientset read), then returns timeout
 // on the first N pod Updates.
@@ -2029,6 +2052,43 @@ func (c *commitThenTimeoutPodClient) Update(ctx context.Context, obj client.Obje
 		return apierrors.NewTimeoutError("injected timeout after committed annotation persist", 0)
 	}
 	return nil
+}
+
+func (c *commitThenTimeoutPodClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+	pod, ok := obj.(*corev1.Pod)
+	if !ok {
+		return c.Client.Patch(ctx, obj, patch, opts...)
+	}
+	if err := c.Client.Patch(ctx, obj, patch, opts...); err != nil {
+		return err
+	}
+	// Tracker skips the Get reactor. Confirm tests count Clientset Gets,
+	// and the first post-write Get must stay the confirm attempt.
+	if err := c.mirrorPodTracking(pod); err != nil {
+		return err
+	}
+	if c.timeoutsLeft > 0 {
+		c.timeoutsLeft--
+		c.timeoutsSeen++
+		return apierrors.NewTimeoutError("injected timeout after committed annotation persist", 0)
+	}
+	return nil
+}
+
+func (c *commitThenTimeoutPodClient) mirrorPodTracking(pod *corev1.Pod) error {
+	gvr := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}
+	obj, err := c.cs.Tracker().Get(gvr, pod.Namespace, pod.Name)
+	if err != nil {
+		return err
+	}
+	live, ok := obj.(*corev1.Pod)
+	if !ok {
+		return fmt.Errorf("tracker object for %s/%s is %T", pod.Namespace, pod.Name, obj)
+	}
+	copied := live.DeepCopy()
+	copied.Annotations = pod.Annotations
+	copied.Labels = pod.Labels
+	return c.cs.Tracker().Update(gvr, copied, pod.Namespace)
 }
 
 // cancelAwareGetClientset fails Get when ctx is already cancelled, except
@@ -2093,9 +2153,17 @@ func (f *failOnNamedPodUpdateClient) Update(ctx context.Context, obj client.Obje
 	return f.Client.Update(ctx, obj, opts...)
 }
 
+func (f *failOnNamedPodUpdateClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+	if pod, ok := obj.(*corev1.Pod); ok && pod.Name == f.failPodName {
+		f.failPodName = ""
+		return fmt.Errorf("simulated annotation update failure")
+	}
+	return f.Client.Patch(ctx, obj, patch, opts...)
+}
+
 // conflictThenSucceedClient returns a 409 Conflict on the first N pod
-// Update calls, then delegates to the real client. This simulates the
-// kubelet bumping resourceVersion concurrently during multi-container resizes.
+// Update or Patch calls, then delegates. Patch conflicts cover the
+// tracking merge patch. Update conflicts cover any remaining pod writes.
 type conflictThenSucceedClient struct {
 	client.Client
 	mu            sync.Mutex
@@ -2103,18 +2171,32 @@ type conflictThenSucceedClient struct {
 	conflictsSeen int
 }
 
+func (c *conflictThenSucceedClient) consumePodConflict(obj client.Object) (bool, error) {
+	if _, ok := obj.(*corev1.Pod); !ok {
+		return false, nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.conflictsLeft > 0 {
+		c.conflictsLeft--
+		c.conflictsSeen++
+		return true, apierrors.NewConflict(corev1.Resource("pods"), obj.GetName(), fmt.Errorf("resourceVersion changed"))
+	}
+	return false, nil
+}
+
 func (c *conflictThenSucceedClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
-	if _, ok := obj.(*corev1.Pod); ok {
-		c.mu.Lock()
-		if c.conflictsLeft > 0 {
-			c.conflictsLeft--
-			c.conflictsSeen++
-			c.mu.Unlock()
-			return apierrors.NewConflict(corev1.Resource("pods"), obj.GetName(), fmt.Errorf("resourceVersion changed"))
-		}
-		c.mu.Unlock()
+	if conflict, err := c.consumePodConflict(obj); conflict {
+		return err
 	}
 	return c.Client.Update(ctx, obj, opts...)
+}
+
+func (c *conflictThenSucceedClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+	if conflict, err := c.consumePodConflict(obj); conflict {
+		return err
+	}
+	return c.Client.Patch(ctx, obj, patch, opts...)
 }
 
 func TestBuildResizeTarget_OmitsLimitsWhenZero(t *testing.T) {

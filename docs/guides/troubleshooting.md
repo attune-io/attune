@@ -1313,6 +1313,7 @@ Common causes:
 - **restart**: the application crashes at the new resource level. Check application logs.
 - **notready**: readiness probe fails post-resize. Verify probe configuration.
 - **slo:&lt;name&gt;**: an SLO guardrail query breached its threshold after resize. Review the guardrail's PromQL query and threshold in `updateStrategy.sloGuardrails`.
+- **annotation-persist-conflict**: the tracking merge patch itself conflicted three times. A kubelet status update does not cause this. Check operator logs for `Annotation update conflict` on that pod.
 
 ### Fleet report export failures or empty fleet dashboard
 
