@@ -53,6 +53,44 @@ func TestIsWithinResizeWindow_TimeWindow(t *testing.T) {
 	assert.False(t, isWithinResizeWindow(schedule, time.Date(2026, 1, 7, 10, 0, 0, 0, time.UTC)))
 }
 
+func TestIsWithinResizeWindow_EqualStartAndEndNeverOpens(t *testing.T) {
+	schedule := &attunev1alpha1.ResizeSchedule{
+		Windows: []attunev1alpha1.TimeWindow{{Start: "02:00", End: "02:00"}},
+	}
+	atStart := time.Date(2026, 1, 7, 2, 0, 0, 0, time.UTC)
+	assert.False(t, isWithinResizeWindow(schedule, atStart), "equal start and end is an empty window")
+	assert.True(t, scheduleWindowsNeverOpen(schedule))
+}
+
+func TestScheduleWindowsNeverOpen_MixedWindowStillOpens(t *testing.T) {
+	schedule := &attunev1alpha1.ResizeSchedule{
+		Windows: []attunev1alpha1.TimeWindow{
+			{Start: "02:00", End: "02:00"},
+			{Start: "02:00", End: "06:00"},
+		},
+	}
+	assert.False(t, scheduleWindowsNeverOpen(schedule))
+	assert.True(t, isWithinResizeWindow(schedule, time.Date(2026, 1, 7, 3, 0, 0, 0, time.UTC)))
+}
+
+func TestScheduleWindowsNeverOpen_OnlyParsedEqualPairs(t *testing.T) {
+	equal := &attunev1alpha1.ResizeSchedule{
+		Windows: []attunev1alpha1.TimeWindow{
+			{Start: "02:00", End: "02:00"},
+			{Start: "00:00", End: "00:00"},
+		},
+	}
+	assert.True(t, scheduleWindowsNeverOpen(equal))
+	assert.False(t, scheduleWindowsNeverOpen(nil))
+	assert.False(t, scheduleWindowsNeverOpen(&attunev1alpha1.ResizeSchedule{}))
+
+	// A short hour fails HH:MM. It must not be reported as an equal pair.
+	unparsed := &attunev1alpha1.ResizeSchedule{
+		Windows: []attunev1alpha1.TimeWindow{{Start: "2:00", End: "06:00"}},
+	}
+	assert.False(t, scheduleWindowsNeverOpen(unparsed))
+}
+
 func TestIsWithinResizeWindow_OvernightWindow(t *testing.T) {
 	schedule := &attunev1alpha1.ResizeSchedule{
 		Windows: []attunev1alpha1.TimeWindow{{Start: "22:00", End: "06:00"}},

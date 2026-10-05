@@ -991,10 +991,12 @@ type TimeWindow struct {
 	// +kubebuilder:validation:Pattern=`^([01]\d|2[0-3]):[0-5]\d$`
 	Start string `json:"start"`
 
-	// End time in HH:MM format (24-hour). If end < start, the window
-	// wraps past midnight (e.g. start=22:00, end=06:00). Times are local
-	// wall-clock minutes in Timezone, including DST spring-forward gaps
-	// and fall-back repeated hours.
+	// End time in HH:MM format (24-hour). The end minute is exclusive.
+	// If end < start, the window wraps past midnight (for example
+	// start=22:00, end=06:00). If end equals start, the window never
+	// opens and admission rejects it. Times are local wall-clock minutes
+	// in Timezone, including DST spring-forward gaps and fall-back
+	// repeated hours.
 	// +kubebuilder:validation:Pattern=`^([01]\d|2[0-3]):[0-5]\d$`
 	End string `json:"end"`
 }

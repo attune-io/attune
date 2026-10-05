@@ -799,11 +799,15 @@ func (r *AttunePolicyReconciler) setScheduleBlockedCondition(policy *attunev1alp
 	}
 
 	if !withinWindow {
+		message := "Resizes deferred: current time is outside the configured schedule window"
+		if scheduleWindowsNeverOpen(policy.Spec.UpdateStrategy.Schedule) {
+			message = "Resizes deferred: schedule window start and end are the same, so the window never opens"
+		}
 		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
 			Type:               attunev1alpha1.ConditionScheduleBlocked,
 			Status:             metav1.ConditionTrue,
 			Reason:             attunev1alpha1.ReasonOutsideWindow,
-			Message:            "Resizes deferred: current time is outside the configured schedule window",
+			Message:            message,
 			ObservedGeneration: policy.Generation,
 		})
 	} else {

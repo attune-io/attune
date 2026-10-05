@@ -1448,6 +1448,7 @@ func TestValidate_ScheduleTimeWindowInvalid(t *testing.T) {
 		{"hour out of range", "25:00", "06:00", "not a valid time"},
 		{"minute out of range", "02:60", "06:00", "not a valid time"},
 		{"letters", "ab:cd", "06:00", "not a valid time"},
+		{"empty window", "02:00", "02:00", "is empty"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

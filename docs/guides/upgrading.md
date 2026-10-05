@@ -10,6 +10,17 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### Schedule window with the same start and end
+
+A schedule window whose start and end are the same minute never opened.
+The end minute is exclusive, so `02:00` to `02:00` matches no time.
+Admission now rejects that window on AttunePolicy, AttuneDefaults, and
+AttuneNamespaceDefaults. An object that already stores an equal pair
+still reconciles. ScheduleBlocked stays `OutsideWindow`, and the
+message says the window never opens. Change the end time to a later
+minute, or to an earlier minute for an overnight window. No CRD change
+is needed.
+
 ### Memory limit decreases on Kubernetes 1.34
 
 On Kubernetes 1.34 and newer, a policy that allows memory limit decreases

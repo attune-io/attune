@@ -447,7 +447,7 @@ spec:
 | `TemplatePersistence` | `TemplateWorkloadRef`, `WorkloadRefUnread` | `TemplateWorkloadRef` is False when a Rollout `spec.workloadRef` was read. Attune does not patch that template. `WorkloadRefUnread` stays when that read failed. It is not replaced in the same reconcile |
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation |
 | `Degraded` | `HighRevertRate` | Some resizes failing |
-| `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Whether the current time is within the configured resize schedule window |
+| `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Whether the current time is within the configured resize schedule window. An equal start and end never opens. |
 | `ResizeBlocked` | `NamespaceFrozen`, `HPAListUnavailable`, `VPAListUnavailable`, `PodsDeferred`, `PodsInfeasible`, `PodsDeferredAndInfeasible` | Namespace freeze, HPA or VPA list failure, or pods stuck Deferred or Infeasible |
 | `SafetyObservation` | `Observing`, `Evaluating`, `RestorePending`, `Incomplete` | Pods still carrying `attune.io` resize-tracking annotations |
 
