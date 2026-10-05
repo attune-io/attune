@@ -101,7 +101,7 @@ Each alert rule supports `enabled`, `for`, and `severity`. Some rules have addit
 | `requestsClamped` | info | 1h | | Fires when recommended requests are clamped to limits |
 | `staleRecommendations` | warning | 1h | | Fires when recommendations are marked stale due to Prometheus data gaps |
 | `revertFailures` | critical | 5m | | Fires when resize revert operations fail |
-| `oomBumpCapped` | info | 1h | | Fires when an OOM bump is capped at `maxBumps` or clamped to `maxAllowed`. The whole PrometheusRule stays off until `metrics.prometheusRule.enabled` is true. This alert does not turn `memory.oomBump` on. |
+| `oomBumpCapped` | info | 5m | | Fires when one or more OOM bumps in the last hour are capped at `maxBumps` or clamped to `maxAllowed`. One sample is enough. The whole PrometheusRule stays off until `metrics.prometheusRule.enabled` is true. This alert does not turn `memory.oomBump` on. |
 
 To disable a specific rule:
 

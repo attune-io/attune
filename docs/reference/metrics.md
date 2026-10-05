@@ -329,6 +329,16 @@ Memory request steps after `OOMKilled` when `memory.oomBump` is set. The feature
 sum by (namespace, policy, result) (rate(attune_oom_bump_total[1h]))
 ```
 
+Opt-in `AttuneOOMBumpCapped` (info, pending 5m) uses `increase` so one
+`capped` or `clamped` sample in the hour is enough. It does not mean the
+bump failed to apply. The PrometheusRule object stays off until
+`metrics.prometheusRule.enabled` is true, and the alert does not turn
+`memory.oomBump` on.
+
+```promql
+sum by (namespace, policy) (increase(attune_oom_bump_total{result=~"capped|clamped"}[1h])) > 0
+```
+
 See [Troubleshooting: Memory request rose after OOMKilled](../guides/troubleshooting.md#memory-request-rose-after-oomkilled).
 
 ### attune_nan_inf_samples_total

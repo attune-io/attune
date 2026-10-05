@@ -169,10 +169,11 @@ metrics:
         for: 1h
         severity: info
       oomBumpCapped:
-        # -- Fire when an OOM bump is capped at maxBumps or clamped to maxAllowed.
+        # -- Fire when one or more OOM bumps in the last hour are capped at maxBumps or clamped to maxAllowed.
+        # One sample is enough. `for` is how long that increase must stay above zero before the alert fires.
         # Does not set memory.oomBump. The PrometheusRule stays off until metrics.prometheusRule.enabled is true.
         enabled: true
-        for: 1h
+        for: 5m
         severity: info
     # -- Recording rules for multi-cluster / federated Prometheus rollups.
     # Safe to enable on single-cluster installs (cluster label may be empty).

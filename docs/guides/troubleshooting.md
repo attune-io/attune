@@ -1276,6 +1276,8 @@ The key is `attune.io/oom-bump.<container>`. The container name must fit so the 
 | `OOMBumpClamped` | The step was above `maxAllowed`, so the request was clamped to `maxAllowed`. |
 | `IncreaseExceedsBudget` | One container's increase is larger than `maxMemoryIncreasePerMinute` or `maxTotalMemoryIncrease`. Waiting does not help. The bump annotation is not written. Raise the cap or lower the step. |
 
+**Info alert**: `AttuneOOMBumpCapped` does not mean the bump failed to apply. It means the result was `capped` or `clamped`. One such sample in the last hour is enough. The alert is info and waits 5m unless `oomBumpCapped.for` is set. The PrometheusRule object stays off until `metrics.prometheusRule.enabled` is true. The alert does not turn `memory.oomBump` on.
+
 A Guaranteed pod with `controlledValues: RequestsOnly` is skipped (`ResizeSkipped`, metric `result="skipped"`) instead of evicted. Attune does not evict to change QoS.
 
 **Limit left below the request, or a request-only limit changed**: During hold, a throttle, NotReady, or SLO revert keeps the memory request at the floor. The limit moves up to that floor only when the container's effective `controlledValues` is `RequestsAndLimits`. A container set to `RequestsOnly` keeps its limit, even when policy memory is `RequestsAndLimits`. A `RequestsAndLimits` container is raised when policy memory is `RequestsOnly`. A missing or zero limit is not created. `oomBump` is not a per-container field.

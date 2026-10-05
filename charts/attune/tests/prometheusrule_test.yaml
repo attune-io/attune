@@ -130,6 +130,60 @@ tests:
           path: spec.groups[0].rules[12].alert
           value: AttuneMemoryLimitUnsafe
 
+  - it: should include AttuneOOMBumpCapped by default
+    set:
+      metrics:
+        enabled: true
+        prometheusRule:
+          enabled: true
+    asserts:
+      - equal:
+          path: spec.groups[0].rules[14].alert
+          value: AttuneOOMBumpCapped
+      - equal:
+          path: spec.groups[0].rules[14].for
+          value: 5m
+      - equal:
+          path: spec.groups[0].rules[14].labels.severity
+          value: info
+      - matchRegex:
+          path: spec.groups[0].rules[14].expr
+          pattern: "increase\\(attune_oom_bump_total\\{result=~\"capped\\|clamped\"\\}\\[1h\\]\\)"
+
+  - it: should keep a custom oom bump pending window
+    set:
+      metrics:
+        enabled: true
+        prometheusRule:
+          enabled: true
+          rules:
+            oomBumpCapped:
+              for: 30m
+    asserts:
+      - equal:
+          path: spec.groups[0].rules[14].alert
+          value: AttuneOOMBumpCapped
+      - equal:
+          path: spec.groups[0].rules[14].for
+          value: 30m
+
+  - it: should omit oom bump capped alert when disabled
+    set:
+      metrics:
+        enabled: true
+        prometheusRule:
+          enabled: true
+          rules:
+            oomBumpCapped:
+              enabled: false
+    asserts:
+      - lengthEqual:
+          path: spec.groups[0].rules
+          count: 14
+      - equal:
+          path: spec.groups[0].rules[13].alert
+          value: AttuneMemoryLimitUnsafe
+
   - it: should omit memory limit unsafe alert when disabled
     set:
       metrics:

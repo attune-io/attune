@@ -546,7 +546,7 @@ This creates 15 alerts covering the key operational signals:
 | `AttuneRevertFailures` | Resize revert failed for 5m | critical |
 | `AttuneGitOpsPRFailures` | GitOps pull request automation failed for 5m | warning |
 | `AttuneMemoryLimitUnsafe` | Memory limit decrease floored or skipped as unsafe for 1h | info |
-| `AttuneOOMBumpCapped` | OOM bump capped at maxBumps or clamped to maxAllowed for 1h | info |
+| `AttuneOOMBumpCapped` | One or more OOM bumps capped at maxBumps or clamped to maxAllowed in the last hour, pending 5m | info |
 
 Individual alerts can be disabled or tuned:
 

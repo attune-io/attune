@@ -215,7 +215,7 @@ spec:
         {{- end }}
         {{- if .Values.metrics.prometheusRule.rules.oomBumpCapped.enabled }}
         - alert: AttuneOOMBumpCapped
-          expr: sum by (namespace, policy) (rate(attune_oom_bump_total{result=~"capped|clamped"}[1h])) > 0
+          expr: sum by (namespace, policy) (increase(attune_oom_bump_total{result=~"capped|clamped"}[1h])) > 0
           for: {{ .Values.metrics.prometheusRule.rules.oomBumpCapped.for }}
           labels:
             severity: {{ .Values.metrics.prometheusRule.rules.oomBumpCapped.severity }}

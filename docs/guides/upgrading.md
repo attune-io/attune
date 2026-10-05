@@ -10,6 +10,36 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### One capped OOM bump can raise AttuneOOMBumpCapped
+
+Chart installs that set `metrics.prometheusRule.enabled` and left
+`oomBumpCapped` at the defaults used to miss a single capped or clamped
+bump. The expression was a one-hour `rate()`, and the alert also waited
+`1h`, so that one sample usually aged out before the alert fired.
+
+The chart expression is now:
+
+```promql
+sum by (namespace, policy) (increase(attune_oom_bump_total{result=~"capped|clamped"}[1h])) > 0
+```
+
+The previous expression was:
+
+```promql
+sum by (namespace, policy) (rate(attune_oom_bump_total{result=~"capped|clamped"}[1h])) > 0
+```
+
+The default pending window is 5m. Severity stays info. A value set on
+`oomBumpCapped.for` is kept. `metrics.prometheusRule.enabled` stays
+false, so an install that does not turn the object on still has no
+PrometheusRule. The alert does not turn `memory.oomBump` on. Resizes
+do not change.
+
+A PrometheusRule copied outside this chart is not rewritten. Replace
+that copy with the `increase` expression above.
+
+`AttuneMemoryLimitUnsafe` is unchanged.
+
 ### Defaults min above a policy max is rejected
 
 A policy that omits `minAllowed` and sets `maxAllowed` used to be
