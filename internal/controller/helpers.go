@@ -196,6 +196,33 @@ func failedReadyAlreadySet(policy *attunev1alpha1.AttunePolicy, reason, message 
 		cond.ObservedGeneration == policy.Generation
 }
 
+// writeStatusKeepingSpec writes status from a copy. The reply carries the
+// stored spec, so only resourceVersion and status are copied back.
+// Inherited defaults stay on the in-memory policy for the rest of this pass.
+func (r *AttunePolicyReconciler) writeStatusKeepingSpec(ctx context.Context, policy *attunev1alpha1.AttunePolicy) error {
+	toWrite := policy.DeepCopy()
+	if err := r.Status().Update(ctx, toWrite); err != nil {
+		return err
+	}
+	policy.ResourceVersion = toWrite.ResourceVersion
+	policy.Status = toWrite.Status
+	return nil
+}
+
+// takeStoredMetaAfterConflict re-reads the policy after a status conflict.
+// ResourceVersion, status, and annotations come from storage. Spec stays
+// merged. A concurrent resize stamp is the usual reason for the conflict.
+func (r *AttunePolicyReconciler) takeStoredMetaAfterConflict(ctx context.Context, key types.NamespacedName, policy *attunev1alpha1.AttunePolicy) error {
+	var fresh attunev1alpha1.AttunePolicy
+	if err := r.Get(ctx, key, &fresh); err != nil {
+		return err
+	}
+	policy.ResourceVersion = fresh.ResourceVersion
+	policy.Status = fresh.Status
+	policy.Annotations = fresh.Annotations
+	return nil
+}
+
 // setFailedCondition sets a Ready=False condition on the policy and updates
 // the status subresource. A matching Ready=False is left unwritten so a
 // second reconcile does not bump LastReconcileTime. Errors from the status
@@ -216,7 +243,7 @@ func (r *AttunePolicyReconciler) setFailedCondition(ctx context.Context, policy 
 			Message:            message,
 			ObservedGeneration: policy.Generation,
 		})
-		err := r.Status().Update(ctx, policy)
+		err := r.writeStatusKeepingSpec(ctx, policy)
 		if err == nil {
 			return
 		}
@@ -225,7 +252,7 @@ func (r *AttunePolicyReconciler) setFailedCondition(ctx context.Context, policy 
 			return
 		}
 		logger.Info("setFailedCondition conflict, retrying", "attempt", attempt+1)
-		if fetchErr := r.Get(ctx, key, policy); fetchErr != nil {
+		if fetchErr := r.takeStoredMetaAfterConflict(ctx, key, policy); fetchErr != nil {
 			logger.Error(fetchErr, "Failed to re-fetch policy for status retry")
 			return
 		}
@@ -1332,7 +1359,7 @@ func (r *AttunePolicyReconciler) updateStatusWithRetry(
 	original := policy.Status.DeepCopy()
 
 	for attempt := range maxRetries {
-		err := r.Status().Update(ctx, policy)
+		err := r.writeStatusKeepingSpec(ctx, policy)
 		if err == nil {
 			return nil
 		}
@@ -1341,7 +1368,7 @@ func (r *AttunePolicyReconciler) updateStatusWithRetry(
 		}
 
 		logger.Info("Status update conflict, retrying", "attempt", attempt+1, "maxRetries", maxRetries)
-		if fetchErr := r.Get(ctx, key, policy); fetchErr != nil {
+		if fetchErr := r.takeStoredMetaAfterConflict(ctx, key, policy); fetchErr != nil {
 			return fetchErr
 		}
 		fetchedHistory := append([]attunev1alpha1.ResizeHistoryEntry{}, policy.Status.ResizeHistory...)
@@ -1360,7 +1387,7 @@ func (r *AttunePolicyReconciler) updateStatusWithRetry(
 		// the first write still describes the pre-merge count.
 		r.setResizingCondition(policy, cooldownActive)
 	}
-	return r.Status().Update(ctx, policy)
+	return r.writeStatusKeepingSpec(ctx, policy)
 }
 
 // newSafetyMonitor creates a safety.Monitor with optional throttle checking
@@ -1418,6 +1445,9 @@ func floorObservationMinute(d time.Duration) time.Duration {
 // precedence: safetyObservationPeriod > canary.observationPeriod > default (5m).
 // A zero duration is unset. A positive sub-minute duration is raised to 1m.
 func getObservationPeriod(policy *attunev1alpha1.AttunePolicy) time.Duration {
+	if policy == nil || policy.Spec.UpdateStrategy == nil {
+		return defaultObservationPeriod
+	}
 	if policy.Spec.UpdateStrategy.SafetyObservationPeriod != nil && policy.Spec.UpdateStrategy.SafetyObservationPeriod.Duration > 0 {
 		return floorObservationMinute(policy.Spec.UpdateStrategy.SafetyObservationPeriod.Duration)
 	}
