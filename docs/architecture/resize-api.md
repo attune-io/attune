@@ -118,7 +118,8 @@ observation and revert tracking:
 
 | Annotation | Description |
 |---|---|
-| `attune.io/resized-at` | RFC 3339 timestamp of the resize |
+| `attune.io/resized-at` | RFC 3339 timestamp when this observation window started. It moves forward when a deferred or still-fresh in-progress resize finishes after the original window would have closed. An in-progress condition that has been true for an hour clears tracking instead of moving this timestamp. |
+| `attune.io/resize-apply-pending` | `true` when the observation period elapsed before the kubelet finished applying the resize. Removed when the period restarts, when that in-progress condition has been true for an hour, or when tracking is cleared. |
 | `attune.io/resized-containers` | Comma-separated list of resized container names |
 | `attune.io/resized-workload` | Name of the parent workload |
 | `attune.io/original-cpu-request.<container>` | CPU request before the resize (per container) |
@@ -130,7 +131,9 @@ observation and revert tracking:
 | `attune.io/startup-boost-at` | RFC 3339 timestamp when a startup CPU boost was applied |
 
 These annotations are removed once the safety observation period completes
-(regardless of whether the resize is kept or reverted). When a policy is
+(regardless of whether the resize is kept or reverted). Completion waits
+while the kubelet still reports the resize in progress or deferred. See
+[Observation period](safety.md#observation-period). When a policy is
 deleted, the `attune.io/cleanup` finalizer removes all tracking
 annotations from managed pods before allowing garbage collection. Pods
 keep their current (resized) resource values; only annotations are cleaned.

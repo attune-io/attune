@@ -10,6 +10,20 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### Safety observation waits until the resize is applied
+
+The safety observation period now waits while the kubelet still reports
+the resize as in progress or deferred. If that period would already have
+elapsed, Attune keeps the tracking annotations and writes
+`attune.io/resize-apply-pending` once. When the kubelet finishes, the
+observation period starts again from that time. A resize that applies
+during the original period is unchanged and does not gain a second
+window. An infeasible resize does not wait. An in-progress condition
+that has already been true for an hour is treated as stale, same as
+resize eligibility. That does not start a new observation window, even
+if `attune.io/resize-apply-pending` was already set. No policy edit and
+no CRD change are needed.
+
 ### Schedule window with the same start and end
 
 A schedule window whose start and end are the same minute never opened.

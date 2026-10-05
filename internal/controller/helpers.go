@@ -99,6 +99,7 @@ func removeTrackingAnnotations(pod *corev1.Pod) {
 	delete(pod.Annotations, annotationResizedAt)
 	delete(pod.Annotations, annotationResizedContainers)
 	delete(pod.Annotations, annotationResizedWorkload)
+	delete(pod.Annotations, annotationResizeApplyPending)
 	delete(pod.Annotations, annotationPolicy)
 	delete(pod.Labels, labelTracked)
 }
@@ -119,10 +120,11 @@ func (r *AttunePolicyReconciler) patchRemoveTrackingAnnotations(ctx context.Cont
 
 func trackingCleanupMergePatch(pod *corev1.Pod) ([]byte, error) {
 	anns := map[string]any{
-		annotationResizedAt:         nil,
-		annotationResizedContainers: nil,
-		annotationResizedWorkload:   nil,
-		annotationPolicy:            nil,
+		annotationResizedAt:          nil,
+		annotationResizedContainers:  nil,
+		annotationResizedWorkload:    nil,
+		annotationResizeApplyPending: nil,
+		annotationPolicy:             nil,
 	}
 	if names, ok := pod.Annotations[annotationResizedContainers]; ok {
 		for _, name := range strings.Split(names, ",") {
@@ -144,6 +146,24 @@ func trackingCleanupMergePatch(pod *corev1.Pod) ([]byte, error) {
 		},
 	}
 	return json.Marshal(payload)
+}
+
+// patchMergeAnnotations writes annotation keys with a merge patch.
+// A nil value deletes the key. No resourceVersion is required.
+func (r *AttunePolicyReconciler) patchMergeAnnotations(ctx context.Context, pod *corev1.Pod, anns map[string]any) error {
+	if r.Client == nil {
+		return fmt.Errorf("patching annotations on %s/%s: no client", pod.Namespace, pod.Name)
+	}
+	payload := map[string]any{
+		"metadata": map[string]any{
+			"annotations": anns,
+		},
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	return r.Patch(ctx, pod, client.RawPatch(types.MergePatchType, raw))
 }
 
 // appendResizedContainer adds a container name to the comma-separated

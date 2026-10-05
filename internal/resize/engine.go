@@ -240,6 +240,52 @@ func findContainer(pod *corev1.Pod, name string) (idx int, isInit bool) {
 	return -1, false
 }
 
+// ResizeApplyOutstanding reports that an accepted resize is still not
+// applied. Infeasible is not outstanding: those pods stay eligible so
+// InPlaceOrRecreate can evict, and holding them would never clear.
+// PodResizeInProgress older than resizeInProgressTimeout is stale and
+// allows a retry (#697). On Kubernetes 1.33+ the conditions are the
+// signal. On 1.32 the deprecated Status.Resize field is the only one.
+// A nil pod is not outstanding.
+func ResizeApplyOutstanding(pod *corev1.Pod) bool {
+	if pod == nil {
+		return false
+	}
+	for _, cond := range pod.Status.Conditions {
+		if cond.Status != corev1.ConditionTrue {
+			continue
+		}
+		switch string(cond.Type) {
+		case condPodResizeInProgress:
+			if !resizeInProgressTimedOut(cond) {
+				return true
+			}
+		case condPodResizePending:
+			if cond.Reason != reasonInfeasible {
+				return true
+			}
+		}
+	}
+	return pod.Status.Resize == corev1.PodResizeStatusInProgress ||
+		pod.Status.Resize == corev1.PodResizeStatusDeferred
+}
+
+// InProgressStale reports a PodResizeInProgress condition that has been
+// true long enough for eligibility to allow a retry. Safety observation
+// must not start a new window for that stuck condition.
+func InProgressStale(pod *corev1.Pod) bool {
+	if pod == nil {
+		return false
+	}
+	for _, cond := range pod.Status.Conditions {
+		if string(cond.Type) != condPodResizeInProgress || cond.Status != corev1.ConditionTrue {
+			continue
+		}
+		return resizeInProgressTimedOut(cond)
+	}
+	return false
+}
+
 // IsEligibleForResize returns true if the pod can be considered for a resize
 // cycle. A pod is eligible if it is Running, not marked for deletion, and does
 // not have an in-progress or deferred resize. Pods marked Infeasible ARE
@@ -252,31 +298,7 @@ func IsEligibleForResize(pod *corev1.Pod) bool {
 	if pod.DeletionTimestamp != nil {
 		return false
 	}
-	// Check pod conditions for active resize (1.33+, preferred).
-	for _, cond := range pod.Status.Conditions {
-		if cond.Status != corev1.ConditionTrue {
-			continue
-		}
-		condType := string(cond.Type)
-		if condType == condPodResizeInProgress {
-			// Stuck InProgress with no timeout is a hang (#697). After
-			// an hour, treat the condition as stale and allow a retry.
-			if !resizeInProgressTimedOut(cond) {
-				return false
-			}
-			continue
-		}
-		if condType == condPodResizePending && cond.Reason != reasonInfeasible {
-			return false
-		}
-	}
-	// Fallback: check deprecated Status.Resize field (K8s 1.32 alpha).
-	// On 1.33+ this field is empty; on 1.32 it is the only resize status signal.
-	if pod.Status.Resize == corev1.PodResizeStatusInProgress ||
-		pod.Status.Resize == corev1.PodResizeStatusDeferred {
-		return false
-	}
-	return true
+	return !ResizeApplyOutstanding(pod)
 }
 
 const resizeInProgressTimeout = time.Hour

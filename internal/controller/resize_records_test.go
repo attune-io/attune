@@ -309,6 +309,7 @@ func TestRemoveTrackingAnnotations(t *testing.T) {
 				"attune.io/original-cpu-limit.sidecar":      "200m",
 				"attune.io/original-memory-limit.sidecar":   "128Mi",
 				"attune.io/original-restart-count.sidecar":  "2",
+				"attune.io/resize-apply-pending":            "true",
 				"unrelated-annotation":                      "keep",
 			},
 		},

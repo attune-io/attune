@@ -469,6 +469,27 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 			observationsPending = true
 			continue
 		}
+		// A resize the kubelet has not applied yet must not be declared
+		// safe. A successful revert this pass still clears tracking.
+		if len(restoredThisPass) == 0 && resize.ResizeApplyOutstanding(pod) {
+			if err := r.markResizeApplyPending(ctx, pod); err != nil {
+				logger.Error(err, "Failed to mark safety observation waiting for resize apply", "pod", pod.Name)
+				operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation").Inc()
+			}
+			observationsPending = true
+			continue
+		}
+		if len(restoredThisPass) == 0 &&
+			pod.Annotations[annotationResizeApplyPending] == "true" &&
+			!resize.IsResizeInfeasible(pod) &&
+			!resize.InProgressStale(pod) {
+			if err := r.restartSafetyObservationAfterApply(ctx, pod); err != nil {
+				logger.Error(err, "Failed to restart safety observation after resize apply", "pod", pod.Name)
+				operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation").Inc()
+			}
+			observationsPending = true
+			continue
+		}
 		// Merge-patch nulls tracking keys. No Get and no resourceVersion,
 		// so kubelet status churn cannot 409 the cleanup.
 		if err := r.patchRemoveTrackingAnnotations(ctx, pod); err != nil {
@@ -479,6 +500,32 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 	}
 	r.setSafetyObservationCondition(policy, safetySummary)
 	return observationsPending
+}
+
+// markResizeApplyPending records that the observation period elapsed while
+// the kubelet still had the resize in progress or deferred. The marker is
+// written once so later reconciles do not patch the pod again.
+func (r *AttunePolicyReconciler) markResizeApplyPending(ctx context.Context, pod *corev1.Pod) error {
+	if pod.Annotations[annotationResizeApplyPending] == "true" {
+		log.FromContext(ctx).V(1).Info("Safety observation still waiting for the kubelet to finish the resize", "pod", pod.Name)
+		return nil
+	}
+	log.FromContext(ctx).Info("Safety observation elapsed while the kubelet has not applied the resize", "pod", pod.Name)
+	return r.patchMergeAnnotations(ctx, pod, map[string]any{
+		annotationResizeApplyPending: "true",
+	})
+}
+
+// restartSafetyObservationAfterApply clears the apply marker and moves
+// resized-at to now. The next reconcile observes the applied size for a
+// full period. Other tracking annotations stay.
+func (r *AttunePolicyReconciler) restartSafetyObservationAfterApply(ctx context.Context, pod *corev1.Pod) error {
+	stamp := r.now().UTC().Format(time.RFC3339)
+	log.FromContext(ctx).Info("Kubelet finished applying the resize; safety observation starts now", "pod", pod.Name)
+	return r.patchMergeAnnotations(ctx, pod, map[string]any{
+		annotationResizeApplyPending: nil,
+		annotationResizedAt:          stamp,
+	})
 }
 
 // revertAndRestoreAfterSafety reverts the live pod, records the revert

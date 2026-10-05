@@ -868,6 +868,16 @@ When `autoRevert: true` (default), the Safety Monitor watches resized pods for:
 4. **Pod Not Ready**: Pod becomes NotReady within observation period
 5. **SLO Guardrail Breach**: Application-level PromQL query breached its threshold after `evaluationWindow` elapsed (fails open on query errors)
 
+The observation period starts when the resize is submitted. It does not
+finish while the kubelet still has the resize in progress or deferred
+(`PodResizePending` with a reason other than `Infeasible`). If the period
+elapses first, tracking stays, `attune.io/resize-apply-pending` is set
+once, and the period starts again when the kubelet finishes. An infeasible
+resize does not extend the period. An in-progress condition that has been
+true for an hour does not extend the period and does not start a new one.
+A resize that finishes during the original period does not gain a second
+window.
+
 On trigger:
 1. Restore original resources via `/resize` subresource
 2. Emit Kubernetes event on the Pod

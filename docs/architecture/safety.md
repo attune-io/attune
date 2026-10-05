@@ -142,6 +142,17 @@ via `updateStrategy.safetyObservationPeriod` (default: 5m, minimum: 1m).
 The `safetyObservationPeriod` field applies to all modes (Auto, OneShot, Canary)
 while `canary.observationPeriod` is canary-specific.
 
+The period does not finish while the kubelet reports `PodResizeInProgress`,
+or `PodResizePending` with a reason other than `Infeasible`. If the period
+would already have elapsed, Attune sets `attune.io/resize-apply-pending`
+once and keeps the other tracking annotations. When that condition clears,
+`attune.io/resized-at` moves to that time and the period starts over. A
+resize that finishes during the original period does not start a second
+one. `Infeasible` does not extend the period. An in-progress condition
+that has been true for an hour is stale, same as resize eligibility.
+It does not hold the period, and it does not start a new one when
+`attune.io/resize-apply-pending` is already set.
+
 ### Early critical detection
 
 During the observation period (before it elapses), the operator checks for

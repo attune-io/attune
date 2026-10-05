@@ -1056,8 +1056,15 @@ kubectl attune history -n <ns>
 
 | Signal | Meaning | Operator behavior |
 |--------|---------|-------------------|
-| **Deferred** | Kubelet accepted the request but cannot apply it yet (often free request capacity on the node). Pod condition `PodResizePending` reason `Deferred`. | Pod is **not eligible** for a new resize until the condition clears. **Retry**: every reconcile after eligibility returns (no extra config). |
-| **Infeasible** | Kubelet cannot complete the resize in-place on this node. | With default `resizeMethod: InPlaceOnly`, skip + history `Failed`/`infeasible` + event `InfeasibleBlocked`. With `InPlaceOrRecreate`, attempt eviction fallback (PDB / last live Running replica). |
+| **Deferred** | Kubelet accepted the request but cannot apply it yet (often free request capacity on the node). Pod condition `PodResizePending` reason `Deferred`. | Pod is **not eligible** for a new resize until the condition clears. **Retry**: every reconcile after eligibility returns (no extra config). Safety observation does not finish while the resize is Deferred or `PodResizeInProgress`. |
+| **Infeasible** | Kubelet cannot complete the resize in-place on this node. | With default `resizeMethod: InPlaceOnly`, skip + history `Failed`/`infeasible` + event `InfeasibleBlocked`. With `InPlaceOrRecreate`, attempt eviction fallback (PDB / last live Running replica). Infeasible does not hold the safety observation clock. |
+
+`attune.io/resize-apply-pending=true` means the original observation
+period already elapsed while the resize was still Deferred or in
+progress. Tracking stays. When the kubelet clears that condition, the
+observation period starts again. An in-progress condition that has been
+true for an hour does not start it again. A resize that finishes during
+the original period does not write this annotation.
 
 **Metrics** (see [metrics reference](../reference/metrics.md)):
 

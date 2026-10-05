@@ -72,6 +72,9 @@ const (
 	annotationResizedAt         = "attune.io/resized-at"
 	annotationResizedContainers = "attune.io/resized-containers"
 	annotationResizedWorkload   = "attune.io/resized-workload"
+	// annotationResizeApplyPending is set once when the observation period
+	// elapsed before the kubelet finished applying the resize.
+	annotationResizeApplyPending = "attune.io/resize-apply-pending"
 
 	// Label for filtering resized pods in safety observation queries.
 	labelTracked = "attune.io/tracked"
