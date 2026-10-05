@@ -406,7 +406,7 @@ chunk.
 
 ### Client-side rate limiting is disabled by default
 
-The operator uses controller-runtime v0.24.x, which sets the Kubernetes
+The operator uses controller-runtime v0.25.x, which sets the Kubernetes
 client's QPS to `-1` (disabled). This means there is **no client-side
 rate limiting**. All API server throttling is handled by Kubernetes
 [API Priority and Fairness](https://kubernetes.io/docs/concepts/cluster-administration/flow-control/)

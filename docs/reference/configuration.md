@@ -668,7 +668,7 @@ Per-resource fields in `cpu` and `memory` that limit how much a recommendation c
 | `maxIncreasePercent` | int32 | inherits `maxChangePercent` | Maximum percentage increase allowed per resize cycle. If unset, falls back to `maxChangePercent` (CPU: 50, memory: 30). |
 | `maxDecreasePercent` | int32 | inherits `maxChangePercent` | Maximum percentage decrease allowed per resize cycle. If unset, falls back to `maxChangePercent` (CPU: 50, memory: 30). |
 | `maxChangePercent` | int32 | CPU: `50`, memory: `30` | Symmetric change cap. Used as fallback for `maxIncreasePercent` and `maxDecreasePercent` when they are unset. |
-| `decreaseUsageMarginPercent` | int32 | memory: `10` (CPU: ignored) | Minimum headroom above recent memory usage when decreasing memory **limits**. Target limit must be at least `usage * (1 + margin/100)`, where usage is the recommendation raw percentile. Prevents client-side OOM races on Kubernetes 1.35+. Set `0` to require limit strictly above usage. |
+| `decreaseUsageMarginPercent` | int32 | memory: `10` (CPU: ignored) | Minimum headroom above recent memory usage when decreasing memory **limits**. Target limit must be at least `usage * (1 + margin/100)`, where usage is the recommendation raw percentile. Prevents client-side OOM races on Kubernetes 1.34+. Set `0` to require limit strictly above usage. |
 
 ### Controlled Values
 
@@ -688,7 +688,7 @@ utilization target using the multiplied CPU limit. A limit above
 |-------|------|---------|-------------|
 | `cpu.allowDecrease` | bool | `true` | Whether CPU requests can be decreased. When `true`, the safety monitor checks for throttling after each decrease. |
 | `memory.allowDecrease` | bool | `false` | Whether memory requests can be decreased. Defaults to `false` to prevent OOMKill from sudden memory reductions. |
-| `memory.decreaseUsageMarginPercent` | int32 | `10` | See `decreaseUsageMarginPercent` above. Only meaningful when memory limit decreases are allowed (Kubernetes 1.35+ and `controlledValues: RequestsAndLimits`). |
+| `memory.decreaseUsageMarginPercent` | int32 | `10` | See `decreaseUsageMarginPercent` above. Only meaningful when memory limit decreases are allowed (Kubernetes 1.34+ and `controlledValues: RequestsAndLimits`). |
 
 ### Startup Boost
 

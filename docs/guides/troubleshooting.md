@@ -1410,7 +1410,7 @@ scales out.
 ### OOM after memory limit decrease
 
 **Symptom**: After enabling memory decreases (`memory.allowDecrease: true`
-and `controlledValues: RequestsAndLimits`) on Kubernetes 1.35+, pods OOMKill
+and `controlledValues: RequestsAndLimits`) on Kubernetes 1.34+, pods OOMKill
 when limits shrink, Events show `MemoryLimitUsageFloor`, metrics show
 `attune_memory_limit_decrease_total{result="clamped_usage"}` or
 `skipped_unsafe`, or the opt-in `AttuneMemoryLimitUnsafe` alert fires.
@@ -1427,8 +1427,8 @@ margin or overhead is too low, or usage is spikier than the percentile window.
    steady usage.
 3. Keep `memory.maxDecreasePercent` modest so large drops step down over
    multiple cycles.
-4. Confirm cluster version is 1.35+; on 1.33–1.34, limit decreases are
-   platform-clamped (`result="clamped_platform"`).
+4. Confirm cluster version is 1.34 or newer; on 1.33 and earlier, limit
+   decreases are platform-clamped (`result="clamped_platform"`).
 
 ```promql
 # Floored or blocked memory limit decreases

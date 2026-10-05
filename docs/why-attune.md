@@ -437,7 +437,7 @@ capabilities that Attune intentionally does not cover:
   [GitOps integration](guides/gitops-integration.md)).
 - **Safety-first**: OOMKill detection, CPU throttle monitoring, restart
   spike detection, automatic revert with exponential backoff, and a
-  **memory usage floor** when decreasing limits on Kubernetes 1.35+
+  **memory usage floor** when decreasing limits on Kubernetes 1.34+
   ([resize API](architecture/resize-api.md)).
 - **Fleet and multi-cluster**: Federated Prometheus dashboards and an
   optional per-cluster fleet report ConfigMap for rollups

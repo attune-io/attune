@@ -61,7 +61,7 @@ type PodResizer struct {
 	client kubernetes.Interface
 	logger logr.Logger
 	// AllowInPlaceMemoryLimitDecrease skips clamping memory limit decreases
-	// when the cluster permits live decreases (Kubernetes 1.35+).
+	// when the cluster permits live decreases (Kubernetes 1.34+).
 	AllowInPlaceMemoryLimitDecrease bool
 	// InPlacePodLevelResources is true when /resize may write spec.resources
 	// in the same UpdateResize as container resources.
@@ -108,7 +108,7 @@ func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container s
 		// Clamp the target memory limit when the container's resize policy
 		// for memory is NotRequired (or absent, which defaults to NotRequired).
 		// K8s v1.33 forbids in-place memory limit decreases with NotRequired;
-		// v1.35+ allows them (best-effort kubelet check).
+		// v1.34+ allows them (best-effort kubelet check).
 		adjustedTarget := ClampMemoryLimitForPolicy(fresh, container, target, r.AllowInPlaceMemoryLimitDecrease)
 		if isInit {
 			current = fresh.Spec.InitContainers[idx].Resources
@@ -352,8 +352,8 @@ func (r *PodResizer) EvictPod(ctx context.Context, pod *corev1.Pod) error {
 // defaults to NotRequired) and the cluster still rejects those decreases.
 //
 // Kubernetes v1.33 rejects in-place memory limit decreases unless the resize
-// policy is RestartContainer. Kubernetes v1.35+ allows live decreases with a
-// best-effort usage check. Pass allowInPlaceMemoryLimitDecrease=true on 1.35+
+// policy is RestartContainer. Kubernetes v1.34+ allows live decreases with a
+// best-effort usage check. Pass allowInPlaceMemoryLimitDecrease=true on 1.34+
 // clusters so Attune does not over-clamp.
 func ClampMemoryLimitForPolicy(pod *corev1.Pod, container string, target corev1.ResourceRequirements, allowInPlaceMemoryLimitDecrease bool) corev1.ResourceRequirements {
 	if allowInPlaceMemoryLimitDecrease {
@@ -397,8 +397,8 @@ func ClampMemoryLimitForPolicy(pod *corev1.Pod, container string, target corev1.
 	return target
 }
 
-// AllowsInPlaceMemoryLimitDecrease reports whether GitVersion (e.g. "v1.35.0")
-// is at least Kubernetes 1.35, where live memory limit decreases are allowed.
+// AllowsInPlaceMemoryLimitDecrease reports whether GitVersion (e.g. "v1.34.0")
+// is at least Kubernetes 1.34, where live memory limit decreases are allowed.
 // Wrapper around cluster.AllowsInPlaceMemoryLimitDecrease so existing
 // call sites compile until they move to cluster.Capabilities.
 func AllowsInPlaceMemoryLimitDecrease(gitVersion string) bool {

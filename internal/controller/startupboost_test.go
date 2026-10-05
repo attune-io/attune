@@ -2575,7 +2575,7 @@ func TestApplyStartupBoosts_KeepsMultipliedMemoryLimit(t *testing.T) {
 			r.Clientset = clientset
 			r.SetNowFunc(func() time.Time { return now })
 			resizer := resize.NewPodResizer(clientset, ctrl.Log)
-			// 1.35+ allows a memory limit decrease, so a stale lower limit
+			// 1.34+ allows a memory limit decrease, so a stale lower limit
 			// on the boost target would replace the limit just applied.
 			resizer.AllowInPlaceMemoryLimitDecrease = true
 			recs := []attunev1alpha1.WorkloadRecommendation{{

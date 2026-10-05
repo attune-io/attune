@@ -30,7 +30,7 @@ Attune requires Kubernetes 1.32+ because in-place pod resize (`pods/resize`, KEP
 
 | Location | What it does |
 |----------|----------------|
-| `resize.AllowsInPlaceMemoryLimitDecrease` + `parseK8sMajorMinor` in `internal/resize/engine.go` | GitVersion >= 1.35 means skip the 1.33 memory-limit clamp |
+| `resize.AllowsInPlaceMemoryLimitDecrease` + `parseK8sMajorMinor` in `internal/resize/engine.go` | GitVersion >= 1.34 means skip the 1.33 memory-limit clamp |
 | `cmd/manager/main.go` | `Discovery().ServerVersion()` at startup; writes `reconciler.AllowInPlaceMemoryLimitDecrease` |
 | `AttunePolicyReconciler.AllowInPlaceMemoryLimitDecrease` | Copied onto `PodResizer` and `ResolveAppliedTarget` |
 | `safety/monitor.go` | Reverts always pass `AllowInPlaceMemoryDecrease: false` (safer 1.33 clamp) |
@@ -57,8 +57,8 @@ VPA 1.6 has InPlaceOrRecreate GA. VPA 1.7 has in-place-only and CPU startup boos
 - Keep every Kubernetes minor we can test, including 1.32, through the newest GA image. Do not drop EOL minors for "cleanliness."
 - One `cluster.Capabilities` value discovered at process start (manager and doctor), reused everywhere. Prefer API probes; use GitVersion only when behavior is version-locked and not discoverable.
 - Version-best apply:
-  - 1.32–1.34: keep the memory-limit clamp.
-  - 1.35+: allow live memory limit decrease (already shipped).
+  - 1.32–1.33: keep the memory-limit clamp.
+  - 1.34+: allow live memory limit decrease.
   - When `InPlacePodLevelResources` is on (DeclaredFeatures, with GitVersion fallback when the list is empty): if a live pod or template has `spec.resources`, resize that envelope in-place so it stays a valid upper bound.
   - When the envelope field is present but in-place is off: never leave `sum(container requests) > envelope`. Skip the offending increase and emit `ResizeSkipped` plus history `envelope_constraint`.
 - Treat HPA `ScaledToZero=True`, manual `replicas=0`, and `replicas>=1` as three states.
@@ -89,7 +89,7 @@ VPA 1.6 has InPlaceOrRecreate GA. VPA 1.7 has in-place-only and CPU startup boos
 9. **Do not implement alpha preemption or emptyDir memory resize in product code.** `Capabilities` grows boolean hooks that stay false until the feature is Beta and we have E2E.
 10. **RequestsOnly must not silently lift a Burstable envelope limit.** If raising requests would require raising envelope limits and the pod is not Guaranteed, skip the increase (`envelope_constraint`). Always raise limits when the alternative is flipping Guaranteed to Burstable.
 11. **Idle is per-workload, not a policy condition.** A policy can match many Deployments. Surface idle on `status.idleWorkloads` plus `attune_workload_idle`. Do not set a policy-level `ScaledToZero` condition unless every scaleable target is idle (aggregated after all workers).
-12. **`Discover` errors only when `ServerVersion` is unusable.** OpenAPI and node-list failures log and use version fallbacks. `SafeDefaults()` is only for ServerVersion failure, so a flaky OpenAPI download cannot re-enable the 1.33 memory clamp on a healthy 1.35+ cluster.
+12. **`Discover` errors only when `ServerVersion` is unusable.** OpenAPI and node-list failures log and use version fallbacks. `SafeDefaults()` is only for ServerVersion failure, so a flaky OpenAPI download cannot re-enable the 1.33 memory clamp on a healthy 1.34+ cluster.
 
 ## Kubernetes landscape (verified 2026-09-14)
 
@@ -122,7 +122,9 @@ Upstream support (for context; Attune still tests 1.32+):
 
 ### Platform features that matter
 
-**1.35 (already in Attune):** in-place resize GA; live memory limit decrease with best-effort kubelet usage check (kubernetes#135670 race remains); issues #428–#434 closed.
+**1.34:** Kubernetes allows a NotRequired memory limit decrease (kubernetes/kubernetes#133012). Attune skips the platform clamp from this minor on. The usage floor still applies.
+
+**1.35 (already in Attune):** in-place resize GA; kubelet best-effort usage check on a memory limit decrease (kubernetes#135670 race remains); issues #428–#434 closed.
 
 **1.36:**
 
@@ -193,7 +195,7 @@ type Capabilities struct {
     HPAScaleToZero           bool // doctor/docs/E2E only; classifier does not read this
 
     // Version-locked (not discoverable).
-    AllowInPlaceMemoryLimitDecrease bool // GitVersion >= 1.35
+    AllowInPlaceMemoryLimitDecrease bool // GitVersion >= 1.34
 
     // Hooks. Stay false in product code until the feature is Beta + E2E.
     SchedulerResizePreemption bool
@@ -227,7 +229,7 @@ func ParseGitVersion(gitVersion string) (major, minor uint, ok bool)
 | `PodLevelResourcesField` | OpenAPI v3 document for `io.k8s.api.core.v1.PodSpec` has property `resources`. Used for CREATE/persist only. | GitVersion >= 1.34 |
 | `InPlacePodLevelResources` | See the three-way rule below. Empty `declaredFeatures` is **not** off. | Cannot list nodes, or every Ready node has nil/empty `declaredFeatures`: GitVersion >= 1.36. |
 | `HPAScaleToZero` | OpenAPI for `HorizontalPodAutoscalerConditionType` includes `ScaledToZero`, or GitVersion >= 1.37. **Doctor and E2E gating only.** `ClassifyWorkloadIdle` does not read this flag. | false |
-| `AllowInPlaceMemoryLimitDecrease` | GitVersion >= 1.35 only. API still advertises `/resize` on 1.33; the rejection is validation | false only when ServerVersion is unusable or GitVersion does not parse (today's behavior) |
+| `AllowInPlaceMemoryLimitDecrease` | GitVersion >= 1.34 only. API still advertises `/resize` on 1.33; the rejection is validation | false only when ServerVersion is unusable or GitVersion does not parse (today's behavior) |
 | Alpha hooks | always false in `Discover` | n/a |
 
 **`InPlacePodLevelResources` three-way probe** (do not collapse "name absent" into off):

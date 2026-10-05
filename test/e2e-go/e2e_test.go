@@ -2194,10 +2194,10 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 	createNamespace(t, ns)
 
 	// Phase 1: Deploy with sleep so the operator can resize first.
-	// Guaranteed QoS + NotRequired memory: an in-place memory limit decrease
-	// is clamped (v1.33), then request is raised back for Guaranteed, so a
-	// memory-only resize is a no-op. Nightly #492 failed when CPU PromQL was
-	// empty (rate[30s]) so only the memory path ran. Fix: rateWindow 5m +
+	// Guaranteed QoS + NotRequired memory: before Kubernetes 1.34 an in-place
+	// memory limit decrease is clamped, then the request is raised back for
+	// Guaranteed, so a memory-only resize is a no-op. Nightly #492 failed when
+	// CPU PromQL was empty (rate[30s]) so only the memory path ran. Fix: rateWindow 5m +
 	// hold memory at 64Mi (allowDecrease=false, minAllowed=64Mi) so the first
 	// resize is a CPU change.
 	deploy := &appsv1.Deployment{
@@ -2271,8 +2271,8 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 			Memory: attunev1alpha1.ResourceConfig{
 				Percentile: 99,
 				Overhead:   "0",
-				// Hold memory at 64Mi for the OOM phase; a recommended decrease
-				// would be canceled by ClampMemoryLimitForPolicy + Guaranteed QoS.
+				// Hold memory at 64Mi for the OOM phase. allowDecrease is false
+				// and minAllowed equals maxAllowed, so memory cannot move.
 				AllowDecrease:    boolPtr(false),
 				ControlledValues: &controlledValues,
 				MinAllowed:       quantityPtr("64Mi"),
@@ -3058,10 +3058,11 @@ func TestE2E_MultiContainer_SequentialResize(t *testing.T) {
 //
 //   - Policy: controlledValues=RequestsAndLimits, allowDecrease=true, oversized
 //     initial Guaranteed memory limit (512Mi) on a near-idle pause pod.
-//   - Kubernetes 1.35+: live memory limit decreases are allowed; Attune skips
+//   - Kubernetes 1.34+: live memory limit decreases are allowed; Attune skips
 //     the platform clamp so the limit drops with the recommendation.
-//   - Kubernetes 1.33–1.34: API rejects in-place limit decreases for NotRequired;
-//     Attune clamps the limit, so the pod memory limit stays at the initial value.
+//   - Kubernetes 1.33 and earlier: API rejects in-place limit decreases for
+//     NotRequired; Attune clamps the limit, so the pod memory limit stays
+//     at the initial value.
 //
 // Usage-floor flooring (limit raised above recent usage) stays unit-tested:
 // pause pods report near-zero cgroup usage and cannot exercise that path.
@@ -3079,7 +3080,7 @@ func TestE2E_MemoryLimitDecrease_VersionAware(t *testing.T) {
 	// Guaranteed QoS: requests == limits. Oversize memory so the recommendation
 	// (pause ≈ minAllowed 64Mi) is a clear decrease. CPU at 500m avoids the
 	// pause-container change-filter dead zone so a resize is recorded even when
-	// memory is platform-clamped on 1.33/1.34.
+	// memory is platform-clamped before 1.34.
 	const (
 		appName    = "memlim-app"
 		policyName = "memlim-policy"
@@ -3194,8 +3195,8 @@ func TestE2E_MemoryLimitDecrease_VersionAware(t *testing.T) {
 
 	waitForResize(t, policyName, ns, 4*time.Minute)
 
-	// Poll applied pod resources: CPU may move first; on 1.35 memory limit
-	// should drop; on 1.33–1.34 the platform clamp keeps the limit.
+	// Poll applied pod resources: CPU may move first; on 1.34+ memory limit
+	// should drop; before 1.34 the platform clamp keeps the limit.
 	var finalMemLim resource.Quantity
 	var lastPodName string
 	var lastMemReq resource.Quantity
@@ -3243,14 +3244,14 @@ func TestE2E_MemoryLimitDecrease_VersionAware(t *testing.T) {
 		memUnchanged := lim.Cmp(initMemQ) == 0
 
 		if allowDecrease {
-			// 1.35+: need a real limit decrease.
+			// 1.34+: need a real limit decrease.
 			if memDecreased {
 				return true, nil
 			}
 			// Keep waiting while resize is still converging.
 			return false, nil
 		}
-		// 1.33–1.34: clamp keeps limit; accept once a resize applied (CPU change
+		// Before 1.34: clamp keeps limit; accept once a resize applied (CPU change
 		// or reconcile recorded) and limit is still at the initial value.
 		if memUnchanged && cpuChanged {
 			return true, nil

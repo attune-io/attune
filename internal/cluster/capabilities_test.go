@@ -34,7 +34,8 @@ import (
 func TestAllowsInPlaceMemoryLimitDecrease(t *testing.T) {
 	t.Parallel()
 	assert.False(t, AllowsInPlaceMemoryLimitDecrease("v1.33.0"))
-	assert.False(t, AllowsInPlaceMemoryLimitDecrease("v1.34.7"))
+	assert.True(t, AllowsInPlaceMemoryLimitDecrease("v1.34.0"))
+	assert.True(t, AllowsInPlaceMemoryLimitDecrease("v1.34.7"))
 	assert.True(t, AllowsInPlaceMemoryLimitDecrease("v1.35.0"))
 	assert.True(t, AllowsInPlaceMemoryLimitDecrease("v1.35.4-k3s1"))
 	assert.True(t, AllowsInPlaceMemoryLimitDecrease("v1.36.0+abc"))
@@ -165,7 +166,7 @@ func TestDiscover_OpenAPIErrorKeepsMemoryDecrease(t *testing.T) {
 	caps, err := Discover(context.Background(), fd, cs.CoreV1().Nodes())
 	require.NoError(t, err)
 	require.NotNil(t, caps)
-	assert.True(t, caps.AllowInPlaceMemoryLimitDecrease, "OpenAPI error must not re-clamp 1.35+")
+	assert.True(t, caps.AllowInPlaceMemoryLimitDecrease, "OpenAPI error must not re-clamp 1.34+")
 	assert.Equal(t, "v1.35.8", caps.GitVersion)
 	assert.Equal(t, uint(1), caps.Major)
 	assert.Equal(t, uint(35), caps.Minor)

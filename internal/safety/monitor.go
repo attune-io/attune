@@ -462,7 +462,7 @@ func (m *Monitor) RevertPod(ctx context.Context, record ResizeRecord) error {
 		// Reverts restore previous (often lower) memory limits. On clusters
 		// that still reject live decreases, clamp so the revert can succeed.
 		// Monitor does not know cluster version; pass false to keep the
-		// safer clamp path (same as pre-1.35). Controllers on 1.35+ that
+		// safer clamp path (same as before 1.34). Controllers on 1.34+ that
 		// unclamp apply may still need clamp on revert if original is lower.
 		// Same clamp + Guaranteed raise as appliedRevertTarget / live apply.
 		// Reverts often lower memory; allowInPlace=false keeps the 1.33 clamp.

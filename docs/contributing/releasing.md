@@ -28,7 +28,7 @@ make test-local
 
 PR CI runs Chainsaw + Go E2E on **one** Kubernetes version only
 (`rancher/k3s:v1.36.4-k3s1` in `ci.yaml`). Version-sensitive behavior
-(in-place memory limit clamp on 1.33–1.34 vs decrease on 1.35+, k3s 1.32
+(in-place memory limit clamp before 1.34 vs decrease on 1.34+, k3s 1.32
 feature gate) is only exercised by **E2E Nightly**.
 
 Before merging a release PR or publishing a tag after a feature-heavy

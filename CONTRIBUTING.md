@@ -9,7 +9,7 @@ guidelines and instructions for contributing.
 
 | Tool | Version | Install |
 |------|---------|---------|
-| Go | 1.26+ | [golang.org/dl](https://golang.org/dl/) |
+| Go | 1.27.1 | [golang.org/dl](https://golang.org/dl/) |
 | Docker | 24+ | [docs.docker.com](https://docs.docker.com/engine/install/) |
 | kubectl | 1.32+ | [kubernetes.io](https://kubernetes.io/docs/tasks/tools/) |
 | Helm | 3.16+ or 4.x | [helm.sh](https://helm.sh/docs/intro/install/) |
@@ -297,7 +297,7 @@ Dependabot is configured for four ecosystems:
 1. Add a corresponding entry in `.github/dependabot.yml`
 2. Create a `go.work` file at the repo root:
    ```
-   go 1.26
+   go 1.27.1
    use (
        .
        ./tools

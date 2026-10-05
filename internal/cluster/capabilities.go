@@ -41,7 +41,7 @@ type Capabilities struct {
 	HPAScaleToZero           bool // doctor/docs/E2E only
 
 	// Version-locked (not discoverable).
-	AllowInPlaceMemoryLimitDecrease bool // GitVersion >= 1.35
+	AllowInPlaceMemoryLimitDecrease bool // GitVersion >= 1.34
 
 	// Hooks. Discover leaves these false until the feature is Beta + E2E.
 	SchedulerResizePreemption bool
@@ -56,13 +56,15 @@ func SafeDefaults() *Capabilities {
 }
 
 // AllowsInPlaceMemoryLimitDecrease reports whether GitVersion
-// (e.g. "v1.35.0") is at least Kubernetes 1.35.
+// (e.g. "v1.34.0") is at least Kubernetes 1.34.
+// Kubernetes 1.34 allows a NotRequired memory limit decrease
+// (kubernetes/kubernetes#133012). Earlier minors stay clamped.
 func AllowsInPlaceMemoryLimitDecrease(gitVersion string) bool {
 	major, minor, ok := ParseGitVersion(gitVersion)
 	if !ok {
 		return false
 	}
-	return k8sAtLeast(major, minor, 35)
+	return k8sAtLeast(major, minor, 34)
 }
 
 // ParseGitVersion extracts major and minor from a GitVersion string.

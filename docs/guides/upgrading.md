@@ -10,6 +10,15 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### Memory limit decreases on Kubernetes 1.34
+
+On Kubernetes 1.34 and newer, a policy that allows memory limit decreases
+now applies them in place. Earlier builds clamped the limit back to the
+current value on 1.34, the same as on 1.33. Kubernetes 1.34 allows that
+decrease when the resize policy is NotRequired. Clusters older than 1.34
+still clamp. The usage floor (`memory.decreaseUsageMarginPercent`, default
+10) is unchanged. No policy edit and no CRD change are needed.
+
 ### Namespace defaults check Secret get access
 
 Creating or updating AttuneNamespaceDefaults now requires the admission
