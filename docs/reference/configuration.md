@@ -317,7 +317,7 @@ that do not set them explicitly. Policy-level values always take precedence.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `type` | string | `Recommend` | `Observe`, `Recommend`, `OneShot`, `Canary`, `Auto`. OneShot applies at most one needing pod per cycle. Replicas that are already at the applied target, or that are blocked by QoS, node pressure, quota, or Infeasible plus InPlaceOnly, are skipped so another replica can still resize. |
-| `cooldown` | duration | `1h` | Minimum time between resizes of the same workload. Other apps on the same policy are not locked. When every matched app is still cooling, the next reconcile waits only until the soonest per-app window expires (a watch event does not restart a full cooldown). Zero is invalid: omit the field for the 1h default. The shortest accepted value is 1m. A policy already stored with `0s`, from before admission rejected it, is treated as 1h. |
+| `cooldown` | duration | `1h` | Minimum time between resizes of the same workload. Other apps on the same policy are not locked. When every matched app is still cooling, the next reconcile waits only until the soonest per-app window expires (a watch event does not restart a full cooldown). A new `0s` is rejected: omit the field for the 1h default. The shortest accepted value is 1m. An update that keeps a stored `0s` is accepted. Changing a positive value to `0s` is rejected. A stored `0s` is treated as 1h, also when a policy inherits it. This applies to policies and both defaults kinds. |
 | `autoRevert` | bool | `true` | Revert unsafe resizes automatically |
 | `resizeMethod` | string | `InPlaceOnly` | `InPlaceOnly` or `InPlaceOrRecreate` |
 | `maxConcurrentResizes` | int32 | `1` (built-in when unset) | Max pods to resize simultaneously. Omitted on the policy so AttuneDefaults can apply before the built-in 1. |
@@ -329,7 +329,7 @@ that do not set them explicitly. Policy-level values always take precedence.
 | `maxMemoryIncreasePerMinute` | quantity | (none) | Max aggregate memory increase per wall-clock minute (token bucket) |
 | `schedule` | object | (none) | Time windows, days of week, timezone |
 | `export` | object | (none) | Metrics export configuration |
-| `safetyObservationPeriod` | duration | `5m` | Post-resize observation window. Omit the field for 5m. Zero is invalid. The shortest accepted value is 1m. A policy already stored with `0s` is treated as unset. |
+| `safetyObservationPeriod` | duration | `5m` | Post-resize observation window. Omit the field for 5m. A new `0s` is rejected. The shortest accepted value is 1m. An update that keeps a stored `0s` is accepted. Changing a positive value to `0s` is rejected. A stored `0s` is treated as unset: the canary `observationPeriod` if set, else 5m. This applies to policies and both defaults kinds. |
 | `sloGuardrails` | list | `[]` | Application-level SLO PromQL checks after resize |
 | `canary` | object | (none) | Canary rollout (`percentage`, `observationPeriod`, `autoPromote`). Omitted or `0s` `observationPeriod` uses the built-in observation period, not a rejected value. `autoPromote` defaults to false. When true, a clean observation period resizes the remaining pods. When false, switch the policy to Auto yourself. CREATE sizing, startup boost, and HPA stay off for an app until that app is promoted. |
 | `initialSizing` | bool | `false` | Enable mutating webhook for pod creation |
@@ -761,7 +761,7 @@ Application-level PromQL checks evaluated after each resize during the safety ob
 | `updateStrategy.sloGuardrails[].query` | string | (required) | PromQL query returning a scalar. Supports `{{ .Namespace }}`, `{{ .WorkloadName }}`, `{{ .PodName }}` template variables. |
 | `updateStrategy.sloGuardrails[].threshold` | string | (required) | Value that triggers a revert |
 | `updateStrategy.sloGuardrails[].comparison` | string | `above` | `above` (revert when value > threshold) or `below` |
-| `updateStrategy.sloGuardrails[].evaluationWindow` | duration | `5m` | How long after resize to check. Omit the field for 5m. Zero is invalid. The shortest accepted value is 1m. |
+| `updateStrategy.sloGuardrails[].evaluationWindow` | duration | `5m` | How long after resize to check. Omit the field for 5m. A new `0s` is rejected. The shortest accepted value is 1m. An update that keeps a stored `0s` at the same list index is accepted. Changing a positive value to `0s` is rejected. A stored `0s` is treated as 5m. This applies to policies and both defaults kinds. |
 
 Example:
 

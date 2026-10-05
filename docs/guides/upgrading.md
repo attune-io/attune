@@ -151,13 +151,23 @@ release pull request 889 to add the list.
 ### Stored cooldown of 0s
 
 A stored `cooldown: 0s` is not a wait. The controller treats it as the 1h
-default. An update that leaves that stored `0s` unchanged is accepted,
-including the update that removes the finalizer, so the object can be
-deleted. A create that sets `0s`, or an update that changes a positive
-duration to `0s`, is still rejected. Omit the field for the 1h default,
-or set at least `1m`. The same rule applies to `safetyObservationPeriod`
-and an SLO `evaluationWindow`. Canary `observationPeriod: 0s` still means
-the built-in observation period.
+default. A policy that inherits a stored `0s` cooldown from
+`AttuneDefaults` or `AttuneNamespaceDefaults` also waits 1h.
+
+The rule applies to `AttunePolicy`, `AttuneDefaults` and
+`AttuneNamespaceDefaults`. An update that leaves a stored `0s` unchanged
+is accepted. On a policy, that includes the update that removes the
+finalizer, so the object can be deleted. On a defaults object, an
+unrelated edit is accepted, including removing a finalizer that another
+tool added. Attune adds no finalizer to defaults objects. Defaults have
+no delete-time skip, so another invalid field still blocks the edit.
+
+A create that sets `0s`, or an update that changes a positive duration
+to `0s`, is still rejected. Omit the field for the 1h default, or set at
+least `1m`. The same rule applies to `safetyObservationPeriod` and an SLO
+`evaluationWindow`. It does not apply to `historyWindow`, which must
+still be at least 1h. Canary `observationPeriod: 0s` still means the
+built-in observation period.
 
 ### Datadog null points
 

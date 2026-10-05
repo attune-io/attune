@@ -107,6 +107,10 @@ func (v *AttunePolicyValidator) validate(ctx context.Context, old, policy *attun
 	if us == nil {
 		us = &attunev1alpha1.UpdateStrategy{}
 	}
+	var oldUS *attunev1alpha1.UpdateStrategy
+	if old != nil {
+		oldUS = old.Spec.UpdateStrategy
+	}
 
 	// Validate shared ResourceConfig fields (overhead, burstSensitivity,
 	// memoryFromCpuRatio, percentile, bounds, startupBoost) for CPU and memory.
@@ -155,7 +159,7 @@ func (v *AttunePolicyValidator) validate(ctx context.Context, old, policy *attun
 	// Validate safetyObservationPeriod has a minimum floor.
 	if us.SafetyObservationPeriod != nil {
 		if err := validateDurationFloorAllowZero("updateStrategy.safetyObservationPeriod",
-			us.SafetyObservationPeriod.Duration, sameStoredZero(strategyDuration(old, true), us.SafetyObservationPeriod)); err != nil {
+			us.SafetyObservationPeriod.Duration, sameStoredZero(strategyDuration(oldUS, true), us.SafetyObservationPeriod)); err != nil {
 			return warnings, err
 		}
 	}
@@ -187,7 +191,7 @@ func (v *AttunePolicyValidator) validate(ctx context.Context, old, policy *attun
 	// Validate cooldown has a minimum floor to prevent resource exhaustion via tight reconciliation loops.
 	if us.Cooldown != nil {
 		if err := validateDurationFloorAllowZero("updateStrategy.cooldown",
-			us.Cooldown.Duration, sameStoredZero(strategyDuration(old, false), us.Cooldown)); err != nil {
+			us.Cooldown.Duration, sameStoredZero(strategyDuration(oldUS, false), us.Cooldown)); err != nil {
 			return warnings, err
 		}
 	}
@@ -710,12 +714,9 @@ func validateBurstSensitivity(resource string, value *string) error {
 	return nil
 }
 
-// validateDurationFloor rejects a zero, negative, or sub-minute duration.
+// validateDurationFloorAllowZero rejects a zero, negative, or sub-minute duration.
 // Zero is not a wait: omit the field to keep the built-in default.
-func validateDurationFloor(field string, d time.Duration) error {
-	return validateDurationFloorAllowZero(field, d, false)
-}
-
+// allowStoredZero is for an update that keeps a stored 0s.
 func validateDurationFloorAllowZero(field string, d time.Duration, allowStoredZero bool) error {
 	if d == 0 {
 		if allowStoredZero {
@@ -730,14 +731,14 @@ func sameStoredZero(old, neu *metav1.Duration) bool {
 	return old != nil && neu != nil && old.Duration == 0 && neu.Duration == 0
 }
 
-func strategyDuration(policy *attunev1alpha1.AttunePolicy, safety bool) *metav1.Duration {
-	if policy == nil || policy.Spec.UpdateStrategy == nil {
+func strategyDuration(us *attunev1alpha1.UpdateStrategy, safety bool) *metav1.Duration {
+	if us == nil {
 		return nil
 	}
 	if safety {
-		return policy.Spec.UpdateStrategy.SafetyObservationPeriod
+		return us.SafetyObservationPeriod
 	}
-	return policy.Spec.UpdateStrategy.Cooldown
+	return us.Cooldown
 }
 
 // validatePositiveDurationFloor allows zero. Canary observationPeriod is a
