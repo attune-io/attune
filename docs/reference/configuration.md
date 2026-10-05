@@ -578,7 +578,9 @@ v1 reads these fields from a container entry: `percentile`, `overhead`,
 
 Per field, a literal container name wins over `*`, and `*` wins over the
 merged policy block. That block is already merged from the policy, then
-`AttuneNamespaceDefaults`, then `AttuneDefaults`. Percentile `0`, overhead
+`AttuneNamespaceDefaults`, then `AttuneDefaults`. `kubectl attune explain`
+prints that winner as `container`, `wildcard`, `policy`, `namespace defaults`,
+`cluster defaults`, `defaults`, or `built-in`. Percentile `0`, overhead
 `""`, and nil pointers are unset. Overhead `"0"` is set and does not
 inherit `"20"`. An unset CPU `allowDecrease` still allows decreases. An
 unset memory `allowDecrease` still blocks them. An omitted

@@ -175,7 +175,15 @@ Metrics source (`prometheus` / `datadog` / `cloudwatch` / `vpa`),
 `allowDecrease`, `burstSensitivity`, `maxChangePercent`,
 `maxIncreasePercent`, `maxDecreasePercent`, `memoryFromCpuRatio`).
 Each value shows whether it came from the policy, a namespace default, a cluster
-default, or the built-in default. When Ready is `False` for
+default, or the built-in default. A `Container policies` row uses `container`,
+`wildcard`, `policy`, `defaults`, `namespace defaults`, `cluster defaults`, or
+`built-in`. `container` is the named entry. `wildcard` is the `*` entry.
+`policy` means the field was set on the policy, and `configured` shows that
+value (a percentile of 95 prints `configured: 95`). `defaults` means the field
+was copied from `AttuneDefaults` or `AttuneNamespaceDefaults`. When explain can
+tell which object set it, the label is `namespace defaults` or `cluster defaults`.
+`built-in` means the field is still unset, including a max of `none`.
+`configured: <unset>` means that object did not set the field. When Ready is `False` for
 `ConflictCheckFailed` (or `Ready=False` with `workloadErrors`), explain
 prints the Ready message instead of implying the policy is still collecting
 data. See [ConflictCheckFailed](../guides/troubleshooting.md#conflictcheckfailed).

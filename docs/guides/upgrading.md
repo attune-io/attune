@@ -10,6 +10,16 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### Explain names the container-policy source
+
+`kubectl attune explain` used to print `source: policy` and
+`configured: <unset>` for a container percentile the policy had set, and
+for a max nobody set. A percentile set on the policy now prints that
+number as the configured value. An unset max prints `source: built-in`.
+A max copied from defaults prints `defaults`, `namespace defaults`, or
+`cluster defaults`. Named entries and `*` are unchanged. Recommendations,
+admission, and resize do not read these labels.
+
 ### One capped OOM bump can raise AttuneOOMBumpCapped
 
 Chart installs that set `metrics.prometheusRule.enabled` and left
