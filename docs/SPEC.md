@@ -67,32 +67,32 @@ in-place resize. It exists to make VPA obsolete by delivering:
 <a id="technology-decisions"></a>
 ## 2. Technology Decisions
 
-### 2.1 Language: Go 1.26
+### 2.1 Language: Go 1.27.1
 
 | Factor | Decision |
 |--------|----------|
-| Language | Go 1.26.x |
-| Module directive | `go 1.26` |
+| Language | Go 1.27.1 |
+| Module directive | `go 1.27.1` |
 | Rationale | 85%+ of production K8s operators use Go. Largest ecosystem, hiring pool, and controller-runtime support. Green Tea GC (1.26) provides lower latency. |
 | What competitors use | right-sizer: Go 1.25, OptiPod: Go 1.24.6, VPA: Go |
 | What model operators use | CloudNativePG: Go 1.26.3, Kyverno: Go 1.26.2 |
 
-### 2.2 Framework: Kubebuilder v4 + controller-runtime v0.24.1
+### 2.2 Framework: Kubebuilder v4 + controller-runtime v0.25.1
 
 | Component | Version | Purpose |
 |-----------|---------|---------|
 | Kubebuilder | v4.14.0 | Project scaffolding, Makefile, CRD generation |
-| controller-runtime | v0.24.1 | Controller lifecycle, reconciliation, caching, webhooks |
-| client-go | v0.36.x | K8s API access, `/resize` subresource calls |
-| k8s.io/api | v0.36.x | K8s type definitions |
-| k8s.io/apimachinery | v0.36.x | Resource quantities, conditions, meta types |
+| controller-runtime | v0.25.1 | Controller lifecycle, reconciliation, caching, webhooks |
+| client-go | v0.37.1 | K8s API access, `/resize` subresource calls |
+| k8s.io/api | v0.37.1 | K8s type definitions |
+| k8s.io/apimachinery | v0.37.1 | Resource quantities, conditions, meta types |
 
 **Why Kubebuilder over Operator SDK**: For a new operator without OLM/OperatorHub requirements,
 Kubebuilder provides the cleanest scaffolding. Operator SDK adds OLM bundle generation on top
 of the same controller-runtime foundation. We can add Operator SDK later for OperatorHub
 distribution.
 
-**Why controller-runtime v0.24.1**: PriorityQueue (default since v0.23.0) enables prioritizing
+**Why controller-runtime v0.25.1**: PriorityQueue (default since v0.23.0) enables prioritizing
 resize reconciliations for critical pods. Subresource Apply support enables clean SSA patches
 to the `/resize` subresource. Generic Validator/Defaulter webhooks provide type-safe CRD
 validation.
@@ -101,7 +101,7 @@ validation.
 
 | Component | Module | Version |
 |-----------|--------|---------|
-| Query client | `github.com/prometheus/client_golang/api/prometheus/v1` | v1.23.2 |
+| Query client | `github.com/prometheus/client_golang/api/prometheus/v1` | v1.24.1 |
 | Result types | `github.com/prometheus/common/model` | transitive |
 
 The official Prometheus Go client for querying (not exposing metrics). Returns typed results
@@ -110,16 +110,16 @@ The official Prometheus Go client for querying (not exposing metrics). Returns t
 ### 2.4 Complete Dependency Table
 
 ```
-go 1.26
+go 1.27.1
 
 # Core
-sigs.k8s.io/controller-runtime          v0.24.1
-k8s.io/client-go                        v0.36.x
-k8s.io/api                              v0.36.x
-k8s.io/apimachinery                     v0.36.x
+sigs.k8s.io/controller-runtime          v0.25.1
+k8s.io/client-go                        v0.37.1
+k8s.io/api                              v0.37.1
+k8s.io/apimachinery                     v0.37.1
 
 # Prometheus querying
-github.com/prometheus/client_golang     v1.23.2
+github.com/prometheus/client_golang     v1.24.1
 
 # Testing
 github.com/onsi/ginkgo/v2              latest

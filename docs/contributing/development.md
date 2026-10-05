@@ -2,7 +2,7 @@
 
 | Tool | Version |
 |------|---------|
-| Go | 1.26+ |
+| Go | 1.27.1 |
 | Docker | 24+ |
 | kubectl | matching your cluster |
 | k3d **or** Kind | k3d 5.8+ / Kind 0.31+ |
