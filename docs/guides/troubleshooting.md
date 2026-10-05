@@ -525,6 +525,44 @@ found" uses `WorkloadDiscoveryFailed`.
 
 3. Policies that do not set `kind: Rollout` do not take this path.
 
+### Rollout template was not patched
+
+**Symptom**: Template persistence is on, but a Rollout's `spec.template`
+keeps its requests. `TemplatePersistence` is False.
+
+**Cause**: The Rollout sets `spec.workloadRef`. The reason tells you why:
+
+- `TemplateWorkloadRef`: this reconcile's recorded errors did not include
+  a workloadRef read failure, and Attune left the Rollout template alone
+  on purpose. When the Rollout template has no containers, recommendations
+  use the referenced pod template. Nothing to fix.
+- `WorkloadRefUnread`: `spec.workloadRef` has an empty name or an
+  unsupported kind, or the referenced Deployment, StatefulSet, or
+  ReplicaSet is missing, could not be read (for example forbidden), or has
+  no containers. No recommendation is stored for that Rollout. The condition
+  message and `status.workloadErrors` carry the error. This reason is kept
+  while a recorded workload error is a workloadRef read failure, even when
+  another Rollout's reference was read.
+
+`status.workloadErrors` keeps at most 10 entries. With more failing
+workloads, a reference error can be dropped from it, and the reason may
+show `TemplateWorkloadRef` or not appear even though a read failed.
+
+**Fix** for `WorkloadRefUnread`:
+
+1. Read the error:
+
+    ```bash
+    kubectl get attunepolicy <name> -o jsonpath='{.status.workloadErrors}' | jq .
+    ```
+
+2. Check that `spec.workloadRef` names an object of that kind in the
+   Rollout's namespace, and that the operator can get it.
+3. On the next reconcile whose workload errors no longer include a
+   workloadRef read failure, that reason is removed. Template persistence
+   then records `TemplateWorkloadRef` when a Rollout still sets
+   `spec.workloadRef`, or removes the condition when none do.
+
 ### New pods still start at template size
 
 **Symptom**: `updateStrategy.initialSizing` is true, but new pods keep the
@@ -1945,18 +1983,23 @@ or ReplicaSet.
 
 Tell the two skips apart on `status.conditions`:
 
-- Reason `WorkloadRefUnread` means the referenced object could not be
-  read, or it has no containers. The same text is on
-  `status.workloadErrors`. No recommendation is stored for that
-  Rollout. Fix the name, kind, or RBAC, then wait for the next
-  reconcile. The reason stays until that read succeeds.
-- Reason `TemplateWorkloadRef` means the object was read. Leaving the
-  Rollout template alone is intentional. Recommendations use the
-  referenced pod template. Resize of the Rollout's pods still proceeds
-  from that template.
+- Reason `WorkloadRefUnread` means `spec.workloadRef` has an empty name
+  or an unsupported kind, or the referenced object could not be read or
+  has no containers. The same text is on `status.workloadErrors`. No
+  recommendation is stored for that Rollout. Fix the name, kind, or
+  RBAC, then wait for the next reconcile. The reason is removed when
+  recorded workload errors no longer include a `workloadRef` read
+  failure. `status.workloadErrors` keeps at most 10 entries, so a
+  dropped error can clear it while the read is still failing.
+- Reason `TemplateWorkloadRef` means this reconcile's recorded errors
+  did not include a workloadRef read failure. Leaving the Rollout
+  template alone is intentional. Recommendations use the referenced pod
+  template. Resize of the Rollout's pods still proceeds from that
+  template.
 
 Recommend mode reports the same reasons. Observe mode does not run
-template persistence, so a failed read keeps `WorkloadRefUnread`.
+template persistence. A recorded workloadRef read failure still sets
+`WorkloadRefUnread`.
 
 ### Mid-rollout or no-op
 

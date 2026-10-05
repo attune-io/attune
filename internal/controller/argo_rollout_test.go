@@ -816,6 +816,43 @@ func TestApplyTemplatePersistence_UnreadWithoutWorkloadRefStays(t *testing.T) {
 	assert.Equal(t, "workloadRef missing not found", cond.Message)
 }
 
+func TestApplyTemplatePersistence_UnreadKeepsSiblingPatch(t *testing.T) {
+	t.Parallel()
+	cpuCur, err := resource.ParseQuantity("500m")
+	require.NoError(t, err)
+	memCur, err := resource.ParseQuantity("512Mi")
+	require.NoError(t, err)
+	cpuRec, err := resource.ParseQuantity("200m")
+	require.NoError(t, err)
+	memRec, err := resource.ParseQuantity("256Mi")
+	require.NoError(t, err)
+	readErr := `workloadRef Deployment default/missing: deployments.apps "missing" not found`
+
+	unread := rolloutWithResources("orders", cpuCur, memCur)
+	unread.Spec.WorkloadRef = &argorollout.WorkloadRef{Name: "missing", Kind: "Deployment", APIVersion: "apps/v1"}
+	plain := rolloutWithResources("checkout", cpuCur, memCur)
+	r := newReconcilerWithClient(unread, plain)
+	policy := rolloutPersistPolicy()
+	policy.Status.WorkloadErrors = []attunev1alpha1.WorkloadError{{Workload: "orders", Error: readErr}}
+	noteWorkloadRefReadErrors(policy, policy.Status.WorkloadErrors)
+
+	_ = r.applyTemplatePersistence(context.Background(), policy, []client.Object{unread, plain},
+		[]attunev1alpha1.WorkloadRecommendation{rolloutRecommendation("checkout", cpuCur, memCur, cpuRec, memRec)},
+		attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
+
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionTemplatePersistence)
+	require.NotNil(t, cond)
+	assert.Equal(t, attunev1alpha1.ReasonWorkloadRefUnread, cond.Reason)
+	assert.Equal(t, readErr, cond.Message)
+
+	var skipped argorollout.Rollout
+	require.NoError(t, r.Get(context.Background(), client.ObjectKeyFromObject(unread), &skipped))
+	assert.Equal(t, int64(500), skipped.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue())
+	var patched argorollout.Rollout
+	require.NoError(t, r.Get(context.Background(), client.ObjectKeyFromObject(plain), &patched))
+	assert.Equal(t, int64(200), patched.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue())
+}
+
 func TestRestoreTemplate_RolloutWorkloadRefSkips(t *testing.T) {
 	cpuCur, err := resource.ParseQuantity("200m")
 	require.NoError(t, err)
