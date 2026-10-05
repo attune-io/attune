@@ -198,6 +198,22 @@ so this does not look like bootstrap `InsufficientData`.
 2. Check API server health and operator logs for the list error.
 3. Watch `attune_reconcile_errors_total{error_type="list_policies"}`.
 
+### 401 after a trailing newline in a Secret
+
+**Symptom**: Prometheus or Datadog returns 401 or 403 for a key that
+works once the newline is removed.
+
+**Cause**: The Secret was copied from a file or a YAML block scalar
+and kept whitespace at either end. Attune trims both ends and does
+not strip spaces in the middle of the value. A whitespace-only
+bearer token or Datadog API key fails at read time with an empty-key
+error. A whitespace-only Datadog app key is omitted and does not fail
+the API key. Operator logs do not print the secret.
+
+**Fix**: No policy change is required for whitespace at either end.
+If the key still fails, confirm the Secret data has no extra
+characters in the middle.
+
 ### OpenShift Thanos Querier 401 or secret not found
 
 **Symptom**: Ready `MetricsUnavailable` with

@@ -127,6 +127,35 @@ func TestResolveDatadogCollector_ClusterKeyIgnoresPolicyCopyWhenOperatorSecretMi
 	assert.Zero(t, collectorCount(r), "a policy-namespace copy must not satisfy a configured operator Datadog secret")
 }
 
+func TestReadDatadogSecretKeys_TrimsAndDropsBlankAppKey(t *testing.T) {
+	tests := []struct {
+		name    string
+		apiKey  string
+		appKey  string
+		wantAPI string
+		wantApp string
+	}{
+		{name: "both trimmed", apiKey: "api\n", appKey: " app\n", wantAPI: "api", wantApp: "app"},
+		{name: "blank app key is absent", apiKey: "api-key-value", appKey: " \n", wantAPI: "api-key-value", wantApp: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "dd-keys", Namespace: "default"},
+				Data: map[string][]byte{
+					"api-key": []byte(tt.apiKey),
+					"app-key": []byte(tt.appKey),
+				},
+			}
+			r := newReconcilerWithClient(secret)
+			api, app, err := r.readDatadogSecretKeys(context.Background(), "default", "dd-keys", "api-key")
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantAPI, api)
+			assert.Equal(t, tt.wantApp, app)
+		})
+	}
+}
+
 func TestResolveDatadogCollector_WhitespaceAPIKey(t *testing.T) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "dd-keys", Namespace: "default"},
@@ -150,6 +179,8 @@ func TestResolveDatadogCollector_WhitespaceAPIKey(t *testing.T) {
 	_, _, err := r.resolveDatadogCollector(context.Background(), policy, datadogAuthContext{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "api-key")
+	assert.Contains(t, err.Error(), "empty")
+	assert.NotContains(t, err.Error(), "not found")
 	assert.Zero(t, collectorCount(r))
 }
 

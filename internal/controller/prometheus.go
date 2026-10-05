@@ -1296,14 +1296,19 @@ func (r *AttunePolicyReconciler) readDatadogSecretKeys(ctx context.Context, name
 		return "", "", fmt.Errorf("cannot read Datadog API key: %w", fmt.Errorf("reading secret %s/%s: %w", namespace, name, err))
 	}
 	apiKeyData, ok := secret.Data[apiKeyKey]
-	if !ok || strings.TrimSpace(string(apiKeyData)) == "" {
+	if !ok {
 		return "", "", fmt.Errorf("cannot read Datadog API key: %w", fmt.Errorf("key %q not found in secret %s/%s", apiKeyKey, namespace, name))
+	}
+	apiKey := strings.TrimSpace(string(apiKeyData))
+	if apiKey == "" {
+		return "", "", fmt.Errorf("cannot read Datadog API key: %w", fmt.Errorf("key %q in secret %s/%s is empty", apiKeyKey, namespace, name))
 	}
 	var appKey string
 	if appKeyData, ok := secret.Data["app-key"]; ok {
-		appKey = string(appKeyData)
+		// A whitespace-only app key is absent, not an error.
+		appKey = strings.TrimSpace(string(appKeyData))
 	}
-	return string(apiKeyData), appKey, nil
+	return apiKey, appKey, nil
 }
 
 // resolveCloudWatchCollector creates a CloudWatchCollector from the policy's
@@ -1377,7 +1382,7 @@ func (r *AttunePolicyReconciler) resolvePrometheusConfig(ctx context.Context, po
 	return nil, false, fmt.Errorf("no Prometheus address configured in policy or cluster defaults, and auto-discovery found no Prometheus instance")
 }
 
-// readSecretKey reads a single key from a Kubernetes Secret.
+// readSecretKey rejects a blank value so callers do not send it.
 func (r *AttunePolicyReconciler) readSecretKey(ctx context.Context, namespace, name, key string) (string, error) {
 	var secret corev1.Secret
 	if err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &secret); err != nil {
@@ -1387,7 +1392,11 @@ func (r *AttunePolicyReconciler) readSecretKey(ctx context.Context, namespace, n
 	if !ok {
 		return "", fmt.Errorf("key %q not found in secret %s/%s", key, namespace, name)
 	}
-	return string(data), nil
+	value := strings.TrimSpace(string(data))
+	if value == "" {
+		return "", fmt.Errorf("key %q in secret %s/%s is empty", key, namespace, name)
+	}
+	return value, nil
 }
 
 // discoverPrometheus attempts to find a Prometheus instance in the cluster

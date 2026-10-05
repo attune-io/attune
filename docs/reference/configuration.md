@@ -198,7 +198,7 @@ Cluster-wide credentials belong on the operator. A policy
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `prometheusAuth.useServiceAccountToken` | bool | `false` | Send operator Prometheus bearer auth for addresses from cluster `AttuneDefaults`. Not used for policy or namespace-defaults addresses, auto-discovery, or when `Authorization` headers are already set (`--prometheus-use-service-account-token`). |
-| `prometheusAuth.existingSecret.name` | string | `""` | Secret in the **operator** namespace (`--prometheus-bearer-token-secret`). Same address rules as `useServiceAccountToken`. Empty disables. A policy-set `bearerTokenSecret` is read in the policy namespace and does not fall back. An inherited cluster name falls back only on NotFound. |
+| `prometheusAuth.existingSecret.name` | string | `""` | Secret in the **operator** namespace (`--prometheus-bearer-token-secret`). Same address rules as `useServiceAccountToken`. Empty disables. A policy-set `bearerTokenSecret` is read in the policy namespace and does not fall back. An inherited cluster name falls back only on NotFound. Attune trims both ends of the token and keeps interior spaces. |
 | `prometheusAuth.existingSecret.key` | string | `token` | Key in that Secret (`--prometheus-bearer-token-key`). |
 | `prometheusAuth.queryServiceAccount.create` | bool | `false` | Create a dedicated query ServiceAccount and TokenRequest it instead of the manager token (`--prometheus-query-service-account`). |
 | `prometheusAuth.queryServiceAccount.name` | string | `""` | Query SA name. Empty uses `<release>-prometheus-query` when create is true. |
@@ -211,7 +211,7 @@ Cluster-wide Datadog credentials belong on the operator. A policy or
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `datadogAuth.existingSecret.name` | string | `""` | Secret in the **operator** namespace (`--datadog-api-key-secret`). Used only when cluster `AttuneDefaults` chose the Datadog block. Empty keeps the policy-namespace lookup of an inherited name. |
-| `datadogAuth.existingSecret.key` | string | `api-key` | API key field in that Secret (`--datadog-api-key-secret-key`). An optional `app-key` in the same Secret is still read. |
+| `datadogAuth.existingSecret.key` | string | `api-key` | API key field in that Secret (`--datadog-api-key-secret-key`). An optional `app-key` in the same Secret is still read. Attune trims both ends of each value and keeps interior spaces. A whitespace-only `app-key` is omitted. |
 
 ## OpenShift
 
@@ -465,7 +465,7 @@ operator queries. The wizard inherit option uses that omit shape.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `metricsSource.prometheus.bearerTokenSecret` | object | (optional) | Secret `name` + `key` for a bearer token in the **policy** namespace (`AttunePolicy` or `AttuneNamespaceDefaults`). Deprecated on cluster `AttuneDefaults`: the name is still inherited and read in each policy namespace; use `prometheusAuth` or `openshift.bindClusterMonitoringView` instead. Amazon Managed Prometheus does not use this Secret. |
+| `metricsSource.prometheus.bearerTokenSecret` | object | (optional) | Secret `name` + `key` for a bearer token in the **policy** namespace (`AttunePolicy` or `AttuneNamespaceDefaults`). Deprecated on cluster `AttuneDefaults`: the name is still inherited and read in each policy namespace; use `prometheusAuth` or `openshift.bindClusterMonitoringView` instead. Amazon Managed Prometheus does not use this Secret. Attune trims both ends of the token and keeps interior spaces. |
 | `metricsSource.prometheus.sigv4.region` | string | (required when `sigv4` is set) | AWS region of the Amazon Managed Prometheus workspace, for example `us-east-1`. There is no default. Attune signs queries with SigV4 service `aps`. Omitted `sigv4` does not sign. Do not combine with `bearerTokenSecret`, an `Authorization` header, or an `X-Amz-*` header. |
 | `metricsSource.prometheus.sigv4.roleArn` | string | (optional) | IAM role ARN to assume. Empty uses the pod identity chain (IRSA or Pod Identity). The role needs `aps:QueryMetrics`. |
 | `metricsSource.prometheus.tls.insecureSkipVerify` | bool | `false` | Skip TLS certificate verification. Use only for a self-signed development endpoint. Prefer the cluster CA when you have the bundle. |
@@ -475,7 +475,7 @@ operator queries. The wizard inherit option uses that omit shape.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `metricsSource.datadog.site` | string | `datadoghq.com` | Datadog site (e.g., `datadoghq.eu`, `us5.datadoghq.com`, `ddog-gov.com`) |
-| `metricsSource.datadog.apiKeySecretRef.name` | string | (required) | Secret name for the Datadog API key. On `AttunePolicy` or `AttuneNamespaceDefaults` the Secret is in that namespace. On cluster `AttuneDefaults` the name is still copied onto each policy; set `datadogAuth.existingSecret` so a cluster-chosen block reads the operator namespace instead. |
+| `metricsSource.datadog.apiKeySecretRef.name` | string | (required) | Secret name for the Datadog API key. On `AttunePolicy` or `AttuneNamespaceDefaults` the Secret is in that namespace. On cluster `AttuneDefaults` the name is still copied onto each policy; set `datadogAuth.existingSecret` so a cluster-chosen block reads the operator namespace instead. Attune trims both ends of the API key and the optional `app-key`, and keeps interior spaces. A whitespace-only `app-key` is omitted. |
 | `metricsSource.datadog.apiKeySecretRef.key` | string | (required) | Key within the Secret that holds the API key. When `datadogAuth.existingSecret` is set for a cluster-chosen Datadog block, the data key is `datadogAuth.existingSecret.key` (`--datadog-api-key-secret-key`), not this inherited key. |
 
 ### CloudWatch Container Insights

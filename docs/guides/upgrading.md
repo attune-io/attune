@@ -10,6 +10,25 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### Prometheus and Datadog secrets ignore surrounding whitespace
+
+A Prometheus bearer token or a Datadog API key with a leading or
+trailing newline used to be sent unchanged. The provider then
+returned 401 or 403. Attune now trims both ends before the value is
+used. Spaces in the middle of the value stay. A whitespace-only
+bearer token or API key is rejected as empty when the Secret is
+read. A whitespace-only Datadog app key is treated as unset and is
+not sent.
+
+A secret that already authenticated does not change. A secret that
+failed only because of surrounding whitespace starts working on the
+next reconcile. No policy YAML change. Auto can resize once metrics
+flow. Recommend and Observe start showing recommendations.
+
+A GitOps pull-request token read from a Secret is trimmed the same way.
+
+See [401 after a trailing newline in a Secret](troubleshooting.md#401-after-a-trailing-newline-in-a-secret).
+
 ### Opt-in startup exclusion follows the boost stamp
 
 `cpu.startupBoost.excludeFromHistory: true` used to drop CPU samples

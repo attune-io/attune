@@ -19,10 +19,15 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/go-logr/logr/funcr"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -72,6 +77,67 @@ func TestBuildCollectorOptions_PolicySecretWinsOverOperatorAuth(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, opts)
 	assert.Equal(t, "policy-token", opts.BearerToken)
+}
+
+func TestBuildCollectorOptions_TrimsBearerBeforeTheCollector(t *testing.T) {
+	const secretValue = "bearer-secret-value"
+	scheme := testScheme()
+	policySecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "prom-token", Namespace: "vpa-test"},
+		Data:       map[string][]byte{"token": []byte(secretValue + "\n")},
+	}
+	opSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "attune-thanos-token", Namespace: "attune-system"},
+		Data:       map[string][]byte{"token": []byte("operator-token\n")},
+	}
+	r := NewAttunePolicyReconciler()
+	r.Scheme = scheme
+	r.Client = fake.NewClientBuilder().WithScheme(scheme).WithObjects(policySecret, opSecret).Build()
+	r.PrometheusBearerTokenSecretName = "attune-thanos-token"
+	r.OperatorNamespace = "attune-system"
+
+	policyCfg := &attunev1alpha1.PrometheusConfig{
+		Address: "https://thanos-querier.openshift-monitoring.svc:9091",
+		BearerTokenSecret: &attunev1alpha1.SecretKeyRef{
+			Name: "prom-token",
+			Key:  "token",
+		},
+	}
+	opts, err := r.buildCollectorOptions(context.Background(), "vpa-test", policyCfg, prometheusAuthContext{policySetBearer: true})
+	require.NoError(t, err)
+	assert.Equal(t, secretValue, opts.BearerToken)
+
+	opOnly := NewAttunePolicyReconciler()
+	opOnly.Scheme = scheme
+	opOnly.Client = fake.NewClientBuilder().WithScheme(scheme).WithObjects(opSecret).Build()
+	opOnly.PrometheusBearerTokenSecretName = "attune-thanos-token"
+	opOnly.OperatorNamespace = "attune-system"
+	opOpts, err := opOnly.buildCollectorOptions(context.Background(), "vpa-test", &attunev1alpha1.PrometheusConfig{
+		Address: "https://thanos-querier.openshift-monitoring.svc:9091",
+	}, prometheusAuthContext{})
+	require.NoError(t, err)
+	assert.Equal(t, "operator-token", opOpts.BearerToken)
+
+	var lines []string
+	logger := funcr.New(func(_, args string) {
+		lines = append(lines, args)
+	}, funcr.Options{})
+	var gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		gotAuth = req.Header.Get("Authorization")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"status":"error","errorType":"unauthorized","error":"denied"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	collector, err := rsmetrics.NewPrometheusCollectorWithOptions(server.URL, logger, opts, server.Client().Transport)
+	require.NoError(t, err)
+	_, err = collector.Query(context.Background(), "up", time.Now())
+	require.Error(t, err)
+	assert.Equal(t, "Bearer "+secretValue, gotAuth)
+	logged := strings.Join(lines, "\n") + "\n" + err.Error()
+	assert.NotContains(t, logged, secretValue)
+	assert.NotContains(t, logged, secretValue+"\n")
 }
 
 func TestBuildCollectorOptions_OperatorSecretUsesOperatorNamespace(t *testing.T) {

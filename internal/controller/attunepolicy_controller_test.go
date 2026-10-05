@@ -1068,6 +1068,41 @@ func TestReadSecretKey_KeyNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "key \"token\" not found")
 }
 
+func TestReadSecretKey_TrimsEnds(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		want    string
+		wantErr bool
+	}{
+		{name: "trailing newline", raw: "token\n", want: "token"},
+		{name: "whitespace only", raw: " \n", wantErr: true},
+		{name: "interior space", raw: "ab cd", want: "ab cd"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			secret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "prom-token", Namespace: "default"},
+				Data:       map[string][]byte{"token": []byte(tt.raw)},
+			}
+			scheme := testScheme()
+			r := NewAttunePolicyReconciler()
+			r.Scheme = scheme
+			r.Client = fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
+
+			got, err := r.readSecretKey(context.Background(), "default", "prom-token", "token")
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Empty(t, got)
+				assert.Contains(t, err.Error(), "empty")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 // ---------- updateStatusWithRetry ----------
 
 func TestUpdateStatusWithRetry_SuccessFirstAttempt(t *testing.T) {
