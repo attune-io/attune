@@ -33,15 +33,16 @@ import (
 	rsmetrics "github.com/attune-io/attune/internal/metrics"
 	"github.com/attune-io/attune/internal/operatormetrics"
 	"github.com/attune-io/attune/internal/validation"
+	pkgdefaults "github.com/attune-io/attune/pkg/defaults"
 )
 
 // AttunePolicyValidator implements the typed Validator interface for AttunePolicy.
 type AttunePolicyValidator struct {
 	// SecretAccess, when set, requires the admission user to get each referenced Secret.
 	SecretAccess SecretAccessChecker
-	// Client loads AttuneDefaults when a policy omits a field that defaults
-	// change, such as historyWindow for surge.window. Nil keeps the built-in
-	// window so unit tests do not need a cluster.
+	// Client loads AttuneDefaults when a policy omits historyWindow for a
+	// surge window, or omits minAllowed while a max is already known. Nil
+	// keeps the built-in history and does not invent a min.
 	Client client.Reader
 }
 
@@ -131,6 +132,9 @@ func (v *AttunePolicyValidator) validate(ctx context.Context, old, policy *attun
 		return warnings, err
 	}
 	if err := validateContainerPolicies(policy, history); err != nil {
+		return warnings, err
+	}
+	if err := v.validateDefaultsBounds(ctx, policy); err != nil {
 		return warnings, err
 	}
 
@@ -732,12 +736,6 @@ func validateBurstSensitivity(resource string, value *string) error {
 	return nil
 }
 
-// validateDurationFloor rejects a zero, negative, or sub-minute duration.
-// Zero is not a wait: omit the field to keep the built-in default.
-func validateDurationFloor(field string, d time.Duration) error {
-	return validateDurationFloorAllowZero(field, d, false)
-}
-
 func validateDurationFloorAllowZero(field string, d time.Duration, allowStoredZero bool) error {
 	if d == 0 {
 		if allowStoredZero {
@@ -983,6 +981,128 @@ func validatePrometheusSigV4(prometheus *attunev1alpha1.PrometheusConfig) error 
 		return fmt.Errorf("metricsSource.prometheus.sigv4.roleArn: %w", err)
 	}
 	return nil
+}
+
+// validateDefaultsBounds rejects a defaults min that sits above a max
+// already set on the policy or a container. The list runs only when some
+// effective side still omits min and already has a max. A nil client does
+// not invent a floor.
+func (v *AttunePolicyValidator) validateDefaultsBounds(ctx context.Context, policy *attunev1alpha1.AttunePolicy) error {
+	if policy == nil || !omittedMinWithKnownMax(policy) {
+		return nil
+	}
+	if v == nil || v.Client == nil {
+		return nil
+	}
+	nsDefaults, clusterDefaults, err := defaultsLayers(ctx, v.Client, policy.Namespace)
+	if err != nil {
+		return err
+	}
+	merged := pkgdefaults.CombineDefaultsLayers(clusterDefaults, nsDefaults)
+	if merged == nil {
+		return nil
+	}
+	copy := policy.DeepCopy()
+	pkgdefaults.MergeDefaults(copy, merged)
+	if err := defaultsBoundSide("", "cpu", &policy.Spec.CPU, &copy.Spec.CPU, nsDefaults, clusterDefaults, false); err != nil {
+		return err
+	}
+	if err := defaultsBoundSide("", "memory", &policy.Spec.Memory, &copy.Spec.Memory, nsDefaults, clusterDefaults, true); err != nil {
+		return err
+	}
+	return defaultsContainerBounds(policy, copy, nsDefaults, clusterDefaults)
+}
+
+func omittedMinWithKnownMax(policy *attunev1alpha1.AttunePolicy) bool {
+	if minOmittedMaxSet(&policy.Spec.CPU) || minOmittedMaxSet(&policy.Spec.Memory) {
+		return true
+	}
+	seen := map[string]struct{}{}
+	for i := range policy.Spec.ContainerPolicies {
+		name := policy.Spec.ContainerPolicies[i].ContainerName
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		cpu, mem := attunev1alpha1.EffectiveContainerResources(policy, name)
+		if minOmittedMaxSet(&cpu) || minOmittedMaxSet(&mem) {
+			return true
+		}
+	}
+	return false
+}
+
+func minOmittedMaxSet(rc *attunev1alpha1.ResourceConfig) bool {
+	return rc != nil && rc.MinAllowed == nil && rc.MaxAllowed != nil
+}
+
+func defaultsContainerBounds(original, merged *attunev1alpha1.AttunePolicy, nsDefaults, clusterDefaults *attunev1alpha1.AttuneDefaults) error {
+	seen := map[string]struct{}{}
+	for i := range original.Spec.ContainerPolicies {
+		name := original.Spec.ContainerPolicies[i].ContainerName
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		beforeCPU, beforeMem := attunev1alpha1.EffectiveContainerResources(original, name)
+		afterCPU, afterMem := attunev1alpha1.EffectiveContainerResources(merged, name)
+		if err := defaultsBoundSide(name, "cpu", &beforeCPU, &afterCPU, nsDefaults, clusterDefaults, false); err != nil {
+			return err
+		}
+		if err := defaultsBoundSide(name, "memory", &beforeMem, &afterMem, nsDefaults, clusterDefaults, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func defaultsBoundSide(container, side string, before, after *attunev1alpha1.ResourceConfig, nsDefaults, clusterDefaults *attunev1alpha1.AttuneDefaults, memory bool) error {
+	if before == nil || before.MaxAllowed == nil || before.MinAllowed != nil {
+		return nil
+	}
+	if after == nil || after.MinAllowed == nil {
+		return nil
+	}
+	if after.MinAllowed.Cmp(*before.MaxAllowed) <= 0 {
+		return nil
+	}
+	origin, ok := defaultsMinOrigin(nsDefaults, clusterDefaults, memory)
+	if !ok {
+		return nil
+	}
+	if container == "" {
+		return fmt.Errorf("%s minAllowed (%s) from %s is above maxAllowed (%s) on the policy",
+			side, after.MinAllowed.String(), origin, before.MaxAllowed.String())
+	}
+	return fmt.Errorf("containerPolicies %q %s minAllowed (%s) from %s is above maxAllowed (%s)",
+		container, side, after.MinAllowed.String(), origin, before.MaxAllowed.String())
+}
+
+func defaultsMinOrigin(nsDefaults, clusterDefaults *attunev1alpha1.AttuneDefaults, memory bool) (string, bool) {
+	if layerHasMin(nsDefaults, memory) {
+		return fmt.Sprintf("AttuneNamespaceDefaults %s/%s", nsDefaults.Namespace, nsDefaults.Name), true
+	}
+	if layerHasMin(clusterDefaults, memory) {
+		return fmt.Sprintf("AttuneDefaults %q", clusterDefaults.Name), true
+	}
+	return "", false
+}
+
+func layerHasMin(obj *attunev1alpha1.AttuneDefaults, memory bool) bool {
+	if obj == nil {
+		return false
+	}
+	rc := obj.Spec.CPU
+	if memory {
+		rc = obj.Spec.Memory
+	}
+	return rc != nil && rc.MinAllowed != nil
 }
 
 // ValidatePrometheusAddress delegates to the shared validation package.

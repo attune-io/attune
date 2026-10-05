@@ -1447,6 +1447,29 @@ updateStrategy:
   # cap (deprecated); raise them too if your policy still sets them.
 ```
 
+### Apply rejected: defaults min above policy max
+
+**Symptom**: `kubectl apply` fails with:
+
+```text
+memory minAllowed (2Gi) from AttuneDefaults "global" is above maxAllowed (1Gi) on the policy
+```
+
+A container ceiling uses the same sentence with
+`containerPolicies "app"`.
+
+**Cause**: The policy or container sets `maxAllowed` and omits
+`minAllowed`. `AttuneNamespaceDefaults` or `AttuneDefaults` supplies a
+higher min. Admission checks that pair on create and on update.
+
+**Effect**: The apply does not change the object. An object already
+stored keeps its spec. Recommendations for that stored pair are clamped
+to the non-zero max. `boundsApplied` is `max`.
+
+**Fix**: Lower the defaults min, raise the policy or container max, or
+set an explicit min that is at or below the max. `kubectl attune explain`
+can show the merged pair. Explain does not reject the apply.
+
 ### Policy rejected: invalid schedule timezone
 
 **Symptom**: `kubectl apply` fails with:

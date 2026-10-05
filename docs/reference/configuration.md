@@ -272,10 +272,10 @@ itself was admitted.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `cpu.minAllowed` | quantity | 1m | Minimum CPU recommendation when the field is omitted. An explicit value, including one below 1m, replaces this floor. When both bounds are set, must be less than or equal to `cpu.maxAllowed`. |
-| `cpu.maxAllowed` | quantity | (none) | Maximum CPU recommendation (for example `"4000m"`). Must not exceed 256 cores. Omitted means no maximum. |
-| `memory.minAllowed` | quantity | 4Mi | Minimum memory recommendation when the field is omitted. An explicit value replaces this floor. When both bounds are set, must be less than or equal to `memory.maxAllowed`. |
-| `memory.maxAllowed` | quantity | (none) | Maximum memory recommendation (for example `"8Gi"`). Must not exceed 16Ti. Omitted means no maximum. An in-hold `memory.oomBump` floor above this value is published at the cap. The stored floor is not rewritten. |
+| `cpu.minAllowed` | quantity | 1m | Minimum CPU recommendation when the field is omitted. An explicit value, including one below 1m, replaces this floor. When both bounds are set on the same object, must be less than or equal to `cpu.maxAllowed`. On an AttunePolicy, admission also rejects a min from `AttuneDefaults` or `AttuneNamespaceDefaults` when this object omits min and a max is already known. A stored min above a non-zero max stays until the next update. The recommendation is then clamped to that max (`boundsApplied` is `max`). |
+| `cpu.maxAllowed` | quantity | (none) | Maximum CPU recommendation (for example `"4000m"`). Must not exceed 256 cores. Omitted means no maximum. A new AttunePolicy write fails when a defaults min is above this max. A stored min above a non-zero max is clamped to this max until the object is updated. A zero max keeps the raised floor. |
+| `memory.minAllowed` | quantity | 4Mi | Minimum memory recommendation when the field is omitted. An explicit value replaces this floor. When both bounds are set on the same object, must be less than or equal to `memory.maxAllowed`. On an AttunePolicy, admission also rejects a min from `AttuneDefaults` or `AttuneNamespaceDefaults` when this object omits min and a max is already known. A stored min above a non-zero max stays until the next update. The recommendation is then clamped to that max (`boundsApplied` is `max`). |
+| `memory.maxAllowed` | quantity | (none) | Maximum memory recommendation (for example `"8Gi"`). Must not exceed 16Ti. Omitted means no maximum. An in-hold `memory.oomBump` floor above this value is published at the cap. The stored floor is not rewritten. A new AttunePolicy write fails when a defaults min is above this max. A stored min above a non-zero max is clamped to this max until the object is updated. |
 
 The 256-core and 16Ti values are admission caps only. They reject
 oversized `maxAllowed`; they do not inject a default clamp when the
@@ -290,7 +290,16 @@ is published at the cap on this cycle. Memory `allowDecrease` defaults
 to false, so a live memory request above the max stays at the current
 request until decrease is enabled. An omitted `maxAllowed` is not
 capped. `"0"` is a real cap, not an omitted maximum. An explicit
-`minAllowed` below 1m or 4Mi replaces the built-in floor. An in-hold
+`minAllowed` below 1m or 4Mi replaces the built-in floor. Admission
+compares min and max after the defaults merge on AttunePolicy writes.
+The policy value wins when it is set. A missing min is taken from
+`AttuneNamespaceDefaults` when that object sets one, otherwise from
+`AttuneDefaults`, and only when a max is already known on the policy
+or a container. The error names both
+quantities and both objects. A defaults list error fails only that
+write. A policy that sets its own min does not list defaults to
+discover a max. `kubectl attune explain` may show an invalid merged
+pair. Explain does not reject the object. An in-hold
 `memory.oomBump` floor above `maxAllowed` is published at that cap on
 the next reconcile. The annotation floor and `holdUntil` stay. Default
 memory `allowDecrease` still keeps the live request until decrease is
@@ -576,8 +585,9 @@ unset memory `allowDecrease` still blocks them. An omitted
 `maxAllowed` inherits `*` and then the policy max. A container entry
 cannot clear a policy max. The effective value is uncapped only when
 it is still nil. Same-block minAllowed above maxAllowed on a container
-entry is rejected by the webhook. The CRD quantity rule stays on
-`spec.cpu` and `spec.memory` only. Copying it onto each of the 100
+entry is rejected by the webhook. A defaults min is included when the
+container omits min and the effective max is already known. The CRD
+quantity rule stays on `spec.cpu` and `spec.memory` only. Copying it onto each of the 100
 container entries exceeds the API server CEL cost budget.
 
 `excludedContainers` and `excludeKnownSidecars` win before any container
@@ -592,8 +602,9 @@ even when it is named here.
 rejects them on a container entry. Policy-level copies still apply to
 every container that is not excluded. A container `maxAllowed` caps
 policy startup boost and a policy memory OOM bump. After the field-wise
-merge, `minAllowed` above `maxAllowed` is rejected. Container
-`maxAllowed` uses the same 256-core and 16Ti ceilings as `spec.cpu` and
+merge, `minAllowed` above `maxAllowed` is rejected, including a
+defaults min when the container omits min and a max is already known.
+Container `maxAllowed` uses the same 256-core and 16Ti ceilings as `spec.cpu` and
 `spec.memory`. No extra Prometheus metric is emitted for this list.
 
 ```yaml

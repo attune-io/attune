@@ -10,6 +10,23 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### Defaults min above a policy max is rejected
+
+A policy that omits `minAllowed` and sets `maxAllowed` used to be
+admitted when `AttuneDefaults` or `AttuneNamespaceDefaults` carried a
+higher min. That apply now fails. The error names both values and both
+objects. A container max is included when `*` and the policy omit max.
+
+A policy that sets its own min is unchanged, even when defaults carry a
+higher min. A max with no defaults min anywhere is unchanged. Omitted
+max stays uncapped.
+
+Objects already stored keep reconciling until the next update. A stored
+min above a non-zero max is clamped to the max. The recommendation
+explanation says `max`. That runtime result does not change on upgrade.
+
+See [Apply rejected: defaults min above policy max](troubleshooting.md#apply-rejected-defaults-min-above-policy-max).
+
 ### Prometheus and Datadog secrets ignore surrounding whitespace
 
 A Prometheus bearer token or a Datadog API key with a leading or

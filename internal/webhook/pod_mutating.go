@@ -238,12 +238,23 @@ func (h *PodMutatingHandler) listAdmissionDefaults(
 }
 
 func combinedDefaults(ctx context.Context, c client.Reader, namespace string) (*attunev1alpha1.AttuneDefaults, error) {
+	nsDefaults, clusterDefaults, err := defaultsLayers(ctx, c, namespace)
+	if err != nil {
+		return nil, err
+	}
+	return pkgdefaults.CombineDefaultsLayers(clusterDefaults, nsDefaults), nil
+}
+
+// defaultsLayers lists namespace and cluster defaults the same way as
+// controller.fetchDefaults. The namespace object keeps its own name.
+// Nil client and list errors fail closed.
+func defaultsLayers(ctx context.Context, c client.Reader, namespace string) (*attunev1alpha1.AttuneDefaults, *attunev1alpha1.AttuneDefaults, error) {
 	if c == nil {
-		return nil, fmt.Errorf("listing AttuneDefaults: client is nil")
+		return nil, nil, fmt.Errorf("listing AttuneDefaults: client is nil")
 	}
 	var nsList attunev1alpha1.AttuneNamespaceDefaultsList
 	if err := c.List(ctx, &nsList, client.InNamespace(namespace)); err != nil {
-		return nil, fmt.Errorf("listing AttuneNamespaceDefaults in %s: %w", namespace, err)
+		return nil, nil, fmt.Errorf("listing AttuneNamespaceDefaults in %s: %w", namespace, err)
 	}
 	var nsDefaults *attunev1alpha1.AttuneDefaults
 	if len(nsList.Items) > 0 {
@@ -261,7 +272,7 @@ func combinedDefaults(ctx context.Context, c client.Reader, namespace string) (*
 
 	var clusterList attunev1alpha1.AttuneDefaultsList
 	if err := c.List(ctx, &clusterList); err != nil {
-		return nil, fmt.Errorf("listing AttuneDefaults: %w", err)
+		return nil, nil, fmt.Errorf("listing AttuneDefaults: %w", err)
 	}
 	var clusterDefaults *attunev1alpha1.AttuneDefaults
 	if len(clusterList.Items) > 0 {
@@ -272,8 +283,7 @@ func combinedDefaults(ctx context.Context, c client.Reader, namespace string) (*
 			}
 		}
 	}
-
-	return pkgdefaults.CombineDefaultsLayers(clusterDefaults, nsDefaults), nil
+	return nsDefaults, clusterDefaults, nil
 }
 
 // findMatchingPolicy finds a policy that targets the given owner workload
