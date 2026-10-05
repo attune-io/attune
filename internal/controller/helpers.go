@@ -1496,3 +1496,48 @@ func (r *AttunePolicyReconciler) enforceAllowDecrease(
 		resourceType, current.String(), unclamped)
 	return clamped
 }
+
+// suppressOOMDecrease puts a lowered OOM publish back when memory
+// decreases are blocked. The baseline is the workload template, or the
+// highest in-hold pod memory request when that is higher. The explanation
+// keeps the oomBump note and records the same allowDecrease skip a normal
+// recommendation uses. A request that is not lower is left alone, so a
+// later limit multiplier can still raise a Guaranteed pod above maxAllowed.
+func (r *AttunePolicyReconciler) suppressOOMDecrease(
+	policy *attunev1alpha1.AttunePolicy,
+	containerName string,
+	rec *attunev1alpha1.ContainerRecommendation,
+	explanation *attunev1alpha1.ContainerRecommendationExplanation,
+	pods []corev1.Pod,
+	now time.Time,
+) {
+	if r == nil || rec == nil {
+		return
+	}
+	_, memOK := containerDecreaseAllowed(policy, containerName)
+	baseline := rec.Current.MemoryRequest
+	if live, ok := maxInHoldLiveMemory(pods, containerName, now); ok && live.Cmp(baseline) > 0 {
+		baseline = live
+	}
+	if memOK || rec.Recommended.MemoryRequest.Cmp(baseline) >= 0 {
+		return
+	}
+	prior := ""
+	if explanation != nil && explanation.Memory != nil {
+		prior = explanation.Memory.FinalAdjustment
+	}
+	var memExplain recommendation.RecommendationExplanation
+	clamped := r.enforceAllowDecrease(false, rec.Recommended.MemoryRequest, baseline, &memExplain, policy, containerName, "memory")
+	rec.Recommended.MemoryRequest = clamped
+	note := appendNote(prior, memExplain.FinalAdjustment)
+	if explanation == nil {
+		return
+	}
+	// Keep the estimator fields. Replacing the whole object would drop
+	// the percentile and bounds that were already recorded.
+	if explanation.Memory == nil {
+		explanation.Memory = toAPIRecommendationExplanation(memExplain)
+	}
+	explanation.Memory.FinalAdjustment = note
+	explanation.Memory.Final = memExplain.Final
+}

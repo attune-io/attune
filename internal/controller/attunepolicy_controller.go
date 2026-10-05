@@ -281,6 +281,13 @@ type AttunePolicyReconciler struct {
 	// stores them. Nil in tests that build the reconciler as a struct literal.
 	oomBumps *oomBumpPending
 
+	// quietClamp counts a held-floor clamp once per distinct floor and cap
+	// in this process. Nil until the first clamp. A restart counts that
+	// pair once more. eventDedup is the wrong tool: its 1h TTL would
+	// recount every hour. Rewriting the stored floor would change the hold.
+	quietClampOnce sync.Once
+	quietClamp     *quietClampSet
+
 	// evictionLocks serializes last-replica List+Evict per workload so two
 	// concurrent resize goroutines cannot both observe running==2 and evict.
 	// Key is namespace+"/"+workloadName. Entries are deleted on release.

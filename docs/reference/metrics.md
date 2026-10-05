@@ -310,7 +310,7 @@ See [Troubleshooting: OOM after memory limit decrease](../guides/troubleshooting
 
 ### attune_oom_bump_total
 
-Memory request steps after `OOMKilled` when `memory.oomBump` is set. The feature is off until that block is set. An empty `oomBump: {}` turns it on. The counter increments for a planned outcome. `applied` and `clamped` are recorded only after the resize succeeds, which is also when the annotation count increments. `capped` and `skipped` are recorded without a resize.
+Memory request steps after `OOMKilled` when `memory.oomBump` is set. The feature is off until that block is set. An empty `oomBump: {}` turns it on. The counter increments for a planned outcome. `applied` is recorded only after the resize succeeds, which is also when the annotation count increments. A new OOM step that the byte math labels `clamped` is also recorded only after that resize. A quiet reclamp, a held floor lowered to `maxAllowed` with no new OOM, counts `clamped` once per distinct floor and cap in one operator process. That includes Recommend and Observe, and it includes a clamp that `allowDecrease` then keeps off the live request. A later reconcile with the same floor and cap does not count again. A restart counts that pair once more. `capped` and `skipped` are recorded without a resize.
 
 | Label | Description |
 |-------|-------------|
@@ -321,7 +321,7 @@ Memory request steps after `OOMKilled` when `memory.oomBump` is set. The feature
 | `result` | Meaning |
 |----------|---------|
 | `applied` | In-place resize applied the next step from the original request |
-| `clamped` | The step was above `maxAllowed`, so the request was clamped to that cap |
+| `clamped` | The step was above `maxAllowed`, so the request was clamped to that cap. A new OOM step counts after the resize succeeds. A held floor lowered to a `maxAllowed` that was added or reduced counts once per floor and cap per process, even when the live request does not move. A percentile with no in-hold floor is not counted |
 | `capped` | `maxBumps` is already reached. When `maxAllowed` is omitted, `maxBumps` is the only cap |
 | `skipped` | No bump was applied. An excluded container, unresolved config, or an in-hold OOM whose `maxAllowed` is already at or below the live request is stored once in Auto, OneShot, and Canary, so those modes count that signal once. Recommend and Observe do not write that stamp, so they count the same OOM on every reconcile. A budget skip, or a Guaranteed pod with `RequestsOnly`, is counted on each reconcile that still sees it, including in Auto, OneShot, and Canary. A newer finish time or restart counts again. A container name that does not fit the annotation key is logged and not counted |
 

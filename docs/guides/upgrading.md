@@ -10,6 +10,35 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### Lowering maxAllowed during an OOM hold takes effect on the next reconcile
+
+A held `memory.oomBump` floor used to be published again with no clamp
+after `memory.maxAllowed` was lowered or added. The next reconcile now
+publishes that cap. The stored floor and `holdUntil` stay. The clamp is
+not a new OOM.
+
+Omitted `maxAllowed` is still uncapped. Default memory `allowDecrease`
+is false, so a pod already above the new cap is not resized down. The
+request that stays is the highest in-hold pod request, not the workload
+template. Template persistence defaults to off, so that floor can sit
+above the template. A replica still under the cap is raised only to the
+cap. The recommendation keeps that live request and records the
+`allowDecrease` skip. Set `memory.allowDecrease` to true to let Auto,
+OneShot, and Canary resize down to the cap. Recommend shows that recommendation and
+does not resize. Observe does not resize.
+
+`attune_oom_bump_total{result="clamped"}` increments once for that floor
+and cap per operator process, including when the request does not move.
+It does not increment on every reconcile. A restart counts that pair
+once more. A new OOM step that is clamped still counts only after the
+resize succeeds.
+
+Policies that omit `memory.oomBump` do not change. A Guaranteed pod
+whose limit multiplier raises the request to the multiplied limit still
+does that, including when the multiplied limit is above `maxAllowed`.
+
+See [Request stayed above maxAllowed during an OOM hold](troubleshooting.md#request-stayed-above-maxallowed-during-an-oom-hold).
+
 ### A second OOM during hold steps above live
 
 During `memory.oomBump.hold`, a newer OOM publishes one memory request
@@ -180,6 +209,7 @@ These behaviors change when the operator is upgraded, with no YAML edit.
 The generated notes for the next release must list them. Do not edit
 release pull request 889 to add the list.
 
+- Lowering `memory.maxAllowed` during a `memory.oomBump` hold publishes the cap on the next reconcile. The stored floor stays. Default memory `allowDecrease` still refuses the decrease until it is enabled
 - A newer OOM during `memory.oomBump.hold` steps above the live request. In Auto, OneShot, and Canary, a step that cannot rise counts once as `skipped`. Recommend and Observe still count that skip on every reconcile
 - An OOM-bump revert raises a memory limit only when that container's effective `controlledValues` is `RequestsAndLimits`
 - CronJob pod names match an 8- or 9-digit minute stamp. A 10-digit unix-seconds suffix does not match

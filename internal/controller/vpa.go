@@ -170,6 +170,7 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 				"container", containerName)
 			oomPlan := r.planContainerOOMBump(ctx, policy, workload, containerName, false, 0, false, pods, now)
 			if oomPlan.UsePublish && applyOOMBumpToRecommendation(&cRec, explanation, oomPlan) {
+				r.suppressOOMDecrease(policy, containerName, &cRec, explanation, pods, now)
 				cRec.Explanation = explanation
 				scaleControlledLimits(policy, &cRec, cRec.Current.CPURequest, cRec.Current.CPULimit, cRec.Current.MemoryRequest, cRec.Current.MemoryLimit)
 				setRecommendationGauges(policy.Namespace, workload.GetName(), containerName, &cRec)
@@ -193,6 +194,7 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 		}
 		memPlan := r.planContainerOOMBump(ctx, policy, workload, containerName, false, percentileBytes, percentileOK, pods, now)
 		applyOOMBumpToRecommendation(&cRec, explanation, memPlan)
+		r.suppressOOMDecrease(policy, containerName, &cRec, explanation, pods, now)
 		if !cpuApplied || explanation.Memory == nil {
 			prior := priorContainerRecommendation(policy, workloadKindName(workload), workload.GetName(), containerName)
 			if !cpuApplied && !holdMissingResourceRequest(&cRec, corev1.ResourceCPU, pods, prior) {

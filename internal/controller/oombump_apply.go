@@ -48,8 +48,10 @@ type oomBumpPodStamp struct {
 // oomBumpWorkloadPlan is the memory request to publish for one workload
 // container. MetricNow is emitted immediately (skipped, capped). Applied and
 // clamped sit on Stamps and are emitted only after a successful resize.
-// WorkloadValue includes planned stamps. If the caller drops a stamp, it must
-// not write a workload count higher than the stamps it actually stored.
+// A quiet reclamp is not listed in MetricNow: that would count on every
+// reconcile. WorkloadValue includes planned stamps. If the caller drops a
+// stamp, it must not write a workload count higher than the stamps it
+// actually stored.
 type oomBumpWorkloadPlan struct {
 	Active        bool
 	UsePublish    bool
@@ -63,6 +65,12 @@ type oomBumpWorkloadPlan struct {
 	// planned stamps. The resize path recomputes the workload annotation
 	// from BaseHeld plus the stamps it actually stored.
 	BaseHeld []oomBumpRecord
+	// QuietClamp is an in-hold floor lowered to maxAllowed with no fresh
+	// applied or clamped stamp. The caller counts clamped once per floor
+	// and cap. The stored floor is unchanged.
+	QuietClamp bool
+	// QuietClampFrom is PublishBytes before that clamp.
+	QuietClampFrom int64
 }
 
 // oomBumpRevertDecision is how a safety verdict treats one container that
@@ -79,6 +87,9 @@ type oomBumpRevertDecision struct {
 // excluded with a new OOM emits skipped and does not publish a floor. A quiet
 // excluded container emits nothing. percentileOK false still bumps on a new OOM.
 // maxAllowed nil is uncapped. A non-nil value, including zero, is a ceiling.
+// An in-hold floor above that ceiling is lowered to it. The stored floor
+// and holdUntil stay. That clamp is not a new OOM. A percentile with no
+// in-hold floor is left as the caller passed it.
 func planWorkloadOOMBump(
 	block *attunev1alpha1.OOMBump,
 	container string,
@@ -143,8 +154,12 @@ func planWorkloadOOMBump(
 			held = append(held, *snap.stored)
 		}
 	}
+	var heldFloor int64
+	republishHold := false
 	if best, found := highestHeldBump(held, now); found {
 		plan.Note = true
+		heldFloor = best.Floor
+		republishHold = true
 		if !plan.UsePublish || best.Floor > plan.PublishBytes {
 			plan.UsePublish = true
 			plan.PublishBytes = best.Floor
@@ -244,7 +259,33 @@ func planWorkloadOOMBump(
 	}
 	plan.BaseHeld = append([]oomBumpRecord(nil), held...)
 	plan.WorkloadValue = heldWorkloadValue(held, plan.Stamps, now)
+	// WorkloadValue already stored the uncapped floor.
+	clampQuietOOMPublish(&plan, maxAllowed, heldFloor, republishHold)
 	return plan
+}
+
+// clampQuietOOMPublish lowers an in-hold floor to maxAllowed.
+// A nil cap stays uncapped. The published value must be that floor, so a
+// percentile the caller already settled is left alone. Stamp floors stay
+// so the annotation keeps the uncapped floor. QuietClamp stays false when
+// a fresh applied or clamped stamp exists, because that resize owns the
+// counter.
+func clampQuietOOMPublish(plan *oomBumpWorkloadPlan, maxAllowed *int64, heldFloor int64, republishHold bool) {
+	if plan == nil || !republishHold || maxAllowed == nil {
+		return
+	}
+	if !plan.UsePublish || plan.PublishBytes != heldFloor || plan.PublishBytes <= *maxAllowed {
+		return
+	}
+	from := plan.PublishBytes
+	plan.PublishBytes = *maxAllowed
+	for _, st := range plan.Stamps {
+		if !st.AnnotationOnly && (st.Result == oomBumpApplied || st.Result == oomBumpClamped) {
+			return
+		}
+	}
+	plan.QuietClamp = true
+	plan.QuietClampFrom = from
 }
 
 // oomBumpConsumed is an OOM signal a full revert already handled.

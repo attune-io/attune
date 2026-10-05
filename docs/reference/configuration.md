@@ -275,7 +275,7 @@ itself was admitted.
 | `cpu.minAllowed` | quantity | 1m | Minimum CPU recommendation when the field is omitted. An explicit value, including one below 1m, replaces this floor. When both bounds are set, must be less than or equal to `cpu.maxAllowed`. |
 | `cpu.maxAllowed` | quantity | (none) | Maximum CPU recommendation (for example `"4000m"`). Must not exceed 256 cores. Omitted means no maximum. |
 | `memory.minAllowed` | quantity | 4Mi | Minimum memory recommendation when the field is omitted. An explicit value replaces this floor. When both bounds are set, must be less than or equal to `memory.maxAllowed`. |
-| `memory.maxAllowed` | quantity | (none) | Maximum memory recommendation (for example `"8Gi"`). Must not exceed 16Ti. |
+| `memory.maxAllowed` | quantity | (none) | Maximum memory recommendation (for example `"8Gi"`). Must not exceed 16Ti. Omitted means no maximum. An in-hold `memory.oomBump` floor above this value is published at the cap. The stored floor is not rewritten. |
 
 The 256-core and 16Ti values are admission caps only. They reject
 oversized `maxAllowed`; they do not inject a default clamp when the
@@ -290,7 +290,11 @@ is published at the cap on this cycle. Memory `allowDecrease` defaults
 to false, so a live memory request above the max stays at the current
 request until decrease is enabled. An omitted `maxAllowed` is not
 capped. `"0"` is a real cap, not an omitted maximum. An explicit
-`minAllowed` below 1m or 4Mi replaces the built-in floor.
+`minAllowed` below 1m or 4Mi replaces the built-in floor. An in-hold
+`memory.oomBump` floor above `maxAllowed` is published at that cap on
+the next reconcile. The annotation floor and `holdUntil` stay. Default
+memory `allowDecrease` still keeps the live request until decrease is
+allowed. The recommendation records that skip.
 
 ### Cost Pricing
 
@@ -741,6 +745,8 @@ Raises the memory request after `OOMKilled`. The block is absent by default, so 
 | `oomBump.hold` | duration | `24h` when the block is set | How long the applied floor stays above a lower percentile. Minimum `1m`. Maximum `168h`. A newer OOM during the hold still steps above the live request. Auto, OneShot, and Canary record that signal on the pod. The hold stops the percentile from falling below the floor. It does not ignore a new OOM. Expiry does not clear the original request stored on the pod. |
 
 The step is `max(ceil(origin * ratio^count), origin + minBump * count)`, then `maxAllowed`. Origin is the live memory request before the first bump of the streak, not the latest live request and not the pod template. During hold, a newer OOM whose next origin step is not above the live request takes one step from that live request and keeps the original origin. Auto, OneShot, and Canary record this `oomAt` and restart on the pod. The step is still clamped to `maxAllowed`. When `maxAllowed` is already at or below the live request, Auto, OneShot, and Canary store the signal once as skipped and `count` does not increase. Recommend and Observe do not write that stamp, so the same OOM still counts as `skipped` on every reconcile. After `hold` expires, recommendations follow the normal percentile, `allowDecrease`, and template rules. A later OOM can step again from that same origin until `maxBumps`.
+
+A held floor is published again on later reconciles. If `maxAllowed` is set and that floor is above it, the published request is the cap. Omitted `maxAllowed` does not cap. The stored floor, count, and `holdUntil` stay. The clamp does not extend the hold and is not a new OOM. A new OOM step is still clamped once inside the step math and is not clamped again below `maxAllowed`. Default memory `allowDecrease` is false. A clamp below the highest in-hold pod request is not resized until decrease is allowed. That request can sit above the workload template when template persistence is off. The recommendation keeps it and records the `allowDecrease` skip. A replica still under the cap is raised only to the cap. When `allowDecrease` is true, the recommendation shows the cap. Recommend does not resize. Observe does not resize. Auto, OneShot, and Canary resize down only when decrease is allowed.
 
 A safety revert keeps the memory request at or above the bump floor. It raises a positive memory limit to that floor only when this container's effective `controlledValues` is `RequestsAndLimits`. An empty `containerPolicies` list uses `spec.memory.controlledValues`. A literal container name beats `*`, and `*` beats the policy block. A zero or missing limit is not created. `oomBump` itself is not settable on a container entry.
 

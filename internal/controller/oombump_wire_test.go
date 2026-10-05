@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	rsmetrics "github.com/attune-io/attune/internal/metrics"
 	"github.com/attune-io/attune/internal/operatormetrics"
 	"github.com/attune-io/attune/internal/safety"
 )
@@ -219,6 +220,231 @@ func TestOOMBumpRecommend_MemoryFromCPURatioWait(t *testing.T) {
 	require.NotNil(t, rec.Explanation)
 	require.NotNil(t, rec.Explanation.Memory)
 	assert.Contains(t, rec.Explanation.Memory.FinalAdjustment, "oomBump")
+}
+
+func TestOOMBumpPlan_QuietClampCountsOnce(t *testing.T) {
+	now := oomWireNow()
+	policy := oomWirePolicy("oom-wire-quiet-clamp")
+	cap256 := parsedQty(t, "256Mi")
+	policy.Spec.Memory.MaxAllowed = &cap256
+	r := &AttunePolicyReconciler{}
+	floor := qtyBytes(t, "512Mi")
+	trigger := now.Add(-time.Hour)
+	raw := oomWireRaw(t, 1, floor, floor, trigger, now.Add(time.Hour), 1)
+	pod := oomBumpPod("p", "app", "512Mi", oomKilledStatus(trigger, 1), raw, false)
+	wl := oomWireDeploy("api")
+	before := oomMetric(policy.Name, oomBumpClamped)
+
+	first := r.planContainerOOMBump(context.Background(), policy, wl, "app", false, 0, false, []corev1.Pod{pod}, now)
+	assert.True(t, first.QuietClamp)
+	assert.Equal(t, cap256.Value(), first.PublishBytes)
+	assert.NotContains(t, first.MetricNow, oomBumpClamped)
+	assert.Equal(t, before+1, oomMetric(policy.Name, oomBumpClamped))
+
+	second := r.planContainerOOMBump(context.Background(), policy, wl, "app", false, 0, false, []corev1.Pod{pod}, now)
+	assert.True(t, second.QuietClamp)
+	assert.Equal(t, before+1, oomMetric(policy.Name, oomBumpClamped))
+
+	cap128 := parsedQty(t, "128Mi")
+	policy.Spec.Memory.MaxAllowed = &cap128
+	third := r.planContainerOOMBump(context.Background(), policy, wl, "app", false, 0, false, []corev1.Pod{pod}, now)
+	assert.Equal(t, cap128.Value(), third.PublishBytes)
+	assert.Equal(t, before+2, oomMetric(policy.Name, oomBumpClamped))
+}
+
+func TestOOMBumpPlan_PercentileAboveCapIsNotAQuietClamp(t *testing.T) {
+	now := oomWireNow()
+	policy := oomWirePolicy("oom-wire-quiet-percentile")
+	cap256 := parsedQty(t, "256Mi")
+	policy.Spec.Memory.MaxAllowed = &cap256
+	r := &AttunePolicyReconciler{}
+	pod := oomBumpPod("p", "app", "512Mi", nil, "", false)
+	live := qtyBytes(t, "512Mi")
+	before := oomMetric(policy.Name, oomBumpClamped)
+
+	plan := r.planContainerOOMBump(context.Background(), policy, oomWireDeploy("api"), "app", false, live, true, []corev1.Pod{pod}, now)
+	assert.False(t, plan.QuietClamp)
+	assert.Equal(t, live, plan.PublishBytes)
+	assert.Equal(t, before, oomMetric(policy.Name, oomBumpClamped))
+
+	again := r.planContainerOOMBump(context.Background(), policy, oomWireDeploy("api"), "app", false, live, true, []corev1.Pod{pod}, now)
+	assert.False(t, again.QuietClamp)
+	assert.Equal(t, before, oomMetric(policy.Name, oomBumpClamped))
+
+	floor := live
+	trigger := now.Add(-time.Hour)
+	raw := oomWireRaw(t, 1, floor, floor, trigger, now.Add(time.Hour), 1)
+	held := oomBumpPod("p", "app", "512Mi", oomKilledStatus(trigger, 1), raw, false)
+	heldPlan := r.planContainerOOMBump(context.Background(), policy, oomWireDeploy("api"), "app", false, live, true, []corev1.Pod{held}, now)
+	assert.True(t, heldPlan.QuietClamp)
+	assert.Equal(t, cap256.Value(), heldPlan.PublishBytes)
+	assert.Equal(t, before+1, oomMetric(policy.Name, oomBumpClamped))
+}
+
+func TestOOMBumpPlan_FreshClampWaitsForResize(t *testing.T) {
+	now := oomWireNow()
+	policy := oomWirePolicy("oom-wire-fresh-clamp")
+	cap256 := parsedQty(t, "256Mi")
+	policy.Spec.Memory.MaxAllowed = &cap256
+	r := &AttunePolicyReconciler{}
+	pod := oomBumpPod("p", "app", "200Mi", oomKilledStatus(now, 1), "", false)
+	beforeClamped := oomMetric(policy.Name, oomBumpClamped)
+	beforeApplied := oomMetric(policy.Name, oomBumpApplied)
+	plan := r.planContainerOOMBump(context.Background(), policy, oomWireDeploy("api"), "app", false, 0, false, []corev1.Pod{pod}, now)
+	assert.False(t, plan.QuietClamp)
+	assert.Equal(t, cap256.Value(), plan.PublishBytes)
+	assert.NotContains(t, plan.MetricNow, oomBumpClamped)
+	assert.Equal(t, beforeClamped, oomMetric(policy.Name, oomBumpClamped))
+	assert.Equal(t, beforeApplied, oomMetric(policy.Name, oomBumpApplied))
+}
+
+func quietClampRecommendInput(policy *attunev1alpha1.AttunePolicy, pod corev1.Pod, live resource.Quantity, now time.Time, minPoints int32, memSamples []rsmetrics.Sample) recommendContainerInput {
+	cpuEng, memEng := buildRecommendationEngines(policy)
+	return recommendContainerInput{
+		policy:   policy,
+		workload: oomWireDeploy("api"),
+		container: corev1.Container{
+			Name: "app",
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceMemory: live},
+			},
+		},
+		pods:              []corev1.Pod{pod},
+		now:               now,
+		minimumDataPoints: minPoints,
+		memSamples:        memSamples,
+		cpuEngine:         cpuEng,
+		memEngine:         memEng,
+	}
+}
+
+func TestOOMBumpRecommend_QuietClampHonorsAllowDecrease(t *testing.T) {
+	now := oomWireNow()
+	floor := qtyBytes(t, "512Mi")
+	trigger := now.Add(-time.Hour)
+	raw := oomWireRaw(t, 1, floor, floor, trigger, now.Add(time.Hour), 1)
+	pod := oomBumpPod("p", "app", "512Mi", oomKilledStatus(trigger, 1), raw, false)
+	live := parsedQty(t, "512Mi")
+	r := NewAttunePolicyReconciler()
+
+	blocked := oomWirePolicy("oom-wire-quiet-block")
+	cap256 := parsedQty(t, "256Mi")
+	blocked.Spec.Memory.MaxAllowed = &cap256
+	rec, ok, _, _ := r.recommendContainer(context.Background(), quietClampRecommendInput(blocked, pod, live, now, 48, nil))
+	require.True(t, ok)
+	assert.Equal(t, live.Value(), rec.Recommended.MemoryRequest.Value())
+	require.NotNil(t, rec.Explanation)
+	require.NotNil(t, rec.Explanation.Memory)
+	assert.Contains(t, rec.Explanation.Memory.FinalAdjustment, "oomBump")
+	assert.Contains(t, rec.Explanation.Memory.FinalAdjustment, "allowDecrease=false")
+
+	allowed := oomWirePolicy("oom-wire-quiet-allow")
+	capAllowed := parsedQty(t, "256Mi")
+	allowed.Spec.Memory.MaxAllowed = &capAllowed
+	allowed.Spec.Memory.AllowDecrease = boolPtr(true)
+	recAllowed, ok, _, _ := r.recommendContainer(context.Background(), quietClampRecommendInput(allowed, pod, live, now, 48, nil))
+	require.True(t, ok)
+	assert.Equal(t, capAllowed.Value(), recAllowed.Recommended.MemoryRequest.Value())
+	require.NotNil(t, recAllowed.Explanation)
+	require.NotNil(t, recAllowed.Explanation.Memory)
+	assert.Contains(t, recAllowed.Explanation.Memory.FinalAdjustment, "oomBump")
+}
+
+func TestOOMBumpRecommend_QuietClampWithSamples(t *testing.T) {
+	now := oomWireNow()
+	floor := qtyBytes(t, "512Mi")
+	trigger := now.Add(-time.Hour)
+	raw := oomWireRaw(t, 1, floor, floor, trigger, now.Add(time.Hour), 1)
+	pod := oomBumpPod("p", "app", "512Mi", oomKilledStatus(trigger, 1), raw, false)
+	live := parsedQty(t, "512Mi")
+	samples := []rsmetrics.Sample{
+		{Value: 64 * 1024 * 1024, Timestamp: now.Add(-2 * time.Minute)},
+		{Value: 64 * 1024 * 1024, Timestamp: now.Add(-time.Minute)},
+		{Value: 64 * 1024 * 1024, Timestamp: now},
+	}
+	r := NewAttunePolicyReconciler()
+
+	blocked := oomWirePolicy("oom-wire-quiet-samples")
+	cap256 := parsedQty(t, "256Mi")
+	blocked.Spec.Memory.MaxAllowed = &cap256
+	rec, ok, _, _ := r.recommendContainer(context.Background(), quietClampRecommendInput(blocked, pod, live, now, 1, samples))
+	require.True(t, ok)
+	assert.Equal(t, live.Value(), rec.Recommended.MemoryRequest.Value())
+	require.NotNil(t, rec.Explanation)
+	require.NotNil(t, rec.Explanation.Memory)
+	assert.Contains(t, rec.Explanation.Memory.FinalAdjustment, "allowDecrease=false")
+	assert.False(t, rec.Explanation.Memory.RawPercentile.IsZero(), "estimator percentile must survive the decrease skip")
+
+	allowed := oomWirePolicy("oom-wire-quiet-samples-allow")
+	capAllowed := parsedQty(t, "256Mi")
+	allowed.Spec.Memory.MaxAllowed = &capAllowed
+	allowed.Spec.Memory.AllowDecrease = boolPtr(true)
+	recAllowed, ok, _, _ := r.recommendContainer(context.Background(), quietClampRecommendInput(allowed, pod, live, now, 1, samples))
+	require.True(t, ok)
+	assert.Equal(t, capAllowed.Value(), recAllowed.Recommended.MemoryRequest.Value())
+	require.NotNil(t, recAllowed.Explanation)
+	require.NotNil(t, recAllowed.Explanation.Memory)
+	assert.Contains(t, recAllowed.Explanation.Memory.FinalAdjustment, "oomBump")
+}
+
+func TestOOMBumpRecommend_QuietClampUsesLiveNotTemplate(t *testing.T) {
+	now := oomWireNow()
+	floor := qtyBytes(t, "512Mi")
+	trigger := now.Add(-time.Hour)
+	raw := oomWireRaw(t, 1, floor, floor, trigger, now.Add(time.Hour), 1)
+	pod := oomBumpPod("p", "app", "512Mi", oomKilledStatus(trigger, 1), raw, false)
+	template := parsedQty(t, "200Mi")
+	r := NewAttunePolicyReconciler()
+	samples := []rsmetrics.Sample{
+		{Value: 64 * 1024 * 1024, Timestamp: now.Add(-2 * time.Minute)},
+		{Value: 64 * 1024 * 1024, Timestamp: now.Add(-time.Minute)},
+		{Value: 64 * 1024 * 1024, Timestamp: now},
+	}
+
+	assertLive := func(t *testing.T, rec attunev1alpha1.ContainerRecommendation, ok bool) {
+		t.Helper()
+		require.True(t, ok)
+		assert.Equal(t, floor, rec.Recommended.MemoryRequest.Value(), "status keeps the in-hold pod request")
+		assert.Equal(t, template.Value(), rec.Current.MemoryRequest.Value(), "current stays the workload template")
+		require.NotNil(t, rec.Explanation)
+		require.NotNil(t, rec.Explanation.Memory)
+		assert.Contains(t, rec.Explanation.Memory.FinalAdjustment, "oomBump")
+		assert.Contains(t, rec.Explanation.Memory.FinalAdjustment, "allowDecrease=false")
+	}
+
+	low := oomWirePolicy("oom-wire-live-low")
+	lowCap := parsedQty(t, "256Mi")
+	low.Spec.Memory.MaxAllowed = &lowCap
+	rec, ok, _, _ := r.recommendContainer(context.Background(), quietClampRecommendInput(low, pod, template, now, 48, nil))
+	assertLive(t, rec, ok)
+
+	rich := oomWirePolicy("oom-wire-live-samples")
+	richCap := parsedQty(t, "256Mi")
+	rich.Spec.Memory.MaxAllowed = &richCap
+	rec, ok, _, _ = r.recommendContainer(context.Background(), quietClampRecommendInput(rich, pod, template, now, 1, samples))
+	assertLive(t, rec, ok)
+}
+
+func TestSuppressOOMDecrease_LeavesIncrease(t *testing.T) {
+	r := &AttunePolicyReconciler{}
+	policy := oomWirePolicy("oom-wire-suppress-raise")
+	current := parsedQty(t, "256Mi")
+	higher := parsedQty(t, "512Mi")
+	rec := &attunev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: attunev1alpha1.ResourceValues{
+			MemoryRequest: current,
+		},
+		Recommended: attunev1alpha1.ResourceValues{
+			MemoryRequest: higher,
+		},
+	}
+	explanation := &attunev1alpha1.ContainerRecommendationExplanation{
+		Memory: &attunev1alpha1.ResourceRecommendationExplanation{FinalAdjustment: "oomBump"},
+	}
+	r.suppressOOMDecrease(policy, "app", rec, explanation, nil, time.Time{})
+	assert.True(t, rec.Recommended.MemoryRequest.Equal(higher))
+	assert.Equal(t, "oomBump", explanation.Memory.FinalAdjustment)
 }
 
 func TestOOMBumpPlan_HoldThenPercentile(t *testing.T) {

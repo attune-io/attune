@@ -331,6 +331,89 @@ func TestExecuteResizes_StaleOOMBumpStillResizes(t *testing.T) {
 		assert.Equal(t, low.Name, resized[0].Name)
 		assertResizeResources(t, resized[0], "100m", "200m", "300Mi", "1Gi")
 	})
+
+	t.Run("in-hold floor above maxAllowed resizes to the cap", func(t *testing.T) {
+		pod := newResizePod("stale-oom-cap", "100m", "200Mi", "200m", "1Gi")
+		raw := oomHoldAnnotation(t, "200Mi", "512Mi", fixed.Add(time.Hour))
+		key, ok := oomBumpKey("main")
+		require.True(t, ok)
+		pod.Annotations = map[string]string{key: raw}
+		deploy := newTestDeployment("stale-oom-cap", "default", map[string]string{"app": "stale-oom-cap"})
+		reconciler, _ := newResizeReconciler(pod, deploy)
+		reconciler.SetNowFunc(func() time.Time { return fixed })
+		policy := newStaleOOMPolicy("stale-oom-cap")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeOneShot
+		cap := parsedQty(t, "256Mi")
+		policy.Spec.Memory.MaxAllowed = &cap
+		rec := newResizeRecommendation("stale-oom-cap", "500m", "200Mi", "1000m", "1Gi", "800m", "800Mi", "1600m", "2Gi")
+		rec.Stale = true
+
+		count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+			[]attunev1alpha1.WorkloadRecommendation{rec}, podMap("stale-oom-cap", pod), nil, nil)
+		assert.Equal(t, 1, count)
+		resized := resizeUpdatePods(reconciler.Clientset.(*kubefake.Clientset))
+		require.Len(t, resized, 1)
+		assertResizeResources(t, resized[0], "100m", "200m", "256Mi", "1Gi")
+	})
+
+	t.Run("live at the cap is not raised to the stored floor", func(t *testing.T) {
+		pod := newResizePod("stale-oom-atcap", "100m", "256Mi", "200m", "1Gi")
+		raw := oomHoldAnnotation(t, "200Mi", "512Mi", fixed.Add(time.Hour))
+		key, ok := oomBumpKey("main")
+		require.True(t, ok)
+		pod.Annotations = map[string]string{key: raw}
+		deploy := newTestDeployment("stale-oom-atcap", "default", map[string]string{"app": "stale-oom-atcap"})
+		reconciler, _ := newResizeReconciler(pod, deploy)
+		reconciler.SetNowFunc(func() time.Time { return fixed })
+		policy := newStaleOOMPolicy("stale-oom-atcap")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeOneShot
+		cap := parsedQty(t, "256Mi")
+		policy.Spec.Memory.MaxAllowed = &cap
+		rec := newResizeRecommendation("stale-oom-atcap", "500m", "256Mi", "1000m", "1Gi", "800m", "800Mi", "1600m", "2Gi")
+		rec.Stale = true
+
+		before := staleCount(policy)
+		count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+			[]attunev1alpha1.WorkloadRecommendation{rec}, podMap("stale-oom-atcap", pod), nil, nil)
+		assert.Equal(t, 0, count)
+		assert.Equal(t, before+1, staleCount(policy))
+		assert.Empty(t, resizeUpdatePods(reconciler.Clientset.(*kubefake.Clientset)))
+	})
+
+	t.Run("pending stamp above maxAllowed resizes to the cap", func(t *testing.T) {
+		pod := newResizePod("stale-oom-pending-cap", "100m", "200Mi", "200m", "1Gi")
+		deploy := newTestDeployment("stale-oom-pending-cap", "default", map[string]string{"app": "stale-oom-pending-cap"})
+		reconciler, _ := newResizeReconciler(pod, deploy)
+		reconciler.SetNowFunc(func() time.Time { return fixed })
+		policy := newStaleOOMPolicy("stale-oom-pending-cap")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeOneShot
+		cap := parsedQty(t, "256Mi")
+		policy.Spec.Memory.MaxAllowed = &cap
+		bump := parsedQty(t, "512Mi")
+		origin := parsedQty(t, "200Mi")
+		reconciler.oomBumps.Put(
+			string(policy.UID), policy.Namespace, policy.Name, deploy.Namespace, deploy.Name, "Deployment", "main",
+			[]oomBumpPodStamp{{
+				Namespace: pod.Namespace,
+				PodName:   pod.Name,
+				Stamp: oomBumpRecord{
+					Count: 1, Origin: origin.Value(), Floor: bump.Value(),
+					OOMAt: fixed.Add(-time.Minute), Restart: 1, HoldUntil: fixed.Add(time.Hour),
+				},
+				Result:    oomBumpApplied,
+				bumpBytes: bump.Value(),
+			}}, nil,
+		)
+		rec := newResizeRecommendation("stale-oom-pending-cap", "500m", "200Mi", "1000m", "1Gi", "800m", "800Mi", "1600m", "2Gi")
+		rec.Stale = true
+
+		count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+			[]attunev1alpha1.WorkloadRecommendation{rec}, podMap("stale-oom-pending-cap", pod), nil, nil)
+		assert.Equal(t, 1, count)
+		resized := resizeUpdatePods(reconciler.Clientset.(*kubefake.Clientset))
+		require.Len(t, resized, 1)
+		assertResizeResources(t, resized[0], "100m", "200m", "256Mi", "1Gi")
+	})
 }
 
 func TestResizeContainer_ImmediateRevertDoesNotCountOOMBump(t *testing.T) {
@@ -536,6 +619,72 @@ func assertResizeResources(t *testing.T, pod *corev1.Pod, cpuReq, cpuLim, memReq
 	assert.Equal(t, wantCPULim.MilliValue(), gotCPULim.MilliValue(), "cpu limit")
 	assert.Equal(t, wantMem.Value(), gotMem.Value(), "memory request")
 	assert.Equal(t, wantMemLim.Value(), gotMemLim.Value(), "memory limit")
+}
+
+func TestExecuteResizes_OOMClampRespectsLiveRequest(t *testing.T) {
+	oomExplain := &attunev1alpha1.ContainerRecommendationExplanation{
+		Memory: &attunev1alpha1.ResourceRecommendationExplanation{FinalAdjustment: "oomBump"},
+	}
+	run := func(t *testing.T, pods []*corev1.Pod, rec attunev1alpha1.WorkloadRecommendation) (int, []*corev1.Pod) {
+		t.Helper()
+		deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+		scheme := testScheme()
+		objs := []client.Object{deploy}
+		copies := make([]runtime.Object, 0, len(pods))
+		for _, p := range pods {
+			objs = append(objs, p)
+			copies = append(copies, p.DeepCopy())
+		}
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+		clientset := kubefake.NewSimpleClientset(copies...)
+		reconciler := NewAttunePolicyReconciler()
+		reconciler.Client = fakeClient
+		reconciler.Scheme = scheme
+		reconciler.Clientset = clientset
+
+		policy := newTestPolicy("oom-live-cap", "default")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+		policy.Spec.Memory.OOMBump = &attunev1alpha1.OOMBump{}
+		cap256 := parsedQty(t, "256Mi")
+		policy.Spec.Memory.MaxAllowed = &cap256
+
+		count, _ := reconciler.executeResizes(context.Background(), policy,
+			[]client.Object{deploy},
+			[]attunev1alpha1.WorkloadRecommendation{rec},
+			podMap("api-server", pods...), nil, nil)
+		return count, resizeUpdatePods(clientset)
+	}
+
+	t.Run("live above the cap is not resized down", func(t *testing.T) {
+		held := newResizePod("api-server", "100m", "512Mi", "200m", "1Gi")
+		rec := newResizeRecommendation("api-server", "100m", "200Mi", "200m", "1Gi", "100m", "256Mi", "200m", "1Gi")
+		rec.Containers[0].Explanation = oomExplain
+		count, resized := run(t, []*corev1.Pod{held}, rec)
+		assert.Equal(t, 0, count)
+		assert.Empty(t, resized)
+	})
+
+	t.Run("sibling is not raised above maxAllowed", func(t *testing.T) {
+		held := newResizePod("api-server", "100m", "512Mi", "200m", "1Gi")
+		sibling := newResizePod("api-server", "100m", "200Mi", "200m", "1Gi")
+		sibling.Name = "api-server-abc-2"
+		rec := newResizeRecommendation("api-server", "100m", "200Mi", "200m", "1Gi", "100m", "512Mi", "200m", "1Gi")
+		rec.Containers[0].Explanation = oomExplain
+		count, resized := run(t, []*corev1.Pod{held, sibling}, rec)
+		assert.Equal(t, 1, count)
+		require.Len(t, resized, 1)
+		assert.Equal(t, sibling.Name, resized[0].Name)
+		assertResizeResources(t, resized[0], "100m", "200m", "256Mi", "1Gi")
+	})
+
+	t.Run("without oomBump a decrease still applies", func(t *testing.T) {
+		held := newResizePod("api-server", "100m", "512Mi", "200m", "1Gi")
+		rec := newResizeRecommendation("api-server", "100m", "512Mi", "200m", "1Gi", "100m", "256Mi", "200m", "1Gi")
+		count, resized := run(t, []*corev1.Pod{held}, rec)
+		assert.Equal(t, 1, count)
+		require.Len(t, resized, 1)
+		assertResizeResources(t, resized[0], "100m", "200m", "256Mi", "1Gi")
+	})
 }
 
 func TestExecuteResizes_SkipsQoSChange(t *testing.T) {

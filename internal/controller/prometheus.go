@@ -632,6 +632,9 @@ func (r *AttunePolicyReconciler) recommendContainer(
 	}
 	memPlan := r.planContainerOOMBump(ctx, policy, workload, containerName, false, percentileBytes, percentileOK, pods, now)
 	if applyOOMBumpToRecommendation(&rec, explanation, memPlan) {
+		// OOM publish runs after the estimator decrease gate and can lower
+		// the request. Run the gate again before memChanged and limit scaling.
+		r.suppressOOMDecrease(policy, containerName, &rec, explanation, pods, now)
 		memApplied = true
 	}
 

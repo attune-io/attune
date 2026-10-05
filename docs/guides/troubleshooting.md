@@ -1266,6 +1266,20 @@ Auto, OneShot, and Canary resize to the new step. Recommend stores the recommend
 sum by (namespace, policy, result) (increase(attune_oom_bump_total[1h]))
 ```
 
+### Request stayed above maxAllowed during an OOM hold
+
+**Symptom**: `memory.oomBump` is set, `holdUntil` is still in the future, `memory.maxAllowed` is below the stored floor, and the live memory request is still above that cap.
+
+**Cause**: Default memory `allowDecrease` is false. The operator publishes the cap, then the decrease gate keeps the highest in-hold pod request. That request is not the workload template. Template persistence defaults to off, so the pod can stay above both the template and the cap. `explanation.memory.finalAdjustment` on the recommendation contains `allowDecrease=false`. The stored floor is not rewritten, and the hold is not extended. `attune_oom_bump_total{result="clamped"}` increments once for that floor and cap per operator process, not on every reconcile. Recommend keeps the live request in status and does not resize. Observe does not resize. When `memory.allowDecrease` is true, the recommendation shows the cap, and Auto, OneShot, and Canary can resize down to it.
+
+Omitting `maxAllowed` does not cap the held floor.
+
+**Fix**: Set `memory.allowDecrease` to true if the request should fall to the new cap during the hold.
+
+```promql
+sum by (namespace, policy) (increase(attune_oom_bump_total{result="clamped"}[1h]))
+```
+
 ### Revert failures
 
 **Symptom**: Entries in `.status.resizeHistory` show `result: Failed`, or

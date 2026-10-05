@@ -363,6 +363,37 @@ func highestHeldBump(records []oomBumpRecord, now time.Time) (oomBumpRecord, boo
 	return best, found
 }
 
+// maxInHoldLiveMemory is the highest live memory request on pods whose
+// oom-bump annotation for container is still inside holdUntil. Floor must
+// be positive. Expired and missing annotations do not count.
+func maxInHoldLiveMemory(pods []corev1.Pod, container string, now time.Time) (resource.Quantity, bool) {
+	key, ok := oomBumpKey(container)
+	if !ok {
+		return resource.Quantity{}, false
+	}
+	var best resource.Quantity
+	found := false
+	for i := range pods {
+		rec, parsed := parseOOMBumpRecord(pods[i].Annotations[key])
+		if !parsed || rec.Floor <= 0 || !now.Before(rec.HoldUntil) {
+			continue
+		}
+		c := findContainerByName(&pods[i], container)
+		if c == nil || c.Resources.Requests == nil {
+			continue
+		}
+		live, exists := c.Resources.Requests[corev1.ResourceMemory]
+		if !exists {
+			continue
+		}
+		if !found || live.Cmp(best) > 0 {
+			best = live
+			found = true
+		}
+	}
+	return best, found
+}
+
 // activeBumpFloor is the request a memory revert must not go below while
 // holdUntil is in the future.
 func activeBumpFloor(stored *oomBumpRecord, now time.Time) (int64, bool) {

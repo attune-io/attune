@@ -205,6 +205,7 @@ func (r *AttunePolicyReconciler) applyLiveResizeTarget(
 		margin = float64(*policy.Spec.Memory.DecreaseUsageMarginPercent)
 	}
 	current := liveContainerCurrent(pod, containerRec).MemoryLimit
+	target = pinOOMMemoryWhenDecreaseBlocked(policy, pod, containerRec, target)
 	applied, resMeta := resize.ResolveAppliedTarget(resize.ResolveInput{
 		Target:                     target,
 		Pod:                        pod,
@@ -256,6 +257,55 @@ func (r *AttunePolicyReconciler) applyLiveResizeTarget(
 		meta.DestClamped = resize.ClampRequestsToLimits(&applied)
 	}
 	return applied, meta
+}
+
+// pinOOMMemoryWhenDecreaseBlocked runs before ResolveAppliedTarget.
+// An oomBump publish must not lower a live memory request while decrease
+// is blocked, and must not raise a replica above maxAllowed. A later
+// Guaranteed multiplier can still raise the request above that cap.
+func pinOOMMemoryWhenDecreaseBlocked(
+	policy *attunev1alpha1.AttunePolicy,
+	pod *corev1.Pod,
+	containerRec attunev1alpha1.ContainerRecommendation,
+	target corev1.ResourceRequirements,
+) corev1.ResourceRequirements {
+	if pod == nil || target.Requests == nil {
+		return target
+	}
+	if containerRec.Explanation == nil || containerRec.Explanation.Memory == nil {
+		return target
+	}
+	if !strings.Contains(containerRec.Explanation.Memory.FinalAdjustment, "oomBump") {
+		return target
+	}
+	_, memOK := containerDecreaseAllowed(policy, containerRec.Name)
+	if memOK {
+		return target
+	}
+	desired, ok := target.Requests[corev1.ResourceMemory]
+	if !ok {
+		return target
+	}
+	var live resource.Quantity
+	if c := findContainerByName(pod, containerRec.Name); c != nil && c.Resources.Requests != nil {
+		if q, exists := c.Resources.Requests[corev1.ResourceMemory]; exists {
+			live = q
+		}
+	}
+	if live.Cmp(desired) > 0 {
+		target.Requests[corev1.ResourceMemory] = live.DeepCopy()
+		return target
+	}
+	cap := oomBumpMaxAllowed(effectiveMemoryMaxAllowed(policy, containerRec.Name))
+	if cap == nil || desired.Value() <= *cap {
+		return target
+	}
+	if live.Value() >= *cap {
+		target.Requests[corev1.ResourceMemory] = live.DeepCopy()
+		return target
+	}
+	target.Requests[corev1.ResourceMemory] = *resource.NewQuantity(*cap, resource.BinarySI)
+	return target
 }
 
 // resourceControlledRequestsOnly is true when the policy does not manage
