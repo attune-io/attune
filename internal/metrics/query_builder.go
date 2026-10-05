@@ -420,7 +420,7 @@ func cloudWatchControllerAlt(alt string) string {
 	const (
 		podHash = `-[a-z0-9]{5}`
 		index   = `-[0-9]+`
-		stamp   = `-[0-9]{10}`
+		stamp   = `-[0-9]{8,9}`
 		rsHash  = `-[a-z0-9]+`
 	)
 	switch {

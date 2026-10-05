@@ -702,12 +702,12 @@ func TestGetPodRegex(t *testing.T) {
 		{
 			name:     "CronJob uses timestamp and hash suffix pattern",
 			workload: &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: "nightly-report"}},
-			want:     "nightly-report-[0-9]{10}-[a-z0-9]{5}",
+			want:     "nightly-report-[0-9]{8,9}-[a-z0-9]{5}",
 		},
 		{
 			name:     "Indexed CronJob uses timestamp, index, and hash suffix pattern",
 			workload: &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: "nightly-report"}, Spec: batchv1.CronJobSpec{JobTemplate: batchv1.JobTemplateSpec{Spec: batchv1.JobSpec{CompletionMode: ptrCompletionMode(batchv1.IndexedCompletion)}}}},
-			want:     "nightly-report-[0-9]{10}-[0-9]+-[a-z0-9]{5}",
+			want:     "nightly-report-[0-9]{8,9}-[0-9]+-[a-z0-9]{5}",
 		},
 	}
 
@@ -1849,8 +1849,49 @@ func TestGetPodRegex_BatchPatternsDoNotMatchSimilarlyNamedWorkloads(t *testing.T
 	assert.False(t, jobRegex.MatchString("data-migrate-v2-abc12"))
 
 	cronRegex := regexp.MustCompile("^" + r.getPodRegex(&batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: "nightly-report"}}) + "$")
-	assert.True(t, cronRegex.MatchString("nightly-report-1716116400-abc12"))
-	assert.False(t, cronRegex.MatchString("nightly-report-v2-1716116400-abc12"))
+	assert.True(t, cronRegex.MatchString("nightly-report-28601940-abc12"))
+	assert.False(t, cronRegex.MatchString("nightly-report-v2-28601940-abc12"))
+	assert.False(t, cronRegex.MatchString("nightly-report-1716116400-abc12"), "10-digit Unix seconds is not a CronJob Job stamp")
+}
+
+// TestGetPodRegex_CronJobMinuteStamp pins the CronJob Job-name stamp: the
+// CronJob controller names each Job <cronjob>-<scheduledTime.Unix()/60>,
+// which is 8 digits today and 9 from 2160, never 10-digit Unix seconds.
+func TestGetPodRegex_CronJobMinuteStamp(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+	cronJob := func(indexed bool) *batchv1.CronJob {
+		cj := &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: "nightly"}}
+		if indexed {
+			cj.Spec.JobTemplate.Spec.CompletionMode = ptrCompletionMode(batchv1.IndexedCompletion)
+		}
+		return cj
+	}
+
+	tests := []struct {
+		name    string
+		indexed bool
+		pod     string
+		want    bool
+	}{
+		{"8-digit minute stamp", false, "nightly-29453760-fghij", true},
+		{"9-digit minute stamp", false, "nightly-100000000-fghij", true},
+		{"10-digit seconds stamp", false, "nightly-1767225600-fghij", false},
+		{"7-digit stamp", false, "nightly-2945376-fghij", false},
+		{"indexed pod against non-indexed template", false, "nightly-29453760-3-fghij", false},
+		{"sibling cronjob", false, "nightly-v2-29453760-fghij", false},
+		{"indexed 8-digit minute stamp", true, "nightly-29453760-3-fghij", true},
+		{"indexed 9-digit minute stamp", true, "nightly-100000000-12-fghij", true},
+		{"indexed 10-digit seconds stamp", true, "nightly-1767225600-3-fghij", false},
+		{"non-indexed pod against indexed template", true, "nightly-29453760-fghij", false},
+		{"indexed job name only", true, "nightly-29453760", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			re := regexp.MustCompile("^(?:" + r.getPodRegex(cronJob(tt.indexed)) + ")$")
+			assert.Equal(t, tt.want, re.MatchString(tt.pod))
+		})
+	}
 }
 
 func TestForgetPolicyRuntimeState_RecreateStartsFullBucket(t *testing.T) {

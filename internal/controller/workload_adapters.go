@@ -281,9 +281,9 @@ func (a *cronJobAdapter) IsRollingOut() bool { return false }
 
 func (a *cronJobAdapter) PodNameRegexSuffix() string {
 	if a.Spec.JobTemplate.Spec.CompletionMode != nil && *a.Spec.JobTemplate.Spec.CompletionMode == batchv1.IndexedCompletion {
-		return "-[0-9]{10}-[0-9]+-[a-z0-9]{5}"
+		return "-[0-9]{8,9}-[0-9]+-[a-z0-9]{5}"
 	}
-	return "-[0-9]{10}-[a-z0-9]{5}"
+	return "-[0-9]{8,9}-[a-z0-9]{5}"
 }
 
 func (a *cronJobAdapter) IsBatch() bool { return true }
