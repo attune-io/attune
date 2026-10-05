@@ -10,6 +10,13 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### Tracking annotations no longer conflict with status writes
+
+Attune writes resize tracking labels and annotations with a merge patch.
+A kubelet status update no longer conflicts with that write, so a resize
+that already applied is not reverted just because the status resourceVersion
+changed. No policy edit and no CRD change are needed.
+
 ### Safety observation waits until the resize is applied
 
 The safety observation period now waits while the kubelet still reports

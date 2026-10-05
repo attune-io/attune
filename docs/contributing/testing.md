@@ -55,8 +55,8 @@ updated correctly.
 `test/integration/api_fault_test.go` adds scripted API faults via a
 controller-runtime client interceptor (timeout after a committed status
 write, two status 409s then success, a manager restart mid-reconcile,
-timeout after a committed pod annotation persist, and two pod-Update
-409s then success). Those cases use a dedicated envtest control plane
+timeout after a committed pod annotation persist, and two pod
+merge-patch 409s then success). Those cases use a dedicated envtest control plane
 so they do not race the shared TestMain manager.
 
 Envtest has no kubelet and no cAdvisor. It cannot exercise in-place

@@ -60,8 +60,8 @@ import (
 //     exercised the way a live node does)
 //   - cAdvisor / Prometheus scrape
 // Those stay in test/e2e and test/e2e-go (MemoryPressure, OOMKill, scrape).
-// These tests intercept AttunePolicy status Patch/Update and Pod
-// annotation persist (r.Update). They do not call kubelet /resize.
+// These tests intercept AttunePolicy status Patch/Update and the Pod
+// tracking merge patch. They do not call kubelet /resize.
 
 // faultMgrSeq keeps controller names unique across -count=N reruns in
 // the same process (controller-runtime names are process-global).
@@ -505,27 +505,27 @@ func TestAPIFault_ManagerRestartMidReconcile(t *testing.T) {
 }
 
 // TestAPIFault_TimeoutAfterCommittedAnnotationPersist lets the apiserver
-// commit a pod Update that writes resize-tracking annotations, then returns
-// a timeout to persistResizeAnnotations. Persist must treat the landed
-// write as success so resizeContainer does not revert. A second persist
-// must not duplicate resized-containers. This is persist only; envtest
-// still has no kubelet /resize.
+// commit a pod merge patch that writes resize-tracking annotations, then
+// returns a timeout to persistResizeAnnotations. Persist must treat the
+// landed write as success so resizeContainer does not revert. A second
+// persist must not duplicate resized-containers. This is persist only;
+// envtest still has no kubelet /resize.
 func TestAPIFault_TimeoutAfterCommittedAnnotationPersist(t *testing.T) {
 	cfg, plain := startIsolatedEnvtest(t)
 	pod := createPersistPod(t, plain, "fault-persist-timeout", "persist-app")
 	rec := persistContainerRec(t)
 	now := metav1.NewTime(time.Date(2026, 2, 1, 15, 0, 0, 0, time.UTC))
 
-	var podUpdates atomic.Int32
+	var podPatches atomic.Int32
 	intercepted := interceptor.NewClient(plain, interceptor.Funcs{
-		Update: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+		Patch: func(ctx context.Context, cl client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
 			if !isPodObject(obj) {
-				return cl.Update(ctx, obj, opts...)
+				return cl.Patch(ctx, obj, patch, opts...)
 			}
-			if err := cl.Update(ctx, obj, opts...); err != nil {
+			if err := cl.Patch(ctx, obj, patch, opts...); err != nil {
 				return err
 			}
-			if podUpdates.Add(1) == 1 {
+			if podPatches.Add(1) == 1 {
 				return apierrors.NewTimeoutError("injected timeout after committed annotation persist", 0)
 			}
 			return nil
@@ -538,7 +538,7 @@ func TestAPIFault_TimeoutAfterCommittedAnnotationPersist(t *testing.T) {
 		context.Background(), working, rec, "policy-persist", "persist-app", now, 3)
 	require.NoError(t, firstErr, "committed persist plus client timeout must succeed after confirm GET")
 	assert.Empty(t, reason)
-	assert.GreaterOrEqual(t, podUpdates.Load(), int32(1), "interceptor must commit then fail")
+	assert.GreaterOrEqual(t, podPatches.Load(), int32(1), "interceptor must commit then fail")
 
 	var afterTimeout corev1.Pod
 	require.NoError(t, plain.Get(context.Background(), types.NamespacedName{
@@ -563,7 +563,7 @@ func TestAPIFault_TimeoutAfterCommittedAnnotationPersist(t *testing.T) {
 }
 
 // TestAPIFault_AnnotationPersist409ThenSuccess returns Conflict on the first
-// two pod Updates, then passthrough. persistResizeAnnotations retries
+// two pod merge patches, then passthrough. persistResizeAnnotations retries
 // conflicts and must leave tracking annotations once.
 func TestAPIFault_AnnotationPersist409ThenSuccess(t *testing.T) {
 	cfg, plain := startIsolatedEnvtest(t)
@@ -573,9 +573,9 @@ func TestAPIFault_AnnotationPersist409ThenSuccess(t *testing.T) {
 
 	var conflicts atomic.Int32
 	intercepted := interceptor.NewClient(plain, interceptor.Funcs{
-		Update: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+		Patch: func(ctx context.Context, cl client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
 			if !isPodObject(obj) {
-				return cl.Update(ctx, obj, opts...)
+				return cl.Patch(ctx, obj, patch, opts...)
 			}
 			if n := conflicts.Add(1); n <= 2 {
 				return apierrors.NewConflict(
@@ -584,7 +584,7 @@ func TestAPIFault_AnnotationPersist409ThenSuccess(t *testing.T) {
 					fmt.Errorf("injected pod persist conflict %d", n),
 				)
 			}
-			return cl.Update(ctx, obj, opts...)
+			return cl.Patch(ctx, obj, patch, opts...)
 		},
 	})
 
