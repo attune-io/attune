@@ -403,7 +403,7 @@ func MergeResourceConfig(policy *attunev1alpha1.ResourceConfig, defaults *attune
 	// An empty multiplier is unset. The pre-copy mode still copies when a
 	// real policy omitted controlledValues and defaults are RequestsOnly.
 	// Folding defaults layers passes skipRequestsOnlyMultiplier false.
-	if !(skipRequestsOnlyMultiplier && explicitRequestsOnly) &&
+	if (!skipRequestsOnlyMultiplier || !explicitRequestsOnly) &&
 		(policy.LimitMultiplier == nil || *policy.LimitMultiplier == "") &&
 		defaults.LimitMultiplier != nil && *defaults.LimitMultiplier != "" {
 		policy.LimitMultiplier = defaults.LimitMultiplier
