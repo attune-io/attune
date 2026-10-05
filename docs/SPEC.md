@@ -77,12 +77,12 @@ in-place resize. It exists to make VPA obsolete by delivering:
 | What competitors use | right-sizer: Go 1.25, OptiPod: Go 1.24.6, VPA: Go |
 | What model operators use | CloudNativePG: Go 1.26.3, Kyverno: Go 1.26.2 |
 
-### 2.2 Framework: Kubebuilder v4 + controller-runtime v0.25.1
+### 2.2 Framework: Kubebuilder v4 + controller-runtime v0.25.2
 
 | Component | Version | Purpose |
 |-----------|---------|---------|
 | Kubebuilder | v4.14.0 | Project scaffolding, Makefile, CRD generation |
-| controller-runtime | v0.25.1 | Controller lifecycle, reconciliation, caching, webhooks |
+| controller-runtime | v0.25.2 | Controller lifecycle, reconciliation, caching, webhooks |
 | client-go | v0.37.1 | K8s API access, `/resize` subresource calls |
 | k8s.io/api | v0.37.1 | K8s type definitions |
 | k8s.io/apimachinery | v0.37.1 | Resource quantities, conditions, meta types |
@@ -92,7 +92,7 @@ Kubebuilder provides the cleanest scaffolding. Operator SDK adds OLM bundle gene
 of the same controller-runtime foundation. We can add Operator SDK later for OperatorHub
 distribution.
 
-**Why controller-runtime v0.25.1**: PriorityQueue (default since v0.23.0) enables prioritizing
+**Why controller-runtime v0.25.2**: PriorityQueue (default since v0.23.0) enables prioritizing
 resize reconciliations for critical pods. Subresource Apply support enables clean SSA patches
 to the `/resize` subresource. Generic Validator/Defaulter webhooks provide type-safe CRD
 validation.
@@ -113,7 +113,7 @@ The official Prometheus Go client for querying (not exposing metrics). Returns t
 go 1.27.1
 
 # Core
-sigs.k8s.io/controller-runtime          v0.25.1
+sigs.k8s.io/controller-runtime          v0.25.2
 k8s.io/client-go                        v0.37.1
 k8s.io/api                              v0.37.1
 k8s.io/apimachinery                     v0.37.1

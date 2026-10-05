@@ -4,7 +4,7 @@
 
 Attune: Kubernetes operator for in-place pod resource right-sizing (VPA replacement).
 Requires Kubernetes 1.32+ (In-Place Pod Resize; 1.32 alpha with feature gate, 1.33–1.34 beta enabled by default, 1.35+ GA). Built with Go 1.27.1,
-controller-runtime v0.25.1, Kubebuilder v4, K8s API v0.37.1.
+controller-runtime v0.25.2, Kubebuilder v4, K8s API v0.37.1.
 
 **Naming convention:** "Attune" (capitalized) in prose and documentation.
 `attune` (lowercase) in code, packages, namespaces, Prometheus metrics
@@ -174,7 +174,8 @@ call for a resource type, check:
 
 1. Does the RBAC marker include `list` and `watch`? If not, add them.
 2. Is the resource in `DisableFor` (`cmd/manager/main.go`)? If yes,
-   it bypasses the cache and only needs `get`.
+   Get and List bypass the cache and use the live API reader.
+   Secrets only need `get`. A type that is listed also needs `list`.
 
 **When changing a client call's verb** (e.g., `r.Update()` to `r.Patch()`,
 or `r.Get()` to `r.List()`), the RBAC marker must also be updated. The
@@ -204,8 +205,11 @@ the RBAC marker was initially placed in `internal/metrics/tlsprofile.go`. Runnin
 package. Moving the marker to `internal/controller/attunepolicy_controller.go`
 fixed it.
 
-Currently, Secrets are the only resource in `DisableFor` (get-only is safe).
-All other resources accessed via the client need `list`/`watch`.
+Currently, `DisableFor` lists Secrets and the Argo Rollout type.
+Secrets are get-only. Rollout is there so the manager starts when
+the Rollout CRD is missing; Get and List use the live API reader.
+Do not remove Rollout from `DisableFor`. All other resources
+accessed via the client need `list`/`watch`.
 
 ### Adding a new defaultable field
 
@@ -567,8 +571,8 @@ directory. When referencing files elsewhere in the repo (e.g., `charts/`,
   experimental) in parallel (max-parallel: 4); each version creates a
   fresh k3d cluster. 1.32 stays for the alpha `/resize` feature-gate
   path. Add 1.38 when k3s or kindest/node ships an image.
-- Concurrency groups use `cancel-in-progress: false` on main; PRs targeting
-  main will not cancel in-flight CI runs
+- Main CI runs are not canceled. A new push to an open pull request
+  cancels that pull request's in-progress CI run.
 
 ## Safety
 
