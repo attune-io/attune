@@ -810,6 +810,9 @@ func validateSchedule(schedule *attunev1alpha1.ResizeSchedule) error {
 		if err := validateHHMM(fmt.Sprintf("schedule.windows[%d].end", i), w.End); err != nil {
 			return err
 		}
+		if w.Start == w.End {
+			return fmt.Errorf("updateStrategy.schedule.windows[%d] is empty: start and end are both %q, and the end minute is exclusive", i, w.Start)
+		}
 	}
 
 	return nil

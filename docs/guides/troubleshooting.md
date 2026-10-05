@@ -822,6 +822,21 @@ kubectl patch attunepolicy <name> --type merge \
 The same merge patch works on `attunedefaults` and
 `attunenamespacedefaults`.
 
+### Schedule window never opens
+
+**Symptom:** ScheduleBlocked is True with reason `OutsideWindow` at
+every hour, including the minute you set. The message says the window
+never opens. `attune_schedule_skipped_total` increases on each resize
+reconcile.
+
+**Cause:** The window start and end are the same minute, such as
+`02:00` to `02:00`. The end minute is exclusive, so that pair matches
+no time.
+
+**Fix:** Set the end to a later minute, or to an earlier minute when
+the window should run overnight (`22:00` to `06:00`). Creating or
+updating a policy or defaults object with an equal pair is rejected.
+
 ## Webhook / cert-manager issues
 
 ### Webhook connection refused

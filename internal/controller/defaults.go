@@ -187,10 +187,12 @@ func isWithinResizeWindow(schedule *attunev1alpha1.ResizeSchedule, now time.Time
 	for _, w := range schedule.Windows {
 		start := parseHHMM(w.Start)
 		end := parseHHMM(w.End)
-		if start < 0 || end < 0 {
+		if start < 0 || end < 0 || start == end {
+			// Unparseable times and an equal pair never match. The end
+			// minute is exclusive, so start == end covers no minute.
 			continue
 		}
-		if start <= end {
+		if start < end {
 			// Normal window: e.g. 02:00-06:00
 			if nowMinutes >= start && nowMinutes < end {
 				if len(schedule.DaysOfWeek) > 0 && !isDayAllowed(localNow.Weekday(), schedule.DaysOfWeek) {
@@ -230,6 +232,25 @@ func isDayAllowed(day time.Weekday, allowed []string) bool {
 		}
 	}
 	return false
+}
+
+// scheduleWindowsNeverOpen reports that every configured window parses
+// and has the same start and end. The end minute is exclusive, so that
+// pair never matches. An empty list is not this case: no windows means
+// every time is allowed. A window that does not parse is not this case
+// either; the status message must not claim the times are equal.
+func scheduleWindowsNeverOpen(schedule *attunev1alpha1.ResizeSchedule) bool {
+	if schedule == nil || len(schedule.Windows) == 0 {
+		return false
+	}
+	for _, w := range schedule.Windows {
+		start := parseHHMM(w.Start)
+		end := parseHHMM(w.End)
+		if start < 0 || end < 0 || start != end {
+			return false
+		}
+	}
+	return true
 }
 
 // parseHHMM parses "HH:MM" into minutes since midnight. Returns -1 on error.

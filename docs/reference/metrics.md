@@ -97,7 +97,8 @@ Total number of webhook admission decisions.
 ### attune_schedule_skipped_total
 
 Total resize cycles skipped because the current time is outside the
-configured schedule window.
+configured schedule window. A window whose start and end are the same
+minute is also counted here, because that window never opens.
 
 | Label | Description |
 |-------|-------------|

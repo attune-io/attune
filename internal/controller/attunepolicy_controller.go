@@ -765,8 +765,12 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		logger.Info("Outside resize window, skipping resize")
 		operatormetrics.ScheduleSkippedTotal.WithLabelValues(policy.Namespace, policy.Name).Inc()
 		if r.Recorder != nil {
+			skipMsg := "Resize deferred: outside configured schedule window"
+			if scheduleWindowsNeverOpen(policy.Spec.UpdateStrategy.Schedule) {
+				skipMsg = "Resize deferred: schedule window start and end are the same, so the window never opens"
+			}
 			r.Recorder.Eventf(&policy, nil, corev1.EventTypeNormal, "ScheduleSkipped", "resize",
-				"Resize deferred: outside configured schedule window")
+				skipMsg)
 		}
 	}
 
