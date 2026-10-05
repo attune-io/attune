@@ -23,7 +23,10 @@ still clamp. The usage floor (`memory.decreaseUsageMarginPercent`, default
 
 Creating or updating AttuneNamespaceDefaults now requires the admission
 user to get each Secret named by `bearerTokenSecret`, `apiKeySecretRef`,
-or `tokenSecretRef`, in that object's namespace. A missing
+or `tokenSecretRef`, in that object's namespace. An object already
+stored keeps using those Secret refs. No edit and no CRD change are
+needed.
+The next update of that object runs the check. A missing
 SubjectAccessReview still allows the object, same as a policy. Cluster
 AttuneDefaults is unchanged and still warns.
 
