@@ -291,11 +291,23 @@ make test-e2e-go       # Go E2E (requires local k3d or Kind cluster with Prometh
 make test-e2e-smoke    # one Chainsaw scenario + one Go E2E smoke test
 ```
 
-For a full local validation including lint, helm, and CRD freshness:
+For the local gate (lint, tests, Helm, govulncheck, and generated files):
 
 ```bash
-make verify        # all CI checks locally
+make verify
 ```
+
+Docs or Helm file changes also need the strict site build. CI Docs
+Check runs it. `make verify` does not:
+
+```bash
+make docs-build
+```
+
+`make verify` does not run benchmarks, end-to-end tests, the image
+build, workflow lint, or link check. Those jobs run in GitHub Actions.
+Benchmarks locally are `make test-bench`. End-to-end tests need a
+cluster (`make test-e2e` and `make test-e2e-go`).
 
 ## Test organization
 

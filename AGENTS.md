@@ -35,7 +35,8 @@ controller-runtime v0.25.2, Kubebuilder v4, K8s API v0.37.1.
 - Helm lint + template validation: `make helm-lint`
 - Doc defaults consistency check: `make verify-doc-defaults`
 - Fast pre-commit checks: `make verify-quick` (no integration tests or govulncheck)
-- All CI checks locally: `make verify`
+- Local gate: `make verify` (lint, unit and integration tests, Helm, govulncheck, generated files)
+- Docs strict build: `make docs-build` (CI Docs Check; not part of `make verify`)
 - Clean build artifacts: `make clean`
 - Local cluster (k3d): `make k3d-create && make k3d-deploy IMG=attune:e2e`
 - Local cluster (Kind): `make kind-create && make kind-deploy IMG=attune:e2e`
@@ -582,7 +583,7 @@ directory. When referencing files elsewhere in the repo (e.g., `charts/`,
   `make verify-release-artifacts` fails: `make build-installer` and
   `make build-crds`, then `git add -f dist/install.yaml dist/crds.yaml`.
   PR CI's "CRD Freshness Check" enforces this (see #454).
-- Run `make verify` before committing (covers lint, test, helm-docs, CRD freshness)
+- Run `make verify` before committing (lint, tests, Helm, govulncheck, generated files). Docs or Helm file changes also need `make docs-build`. Benchmarks, end-to-end tests, the image build, workflow lint, and link check stay in GitHub Actions.
 - After running `make deploy`, `make k3d-deploy`, or `make kind-deploy`, restore
   `git checkout config/manager/kustomization.yaml` before committing
   (kustomize edit set image mutates this file)

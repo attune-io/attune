@@ -37,7 +37,8 @@ go mod download
 make build
 make build-plugin
 
-# Run all CI checks locally (lint, test, helm-docs, CRD freshness)
+# Local gate: lint, tests, Helm, govulncheck, and generated files.
+# For docs changes, also run: make docs-build
 make verify
 
 # After CRD/API or RBAC changes, refresh release manifests (dist/install.yaml
@@ -154,6 +155,10 @@ mkdocs serve
 Then open `http://127.0.0.1:8000`. Changes to markdown files reload
 automatically.
 
+CI Docs Check runs `make docs-build` (`mkdocs build --strict`) when
+docs or Helm files change. `make verify` does not run that build.
+Run `make docs-build` before a documentation pull request.
+
 ### Editing docs
 
 - Every markdown file under `docs/` must start with a `# Title` heading.
@@ -244,7 +249,7 @@ as accepted.
 1. Fork the repository and create a branch from `main`
 2. Make your changes with tests
 3. Sign off every commit (`git commit -s`)
-4. Run `make verify` to run all CI checks locally
+4. Run `make verify`. For documentation changes, also run `make docs-build`
 5. Submit a pull request
 
 ### Commit Messages

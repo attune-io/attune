@@ -93,9 +93,13 @@ make kind-deploy IMG=attune:e2e
 make lint
 ```
 
-The full local gate is `make verify` (or `make verify-quick` without
-integration tests and govulncheck). Those Makefile targets are the
-source of truth for what CI runs. See CONTRIBUTING.md.
+The local gate is `make verify` (or `make verify-quick` without
+integration tests and govulncheck). It covers lint, unit and
+integration tests, Helm, govulncheck, and generated files. The
+Makefile target list is the source of truth for that gate. CI also
+runs `make docs-build` when docs or Helm files change, plus
+benchmarks, end-to-end tests, the image build, workflow lint, and
+link check. See CONTRIBUTING.md.
 
 Auto-fix lint issues:
 
