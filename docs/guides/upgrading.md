@@ -10,6 +10,17 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### HPA retune retries a conflicting write
+
+A conflicting update of an auto-tuned HorizontalPodAutoscaler is retried.
+The next attempt reads the HPA again and writes the same pending target.
+Annotations set by another controller stay. A non-conflict error is still
+logged and is not retried until that workload is resized again. An HPA
+that already lost a retune keeps the stale target until the next resize.
+This does not scan HPAs that were missed before the upgrade. Recommend
+and Observe still do not retune. No policy edit and no CRD change are
+needed.
+
 ### Tracking annotations no longer conflict with status writes
 
 Attune writes resize tracking labels and annotations with a merge patch.
