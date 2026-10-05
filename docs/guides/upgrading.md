@@ -400,14 +400,19 @@ default, including when a policy omits cooldown and inherits `0s` from
 `AttuneDefaults` or `AttuneNamespaceDefaults`. An update that leaves that
 stored `0s` unchanged is accepted on `AttunePolicy`, `AttuneDefaults`, and
 `AttuneNamespaceDefaults`, including the update that removes the finalizer,
-so the object can be deleted. A create that sets `0s`, or an update that
-changes a positive duration to `0s`, is still rejected. Omit the field for
-the 1h default, or set at least `1m`. The same admission rule applies to
-`safetyObservationPeriod` (a stored `0s` is unset, so the controller uses
-5m or a positive canary period) and an SLO `evaluationWindow` (a stored
-`0s` uses 5m). Canary `observationPeriod: 0s` still means the built-in
-observation period. `historyWindow` below 1h stays rejected on every write,
-including an unchanged `0s`.
+so the object can be deleted. Attune adds no finalizer to defaults objects.
+On a defaults object, an unrelated edit is accepted, including removing a
+finalizer that another tool added. Defaults have no delete-time skip, so
+another invalid field still blocks the edit. A create that sets `0s`, or an
+update that changes a positive duration to `0s`, is still rejected. Omit the
+field for the 1h default, or set at least `1m`. The same admission rule
+applies to `safetyObservationPeriod` (a stored `0s` is unset, so the
+controller uses 5m or a positive canary period) and an SLO
+`evaluationWindow` (a stored `0s` uses 5m, and is accepted only when the
+stored entry at the same list index is also `0s`). Canary
+`observationPeriod: 0s` still means the built-in observation period.
+`historyWindow` below 1h stays rejected on every write, including an
+unchanged `0s`.
 
 ### Datadog null points
 

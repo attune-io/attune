@@ -762,10 +762,13 @@ at least 1h`.
 
 **Cause**: Zero is not a wait. Admission rejects a new `0s`. An object
 that already stores `0s` can be edited and deleted while that value
-stays. That includes AttuneDefaults and AttuneNamespaceDefaults. The
-controller still maps a cooldown of `0s` to 1h after defaults merge. A
-stored `safetyObservationPeriod` of `0s` is unset (5m, or a positive
-canary period). A stored SLO `evaluationWindow` of `0s` uses 5m. Canary
+stays. That includes AttuneDefaults and AttuneNamespaceDefaults. Attune
+adds no finalizer to defaults objects. Defaults have no delete-time skip,
+so another invalid field still blocks the edit. The controller still maps
+a cooldown of `0s` to 1h after defaults merge. A stored
+`safetyObservationPeriod` of `0s` is unset (5m, or a positive canary
+period). A stored SLO `evaluationWindow` of `0s` uses 5m, and is accepted
+only when the stored entry at the same list index is also `0s`. Canary
 `observationPeriod: 0s` is different: omitted and `0s` both mean the
 built-in observation period.
 
