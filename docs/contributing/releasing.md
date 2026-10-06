@@ -170,6 +170,10 @@ local noise).
   older fixtures
 - [ ] GitHub Actions billing is active (the release workflow uses
   `ubuntu-latest`, not self-hosted runners)
+- [ ] OperatorHub cluster rules match `config/rbac/role.yaml`.
+  `make sync-olm-rbac` copies them into the CSV template. The
+  leases rule stays. `make generate-olm-bundle` copies them into
+  the bundle it writes.
 
 ## Patch releases
 

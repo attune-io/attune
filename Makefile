@@ -493,11 +493,20 @@ generate-olm-bundle: manifests ## Generate OLM bundle for OperatorHub submission
 	sed "s/__VERSION__/$$VERSION/g; s/__DATE__/$$DATE/g; s/__ICON_BASE64__/$$ICON_B64/g; s|__IMAGE_DIGEST__|$$IMAGE_DIGEST|g" \
 		config/olm/template/manifests/attune.clusterserviceversion.yaml \
 		> "$$BUNDLE_DIR/manifests/attune.clusterserviceversion.yaml" && \
+	go run ./hack/sync-olm-rbac \
+		-role config/rbac/role.yaml \
+		-csv "$$BUNDLE_DIR/manifests/attune.clusterserviceversion.yaml" && \
 	cp config/olm/template/metadata/annotations.yaml "$$BUNDLE_DIR/metadata/" && \
 	cp config/crd/bases/attune.io_attunepolicies.yaml "$$BUNDLE_DIR/manifests/" && \
 	cp config/crd/bases/attune.io_attunedefaults.yaml "$$BUNDLE_DIR/manifests/" && \
 	cp config/crd/bases/attune.io_attunenamespacedefaults.yaml "$$BUNDLE_DIR/manifests/" && \
 	echo "OLM bundle generated at $$BUNDLE_DIR"
+
+.PHONY: sync-olm-rbac
+sync-olm-rbac: ## Copy config/rbac/role.yaml into the OLM CSV template
+	go run ./hack/sync-olm-rbac \
+		-role config/rbac/role.yaml \
+		-csv config/olm/template/manifests/attune.clusterserviceversion.yaml
 
 ##@ Tools
 

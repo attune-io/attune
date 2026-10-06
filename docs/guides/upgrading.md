@@ -10,6 +10,19 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### OperatorHub installs grant the manager ClusterRole
+
+An OperatorHub install grants the same cluster permissions as the Helm
+chart and the Kustomize install. The bundle lists namespaces, creates
+SubjectAccessReviews, reads controller revisions, patches Deployments,
+StatefulSets, and Argo Rollouts, patches ConfigMaps, and watches
+Prometheus objects. A policy held as `NamespaceFrozen` only because the
+install could not read namespaces starts applying on the next reconcile.
+A policy rejected because a Secret reference could not be checked can
+be applied again. No policy edit and no CRD change are needed. A
+namespace frozen with `attune.io/freeze: "true"` stays frozen. Helm
+and Kustomize installs are unchanged.
+
 ### A held OOM no longer ends observation
 
 When `memory.oomBump` is set and the hold suppresses an OOM or restart
