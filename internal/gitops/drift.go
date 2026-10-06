@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/argorollout"
 )
 
 // ContainerDrift describes one container resource that differs from the template.
@@ -218,6 +219,12 @@ func podTemplateSpec(w client.Object) *corev1.PodTemplateSpec {
 		return &o.Spec.Template
 	case *batchv1.CronJob:
 		return &o.Spec.JobTemplate.Spec.Template
+	case *argorollout.Rollout:
+		// workloadRef means this object does not own the pod template.
+		if o.Spec.WorkloadRef != nil {
+			return nil
+		}
+		return &o.Spec.Template
 	default:
 		return nil
 	}
@@ -265,6 +272,8 @@ func workloadKind(w client.Object) string {
 		return "Job"
 	case *batchv1.CronJob:
 		return "CronJob"
+	case *argorollout.Rollout:
+		return argorollout.Kind
 	default:
 		return "Workload"
 	}
