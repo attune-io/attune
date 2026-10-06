@@ -10,6 +10,16 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### An OOM at maxAllowed is counted once
+
+A container already at `memory.maxAllowed` that OOMs outside
+`memory.oomBump.hold` used to add a `skipped` sample on every reconcile.
+Attune now stores that signal and counts one `clamped` sample. The
+request does not move. With the chart PrometheusRule enabled,
+`AttuneOOMBumpCapped` can fire for that sample. An OOM during an
+active hold is still `skipped` in Auto, OneShot, and Canary. No policy
+edit and no CRD change are needed.
+
 ### SLO windows longer than the observation period
 
 An SLO `evaluationWindow` longer than the observation period is now

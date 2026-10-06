@@ -56,11 +56,13 @@ func oomBumpMaxBumps(policy *attunev1alpha1.AttunePolicy) int {
 	return n
 }
 
-// planContainerOOMBump plans one container and emits skipped or capped now.
-// Applied and clamped wait until the resize annotation is stored.
+// planContainerOOMBump plans one container and emits skipped, capped, or
+// an at-cap consume now. Applied and a clamped step above live wait
+// until the resize annotation is stored.
 // A quiet reclamp of a held floor counts clamped once per floor and cap
 // in this process, including when no resize runs.
-// Recommend mode publishes the floor and does not keep a stamp.
+// Recommend does not keep a real bump stamp. It does keep an at-cap
+// consume whose hold is not in the future, so that signal counts once.
 func (r *AttunePolicyReconciler) planContainerOOMBump(
 	ctx context.Context,
 	policy *attunev1alpha1.AttunePolicy,
@@ -128,18 +130,33 @@ func (r *AttunePolicyReconciler) planContainerOOMBump(
 		}
 	}
 	if plan.Event != "" && r.Recorder != nil {
-		r.Recorder.Eventf(policy, nil, corev1.EventTypeNormal, plan.Event, "resize",
-			"OOM bump for container %s is capped at maxBumps", container)
+		msg := "OOM bump for container %s is capped at maxBumps"
+		if plan.Event == "OOMBumpClamped" {
+			msg = "OOM bump for container %s was clamped to maxAllowed"
+		}
+		r.Recorder.Eventf(policy, nil, corev1.EventTypeNormal, plan.Event, "resize", msg, container)
 	}
 	var mode attunev1alpha1.UpdateType
 	if policy.Spec.UpdateStrategy != nil {
 		mode = policy.Spec.UpdateStrategy.Type
 	}
-	if r.oomBumps != nil && workload != nil && isResizeMode(mode) && len(plan.Stamps) > 0 {
+	stamps := plan.Stamps
+	if !isResizeMode(mode) {
+		kept := make([]oomBumpPodStamp, 0, len(stamps))
+		for _, st := range stamps {
+			// An open hold stays resize-only. Recommend and Observe still
+			// count that in-hold skip on every reconcile.
+			if st.AnnotationOnly && !st.Stamp.HoldUntil.IsZero() && !now.Before(st.Stamp.HoldUntil) {
+				kept = append(kept, st)
+			}
+		}
+		stamps = kept
+	}
+	if r.oomBumps != nil && workload != nil && len(stamps) > 0 {
 		r.oomBumps.Put(
 			string(policy.UID), policy.Namespace, policy.Name,
 			workload.GetNamespace(), workload.GetName(), workloadKindName(workload), container,
-			plan.Stamps, plan.BaseHeld,
+			stamps, plan.BaseHeld,
 		)
 	}
 	return plan

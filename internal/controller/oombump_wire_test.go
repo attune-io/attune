@@ -167,6 +167,64 @@ func TestOOMBumpPlan_RecommendSkipsPutAutoStores(t *testing.T) {
 	require.NotEmpty(t, autoPlan.Stamps)
 }
 
+func TestOOMBumpPlan_AtMaxAllowedConsumesOnceInRecommendAndObserve(t *testing.T) {
+	now := oomWireNow()
+	live := parsedQty(t, "1Gi")
+	for _, mode := range []attunev1alpha1.UpdateType{
+		attunev1alpha1.UpdateTypeRecommend,
+		attunev1alpha1.UpdateTypeObserve,
+	} {
+		t.Run(string(mode), func(t *testing.T) {
+			policy := oomWirePolicy("oom-wire-at-max-" + string(mode))
+			policy.Spec.UpdateStrategy = &attunev1alpha1.UpdateStrategy{Type: mode}
+			policy.Spec.Memory.MaxAllowed = &live
+			r := NewAttunePolicyReconciler()
+			pod := oomBumpPod("p", "app", "1Gi", oomKilledStatus(now, 1), "", false)
+			wl := oomWireDeploy("api")
+			before := oomMetric(policy.Name, oomBumpClamped)
+			skippedBefore := oomMetric(policy.Name, oomBumpSkipped)
+			plan := r.planContainerOOMBump(context.Background(), policy, wl, "app", false, 0, false, []corev1.Pod{pod}, now)
+			assert.Equal(t, []string{oomBumpClamped}, plan.MetricNow)
+			assert.Equal(t, "OOMBumpClamped", plan.Event)
+			assert.False(t, plan.UsePublish)
+			assert.Equal(t, before+1, oomMetric(policy.Name, oomBumpClamped))
+			assert.Equal(t, skippedBefore, oomMetric(policy.Name, oomBumpSkipped))
+			stamp, ok := r.peekOOMBump(policy, wl, "app", &pod)
+			require.True(t, ok)
+			assert.True(t, stamp.AnnotationOnly)
+			raw, err := formatOOMBumpRecord(stamp.Stamp)
+			require.NoError(t, err)
+			stamped := oomBumpPod("p", "app", "1Gi", oomKilledStatus(now, 1), raw, false)
+			again := r.planContainerOOMBump(context.Background(), policy, wl, "app", false, 0, false, []corev1.Pod{stamped}, now)
+			assert.Empty(t, again.MetricNow)
+			assert.Equal(t, before+1, oomMetric(policy.Name, oomBumpClamped))
+		})
+	}
+}
+
+func TestOOMBumpPlan_InHoldSkipStaysOutOfRecommendBook(t *testing.T) {
+	now := oomWireNow()
+	live := parsedQty(t, "1Gi")
+	policy := oomWirePolicy("oom-wire-in-hold-recommend")
+	policy.Spec.UpdateStrategy = &attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeRecommend}
+	policy.Spec.Memory.MaxAllowed = &live
+	r := NewAttunePolicyReconciler()
+	origin := qtyBytes(t, "256Mi")
+	floor := qtyBytes(t, "384Mi")
+	raw := oomWireRaw(t, 1, origin, floor, now.Add(-time.Hour), now.Add(time.Hour), 1)
+	pod := oomBumpPod("p", "app", "1Gi", oomKilledStatus(now, 2), raw, false)
+	wl := oomWireDeploy("api")
+	before := oomMetric(policy.Name, oomBumpSkipped)
+	plan := r.planContainerOOMBump(context.Background(), policy, wl, "app", false, 0, false, []corev1.Pod{pod}, now)
+	assert.Equal(t, []string{oomBumpSkipped}, plan.MetricNow)
+	assert.Equal(t, before+1, oomMetric(policy.Name, oomBumpSkipped))
+	_, ok := r.peekOOMBump(policy, wl, "app", &pod)
+	assert.False(t, ok)
+	again := r.planContainerOOMBump(context.Background(), policy, wl, "app", false, 0, false, []corev1.Pod{pod}, now)
+	assert.Equal(t, []string{oomBumpSkipped}, again.MetricNow)
+	assert.Equal(t, before+2, oomMetric(policy.Name, oomBumpSkipped))
+}
+
 func TestOOMBumpRecommend_BelowMinimumDataPoints(t *testing.T) {
 	now := oomWireNow()
 	policy := oomWirePolicy("oom-wire-low-samples")
