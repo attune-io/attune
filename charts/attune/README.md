@@ -125,7 +125,7 @@ helm install attune oci://ghcr.io/attune-io/charts/attune \
 | statusIncludeExplanations | bool | `true` | Write recommendation explanation chains into status (can bloat large policies). |
 | tolerations | list | `[]` | Tolerations |
 | topologySpreadConstraints | list | `[]` | Topology spread constraints |
-| watchNamespaces | list | `[]` | Namespaces to watch for AttunePolicy resources. Empty means all namespaces (cluster-scoped). Set this to reduce informer cache memory on large clusters where policies exist in only a few namespaces. Cluster-scoped resources (Nodes, AttuneDefaults) are always watched regardless. |
+| watchNamespaces | list | `[]` | Namespaces to watch for AttunePolicy resources. Empty means all namespaces (cluster-scoped). Set this to reduce informer cache memory on large clusters where policies exist in only a few namespaces. Cluster-scoped resources (Nodes, AttuneDefaults) are always watched regardless. Secret get stays cluster-wide. See docs/getting-started/installation.md#secret-access. |
 | webhooks | object | `{"enabled":true}` | Webhook configuration (requires cert-manager installed in the cluster) |
 | webhooks.enabled | bool | `true` | Enable admission webhooks for defaulting and validation. Requires cert-manager to be installed for TLS certificate provisioning. |
 
