@@ -92,6 +92,12 @@ type SafetyVerdict struct {
 	// contains pre-resize data). The caller should keep observing the pod so the
 	// throttle check runs on a subsequent reconciliation.
 	ThrottleDeferred bool
+	// SLODeferred is true only on a safe verdict, when an SLO querier and
+	// guardrails are configured and at least one evaluation window has not
+	// elapsed. The caller keeps the pod tracked so that window is queried
+	// later. A breach, a NotReady pod, a query error, and a missing querier
+	// leave this false.
+	SLODeferred bool
 }
 
 // Monitor watches resized pods for safety violations.
@@ -312,9 +318,16 @@ func (m *Monitor) CheckPodObject(ctx context.Context, pod *corev1.Pod, record Re
 	}
 
 	// Check application-level SLO guardrails via Prometheus.
+	// An unsafe verdict returns immediately. A still-open window is
+	// remembered and the Ready check still runs. NotReady does not
+	// carry the deferral.
+	var sloDeferred bool
 	if m.sloQuerier != nil && len(m.sloGuardrails) > 0 {
 		if v := m.checkSLOGuardrails(ctx, record, now); v != nil {
-			return *v, nil
+			if !v.Safe {
+				return *v, nil
+			}
+			sloDeferred = v.SLODeferred
 		}
 	}
 
@@ -332,20 +345,26 @@ func (m *Monitor) CheckPodObject(ctx context.Context, pod *corev1.Pod, record Re
 		}
 	}
 
-	return SafetyVerdict{Safe: true, ThrottleDeferred: throttleDeferred}, nil
+	return SafetyVerdict{Safe: true, ThrottleDeferred: throttleDeferred, SLODeferred: sloDeferred}, nil
 }
 
-// checkSLOGuardrails evaluates all configured SLO guardrail queries against
-// Prometheus. Returns a non-nil SafetyVerdict if any guardrail is breached.
-// Fails open: if a query errors, the guardrail is skipped with a log message.
+// checkSLOGuardrails evaluates configured SLO guardrail queries.
+// A breach returns an unsafe verdict and does not set SLODeferred, even
+// when another window is still open. A window that has not elapsed is
+// not queried. If any such window remains and nothing breached, the
+// result is safe with SLODeferred set. Query errors, NaN, and Inf fail
+// open and do not by themselves defer. An exact window boundary is
+// evaluated. Returns nil when every window elapsed without a breach.
 func (m *Monitor) checkSLOGuardrails(ctx context.Context, record ResizeRecord, now time.Time) *SafetyVerdict {
+	deferred := false
 	for _, g := range m.sloGuardrails {
 		evalWindow := DefaultSLOEvaluationWindow
 		if g.EvaluationWindow != nil && g.EvaluationWindow.Duration > 0 {
 			evalWindow = g.EvaluationWindow.Duration
 		}
 		if now.Sub(record.ResizedAt) < evalWindow {
-			continue // evaluation window not yet elapsed
+			deferred = true
+			continue
 		}
 
 		query, err := interpolateSLOQuery(g.Query, record, m.sloTemplates[g.Query])
@@ -395,6 +414,9 @@ func (m *Monitor) checkSLOGuardrails(ctx context.Context, record ResizeRecord, n
 					g.Name, record.Namespace, record.PodName, value, comparison, threshold),
 			}
 		}
+	}
+	if deferred {
+		return &SafetyVerdict{Safe: true, SLODeferred: true}
 	}
 	return nil
 }

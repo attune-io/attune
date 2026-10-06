@@ -25,7 +25,11 @@ spikes, NotReady, and CPU throttle.
 
 1. Attune resizes a pod (Auto, OneShot, Canary, or other applying modes).
 2. The safety monitor waits for each guardrail's `evaluationWindow` (default
-   `5m`, minimum `1m`) so the app can stabilize.
+   `5m`, minimum `1m`) so the app can stabilize. If that window is longer
+   than the effective observation period (`safetyObservationPeriod`, otherwise
+   `canary.observationPeriod`, otherwise 5m), Attune keeps the pod tracked
+   and evaluates the query once the window has elapsed. Elapsed guardrails
+   still run while a longer one is open. A breach reverts immediately.
 3. It runs the PromQL query against the policy metrics source.
 4. If the scalar result breaches the threshold in the configured direction
    (`above` or `below`), the resize is reverted with reason
@@ -107,6 +111,8 @@ You can also set `sloGuardrails` on `AttuneDefaults` or
   at pod level so canary pods are judged on their own traffic.
 - Keep `evaluationWindow` at least as long as your SLO query range when the
   range needs warm data (for example `[5m]` rates).
+- A very long `evaluationWindow` with a short observation period requeues
+  at `min(cooldown, observationPeriod)` until the window elapses.
 - Start with Canary so only a fraction of pods are exposed while you tune
   thresholds.
 - Use `kubectl attune history` to confirm revert reasons; SLO breaches show as
@@ -121,7 +127,8 @@ You can also set `sloGuardrails` on `AttuneDefaults` or
 | Revert reason `slo:p99-latency` | Threshold too tight, or traffic mix after resize changed latency |
 | No SLO reverts while latency is bad | Query returns empty/error (fails open); metric labels wrong; window not elapsed |
 | False reverts right after resize | Widen `evaluationWindow`; exclude cold-start noise from the query |
-| Guardrail never evaluated | Mode is Observe/Recommend (no applying resize), or `autoRevert: false` |
+| Guardrail never evaluated | Mode is Observe/Recommend (no applying resize), or `autoRevert: false`. A window longer than the observation period waits, then runs; it is not skipped. |
+| `SafetyObservation` stays `Evaluating` | The observation period has elapsed and a throttle grace period or an SLO window is still open. Tracking annotations stay until that check runs. |
 
 Query failures log at Error (`SLO guardrail query failed`). Leftover
 NaN or Inf after a successful Query logs at Info (`non-finite`). Grep

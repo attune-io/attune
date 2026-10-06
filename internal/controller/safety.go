@@ -239,7 +239,8 @@ func (r *AttunePolicyReconciler) countLiveRunningReplicas(
 // checkPendingSafetyObservations checks pods that were previously resized and
 // annotated with tracking annotations. For each pod whose observation period
 // has elapsed, it runs a safety check. Unsafe pods are reverted to their
-// original resource values and the annotations are removed.
+// original resource values and the annotations are removed. A throttle grace
+// period or an SLO evaluation window that is still open keeps the annotations.
 func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Context, policy *attunev1alpha1.AttunePolicy, collector rsmetrics.MetricsCollector, workloads []client.Object) (observationsPending bool) {
 	logger := log.FromContext(ctx)
 	if r.Clientset == nil {
@@ -376,7 +377,7 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 			continue
 		}
 
-		var revertFailed, throttlePending bool
+		var revertFailed, throttlePending, sloPending bool
 		restoredThisPass := map[string]struct{}{}
 		for _, record := range records {
 			verdict, err := monitor.CheckPodObject(ctx, pod, record, r.now())
@@ -393,6 +394,11 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 				throttlePending = true
 				operatormetrics.ThrottleDeferredTotal.WithLabelValues(pod.Namespace, trackedWorkload).Inc()
 			}
+			if verdict.SLODeferred {
+				logger.V(1).Info("SLO check deferred (evaluation window still open), keeping observation",
+					"pod", pod.Name, "container", record.Container)
+				sloPending = true
+			}
 
 			if !verdict.Safe {
 				confirmed, confirmErr := r.confirmSafetyVerdict(ctx, monitor, pod, record)
@@ -403,6 +409,21 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 					continue
 				}
 				if confirmed.Safe {
+					// The listed pod was unsafe. The live pod is safe, but its
+					// throttle grace or SLO window may still be open. Honour
+					// those flags before skipping the revert. The listed
+					// verdict does not carry them.
+					if confirmed.ThrottleDeferred {
+						logger.V(1).Info("Throttle check deferred (within grace period), keeping observation",
+							"pod", pod.Name, "container", record.Container)
+						throttlePending = true
+						operatormetrics.ThrottleDeferredTotal.WithLabelValues(pod.Namespace, trackedWorkload).Inc()
+					}
+					if confirmed.SLODeferred {
+						logger.V(1).Info("SLO check deferred (evaluation window still open), keeping observation",
+							"pod", pod.Name, "container", record.Container)
+						sloPending = true
+					}
 					logger.V(1).Info("Cached unsafe verdict not confirmed on live pod",
 						"pod", pod.Name, "container", record.Container, "cachedReason", verdict.Reason)
 					continue
@@ -412,6 +433,19 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 				if suppress {
 					logger.Info("OOM bump hold suppresses revert",
 						"pod", pod.Name, "container", record.Container, "reason", verdict.Reason)
+					continue
+				}
+				// Another container can keep this pod tracked while its SLO
+				// window is open. Do not revert a container again once this
+				// cycle is already Reverted and the live resources match.
+				workloadKey := record.WorkloadName
+				if workloadKey == "" {
+					workloadKey = trackedWorkload
+				}
+				if latestHistoryIsReverted(policy.Status.ResizeHistory, workloadKey, record.Container) &&
+					liveContainerMatchesOriginal(pod, record) {
+					logger.V(1).Info("Container already reverted, skipping another revert",
+						"pod", pod.Name, "container", record.Container)
 					continue
 				}
 				logger.Info("Deferred safety violation detected, reverting",
@@ -429,10 +463,10 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 		}
 
 		// Only remove tracking annotations if all reverts succeeded and no
-		// throttle checks are still pending. If either condition holds, keep
-		// annotations so the next reconciliation retries or completes the
-		// deferred throttle check.
-		if revertFailed || throttlePending {
+		// throttle or SLO checks are still pending. If any condition holds,
+		// keep annotations so the next reconciliation retries or completes
+		// the deferred check.
+		if revertFailed || throttlePending || sloPending {
 			observationsPending = true
 			continue
 		}

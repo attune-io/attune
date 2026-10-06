@@ -45,10 +45,15 @@ spec:
    pods. Only running pods without an active resize or pending deletion qualify.
 3. **In-place resize**: the operator calls `UpdateResize` on each selected pod.
 4. **Observation**: `status.canary.startTime` is set only after a successful
-   in-place canary resize. During `observationPeriod` after that resize, the
-   safety monitor checks for OOMKill, restart spikes, pod NotReady, CPU
-   throttle, and SLO guardrail breaches. Skipped cycles (budget, node
-   pressure, already at target) do not start the clock.
+   in-place canary resize. During the effective observation period after
+   that resize (`safetyObservationPeriod`, otherwise
+   `canary.observationPeriod`, otherwise 5m), the safety monitor checks for
+   OOMKill, restart spikes, pod NotReady, CPU throttle, and SLO guardrail
+   breaches. An `evaluationWindow` longer than that period is evaluated
+   after it. Promotion still uses the observation period only. Set the
+   effective period to at least the longest window when the canary watch
+   should cover the SLO check. Skipped cycles (budget, node pressure,
+   already at target) do not start the clock.
 5. **Verdict**: if that app's canary pods remain healthy, **that app**
    is promoted (`status.canary.workloads[].phase=FullRollout`). Other
    apps on the same policy keep watching. Policy `status.canary.phase`

@@ -10,6 +10,15 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### SLO windows longer than the observation period
+
+An SLO `evaluationWindow` longer than the observation period is now
+evaluated. Attune keeps the tracking annotations until that window
+elapses, then runs the query. A breach reverts with `slo:<name>`.
+`SafetyObservation` stays True while the window is open. Requeue stays
+at `min(cooldown, observationPeriod)`, so a long window and a short
+period reconcile more often. No policy edit and no CRD change are needed.
+
 ### HPA retune retries a conflicting write
 
 A conflicting update of an auto-tuned HorizontalPodAutoscaler is retried.

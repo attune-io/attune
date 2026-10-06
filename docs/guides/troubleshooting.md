@@ -1033,7 +1033,7 @@ kubectl get pods -n <ns> -l attune.io/tracked=true \
 | Reason | Meaning |
 |--------|---------|
 | `Observing` | `safetyObservationPeriod` has not elapsed. Wait, or check for OOM/restarts (those revert early). |
-| `Evaluating` | Period elapsed; CheckPod, revert, or cleanup is still in progress. |
+| `Evaluating` | Period elapsed; CheckPod, revert, or cleanup is still in progress. Also means a throttle grace period or an SLO evaluation window is still open. |
 | `RestorePending` | Live pod already matches the original snapshot; template restore after `AfterSuccessfulResize` is retrying. |
 | `Incomplete` | Tracking keys exist but `attune.io/resized-at` is missing or not RFC3339. |
 

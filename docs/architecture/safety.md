@@ -116,6 +116,14 @@ The check runs only after the guardrail's `evaluationWindow` (default: 5m,
 minimum: 1m) elapses post-resize. This delay gives the application time
 to stabilize before comparing against SLO thresholds.
 
+!!! note "Window longer than the observation period"
+    If `evaluationWindow` is still open when the observation period
+    elapses, Attune keeps the tracking annotations and evaluates that
+    guardrail on a later pass. Elapsed guardrails are queried in the
+    meantime. A breach reverts with `slo:<name>` and does not keep
+    waiting on another open window. Query errors, NaN, and Inf still
+    fail open and do not extend observation by themselves.
+
 If a guardrail query breaches its threshold, the resize is reverted with
 reason `slo:<guardrail-name>`. The monitor **fails open**: if a query
 returns an error, NaN, or Inf, the guardrail is skipped with a log
