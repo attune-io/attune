@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -622,6 +623,106 @@ func TestListDoctorObjects_KeepsPartialOnError(t *testing.T) {
 	assert.Equal(t, "p", got[0].GetName())
 }
 
+func newDoctorDynamic() *dynamicfake.FakeDynamicClient {
+	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
+		map[schema.GroupVersionResource]string{
+			gvr:                  "AttunePolicyList",
+			defaultsGVR:          "AttuneDefaultsList",
+			namespaceDefaultsGVR: "AttuneNamespaceDefaultsList",
+		})
+}
+
+func TestListDoctorObjects_MissingPolicyCRD(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	noMatch := fmt.Errorf("the server could not find the requested resource")
+
+	t.Run("policy API missing names the install", func(t *testing.T) {
+		t.Parallel()
+		dyn := newDoctorDynamic()
+		dyn.PrependReactor("list", "attunepolicies", func(clienttesting.Action) (bool, runtime.Object, error) {
+			return true, nil, noMatch
+		})
+		objects, err := listDoctorObjects(ctx, dyn, "default")
+		require.Error(t, err)
+		assert.True(t, isNoResourceMatch(err), err.Error())
+		assert.Empty(t, objects)
+
+		results := runDoctorChecks(ctx, resizeDiscovery("1", "32", true), nil, objects, err, nil)
+		policies := doctorNamed(results, "AttunePolicies")
+		assert.False(t, policies.ok)
+		assert.False(t, policies.required)
+		assert.Equal(t, attuneCRDInstallDetail, policies.detail)
+		assert.NotContains(t, policies.detail, "in scope")
+		assert.Contains(t, doctorNamed(results, "Prometheus").detail, "could not list")
+		assert.False(t, doctorFailed(results))
+
+		var stdout, stderr bytes.Buffer
+		code := runDoctor(ctx, &stdout, &stderr, resizeDiscovery("1", "32", true), nil, dyn, "default", nil, false)
+		assert.Equal(t, 0, code)
+		assert.Contains(t, stdout.String(), "Attune CRDs are not installed")
+		assert.Contains(t, stdout.String(), "helm install attune")
+		assert.NotContains(t, stdout.String(), "no AttunePolicies in scope")
+		assert.NotContains(t, stderr.String(), "one or more checks failed")
+	})
+
+	t.Run("defaults API missing still lists policies", func(t *testing.T) {
+		t.Parallel()
+		dyn := newDoctorDynamic()
+		policy := &unstructured.Unstructured{Object: map[string]interface{}{
+			"apiVersion": "attune.io/v1alpha1",
+			"kind":       "AttunePolicy",
+			"metadata":   map[string]interface{}{"name": "p", "namespace": "default"},
+		}}
+		_, err := dyn.Resource(gvr).Namespace("default").Create(ctx, policy, metav1.CreateOptions{})
+		require.NoError(t, err)
+		dyn.PrependReactor("list", "attunedefaults", func(clienttesting.Action) (bool, runtime.Object, error) {
+			return true, nil, noMatch
+		})
+		dyn.PrependReactor("list", "attunenamespacedefaults", func(clienttesting.Action) (bool, runtime.Object, error) {
+			return true, nil, fmt.Errorf("no matches for kind \"AttuneNamespaceDefaults\"")
+		})
+		got, err := listDoctorObjects(ctx, dyn, "default")
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, "p", got[0].GetName())
+	})
+
+	t.Run("namespace not found is not a missing CRD", func(t *testing.T) {
+		t.Parallel()
+		dyn := newDoctorDynamic()
+		dyn.PrependReactor("list", "attunepolicies", func(clienttesting.Action) (bool, runtime.Object, error) {
+			return true, nil, apierrors.NewNotFound(schema.GroupResource{Resource: "namespaces"}, "missing")
+		})
+		objects, err := listDoctorObjects(ctx, dyn, "missing")
+		require.Error(t, err)
+		assert.False(t, isNoResourceMatch(err), err.Error())
+		assert.Contains(t, err.Error(), "list AttunePolicies")
+		results := runDoctorChecks(ctx, resizeDiscovery("1", "32", true), nil, objects, err, nil)
+		policies := doctorNamed(results, "AttunePolicies")
+		assert.Equal(t, `could not list AttunePolicies: namespaces "missing" not found`, policies.detail)
+		assert.NotContains(t, policies.detail, "Attune CRDs are not installed")
+		assert.NotContains(t, policies.detail, "in scope")
+	})
+
+	t.Run("missing policy API keeps a second list error", func(t *testing.T) {
+		t.Parallel()
+		dyn := newDoctorDynamic()
+		dyn.PrependReactor("list", "attunepolicies", func(clienttesting.Action) (bool, runtime.Object, error) {
+			return true, nil, noMatch
+		})
+		dyn.PrependReactor("list", "attunedefaults", func(clienttesting.Action) (bool, runtime.Object, error) {
+			return true, nil, fmt.Errorf("forbidden")
+		})
+		objects, err := listDoctorObjects(ctx, dyn, "default")
+		require.Error(t, err)
+		results := runDoctorChecks(ctx, resizeDiscovery("1", "32", true), nil, objects, err, nil)
+		policies := doctorNamed(results, "AttunePolicies")
+		assert.False(t, policies.ok)
+		assert.Equal(t, attuneCRDInstallDetail+"; list AttuneDefaults: forbidden", policies.detail)
+	})
+}
+
 func TestRunDoctor_ExitCodes(t *testing.T) {
 	t.Parallel()
 	scheme := runtime.NewScheme()
@@ -690,8 +791,57 @@ func TestRunDoctorChecks_PolicyScopeWarn(t *testing.T) {
 		assert.Equal(t, "AttunePolicies", got.name)
 		assert.False(t, got.required)
 		assert.False(t, got.ok)
+		assert.Equal(t, "1 policies, 0 Ready=True, 1 without Ready (default/web)", got.detail)
 		assert.NotContains(t, got.detail, "1 policies Ready")
 		assert.False(t, doctorFailed(results))
+	})
+
+	t.Run("missing Ready does not drop Ready=False", func(t *testing.T) {
+		t.Parallel()
+		falsePolicy := unstructured.Unstructured{Object: map[string]interface{}{
+			"kind":     "AttunePolicy",
+			"metadata": map[string]interface{}{"name": "web", "namespace": "default"},
+			"status": map[string]interface{}{
+				"conditions": []interface{}{
+					map[string]interface{}{
+						"type":   "Ready",
+						"status": "False",
+						"reason": "ConflictCheckFailed",
+					},
+				},
+			},
+		}}
+		missing := unstructured.Unstructured{Object: map[string]interface{}{
+			"kind":     "AttunePolicy",
+			"metadata": map[string]interface{}{"name": "api", "namespace": "payments"},
+		}}
+		results := runDoctorChecks(ctx, disc, nil, []unstructured.Unstructured{falsePolicy, missing}, nil, nil)
+		got := results[len(results)-1]
+		assert.False(t, got.ok)
+		assert.Equal(t, "2 policies, 0 Ready=True, 1 Ready=False (default/web: ConflictCheckFailed), 1 without Ready (payments/api)", got.detail)
+		assert.Contains(t, got.detail, "ConflictCheckFailed")
+		assert.False(t, doctorFailed(results))
+	})
+
+	t.Run("partial list stays on the detail", func(t *testing.T) {
+		t.Parallel()
+		policy := unstructured.Unstructured{Object: map[string]interface{}{
+			"kind":     "AttunePolicy",
+			"metadata": map[string]interface{}{"name": "web", "namespace": "default"},
+			"status": map[string]interface{}{
+				"conditions": []interface{}{
+					map[string]interface{}{
+						"type":   "Ready",
+						"status": "True",
+						"reason": "Monitoring",
+					},
+				},
+			},
+		}}
+		results := runDoctorChecks(ctx, disc, nil, []unstructured.Unstructured{policy}, fmt.Errorf("list AttuneDefaults: forbidden"), nil)
+		got := results[len(results)-1]
+		assert.False(t, got.ok)
+		assert.Equal(t, "1 policies Ready; list incomplete: list AttuneDefaults: forbidden", got.detail)
 	})
 
 	t.Run("Ready False ConflictCheckFailed", func(t *testing.T) {
@@ -714,7 +864,7 @@ func TestRunDoctorChecks_PolicyScopeWarn(t *testing.T) {
 		got := results[len(results)-1]
 		assert.False(t, got.ok)
 		assert.False(t, got.required)
-		assert.Equal(t, "1 policies, 1 Ready=False (reasons: ConflictCheckFailed)", got.detail)
+		assert.Equal(t, "1 policies, 1 Ready=False (default/web: ConflictCheckFailed)", got.detail)
 		assert.False(t, doctorFailed(results))
 	})
 

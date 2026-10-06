@@ -237,7 +237,7 @@ func pingPrometheusHealthy(ctx context.Context, address string) error {
 	return nil
 }
 
-func appendListedResources(ctx context.Context, dynClient dynamic.Interface, resource schema.GroupVersionResource, namespace, kind string, out []unstructured.Unstructured, errs []error) ([]unstructured.Unstructured, []error) {
+func appendListedResources(ctx context.Context, dynClient dynamic.Interface, resource schema.GroupVersionResource, namespace, kind string, out []unstructured.Unstructured, errs []error, reportMissing bool) ([]unstructured.Unstructured, []error) {
 	var list *unstructured.UnstructuredList
 	var err error
 	if namespace == "" {
@@ -245,7 +245,15 @@ func appendListedResources(ctx context.Context, dynClient dynamic.Interface, res
 	} else {
 		list, err = dynClient.Resource(resource).Namespace(namespace).List(ctx, metav1.ListOptions{})
 	}
-	if err != nil && !apierrors.IsNotFound(err) && !isNoResourceMatch(err) {
+	if err != nil {
+		// Defaults can be absent while policies still list. Only the
+		// policy list should tell the user the API is missing.
+		if !reportMissing && (apierrors.IsNotFound(err) || isNoResourceMatch(err)) {
+			return out, errs
+		}
+		if reportMissing && isNoResourceMatch(err) {
+			return out, append(errs, fmt.Errorf("Attune CRDs are not installed in this cluster: %w", err))
+		}
 		return out, append(errs, fmt.Errorf("list %s: %w", kind, err))
 	}
 	if list != nil {
@@ -257,9 +265,9 @@ func appendListedResources(ctx context.Context, dynClient dynamic.Interface, res
 func listDoctorObjects(ctx context.Context, dynClient dynamic.Interface, namespace string) ([]unstructured.Unstructured, error) {
 	var out []unstructured.Unstructured
 	var errs []error
-	out, errs = appendListedResources(ctx, dynClient, gvr, namespace, "AttunePolicies", out, errs)
-	out, errs = appendListedResources(ctx, dynClient, defaultsGVR, "", "AttuneDefaults", out, errs)
-	out, errs = appendListedResources(ctx, dynClient, namespaceDefaultsGVR, namespace, "AttuneNamespaceDefaults", out, errs)
+	out, errs = appendListedResources(ctx, dynClient, gvr, namespace, "AttunePolicies", out, errs, true)
+	out, errs = appendListedResources(ctx, dynClient, defaultsGVR, "", "AttuneDefaults", out, errs, false)
+	out, errs = appendListedResources(ctx, dynClient, namespaceDefaultsGVR, namespace, "AttuneNamespaceDefaults", out, errs, false)
 	return out, errors.Join(errs...)
 }
 
@@ -432,8 +440,7 @@ func nfdKernelCgroupV2(ctx context.Context, nodes cluster.NodeLister) bool {
 
 func attunePolicyDoctorResult(objects []unstructured.Unstructured, listErr error) doctorResult {
 	var total, readyTrue, notReady, unknown int
-	var reasons []string
-	seen := map[string]struct{}{}
+	var falseParts, unknownParts []string
 	for _, obj := range objects {
 		if obj.GetKind() != "AttunePolicy" {
 			continue
@@ -448,20 +455,17 @@ func attunePolicyDoctorResult(objects []unstructured.Unstructured, listErr error
 			if reason == "" {
 				reason = "Unknown"
 			}
-			if _, ok := seen[reason]; ok {
-				continue
-			}
-			seen[reason] = struct{}{}
-			reasons = append(reasons, reason)
+			falseParts = append(falseParts, policyDoctorRef(obj)+": "+reason)
 		default:
 			unknown++
+			unknownParts = append(unknownParts, policyDoctorRef(obj))
 		}
 	}
 	if total == 0 {
 		if listErr != nil {
 			return doctorResult{
 				name: "AttunePolicies", required: false,
-				detail: fmt.Sprintf("could not list AttunePolicies: %v", listErr),
+				detail: policyListFailureDetail(listErr),
 			}
 		}
 		return doctorResult{
@@ -469,28 +473,72 @@ func attunePolicyDoctorResult(objects []unstructured.Unstructured, listErr error
 			detail: "no AttunePolicies in scope",
 		}
 	}
-	incomplete := ""
+	// False-only keeps the historical "N Ready=False" shape. A missing Ready
+	// must not replace the False names already collected.
+	var detail string
+	switch {
+	case notReady == 0 && unknown == 0:
+		detail = fmt.Sprintf("%d policies Ready", total)
+	case unknown == 0:
+		detail = fmt.Sprintf("%d policies, %d Ready=False (%s)", total, notReady, strings.Join(falseParts, ", "))
+	case notReady == 0:
+		detail = fmt.Sprintf("%d policies, %d Ready=True, %d without Ready (%s)", total, readyTrue, unknown, strings.Join(unknownParts, ", "))
+	default:
+		detail = fmt.Sprintf("%d policies, %d Ready=True, %d Ready=False (%s), %d without Ready (%s)",
+			total, readyTrue, notReady, strings.Join(falseParts, ", "), unknown, strings.Join(unknownParts, ", "))
+	}
 	if listErr != nil {
-		incomplete = "; list incomplete: " + listErr.Error()
-	}
-	if notReady == 0 && unknown == 0 {
-		return doctorResult{
-			name: "AttunePolicies", required: false, ok: true,
-			detail: fmt.Sprintf("%d policies Ready", total) + incomplete,
-		}
-	}
-	if unknown > 0 {
-		return doctorResult{
-			name: "AttunePolicies", required: false,
-			detail: fmt.Sprintf("%d policies, %d Ready=True, %d without Ready=True",
-				total, readyTrue, notReady+unknown) + incomplete,
-		}
+		detail += "; list incomplete: " + listErr.Error()
 	}
 	return doctorResult{
-		name: "AttunePolicies", required: false,
-		detail: fmt.Sprintf("%d policies, %d Ready=False (reasons: %s)",
-			total, notReady, strings.Join(reasons, ", ")) + incomplete,
+		name: "AttunePolicies", required: false, ok: notReady == 0 && unknown == 0 && listErr == nil,
+		detail: detail,
 	}
+}
+
+const attuneCRDInstallDetail = "Attune CRDs are not installed in this cluster. Install with: helm install attune oci://ghcr.io/attune-io/charts/attune"
+
+// policyListFailureDetail keeps every retained list error. A no-match on
+// AttunePolicies is the missing-CRD row. Another error in the same join,
+// such as defaults forbidden, stays on that row.
+func policyListFailureDetail(listErr error) string {
+	var extra []string
+	sawNoMatch := false
+	for _, part := range listErrParts(listErr) {
+		if isNoResourceMatch(part) {
+			sawNoMatch = true
+			continue
+		}
+		extra = append(extra, strings.TrimPrefix(part.Error(), "list AttunePolicies: "))
+	}
+	if sawNoMatch && len(extra) == 0 {
+		return attuneCRDInstallDetail
+	}
+	if sawNoMatch {
+		return attuneCRDInstallDetail + "; " + strings.Join(extra, "; ")
+	}
+	return "could not list AttunePolicies: " + strings.TrimPrefix(listErr.Error(), "list AttunePolicies: ")
+}
+
+func listErrParts(err error) []error {
+	type multi interface{ Unwrap() []error }
+	if u, ok := err.(multi); ok {
+		if parts := u.Unwrap(); len(parts) > 0 {
+			return parts
+		}
+	}
+	return []error{err}
+}
+
+func policyDoctorRef(obj unstructured.Unstructured) string {
+	name := obj.GetName()
+	if name == "" {
+		name = "(unnamed)"
+	}
+	if ns := obj.GetNamespace(); ns != "" {
+		return ns + "/" + name
+	}
+	return name
 }
 
 func doctorFailed(results []doctorResult) bool {
