@@ -236,8 +236,7 @@ func proposeOOMBump(in oomBumpInput) oomBumpProposal {
 		return base
 	}
 	if in.Excluded {
-		base.Result = oomBumpSkipped
-		return base
+		return skippedSignalStamp(in, base)
 	}
 	origin := in.LiveBytes
 	storedCount := 0
@@ -250,8 +249,7 @@ func proposeOOMBump(in oomBumpInput) oomBumpProposal {
 	}
 	next, result, err := oomBumpBytes(origin, in.MinBumpBytes, in.LiveBytes, in.Ratio, storedCount+1, in.MaxAllowed)
 	if err != nil {
-		base.Result = oomBumpSkipped
-		return base
+		return skippedSignalStamp(in, base)
 	}
 	if result == oomBumpSkipped {
 		return inHoldLiveStep(in, base, origin, storedCount)
@@ -272,13 +270,67 @@ func proposeOOMBump(in oomBumpInput) oomBumpProposal {
 	}
 }
 
+// skippedSignalStamp records this OOM once without a new step.
+// HoldUntil stays in the past unless a stored hold is still open,
+// so the record does not become a floor the next reconcile republishes.
+func skippedSignalStamp(in oomBumpInput, base oomBumpProposal) oomBumpProposal {
+	rec := oomBumpRecord{
+		Origin:    in.LiveBytes,
+		Floor:     in.LiveBytes,
+		OOMAt:     in.FinishedAt.UTC(),
+		Restart:   in.Restart,
+		HoldUntil: in.Now.UTC(),
+	}
+	if in.Stored != nil {
+		rec.Count = in.Stored.Count
+		rec.Origin = in.Stored.Origin
+		rec.Floor = in.Stored.Floor
+		if !in.Stored.HoldUntil.IsZero() {
+			rec.HoldUntil = in.Stored.HoldUntil
+		}
+	}
+	base.Result = oomBumpSkipped
+	base.Stamp = &rec
+	base.AnnotationOnly = true
+	return base
+}
+
+// clampedAtMaxProposal records an out-of-hold OOM that cannot rise
+// because maxAllowed is already at or below live. Count and floor stay.
+// A first sighting stores the live request as the floor and does not
+// open a hold, so nothing is published above live.
+func clampedAtMaxProposal(in oomBumpInput, base oomBumpProposal) oomBumpProposal {
+	rec := oomBumpRecord{
+		Origin:    in.LiveBytes,
+		Floor:     in.LiveBytes,
+		OOMAt:     in.FinishedAt.UTC(),
+		Restart:   in.Restart,
+		HoldUntil: in.Now.UTC(),
+	}
+	if in.Stored != nil {
+		rec.Count = in.Stored.Count
+		rec.Origin = in.Stored.Origin
+		rec.Floor = in.Stored.Floor
+		if !in.Stored.HoldUntil.IsZero() {
+			rec.HoldUntil = in.Stored.HoldUntil
+		}
+	}
+	base.Result = oomBumpClamped
+	base.Stamp = &rec
+	base.AnnotationOnly = true
+	return base
+}
+
 // inHoldLiveStep runs when the frozen-origin step is not strictly above
-// live. Origin stays the hold origin. One step from live publishes a
-// higher request. When maxAllowed is already at or below the live
-// request, or the byte math errors, the signal is stored once and the
-// count stays put.
+// live. Inside a hold, one step from live publishes a higher request.
+// When that live step cannot rise, the stored signal is refreshed and
+// the count stays put. Outside a hold, maxAllowed at or below live
+// stores one clamped signal and does not move the request.
 func inHoldLiveStep(in oomBumpInput, base oomBumpProposal, origin int64, storedCount int) oomBumpProposal {
 	if in.Stored == nil || !in.Now.Before(in.Stored.HoldUntil) {
+		if in.MaxAllowed != nil && *in.MaxAllowed <= in.LiveBytes {
+			return clampedAtMaxProposal(in, base)
+		}
 		base.Result = oomBumpSkipped
 		return base
 	}

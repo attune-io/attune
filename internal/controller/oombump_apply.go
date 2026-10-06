@@ -200,6 +200,15 @@ func planWorkloadOOMBump(
 				plan.MetricNow = append(plan.MetricNow, oomBumpSkipped)
 				continue
 			}
+			if prop.Result == oomBumpClamped {
+				plan.MetricNow = append(plan.MetricNow, oomBumpClamped)
+				plan.Event = "OOMBumpClamped"
+				if prop.UsePublish && (!plan.UsePublish || prop.PublishBytes > plan.PublishBytes) {
+					plan.UsePublish = true
+					plan.PublishBytes = prop.PublishBytes
+				}
+				continue
+			}
 			if prop.Result != oomBumpCapped {
 				continue
 			}
@@ -222,10 +231,18 @@ func planWorkloadOOMBump(
 				plan.PublishBytes = prop.PublishBytes
 			}
 		case oomBumpSkipped:
+			if prop.Stamp == nil {
+				continue
+			}
+			plan.Stamps = append(plan.Stamps, oomBumpPodStamp{
+				Namespace:      snap.namespace,
+				PodName:        snap.name,
+				Stamp:          *prop.Stamp,
+				AnnotationOnly: prop.AnnotationOnly,
+			})
 			plan.MetricNow = append(plan.MetricNow, oomBumpSkipped)
 		case oomBumpApplied, oomBumpClamped:
 			if prop.Stamp == nil {
-				plan.MetricNow = append(plan.MetricNow, oomBumpSkipped)
 				continue
 			}
 			stamp := oomBumpPodStamp{

@@ -17,6 +17,7 @@ limitations under the License.
 package controller
 
 import (
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -270,7 +271,11 @@ func TestProposeOOMBump(t *testing.T) {
 		Excluded: true,
 	})
 	assert.Equal(t, oomBumpSkipped, excluded.Result)
-	assert.Nil(t, excluded.Stamp)
+	require.NotNil(t, excluded.Stamp)
+	assert.True(t, excluded.AnnotationOnly)
+	assert.Equal(t, 0, excluded.Stamp.Count)
+	assert.Equal(t, mi512, excluded.Stamp.Floor)
+	assert.True(t, excluded.Stamp.OOMAt.Equal(oomAt))
 
 	quiet := proposeOOMBump(oomBumpInput{
 		LiveBytes: mi512, HasPercentile: true, PercentileBytes: mi200, Now: now,
@@ -304,6 +309,68 @@ func TestProposeOOMBump(t *testing.T) {
 	assert.Equal(t, 1, filled.Stamp.Count)
 	assert.True(t, filled.Stamp.OOMAt.Equal(oomAt))
 	assert.Equal(t, floor1, filled.PublishBytes)
+}
+
+func TestProposeOOMBump_NonAppliedNewOOMHasStamp(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	oomAt := now.Add(-time.Minute)
+	live := qtyBytes(t, "1Gi")
+	lower := qtyBytes(t, "512Mi")
+	minBump := qtyBytes(t, "100Mi")
+
+	atMax := proposeOOMBump(oomBumpInput{
+		LiveBytes: live, Ratio: "1.2", MinBumpBytes: minBump, MaxBumps: 3,
+		MaxAllowed: i64ptr(live), Now: now, Hold: 24 * time.Hour,
+		NewOOM: true, FinishedAt: oomAt, Restart: 2,
+	})
+	require.NotNil(t, atMax.Stamp)
+	assert.Equal(t, oomBumpClamped, atMax.Result)
+	assert.True(t, atMax.AnnotationOnly)
+	assert.Equal(t, 0, atMax.Stamp.Count)
+	assert.Equal(t, live, atMax.Stamp.Floor)
+	assert.Equal(t, live, atMax.Stamp.Origin)
+	assert.False(t, atMax.UsePublish)
+	assert.True(t, atMax.Stamp.HoldUntil.Equal(now))
+	_, err := formatOOMBumpRecord(*atMax.Stamp)
+	require.NoError(t, err)
+
+	above := proposeOOMBump(oomBumpInput{
+		LiveBytes: live, Ratio: "1.2", MinBumpBytes: minBump, MaxBumps: 3,
+		MaxAllowed: i64ptr(lower), Now: now, Hold: 24 * time.Hour,
+		NewOOM: true, FinishedAt: oomAt, Restart: 2,
+	})
+	require.NotNil(t, above.Stamp)
+	assert.Equal(t, oomBumpClamped, above.Result)
+	assert.Equal(t, 0, above.Stamp.Count)
+	assert.Equal(t, live, above.Stamp.Floor)
+	assert.False(t, above.UsePublish)
+
+	overflow := proposeOOMBump(oomBumpInput{
+		LiveBytes: math.MaxInt64, Ratio: "1.2", MinBumpBytes: minBump, MaxBumps: 3,
+		Now: now, Hold: time.Hour, NewOOM: true, FinishedAt: oomAt, Restart: 1,
+	})
+	assert.Equal(t, oomBumpSkipped, overflow.Result)
+	require.NotNil(t, overflow.Stamp)
+	assert.True(t, overflow.AnnotationOnly)
+	_, err = formatOOMBumpRecord(*overflow.Stamp)
+	require.NoError(t, err)
+
+	stored := oomBumpRecord{
+		Count: 1, Origin: lower, Floor: lower,
+		OOMAt: oomAt.Add(-time.Hour), Restart: 1, HoldUntil: now.Add(time.Hour),
+	}
+	inHold := proposeOOMBump(oomBumpInput{
+		LiveBytes: live, Ratio: "1.2", MinBumpBytes: minBump, MaxBumps: 3,
+		MaxAllowed: i64ptr(live), Now: now, Hold: 24 * time.Hour,
+		NewOOM: true, FinishedAt: oomAt, Restart: 2, Stored: &stored,
+	})
+	assert.Equal(t, oomBumpSkipped, inHold.Result)
+	require.NotNil(t, inHold.Stamp)
+	assert.True(t, inHold.AnnotationOnly)
+	assert.Equal(t, stored.Count, inHold.Stamp.Count)
+	assert.Equal(t, stored.Floor, inHold.Stamp.Floor)
+	assert.True(t, inHold.Stamp.HoldUntil.Equal(stored.HoldUntil))
 }
 
 func TestOOMBumpAnnotationRoundTrip(t *testing.T) {

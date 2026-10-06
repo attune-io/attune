@@ -702,7 +702,9 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	var cycleResizeHistory []attunev1alpha1.ResizeHistoryEntry
 	// Annotation-only OOM stamps are not resizes. Record them even when
 	// cooldown, the schedule, or a freeze skips executeResizes.
-	if isResizeMode(mode) && policy.Spec.Memory.OOMBump != nil {
+	if policy.Spec.Memory.OOMBump != nil && (isResizeMode(mode) ||
+		mode == attunev1alpha1.UpdateTypeRecommend ||
+		mode == attunev1alpha1.UpdateTypeObserve) {
 		for _, w := range workloads {
 			r.persistPendingAnnotationOnlyOOMBumps(ctx, &policy, w)
 		}

@@ -1520,6 +1520,18 @@ Auto, OneShot, and Canary resize to the new step. Recommend stores the recommend
 sum by (namespace, policy, result) (increase(attune_oom_bump_total[1h]))
 ```
 
+### Skipped samples climbed while the request was already at maxAllowed
+
+**Symptom**: `memory.oomBump` is set, `holdUntil` is not in the future, the live memory request is at or above `memory.maxAllowed`, and `attune_oom_bump_total{result="skipped"}` climbed for hours.
+
+**Cause**: Older builds counted that OOM on every reconcile and did not store it. A current build stores the signal and counts one `clamped` sample. The request does not rise. With the chart PrometheusRule enabled, `AttuneOOMBumpCapped` can fire for that sample. One `clamped` sample in the last hour is enough for the alert.
+
+**Fix**: Raise `memory.maxAllowed` if the workload needs a higher request.
+
+```promql
+sum by (namespace, policy) (increase(attune_oom_bump_total{result="clamped"}[1h]))
+```
+
 ### Request stayed above maxAllowed during an OOM hold
 
 **Symptom**: `memory.oomBump` is set, `holdUntil` is still in the future, `memory.maxAllowed` is below the stored floor, and the live memory request is still above that cap.
