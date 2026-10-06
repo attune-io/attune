@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -644,7 +645,7 @@ func TestApplyStartupBoosts_RetriesAnnotationWhenAlreadyBoosted(t *testing.T) {
 	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
 	failClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod.DeepCopy()).
 		WithInterceptorFuncs(interceptor.Funcs{
-			Update: func(_ context.Context, _ client.WithWatch, _ client.Object, _ ...client.UpdateOption) error {
+			Patch: func(_ context.Context, _ client.WithWatch, _ client.Object, _ client.Patch, _ ...client.PatchOption) error {
 				return fmt.Errorf("simulated persist failure")
 			},
 		}).Build()
@@ -671,7 +672,11 @@ func TestApplyStartupBoosts_RetriesAnnotationWhenAlreadyBoosted(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, boosted.Spec.Containers[0].Resources.Requests.Cpu().Cmp(resource.MustParse("100m")) > 0,
 		"clientset pod should already be at boosted CPU after the first apply")
-	assert.Empty(t, boosted.Annotations[annotationStartupBoostAt],
+	var failedStamp corev1.Pod
+	require.NoError(t, failClient.Get(context.Background(), types.NamespacedName{
+		Name: "my-app-abc", Namespace: "default",
+	}, &failedStamp))
+	assert.Empty(t, failedStamp.Annotations[annotationStartupBoostAt],
 		"annotation persist failed on the first apply")
 
 	// Second apply: current is already boosted, persist must be retried.
@@ -694,6 +699,165 @@ func TestApplyStartupBoosts_RetriesAnnotationWhenAlreadyBoosted(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, now.UTC().Format(time.RFC3339), updated.Annotations[annotationStartupBoostAt],
 		"second apply must retry the startup-boost annotation")
+}
+
+func TestApplyStartupBoosts_StampLandsWhenUpdateConflicts(t *testing.T) {
+	// A kubelet status write bumps resourceVersion. A full pod Update
+	// then conflicts and the stamp never lands, so the boost cannot expire.
+	// The stamp write is a metadata merge patch and must ignore that Update.
+	scheme := testScheme()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
+				StartupBoost: &attunev1alpha1.StartupBoost{
+					Multiplier: "2.0",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute},
+				},
+			},
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "my-app-abc",
+			Namespace:         "default",
+			CreationTimestamp: metav1.NewTime(now.Add(-30 * time.Second)),
+			Annotations:       map[string]string{"keep-me": "leave-this"},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("128Mi"),
+						},
+					},
+				},
+			},
+		},
+	}
+	updates := 0
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod.DeepCopy()).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(_ context.Context, _ client.WithWatch, obj client.Object, _ ...client.UpdateOption) error {
+				updates++
+				return apierrors.NewConflict(corev1.Resource("pods"), obj.GetName(), fmt.Errorf("status write"))
+			},
+		}).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+	r.SetNowFunc(func() time.Time { return now })
+
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "my-app",
+			Kind:     "Deployment",
+			Containers: []attunev1alpha1.ContainerRecommendation{
+				{
+					Name: "main",
+					Recommended: attunev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("50m"),
+					},
+				},
+			},
+		},
+	}
+	r.applyStartupBoosts(context.Background(), policy, map[string][]corev1.Pod{"my-app": {*pod}}, recs, resize.NewPodResizer(clientset, ctrl.Log.WithName("test")), nil)
+
+	assert.Equal(t, 0, updates, "startup boost stamp must not use a full pod Update")
+	var stored corev1.Pod
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "my-app-abc", Namespace: "default",
+	}, &stored))
+	assert.Equal(t, now.UTC().Format(time.RFC3339), stored.Annotations[annotationStartupBoostAt])
+	assert.Equal(t, policy.Name, stored.Annotations[annotationPolicy])
+	assert.Equal(t, "leave-this", stored.Annotations["keep-me"], "merge patch must leave unrelated annotations")
+	assert.Equal(t, "true", stored.Labels[labelTracked])
+}
+
+func TestApplyStartupBoosts_RetriesStampPatchOnConflict(t *testing.T) {
+	scheme := testScheme()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
+				StartupBoost: &attunev1alpha1.StartupBoost{
+					Multiplier: "2.0",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute},
+				},
+			},
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "my-app-abc",
+			Namespace:         "default",
+			CreationTimestamp: metav1.NewTime(now.Add(-30 * time.Second)),
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("128Mi"),
+						},
+					},
+				},
+			},
+		},
+	}
+	patches := 0
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod.DeepCopy()).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Patch: func(ctx context.Context, cw client.WithWatch, obj client.Object, p client.Patch, opts ...client.PatchOption) error {
+				patches++
+				if patches == 1 {
+					return apierrors.NewConflict(corev1.Resource("pods"), obj.GetName(), fmt.Errorf("status write"))
+				}
+				return cw.Patch(ctx, obj, p, opts...)
+			},
+		}).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+	r.SetNowFunc(func() time.Time { return now })
+
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "my-app",
+			Kind:     "Deployment",
+			Containers: []attunev1alpha1.ContainerRecommendation{
+				{
+					Name: "main",
+					Recommended: attunev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("50m"),
+					},
+				},
+			},
+		},
+	}
+	r.applyStartupBoosts(context.Background(), policy, map[string][]corev1.Pod{"my-app": {*pod}}, recs, resize.NewPodResizer(clientset, ctrl.Log.WithName("test")), nil)
+
+	assert.Equal(t, 2, patches, "one patch conflict must be retried")
+	var stored corev1.Pod
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "my-app-abc", Namespace: "default",
+	}, &stored))
+	assert.Equal(t, now.UTC().Format(time.RFC3339), stored.Annotations[annotationStartupBoostAt],
+		"retry must land the startup boost stamp")
 }
 
 func TestApplyStartupBoosts_SkipsBatchWorkload(t *testing.T) {

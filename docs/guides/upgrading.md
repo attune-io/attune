@@ -10,6 +10,14 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### Startup boost stamps survive status updates
+
+A startup boost timestamp is written with a metadata merge patch.
+A kubelet status update no longer drops the stamp by conflicting
+with a full pod update. The boosted request can still expire when
+the window ends. A patch conflict is retried with backoff. No
+policy edit and no CRD change are needed.
+
 ### ClusterRole drops two unused verbs
 
 Helm, Kustomize, and OperatorHub upgrades drop `list` on

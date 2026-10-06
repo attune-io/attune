@@ -33,9 +33,10 @@ rec dest is non-zero, the same way CREATE does. A zero rec dest
 dest-caps leftover dest only.
 
 After a successful apply, the operator writes
-`attune.io/startup-boost-at`. The boost expires when that timestamp
-plus `duration` elapses and dest returns to the steady-state
-recommendation. Container Ready is not checked.
+`attune.io/startup-boost-at` with a metadata merge patch, so a
+kubelet status update does not clear the stamp. The boost expires
+when that timestamp plus `duration` elapses and dest returns to the
+steady-state recommendation. Container Ready is not checked.
 
 `excludeFromHistory` is separate from the boost apply. When it is true,
 CPU samples from the boost window are left out of the percentile. The

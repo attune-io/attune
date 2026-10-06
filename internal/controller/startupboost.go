@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strconv"
@@ -27,6 +28,9 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
@@ -287,40 +291,11 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 				// from a no-op skip outside the window (this block is
 				// only entered when age < duration).
 				if persistAnnotation {
-					// Re-fetch from API server and retry on conflict to handle
-					// kubelet status churn after resize. Without retry, a 409
-					// leaves the annotation unset and the boost never expires.
-					const maxBoostAnnotationRetries = 3
-					annotationPersisted := false
-					for attempt := range maxBoostAnnotationRetries {
-						freshPod, getErr := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
-						if getErr != nil {
-							logger.Error(getErr, "Failed to re-fetch pod for boost annotation", "pod", pod.Name)
-							break
-						}
-						if freshPod.Annotations == nil {
-							freshPod.Annotations = make(map[string]string)
-						}
-						freshPod.Annotations[annotationStartupBoostAt] = now.UTC().Format(time.RFC3339)
-						freshPod.Annotations[annotationPolicy] = policy.Name
-						if freshPod.Labels == nil {
-							freshPod.Labels = make(map[string]string)
-						}
-						freshPod.Labels[labelTracked] = "true"
-						if updateErr := r.Update(ctx, freshPod); updateErr == nil {
-							*pod = *freshPod
-							annotationPersisted = true
-							break
-						} else if !apierrors.IsConflict(updateErr) {
-							logger.Error(updateErr, "Failed to persist startup boost annotation", "pod", pod.Name)
-							break
-						}
-						logger.V(1).Info("Boost annotation conflict, retrying",
-							"pod", pod.Name, "attempt", attempt+1)
-					}
-					if !annotationPersisted {
-						logger.Info("Startup boost annotation was not persisted after retries",
-							"pod", pod.Name, "retries", maxBoostAnnotationRetries)
+					// A full pod Update conflicts with kubelet status writes
+					// and can leave the stamp unset, so the boost never expires.
+					stamp := now.UTC().Format(time.RFC3339)
+					if err := r.persistStartupBoostStamp(ctx, pod, stamp, policy.Name); err != nil {
+						logger.Error(err, "Failed to persist startup boost annotation", "pod", pod.Name)
 					}
 				}
 			} else if boostAtStr != "" {
@@ -415,47 +390,13 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 					// so the next reconciliation retries. Without this guard, a
 					// transient failure would leave the pod permanently at
 					// boosted CPU with no future expiry attempt.
-					// Skip the Update entirely when nothing changed (all
-					// containers skipped / already at target) to avoid API churn.
+					// Skip the clear when nothing changed (all containers
+					// skipped or already at target) to avoid API churn.
 					if boostReduceFailed {
 						continue
 					}
-					// Re-fetch + conflict retry (same pattern as boost apply).
-					const maxExpiryAnnotationRetries = 3
-					annotationCleared := false
-					for attempt := range maxExpiryAnnotationRetries {
-						freshPod, getErr := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
-						if getErr != nil {
-							logger.Error(getErr, "Failed to re-fetch pod for startup boost expiry annotation", "pod", pod.Name)
-							break
-						}
-						if freshPod.Annotations == nil {
-							// Annotation map gone: boost marker is already absent.
-							*pod = *freshPod
-							annotationCleared = true
-							break
-						}
-						if _, ok := freshPod.Annotations[annotationStartupBoostAt]; !ok {
-							// Already cleared (race with another reconciler).
-							*pod = *freshPod
-							annotationCleared = true
-							break
-						}
-						delete(freshPod.Annotations, annotationStartupBoostAt)
-						if updateErr := r.Update(ctx, freshPod); updateErr == nil {
-							*pod = *freshPod
-							annotationCleared = true
-							break
-						} else if !apierrors.IsConflict(updateErr) {
-							logger.Error(updateErr, "Failed to update pod after startup boost expiry", "pod", pod.Name)
-							break
-						}
-						logger.V(1).Info("Boost expiry annotation conflict, retrying",
-							"pod", pod.Name, "attempt", attempt+1)
-					}
-					if !annotationCleared {
-						logger.V(1).Info("Startup boost expiry annotation was not cleared after retries",
-							"pod", pod.Name, "retries", maxExpiryAnnotationRetries)
+					if err := r.clearStartupBoostStamp(ctx, pod); err != nil {
+						logger.Error(err, "Failed to clear startup boost annotation", "pod", pod.Name)
 					}
 				}
 			}
@@ -484,6 +425,101 @@ func boostMemoryLimit(memoryCV *string, live corev1.ResourceList, recommended re
 		return memLim.DeepCopy(), true
 	}
 	return resource.Quantity{}, false
+}
+
+// persistStartupBoostStamp records the boost window with a metadata merge
+// patch. The patch has no resourceVersion, so a kubelet status write does
+// not drop the stamp. The local pod is updated only after the patch lands.
+func (r *AttunePolicyReconciler) persistStartupBoostStamp(ctx context.Context, pod *corev1.Pod, stamp, policyName string) error {
+	payload := map[string]any{
+		"metadata": map[string]any{
+			"annotations": map[string]any{
+				annotationStartupBoostAt: stamp,
+				annotationPolicy:         policyName,
+			},
+			"labels": map[string]any{
+				labelTracked: "true",
+			},
+		},
+	}
+	if err := r.patchPodMerge(ctx, pod, payload); err != nil {
+		return err
+	}
+	if pod.Annotations == nil {
+		pod.Annotations = map[string]string{}
+	}
+	pod.Annotations[annotationStartupBoostAt] = stamp
+	pod.Annotations[annotationPolicy] = policyName
+	if pod.Labels == nil {
+		pod.Labels = map[string]string{}
+	}
+	pod.Labels[labelTracked] = "true"
+	return nil
+}
+
+// clearStartupBoostStamp removes the boost stamp. A missing stamp is success.
+// The delete is a merge patch, not a full pod Update.
+func (r *AttunePolicyReconciler) clearStartupBoostStamp(ctx context.Context, pod *corev1.Pod) error {
+	fresh, err := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+	if fresh.Annotations[annotationStartupBoostAt] == "" {
+		*pod = *fresh
+		return nil
+	}
+	payload := map[string]any{
+		"metadata": map[string]any{
+			"annotations": map[string]any{
+				annotationStartupBoostAt: nil,
+			},
+		},
+	}
+	if err := r.patchPodMerge(ctx, fresh, payload); err != nil {
+		return err
+	}
+	delete(fresh.Annotations, annotationStartupBoostAt)
+	*pod = *fresh
+	return nil
+}
+
+// patchPodMerge writes one metadata merge patch. Conflicts retry with
+// backoff. Any other error returns immediately. A cancelled context
+// stops the wait.
+func (r *AttunePolicyReconciler) patchPodMerge(ctx context.Context, pod *corev1.Pod, payload map[string]any) error {
+	if r.Client == nil {
+		return fmt.Errorf("patching pod %s/%s: no client", pod.Namespace, pod.Name)
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	const maxRetries = 3
+	backoff := retry.DefaultBackoff
+	logger := log.FromContext(ctx)
+	var last error
+	for attempt := range maxRetries {
+		if attempt > 0 {
+			wait := backoff.Step()
+			timer := time.NewTimer(wait)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				if last != nil {
+					return last
+				}
+				return ctx.Err()
+			case <-timer.C:
+			}
+		}
+		last = r.Patch(ctx, pod, client.RawPatch(types.MergePatchType, raw))
+		if last == nil || !apierrors.IsConflict(last) {
+			return last
+		}
+		logger.V(1).Info("Pod metadata patch conflict, retrying",
+			"pod", pod.Name, "attempt", attempt+1)
+	}
+	return last
 }
 
 // boostResizeAndRefetch resizes a single container to target (CPU request,
