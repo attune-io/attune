@@ -43,7 +43,7 @@ jobs:
           days-before-close: 14
           stale-issue-label: stale
           stale-pr-label: stale
-          exempt-issue-labels: "bug,security,milestone,pinned"
+          exempt-issue-labels: "bug,security,milestone,pinned,e2e-nightly-failure"
           exempt-pr-labels: "pinned,dependencies"
           exempt-all-milestones: true
           operations-per-run: 50

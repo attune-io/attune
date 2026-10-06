@@ -15,10 +15,12 @@ printf '%s\n' '--- FAIL: chainsaw/configmap-export (200.33s)' 'Tests Summary...'
 
 body=$("$SCRIPT" \
   --run-url 'https://example.com/actions/runs/99' \
+  --prepare-result failure \
   --e2e-result failure \
   --fuzz-result success \
   --artifact-dir "$TMP/art")
 
+echo "$body" | grep -q 'Prepare result: `failure`'
 echo "$body" | grep -q 'E2E result: `failure`'
 echo "$body" | grep -q 'Fuzz result: `success`'
 echo "$body" | grep -q 'TestE2E_NodeMemoryPressure_SkipsMemoryIncrease'
