@@ -190,6 +190,14 @@ After changing RBAC markers, update **three places**:
 - `config/rbac/role.yaml` (run `make manifests`)
 - `charts/attune/templates/clusterrole.yaml` + its test
 
+The OperatorHub CSV is not a fourth copy to edit by hand.
+`make generate-olm-bundle` fills `clusterPermissions` from
+`config/rbac/role.yaml` and keeps the leader-election leases rule.
+The namespaced `permissions` block stays in the CSV template.
+`make sync-olm-rbac` writes that same ClusterRole into the template.
+Commit the template when `role.yaml` changes. The check lives in
+`internal/manifests`.
+
 **Kubebuilder RBAC markers must be in `internal/controller/`.** `controller-gen`
 only scans packages specified in its invocation (typically
 `internal/controller/...`). Placing a `+kubebuilder:rbac` marker in a utility

@@ -187,12 +187,14 @@ spec:
                 - delete
                 - get
                 - list
+                - patch
                 - update
                 - watch
             - apiGroups:
                 - ""
               resources:
                 - limitranges
+                - namespaces
                 - nodes
                 - resourcequotas
                 - services
@@ -232,13 +234,33 @@ spec:
             - apiGroups:
                 - apps
               resources:
+                - controllerrevisions
                 - daemonsets
-                - deployments
                 - replicasets
+              verbs:
+                - get
+                - list
+                - watch
+            - apiGroups:
+                - apps
+              resources:
+                - deployments
                 - statefulsets
               verbs:
                 - get
                 - list
+                - patch
+                - update
+                - watch
+            - apiGroups:
+                - argoproj.io
+              resources:
+                - rollouts
+              verbs:
+                - get
+                - list
+                - patch
+                - update
                 - watch
             - apiGroups:
                 - attune.io
@@ -272,6 +294,12 @@ spec:
                 - get
                 - patch
                 - update
+            - apiGroups:
+                - authorization.k8s.io
+              resources:
+                - subjectaccessreviews
+              verbs:
+                - create
             - apiGroups:
                 - autoscaling
               resources:
@@ -323,6 +351,7 @@ spec:
               verbs:
                 - get
                 - list
+                - watch
             - apiGroups:
                 - coordination.k8s.io
               resources:
