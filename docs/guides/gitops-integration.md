@@ -126,7 +126,10 @@ This is the primary integration pattern for strict GitOps shops: the operator pr
 ## Pull request automation (opt-in Phase B)
 
 Default **off**. When enabled, Attune compares recommendations to **workload
-pod templates** (Deployment / StatefulSet / DaemonSet). If any container
+pod templates** (Deployment, StatefulSet, DaemonSet, ReplicaSet, Job,
+CronJob, and a Rollout that owns `spec.template`). A Rollout with
+`spec.workloadRef` is skipped, because that template lives on the
+referenced workload. If any container
 request drifts by at least `minChangePercent` (default 10), the operator
 opens or updates a GitHub or GitLab pull request (subject to `cooldown`,
 default 24h). Native sidecars (init containers with `restartPolicy: Always`)
@@ -261,8 +264,9 @@ loop again. Attune does not rewrite those annotations on an Unchanged
 skip; rewriting them would fight the next GitOps apply. Inspect with
 `kubectl get attunepolicy <name> -o jsonpath='{.status.gitopsPR}'`.
 Field reference: [configuration](../reference/configuration.md#status-fields-gitops-pr).
-Apply real template patches (`kubectl attune diff`) so drift
-clears (`NoDrift`).
+Commit the patch from `kubectl attune diff -o yaml` so drift
+clears (`NoDrift`). The command prints the patch. It does not
+edit the workload.
 
 ### Branch bootstrap
 

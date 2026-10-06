@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/argorollout"
 )
 
 // ContainerDrift describes one container resource that differs from the template.
@@ -187,7 +188,7 @@ func FormatPRBody(policyNS, policyName string, drifts []ContainerDrift) string {
 	}
 	b.WriteString("\n### Next steps\n\n")
 	b.WriteString("1. Review recommended requests against production risk.\n")
-	b.WriteString("2. Apply via `kubectl attune diff -o yaml` / your patch pipeline, or edit templates below.\n")
+	b.WriteString("2. Print a patch with `kubectl attune diff -o yaml`, commit it on this branch, or edit the templates below.\n")
 	b.WriteString("3. Merge so the next deploy starts near recommended sizes.\n\n")
 	b.WriteString("_Opened by Attune GitOps pull request automation (opt-in)._\n")
 	return b.String()
@@ -218,6 +219,12 @@ func podTemplateSpec(w client.Object) *corev1.PodTemplateSpec {
 		return &o.Spec.Template
 	case *batchv1.CronJob:
 		return &o.Spec.JobTemplate.Spec.Template
+	case *argorollout.Rollout:
+		// workloadRef means this object does not own the pod template.
+		if o.Spec.WorkloadRef != nil {
+			return nil
+		}
+		return &o.Spec.Template
 	default:
 		return nil
 	}
@@ -265,6 +272,8 @@ func workloadKind(w client.Object) string {
 		return "Job"
 	case *batchv1.CronJob:
 		return "CronJob"
+	case *argorollout.Rollout:
+		return argorollout.Kind
 	default:
 		return "Workload"
 	}

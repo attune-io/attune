@@ -235,13 +235,19 @@ func firstPodWithPositiveCPURequest(pods []corev1.Pod) *corev1.Pod {
 	return nil
 }
 
+// nativeSidecar reports an init container that stays up with the app.
+// Kubernetes counts its request in a pod Resource metric.
+func nativeSidecar(c corev1.Container) bool {
+	return c.RestartPolicy != nil && *c.RestartPolicy == corev1.ContainerRestartPolicyAlways
+}
+
 func milliQty(milli int64) resource.Quantity {
 	return *resource.NewMilliQuantity(milli, resource.DecimalSI)
 }
 
 // resourceHistoryOldMilli is the pre-resize sum of history rows that
-// podCPUMillis counts. Init containers, including native sidecars, are
-// left out. Containers with no row are not included.
+// podCPUMillis counts. One-shot init containers are left out. A native
+// sidecar row counts. Containers with no row are not included.
 func resourceHistoryOldMilli(pod *corev1.Pod, rows map[string]hpaCPURow) int64 {
 	if pod == nil {
 		var sum int64
@@ -262,6 +268,12 @@ func resourceHistoryOldMilli(pod *corev1.Pod, rows map[string]hpaCPURow) int64 {
 	}
 	for _, c := range pod.Spec.InitContainers {
 		seen[c.Name] = struct{}{}
+		if !nativeSidecar(c) {
+			continue
+		}
+		if row, ok := rows[c.Name]; ok && row.ok {
+			sum += row.old
+		}
 	}
 	for name, row := range rows {
 		if _, onPod := seen[name]; onPod || !row.ok {
@@ -290,10 +302,24 @@ func podCPUMillis(pod *corev1.Pod, rows map[string]hpaCPURow) (oldMilli, newMill
 			newMilli += v
 		}
 	}
-	// Init containers are on the pod, so their history is not a removed
-	// container. They stay out of the pod-level Resource total.
+	// One-shot inits are on the pod, so their history is not a removed
+	// container, and Kubernetes leaves them out of a Resource metric.
+	// A native sidecar runs with the app and its request is in that sum.
 	for _, c := range pod.Spec.InitContainers {
 		seen[c.Name] = struct{}{}
+		if !nativeSidecar(c) {
+			continue
+		}
+		if row, exists := rows[c.Name]; exists && row.ok {
+			oldMilli += row.old
+			newMilli += row.neu
+			continue
+		}
+		if q, has := c.Resources.Requests[corev1.ResourceCPU]; has {
+			v := q.MilliValue()
+			oldMilli += v
+			newMilli += v
+		}
 	}
 	for name, row := range rows {
 		if _, onPod := seen[name]; onPod || !row.ok {

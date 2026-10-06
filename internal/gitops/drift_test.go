@@ -16,7 +16,21 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/argorollout"
 )
+
+func TestGitOpsTextDoesNotClaimDiffApplies(t *testing.T) {
+	t.Parallel()
+	marker := gitlabBootstrapMarkerContent()
+	assert.NotContains(t, marker, "Apply template patches via")
+	assert.Contains(t, marker, "kubectl attune diff -o yaml")
+	assert.Contains(t, marker, "Commit that patch")
+
+	body := FormatPRBody("default", "pol", nil)
+	assert.NotContains(t, body, "Apply via")
+	assert.Contains(t, body, "kubectl attune diff -o yaml")
+	assert.Contains(t, body, "commit it on this branch")
+}
 
 func TestComputeDrift_AboveThreshold(t *testing.T) {
 	t.Parallel()
@@ -127,6 +141,48 @@ func TestComputeDrift_NativeSidecarInitContainer(t *testing.T) {
 	assert.Equal(t, "cpu", d[0].Resource)
 	assert.Equal(t, "200m", d[0].Template)
 	assert.Equal(t, "100m", d[0].Recommended)
+}
+
+func TestComputeDrift_RolloutTemplate(t *testing.T) {
+	t.Parallel()
+	ro := &argorollout.Rollout{
+		ObjectMeta: metav1.ObjectMeta{Name: "api"},
+		Spec: argorollout.RolloutSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name: "app",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("500m"),
+							},
+						},
+					}},
+				},
+			},
+		},
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api",
+		Kind:     "Rollout",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "app",
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest: resource.MustParse("200m"),
+			},
+		}},
+	}}
+	d := ComputeDrift([]client.Object{ro}, recs, 10)
+	require.Len(t, d, 1)
+	assert.Equal(t, "Rollout", d[0].Kind)
+	assert.Equal(t, "app", d[0].Container)
+	assert.Equal(t, "500m", d[0].Template)
+	assert.Equal(t, "200m", d[0].Recommended)
+
+	ref := ro.DeepCopy()
+	ref.Spec.WorkloadRef = &argorollout.WorkloadRef{Name: "api", Kind: "Deployment"}
+	assert.Empty(t, ComputeDrift([]client.Object{ref}, recs, 10),
+		"workloadRef stores the template on another workload")
 }
 
 func TestComputeDrift_LimitsOnlyMismatchIsNotDrift(t *testing.T) {
