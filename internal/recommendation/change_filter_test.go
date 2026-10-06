@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
@@ -138,6 +139,145 @@ func TestChangeFilter_ZeroCurrent(t *testing.T) {
 	assert.Empty(t, expl.ChangeFilterApplied)
 	assert.Equal(t, int64(500), rec.MilliValue(),
 		"zero current should pass through inner recommendation")
+}
+
+func TestApplyChangeFilter_RoundsByResource(t *testing.T) {
+	parse := func(s string) resource.Quantity {
+		t.Helper()
+		q, err := resource.ParseQuantity(s)
+		require.NoError(t, err)
+		return q
+	}
+	cpuCurrent := *resource.NewQuantity(1, resource.BinarySI)
+	cpuRecommended := *resource.NewQuantity(2, resource.BinarySI)
+
+	tests := []struct {
+		name        string
+		current     resource.Quantity
+		recommended resource.Quantity
+		minChange   float64
+		maxPct      float64
+		isCPU       bool
+		wantMilli   int64
+		wantFormat  resource.Format
+		wantReason  string
+		wholeByte   bool
+	}{
+		{
+			name:        "decimal memory increase rounds up to a whole byte",
+			current:     parse("1Gi"),
+			recommended: parse("2G"),
+			maxPct:      30,
+			wantMilli:   1395864372 * 1000,
+			wantFormat:  resource.DecimalSI,
+			wantReason:  "max_change_capped",
+			wholeByte:   true,
+		},
+		{
+			name:        "decimal memory decrease rounds up to a whole byte",
+			current:     parse("1Gi"),
+			recommended: parse("500M"),
+			maxPct:      30,
+			wantMilli:   751619277 * 1000,
+			wantFormat:  resource.DecimalSI,
+			wantReason:  "max_change_capped",
+			wholeByte:   true,
+		},
+		{
+			name:        "plain byte memory does not stay in millibytes",
+			current:     parse("100000001"),
+			recommended: parse("2000000000"),
+			maxPct:      30,
+			wantMilli:   130000002 * 1000,
+			wantFormat:  resource.DecimalSI,
+			wantReason:  "max_change_capped",
+			wholeByte:   true,
+		},
+		{
+			name:        "binary memory with a whole product keeps that value",
+			current:     parse("512Mi"),
+			recommended: parse("1024Mi"),
+			maxPct:      50,
+			wantMilli:   805306368 * 1000,
+			wantFormat:  resource.BinarySI,
+			wantReason:  "max_change_capped",
+			wholeByte:   true,
+		},
+		{
+			name:        "cpu decimal cap stays in millicores",
+			current:     parse("200m"),
+			recommended: parse("400m"),
+			maxPct:      50,
+			isCPU:       true,
+			wantMilli:   300,
+			wantFormat:  resource.DecimalSI,
+			wantReason:  "max_change_capped",
+		},
+		{
+			name:        "cpu binary cap stays in millicores",
+			current:     cpuCurrent,
+			recommended: cpuRecommended,
+			maxPct:      50,
+			isCPU:       true,
+			wantMilli:   1500,
+			wantFormat:  resource.DecimalSI,
+			wantReason:  "max_change_capped",
+		},
+		{
+			name:        "zero current returns the recommendation",
+			current:     parse("0"),
+			recommended: parse("500m"),
+			maxPct:      50,
+			isCPU:       true,
+			wantMilli:   500,
+			wantFormat:  resource.DecimalSI,
+		},
+		{
+			name:        "change under the minimum returns current",
+			current:     parse("1000m"),
+			recommended: parse("1050m"),
+			minChange:   10,
+			maxPct:      50,
+			isCPU:       true,
+			wantMilli:   1000,
+			wantFormat:  resource.DecimalSI,
+			wantReason:  "min_change_filtered",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, reason := applyChangeFilter(tt.current, tt.recommended, tt.minChange, tt.maxPct, tt.maxPct, tt.isCPU)
+			assert.Equal(t, tt.wantMilli, got.MilliValue())
+			assert.Equal(t, tt.wantFormat, got.Format)
+			assert.Equal(t, tt.wantReason, reason)
+			if tt.wholeByte {
+				assert.Zero(t, got.MilliValue()%1000, "capped memory must be a whole byte")
+			}
+		})
+	}
+}
+
+func TestRecommend_DecimalMemoryBoundCapsToWholeBytes(t *testing.T) {
+	maxBound, err := resource.ParseQuantity("2G")
+	require.NoError(t, err)
+	minBound, err := resource.ParseQuantity("4Mi")
+	require.NoError(t, err)
+	current, err := resource.ParseQuantity("1Gi")
+	require.NoError(t, err)
+
+	eng := NewEngine(95, 0, minBound, maxBound, 30, 30, EngineOpts{BurstSensitivity: ptrFloat(0)})
+	rec, expl, changed := eng.RecommendWithExplanation(buildRealisticCPUProfile(3_000_000_000, 1.0), current)
+	require.True(t, changed, "current 1Gi under a 2G cap must move")
+	assert.Equal(t, "max_change_capped", expl.ChangeFilterApplied)
+	assert.Equal(t, int64(1395864372), rec.Value())
+	assert.Equal(t, int64(1395864372)*1000, rec.MilliValue())
+	assert.Zero(t, rec.MilliValue()%1000)
+	assert.Equal(t, resource.DecimalSI, rec.Format)
+	assert.Equal(t, expl.Final.MilliValue(), rec.MilliValue())
+
+	direct, _ := eng.Recommend(buildRealisticCPUProfile(3_000_000_000, 1.0), current)
+	assert.Equal(t, rec.MilliValue(), direct.MilliValue())
 }
 
 func recommendCPUThroughEngine(t *testing.T, current, inner string, maxPct float64) (resource.Quantity, RecommendationExplanation) {

@@ -1217,18 +1217,27 @@ with `memory.controlledValues: RequestsAndLimits`. The operator logs
 these warnings. They do not appear in `kubectl` output or as events.
 In-place pod resizes return no warning. A pod created through initial
 sizing warns the controller that creates it, so that warning appears in
-the kube-controller-manager log, not the operator log.
+the kube-controller-manager log, not the operator log. `kubectl attune
+explain` can also show a memory request with a fractional byte value,
+such as `1395864371200m`, when a decimal memory bound and the change
+cap apply in the same cycle.
 
 **Cause**: Earlier releases scaled the memory limit by a non-integer
 ratio and kept millibyte precision. Both an explicit
 `memory.limitMultiplier` and the live request-to-limit ratio could do
-this.
+this. The change filter did the same for a capped memory request when
+the recommended quantity was decimal, for example a `2G` or `500M`
+bound.
 
 **Fix**: Upgrade. Scaled memory limits are now rounded up to a whole
 byte. A pod or template that already carries a fractional limit is not
 changed for this alone; the next resize that changes the limit for
-another reason writes a whole-byte value. See
-[Upgrading](upgrading.md#whole-byte-memory-limits).
+another reason writes a whole-byte value. A capped memory request is
+rounded up to a whole byte as well. A request that does not hit the cap
+is not rounded, and a pod or template that already carries a fractional
+request is not resized for this rounding alone. See
+[Upgrading](upgrading.md#whole-byte-memory-limits) and
+[whole-byte capped memory requests](upgrading.md#whole-byte-capped-memory-requests).
 
 ### ResourceQuota exceeded
 

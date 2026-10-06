@@ -135,6 +135,23 @@ The next update of that object runs the check. A missing
 SubjectAccessReview still allows the object, same as a policy. Cluster
 AttuneDefaults is unchanged and still warns.
 
+### Whole-byte capped memory requests
+
+A memory request that hits `maxChangePercent`, `maxIncreasePercent`, or
+`maxDecreasePercent` is now rounded up to a whole byte. Earlier builds
+kept millibyte precision when that capped value was decimal, for example
+a `2G` or `500M` bound, and could publish a request such as
+`1395864371200m`. Binary bounds such as `2Gi` were already whole bytes.
+When the cap is not already a whole number of bytes, the published
+request is higher by less than one byte. A request that does not hit
+the cap is unchanged. CPU caps stay in millicores. A
+pod or template that already carries a fractional memory request is not
+resized for this rounding alone. No policy edit and no CRD change are
+needed.
+
+This is the request counterpart of the whole-byte memory limit rounding
+below.
+
 ### Whole-byte memory limits
 
 With `memory.controlledValues: RequestsAndLimits`, a scaled memory limit

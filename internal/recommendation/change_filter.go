@@ -26,7 +26,7 @@ import (
 // RecommendWithExplanation. A change below minChangePercent is skipped.
 // A change above the directional cap is clamped. currentMillis==0 skips
 // the filter so a first recommendation is not divided by zero.
-func applyChangeFilter(current, recommended resource.Quantity, minChangePercent, maxIncreasePercent, maxDecreasePercent float64) (resource.Quantity, string) {
+func applyChangeFilter(current, recommended resource.Quantity, minChangePercent, maxIncreasePercent, maxDecreasePercent float64, isCPU bool) (resource.Quantity, string) {
 	currentMillis := float64(current.MilliValue())
 	if currentMillis == 0 {
 		return recommended, ""
@@ -49,10 +49,12 @@ func applyChangeFilter(current, recommended resource.Quantity, minChangePercent,
 		if isIncrease {
 			capped = currentMillis + maxDelta
 		}
-		if recommended.Format == resource.BinarySI {
-			return *resource.NewQuantity(int64(math.Ceil(capped/1000)), resource.BinarySI), "max_change_capped"
+		// Round by resource. A decimal memory quantity is still whole bytes.
+		// CPU stays in millicores even when the quantity is binary.
+		if isCPU {
+			return *resource.NewMilliQuantity(int64(math.Ceil(capped)), resource.DecimalSI), "max_change_capped"
 		}
-		return *resource.NewMilliQuantity(int64(math.Ceil(capped)), resource.DecimalSI), "max_change_capped"
+		return *resource.NewQuantity(int64(math.Ceil(capped/1000)), recommended.Format), "max_change_capped"
 	}
 	return recommended, ""
 }
