@@ -866,7 +866,7 @@ When `autoRevert: true` (default), the Safety Monitor watches resized pods for:
 2. **CPU Throttle**: CPU throttle ratio exceeds 50% post-resize. The threshold is fixed.
 3. **Excessive Restarts**: Container restart count increases by 2+ post-resize
 4. **Pod Not Ready**: Pod becomes NotReady within observation period
-5. **SLO Guardrail Breach**: Application-level PromQL query breached its threshold after `evaluationWindow` elapsed (fails open on query errors)
+5. **SLO Guardrail Breach**: Application-level PromQL query breached its threshold after `evaluationWindow` elapsed (fails open on query errors). A window longer than the observation period keeps tracking until it elapses. The query then runs, including when that is after the observation period.
 
 The observation period starts when the resize is submitted. It does not
 finish while the kubelet still has the resize in progress or deferred

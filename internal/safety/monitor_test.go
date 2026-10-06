@@ -1666,6 +1666,8 @@ func TestCheckPod_SLOSkippedDuringEvalWindow(t *testing.T) {
 	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
 	require.NoError(t, err)
 	assert.True(t, verdict.Safe, "SLO check should be skipped within evaluation window")
+	assert.True(t, verdict.SLODeferred, "open evaluation window keeps the pod observed")
+	assert.Empty(t, querier.gotQuery, "query must not run before the window elapses")
 }
 
 func TestCheckPod_SLOCustomEvalWindow(t *testing.T) {
@@ -1707,6 +1709,157 @@ func TestCheckPod_SLOCustomEvalWindow(t *testing.T) {
 	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
 	require.NoError(t, err)
 	assert.True(t, verdict.Safe, "SLO check should be skipped within custom 10m evaluation window")
+	assert.True(t, verdict.SLODeferred, "open custom window keeps the pod observed")
+	assert.Empty(t, querier.gotQuery, "query must not run before the custom window elapses")
+}
+
+func TestCheckPod_SLOWindowDeferral(t *testing.T) {
+	now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	tenMin := 10 * time.Minute
+	fiveMin := 5 * time.Minute
+
+	readyPod := func(ready corev1.ConditionStatus) *corev1.Pod {
+		return &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+			Status: corev1.PodStatus{
+				Phase: corev1.PodRunning,
+				ContainerStatuses: []corev1.ContainerStatus{
+					{Name: "app", RestartCount: 0},
+				},
+				Conditions: []corev1.PodCondition{
+					{Type: corev1.PodReady, Status: ready},
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name       string
+		ready      corev1.ConditionStatus
+		resizedAt  time.Time
+		guardrails []attunev1alpha1.SLOGuardrail
+		value      float64
+		queryErr   error
+		noQuerier  bool
+		wantSafe   bool
+		wantReason string
+		wantDefer  bool
+		wantCalls  int
+	}{
+		{
+			name:      "inside default window",
+			ready:     corev1.ConditionTrue,
+			resizedAt: now.Add(-30 * time.Second),
+			guardrails: []attunev1alpha1.SLOGuardrail{{
+				Name: "latency", Query: "vector(1)", Threshold: "0.5", Comparison: "above",
+			}},
+			value: 999, wantSafe: true, wantDefer: true, wantCalls: 0,
+		},
+		{
+			name:      "six minutes into a ten minute window",
+			ready:     corev1.ConditionTrue,
+			resizedAt: now.Add(-6 * time.Minute),
+			guardrails: []attunev1alpha1.SLOGuardrail{{
+				Name: "latency", Query: "vector(1)", Threshold: "0.5", Comparison: "above",
+				EvaluationWindow: &metav1.Duration{Duration: tenMin},
+			}},
+			value: 999, wantSafe: true, wantDefer: true, wantCalls: 0,
+		},
+		{
+			name:      "window elapsed without a breach",
+			ready:     corev1.ConditionTrue,
+			resizedAt: now.Add(-11 * time.Minute),
+			guardrails: []attunev1alpha1.SLOGuardrail{{
+				Name: "latency", Query: "vector(1)", Threshold: "0.5", Comparison: "above",
+				EvaluationWindow: &metav1.Duration{Duration: tenMin},
+			}},
+			value: 0.1, wantSafe: true, wantDefer: false, wantCalls: 1,
+		},
+		{
+			name:      "exact window boundary is evaluated",
+			ready:     corev1.ConditionTrue,
+			resizedAt: now.Add(-tenMin),
+			guardrails: []attunev1alpha1.SLOGuardrail{{
+				Name: "latency", Query: "vector(1)", Threshold: "0.5", Comparison: "above",
+				EvaluationWindow: &metav1.Duration{Duration: tenMin},
+			}},
+			value: 0.1, wantSafe: true, wantDefer: false, wantCalls: 1,
+		},
+		{
+			name:      "no querier is not deferred",
+			ready:     corev1.ConditionTrue,
+			resizedAt: now.Add(-30 * time.Second),
+			noQuerier: true,
+			wantSafe:  true, wantDefer: false, wantCalls: 0,
+		},
+		{
+			name:      "elapsed breach wins over a still-open window",
+			ready:     corev1.ConditionTrue,
+			resizedAt: now.Add(-6 * time.Minute),
+			guardrails: []attunev1alpha1.SLOGuardrail{
+				{
+					Name: "A", Query: "vector(1)", Threshold: "0.5", Comparison: "above",
+					EvaluationWindow: &metav1.Duration{Duration: fiveMin},
+				},
+				{
+					Name: "B", Query: "vector(1)", Threshold: "0.5", Comparison: "above",
+					EvaluationWindow: &metav1.Duration{Duration: tenMin},
+				},
+			},
+			value: 0.95, wantSafe: false, wantReason: "slo:A", wantDefer: false, wantCalls: 1,
+		},
+		{
+			name:      "not ready is not deferred",
+			ready:     corev1.ConditionFalse,
+			resizedAt: now.Add(-30 * time.Second),
+			guardrails: []attunev1alpha1.SLOGuardrail{{
+				Name: "latency", Query: "vector(1)", Threshold: "0.5", Comparison: "above",
+			}},
+			value: 999, wantSafe: false, wantReason: "notready", wantDefer: false, wantCalls: 0,
+		},
+		{
+			name:      "query error after the window fails open",
+			ready:     corev1.ConditionTrue,
+			resizedAt: now.Add(-11 * time.Minute),
+			guardrails: []attunev1alpha1.SLOGuardrail{{
+				Name: "latency", Query: "vector(1)", Threshold: "0.5", Comparison: "above",
+				EvaluationWindow: &metav1.Duration{Duration: tenMin},
+			}},
+			queryErr: assert.AnError, wantSafe: true, wantDefer: false, wantCalls: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			querier := &queryCount{mockSLOQuerier: mockSLOQuerier{value: tt.value, err: tt.queryErr}}
+			monitor := NewMonitor(fake.NewSimpleClientset(readyPod(tt.ready)), testr.New(t))
+			if !tt.noQuerier {
+				monitor.WithSLOChecker(querier, tt.guardrails)
+			}
+			record := ResizeRecord{
+				PodName: "web-0", Namespace: "default", Container: "app",
+				ResizedAt: tt.resizedAt, RestartCount: 0,
+			}
+			verdict, err := monitor.CheckPod(context.Background(), record, now)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantSafe, verdict.Safe)
+			assert.Equal(t, tt.wantDefer, verdict.SLODeferred)
+			if tt.wantReason != "" {
+				assert.Equal(t, tt.wantReason, verdict.Reason)
+			}
+			assert.Equal(t, tt.wantCalls, querier.calls)
+		})
+	}
+}
+
+type queryCount struct {
+	mockSLOQuerier
+	calls int
+}
+
+func (q *queryCount) Query(ctx context.Context, query string, ts time.Time) (float64, error) {
+	q.calls++
+	return q.mockSLOQuerier.Query(ctx, query, ts)
 }
 
 func TestCheckPod_SLOQueryFailsOpen(t *testing.T) {

@@ -786,7 +786,7 @@ Application-level PromQL checks evaluated after each resize during the safety ob
 | `updateStrategy.sloGuardrails[].query` | string | (required) | PromQL query returning a scalar. Supports `{{ .Namespace }}`, `{{ .WorkloadName }}`, `{{ .PodName }}` template variables. |
 | `updateStrategy.sloGuardrails[].threshold` | string | (required) | Value that triggers a revert |
 | `updateStrategy.sloGuardrails[].comparison` | string | `above` | `above` (revert when value > threshold) or `below` |
-| `updateStrategy.sloGuardrails[].evaluationWindow` | duration | `5m` | How long after resize to check. Omit the field for 5m. Zero is invalid on create, and changing a positive window to `0s` is rejected. An unchanged stored `0s` on `AttunePolicy`, `AttuneDefaults`, or `AttuneNamespaceDefaults` is accepted only when the stored entry at the same list index is also `0s`, and uses the 5m default. The shortest accepted positive value is 1m. |
+| `updateStrategy.sloGuardrails[].evaluationWindow` | duration | `5m` | How long after resize to check. Omit the field for 5m. Zero is invalid on create, and changing a positive window to `0s` is rejected. An unchanged stored `0s` on `AttunePolicy`, `AttuneDefaults`, or `AttuneNamespaceDefaults` is accepted only when the stored entry at the same list index is also `0s`, and uses the 5m default. The shortest accepted positive value is 1m. A window longer than the observation period keeps safety observation until the window elapses, then the query runs. |
 
 Example:
 
