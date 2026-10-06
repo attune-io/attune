@@ -10,6 +10,17 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### Canary promotion waits for a longer SLO window
+
+With `autoPromote: true`, a canary used to promote when `observationPeriod`
+ended, even if a guardrail `evaluationWindow` was still open. Promotion now
+waits for the longer of the two when the metrics source can run the guardrail
+query. A missing window counts as 5m. VPA does not extend the wait. For
+example, `canary.observationPeriod: 10m` and a `p99-latency` guardrail with
+`evaluationWindow: 30m` promotes at the end of 30 minutes. A revert during
+that wait still resets the watch. `autoPromote: false` is unchanged. No
+policy edit and no CRD change are needed.
+
 ### An OOM at maxAllowed is counted once
 
 A container already at `memory.maxAllowed` that OOMs outside

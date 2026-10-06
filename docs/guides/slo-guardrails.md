@@ -114,7 +114,10 @@ You can also set `sloGuardrails` on `AttuneDefaults` or
 - A very long `evaluationWindow` with a short observation period requeues
   at `min(cooldown, observationPeriod)` until the window elapses.
 - Start with Canary so only a fraction of pods are exposed while you tune
-  thresholds.
+  thresholds. With `autoPromote: true`, promotion waits for the longer of
+  the observation period and the longest `evaluationWindow` when the metrics
+  source can run the guardrail query. A missing window counts as 5m. VPA
+  does not add that wait.
 - Use `kubectl attune history` to confirm revert reasons; SLO breaches show as
   `slo:<name>`.
 - Guardrails require a working Prometheus (or compatible) metrics source on the
