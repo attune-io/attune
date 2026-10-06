@@ -274,6 +274,16 @@ func (m *Monitor) CheckPodObject(ctx context.Context, pod *corev1.Pod, record Re
 	if v := CheckCriticalStatuses(pod, record); v != nil {
 		return *v, nil
 	}
+	return m.CheckNonCritical(ctx, pod, record, now)
+}
+
+// CheckNonCritical evaluates throttle, SLO guardrails, and Ready.
+// OOMKill and restart counts stay in CheckCriticalStatuses, so a critical
+// verdict has not run these checks yet.
+func (m *Monitor) CheckNonCritical(ctx context.Context, pod *corev1.Pod, record ResizeRecord, now time.Time) (SafetyVerdict, error) {
+	if pod == nil {
+		return SafetyVerdict{Safe: true}, nil
+	}
 
 	// Check for CPU throttling via Prometheus (if checker is configured).
 	// Skip when the resize happened less than 5 minutes ago because the

@@ -10,6 +10,17 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### A held OOM no longer ends observation
+
+When `memory.oomBump` is set and the hold suppresses an OOM or restart
+revert, Attune still checks throttle, SLO guardrails, and Ready. A breach
+reverts and keeps the memory floor. An open throttle grace period or SLO
+window keeps the pod tracked. A Ready pod with nothing pending still ends
+observation on that pass. Policies that omit `memory.oomBump` are unchanged.
+A policy that already set `memory.oomBump` can see a `notready`, `throttle`,
+or `slo:<name>` revert after a held OOM, where observation used to end.
+That revert keeps the OOM floor. No policy edit and no CRD change are needed.
+
 ### Canary promotion waits for a longer SLO window
 
 With `autoPromote: true`, a canary used to promote when `observationPeriod`
