@@ -1220,9 +1220,21 @@ Jobs:
     - Uploads per-version logs and debug artifacts
 
   report:
-    - Fails the workflow if any required nightly matrix leg failed.
-      A scheduled 1.37 (experimental) failure does not fail Nightly Results.
-    - Creates a GitHub issue on scheduled failures when no open nightly-failure issue exists
+    - Fails when prepare-matrix, E2E, or fuzz fails, or when one of those
+      jobs is cancelled or skipped while another succeeded. A fully
+      cancelled run does not fail Nightly Results and does not change
+      the open failure issue. A scheduled 1.37 (experimental) failure
+      does not fail Nightly Results.
+    - On schedule, a red run opens or updates an assigned issue labeled
+      e2e-nightly-failure and ready. The assignee is the
+      NIGHTLY_FAILURE_ASSIGNEE repository variable, or SebTardif when
+      that variable is empty or is the org login. The same UTC day and
+      signature updates the issue. The signature names failed or
+      cancelled jobs. A skipped job is named only when no other job
+      failed. A later UTC day closes the open issue and opens a new one
+      whose title includes the consecutive-day count, counted from the
+      first failed UTC day. A green scheduled run closes the open
+      failure issue. workflow_dispatch does not open or close that issue.
 ```
 
 #### `release.yaml` - Release (on tag push `v*`)

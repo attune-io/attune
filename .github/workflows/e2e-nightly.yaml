@@ -557,82 +557,77 @@ jobs:
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
     permissions:
+      actions: read
+      contents: read
       issues: write
-    needs: [test-e2e, fuzz]
+    needs: [prepare-matrix, test-e2e, fuzz]
     if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     steps:
+      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Summary
-        shell: bash -Eeuo pipefail {0}
-        run: |
-          e2e_result="${{ needs.test-e2e.result }}"
-          fuzz_result="${{ needs.fuzz.result }}"
-          failed=0
-          if [[ "$e2e_result" != "success" && "$e2e_result" != "skipped" ]]; then
-            echo "::error::E2E nightly failed (result: $e2e_result)"
-            failed=1
-          fi
-          if [[ "$fuzz_result" != "success" && "$fuzz_result" != "skipped" ]]; then
-            echo "::error::Fuzz nightly failed (result: $fuzz_result)"
-            failed=1
-          fi
-          if (( failed )); then
-            exit 1
-          fi
-          echo "All nightly tests passed (E2E: $e2e_result, Fuzz: $fuzz_result)"
-
-      # Enriched failure body: failed job names, steps, and first Go E2E FAIL
-      # lines when artifacts are available (#484). Falls back to a minimal body.
-      - name: Create issue on failure
-        if: failure() && github.event_name == 'schedule'
+      # Schedule assigns an issue. workflow_dispatch only fails the job.
+      # A fully cancelled run does not open or close an issue.
+      - name: Record nightly result
         env:
           GH_TOKEN: ${{ github.token }}
+          JOB_RESULTS: prepare-matrix=${{ needs.prepare-matrix.result }} test-e2e=${{ needs.test-e2e.result }} fuzz=${{ needs.fuzz.result }}
+          NIGHTLY_FAILURE_ASSIGNEE: ${{ vars.NIGHTLY_FAILURE_ASSIGNEE }}
+          RECORD_ISSUES: ${{ github.event_name == 'schedule' && '1' || '0' }}
         shell: bash -Eeuo pipefail {0}
         run: |
-          # Only create if no open issue with this label already exists.
-          existing=$(gh issue list --label e2e-nightly-failure --state open --json number --jq 'length')
-          if [[ "$existing" -gt 0 ]]; then
-            echo "Open nightly failure issue already exists, skipping creation"
-            exit 0
-          fi
-
-          art_dir=$(mktemp -d)
-          # Best-effort: download e2e debug artifacts for test name extraction.
-          # Do not fail the report job if download/parse fails.
-          set +e
-          gh run download "${{ github.run_id }}" \
-            --repo "${{ github.repository }}" \
-            --dir "$art_dir" \
-            --pattern 'e2e-nightly-*' 2>/dev/null \
-            || gh run download "${{ github.run_id }}" \
+          outcome=$(python3 scripts/nightly_failure_issue.py --outcome-only)
+          echo "nightly outcome: ${outcome}"
+          body_file="${RUNNER_TEMP:-/tmp}/nightly-failure-body.md"
+          if [[ "${outcome}" == "red" ]]; then
+            art_dir=$(mktemp -d)
+            # Artifact download is best-effort. A missing or hung log
+            # must not hide the issue. Each attempt is capped so the
+            # recorder still runs inside the 5 minute job.
+            dl() {
+              if command -v timeout >/dev/null 2>&1; then
+                timeout 30 "$@"
+              else
+                "$@"
+              fi
+            }
+            set +e
+            dl gh run download "${{ github.run_id }}" \
               --repo "${{ github.repository }}" \
-              --dir "$art_dir" 2>/dev/null \
-            || true
-          set -e
-
-          body=$(bash scripts/nightly-failure-issue-body.sh \
-            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            --run-id "${{ github.run_id }}" \
-            --repo "${{ github.repository }}" \
-            --e2e-result "${{ needs.test-e2e.result }}" \
-            --fuzz-result "${{ needs.fuzz.result }}" \
-            --artifact-dir "$art_dir" \
-            || true)
-          if [[ -z "${body// }" ]]; then
-            body=$(cat <<EOF
-          The [nightly run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) failed.
-
-          - E2E result: \`${{ needs.test-e2e.result }}\`
-          - Fuzz result: \`${{ needs.fuzz.result }}\`
-
-          Check the workflow run for details.
-          EOF
-          )
+              --dir "$art_dir" \
+              --pattern 'e2e-nightly-*' 2>/dev/null \
+              || dl gh run download "${{ github.run_id }}" \
+                --repo "${{ github.repository }}" \
+                --dir "$art_dir" 2>/dev/null \
+              || true
+            set -e
+            body=$(bash scripts/nightly-failure-issue-body.sh \
+              --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+              --run-id "${{ github.run_id }}" \
+              --repo "${{ github.repository }}" \
+              --prepare-result "${{ needs.prepare-matrix.result }}" \
+              --e2e-result "${{ needs.test-e2e.result }}" \
+              --fuzz-result "${{ needs.fuzz.result }}" \
+              --artifact-dir "$art_dir" \
+              || true)
+            printf '%s\n' "$body" > "$body_file"
+          else
+            : > "$body_file"
           fi
-          gh issue create \
-            --title "Nightly failed on $(date -u +%Y-%m-%d)" \
-            --label e2e-nightly-failure \
-            --body "$body"
+          args=(
+            --repo "${{ github.repository }}"
+            --run-id "${{ github.run_id }}"
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            --assignee "${NIGHTLY_FAILURE_ASSIGNEE}"
+            --label e2e-nightly-failure
+            --label ready
+            --body-file "$body_file"
+          )
+          if [[ "${RECORD_ISSUES}" != "1" ]]; then
+            args+=(--no-issues)
+          fi
+          python3 scripts/nightly_failure_issue.py "${args[@]}"

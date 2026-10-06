@@ -6,7 +6,7 @@
 #   scripts/nightly-failure-issue-body.sh \
 #     --run-url URL --run-id ID --repo OWNER/REPO \
 #     --e2e-result RESULT --fuzz-result RESULT \
-#     [--artifact-dir DIR]
+#     [--prepare-result RESULT] [--artifact-dir DIR]
 #
 # Env: GH_TOKEN for gh api (optional for artifact-only mode)
 
@@ -19,6 +19,7 @@ RUN_ID=""
 REPO=""
 E2E_RESULT=""
 FUZZ_RESULT=""
+PREPARE_RESULT=""
 ARTIFACT_DIR=""
 
 while [[ $# -gt 0 ]]; do
@@ -28,6 +29,7 @@ while [[ $# -gt 0 ]]; do
     --repo) REPO="${2:-}"; shift 2 ;;
     --e2e-result) E2E_RESULT="${2:-}"; shift 2 ;;
     --fuzz-result) FUZZ_RESULT="${2:-}"; shift 2 ;;
+    --prepare-result) PREPARE_RESULT="${2:-}"; shift 2 ;;
     --artifact-dir) ARTIFACT_DIR="${2:-}"; shift 2 ;;
     -h|--help)
       sed -n '2,20p' "$0"
@@ -47,8 +49,11 @@ fi
 
 failed_jobs_md=""
 if [[ -n "$RUN_ID" && -n "$REPO" ]] && command -v gh >/dev/null 2>&1; then
-  # shellcheck disable=SC2016
-  jobs_json=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/jobs" --paginate 2>/dev/null || true)
+  if command -v timeout >/dev/null 2>&1; then
+    jobs_json=$(timeout 20 gh api "repos/${REPO}/actions/runs/${RUN_ID}/jobs" --paginate 2>/dev/null || true)
+  else
+    jobs_json=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/jobs" --paginate 2>/dev/null || true)
+  fi
   if [[ -n "$jobs_json" ]]; then
     failed_jobs_md=$(printf '%s' "$jobs_json" | python3 "${SCRIPT_DIR}/nightly_failure_jobs.py" 2>/dev/null || true)
   fi
@@ -94,6 +99,9 @@ fi
 {
   echo "The [nightly run](${RUN_URL}) failed."
   echo
+  if [[ -n "$PREPARE_RESULT" ]]; then
+    echo "- Prepare result: \`${PREPARE_RESULT}\`"
+  fi
   echo "- E2E result: \`${E2E_RESULT}\`"
   echo "- Fuzz result: \`${FUZZ_RESULT}\`"
   if [[ -n "$failed_jobs_md" ]]; then
