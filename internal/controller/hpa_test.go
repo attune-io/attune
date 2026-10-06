@@ -1692,6 +1692,28 @@ func TestRetuneHPAAfterResize_InitContainerStaysOutOfPodTotal(t *testing.T) {
 	assert.Equal(t, "100m", updated.Annotations["attune.io/hpa-cpu-base.migrate"])
 }
 
+func TestRetuneHPAAfterResize_NativeSidecarInPodTotal(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", nil,
+		cpuResourceMetric(80),
+		cpuContainerMetric("istio-proxy", 80),
+	)
+	proxy := podContainer(t, "istio-proxy", "200m", "1000m")
+	always := corev1.ContainerRestartPolicyAlways
+	proxy.RestartPolicy = &always
+	pod := workloadPod("api-server", podContainer(t, "app", "400m", "1000m"))
+	pod.Spec.InitContainers = []corev1.Container{proxy}
+	cl := runHPARetune(t, []autoscalingv2.HorizontalPodAutoscaler{hpa}, &pod,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "400m", "200m")}, nil)
+
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(120), metricUtil(t, updated, 0),
+		"native sidecar request stays in the pod total: 80 * 600/400 = 120")
+	assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest])
+	assert.Equal(t, int32(80), metricUtil(t, updated, 1),
+		"an unchanged sidecar container metric is not retuned")
+}
+
 // adjustHPATargets applies one precomputed CPU pair to every adjustable
 // CPU utilization metric.
 func (r *AttunePolicyReconciler) adjustHPATargets(

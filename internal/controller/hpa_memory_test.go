@@ -540,6 +540,26 @@ func TestRetuneHPAMemory_InitExcludedFromPodTotal(t *testing.T) {
 	assert.Equal(t, 1, updates)
 }
 
+func TestRetuneHPAMemory_NativeSidecarInPodTotal(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", nil, memoryResourceMetric(80))
+	proxy := memContainer(t, "istio-proxy", "1Gi", "2Gi")
+	always := corev1.ContainerRestartPolicyAlways
+	proxy.RestartPolicy = &always
+	pod := workloadPod("api-server", memContainer(t, "app", "1Gi", "2Gi"))
+	pod.Spec.InitContainers = []corev1.Container{proxy}
+	cl, updates := runMemoryRetune(t, memoryRetuneOpts{
+		hpas:    []autoscalingv2.HorizontalPodAutoscaler{hpa},
+		pod:     &pod,
+		history: []attunev1alpha1.ResizeHistoryEntry{memoryHistory("app", "1Gi", "512Mi")},
+	})
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(106), metricUtil(t, updated, 0),
+		"native sidecar memory stays in the pod total: 80 * 2Gi/1536Mi = 106")
+	assert.Equal(t, "2Gi", updated.Annotations[annotationHPAOriginalMemoryRequest])
+	assert.Equal(t, 1, updates)
+}
+
 func TestRetuneHPAMemory_OffPodHistoryDilutes(t *testing.T) {
 	t.Parallel()
 	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", nil, memoryResourceMetric(80))

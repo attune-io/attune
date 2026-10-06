@@ -119,6 +119,19 @@ func podMemoryMillis(pod *corev1.Pod, rows map[string]hpaCPURow) (oldMilli, newM
 	}
 	for _, c := range pod.Spec.InitContainers {
 		seen[c.Name] = struct{}{}
+		if !nativeSidecar(c) {
+			continue
+		}
+		if row, exists := rows[c.Name]; exists && row.ok {
+			oldMilli += row.old
+			newMilli += row.neu
+			continue
+		}
+		if q, has := c.Resources.Requests[corev1.ResourceMemory]; has {
+			v := q.MilliValue()
+			oldMilli += v
+			newMilli += v
+		}
 	}
 	for name, row := range rows {
 		if _, onPod := seen[name]; onPod || !row.ok {

@@ -132,9 +132,10 @@ retunes memory utilization targets in the same update as CPU.
 
 The new percent is the original target times the original request divided
 by the new request, truncated toward zero, then capped by the memory limit.
-A Resource metric uses the sum of spec.containers requests, so an unchanged
-container dilutes the ratio. Native sidecars stay out of that sum. CREATE
-initial sizing still counts init containers with restartPolicy Always.
+A Resource metric uses the sum of spec.containers requests plus native
+sidecars (init containers with restartPolicy Always), so an unchanged
+container dilutes the ratio. A one-shot init stays out of that sum. CREATE
+initial sizing counts those same native sidecars.
 A ContainerResource metric uses only that container. Object metrics and
 AverageValue targets are left unchanged.
 
