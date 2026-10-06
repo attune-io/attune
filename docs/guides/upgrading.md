@@ -10,6 +10,24 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### Stored HPA base includes a native sidecar
+
+A pod Resource utilization target counts `spec.containers` plus init
+containers with `restartPolicy: Always`. A one-shot init stays out of
+that sum.
+
+On the next successful retune, Attune rewrites a stored
+`attune.io/original-cpu-request` or `attune.io/original-memory-request`
+that left the native sidecar out. The stored value has to be below this
+cycle's pre-resize pod sum, and it has to equal the history old sum or
+that sum with native sidecars removed. A stored base that already
+includes the sidecar stays, including after later growth. The HPA
+update emits `HPABaseRepaired`, and the event names the annotation that
+changed. A failed update does not emit the warning. No policy edit and
+no CRD change are needed.
+
+See [HPA coexistence](hpa-coexistence.md#qos-aware-hpa-target-adjustment).
+
 ### CloudWatch matches the Deployment and CronJob names
 
 Container Insights writes the Deployment name in `PodName` for a

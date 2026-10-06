@@ -1412,8 +1412,10 @@ total from before the first Attune resize.
 
 **Cause**: A stored full-pod base was replaced with a grown pod sum, or
 the no-history containers were added onto a base that already included
-them. This version keeps a stored base unless it equals the history old
-sum of `spec.containers`. It does not write an older number back.
+them. This version keeps a stored base unless it is below the
+pre-resize pod sum and equals either the history old sum or that sum
+with native sidecars removed. A native sidecar added by that repair is
+expected. It does not write an older number back.
 
 **Fix**:
 
@@ -1441,19 +1443,20 @@ workload is resized again.
 3. The next successful in-place resize of that workload tries the retune
    again.
 
-### HPABaseRepaired and the stored CPU request disagree
+### HPABaseRepaired and the stored request disagree
 
 **Symptom**: The policy shows Warning `HPABaseRepaired`, but
-`attune.io/original-cpu-request` on the HPA is not the value you expected
-from that event.
+`attune.io/original-cpu-request` or `attune.io/original-memory-request`
+on the HPA is not the value you expected from that event.
 
 **Cause**: This version emits the Warning only after the HPA update
-succeeds. A Warning whose annotation does not match is from an older
-operator, or a later writer changed the annotation. It is not a failed
-write from this version.
+succeeds. The event names the annotation it rewrote. A Warning whose
+annotation does not match is from an older operator, or a later writer
+changed the annotation. It is not a failed write from this version.
 
-**Fix**: Read `attune.io/original-cpu-request` on the HPA. The event text
-names that key. Do not treat the Warning alone as proof of the stored value.
+**Fix**: Read the annotation named in the event. That is
+`attune.io/original-cpu-request` or `attune.io/original-memory-request`.
+Do not treat the Warning alone as proof of the stored value.
 
 ### Memory HPA scaled out after a memory decrease
 

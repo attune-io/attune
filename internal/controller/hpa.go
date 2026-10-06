@@ -284,6 +284,67 @@ func resourceHistoryOldMilli(pod *corev1.Pod, rows map[string]hpaCPURow) int64 {
 	return sum
 }
 
+// resourceOldMilliExcludingNativeSidecars is the pre-resize pod sum with
+// native sidecars removed. podCPUMillis and podMemoryMillis already skip
+// one-shot inits and keep a sidecar history row on the pod, so subtracting
+// that sidecar's old request leaves the sum an older operator stored.
+func resourceOldMilliExcludingNativeSidecars(pod *corev1.Pod, rows map[string]hpaCPURow, res corev1.ResourceName) int64 {
+	if pod == nil {
+		return resourceHistoryOldMilli(nil, rows)
+	}
+	var old int64
+	switch res {
+	case corev1.ResourceMemory:
+		old, _, _ = podMemoryMillis(pod, rows)
+	case corev1.ResourceCPU:
+		old, _, _ = podCPUMillis(pod, rows)
+	default:
+		return resourceHistoryOldMilli(pod, rows)
+	}
+	for _, c := range pod.Spec.InitContainers {
+		if !nativeSidecar(c) {
+			continue
+		}
+		if row, exists := rows[c.Name]; exists && row.ok {
+			old -= row.old
+			continue
+		}
+		if q, has := c.Resources.Requests[res]; has {
+			old -= q.MilliValue()
+		}
+	}
+	return old
+}
+
+// repairedPodResourceBase replaces a stored pod Resource base when that
+// base left out containers this cycle's pre-resize sum includes.
+// storedMilli has to be strictly below oldMilli, and it has to equal the
+// history-old sum or the same sum with native sidecars removed. A stored
+// value that matches neither stays: it may already include the sidecar,
+// or it may be a full base from before later growth.
+func repairedPodResourceBase(pod *corev1.Pod, rows map[string]hpaCPURow, res corev1.ResourceName, storedMilli, oldMilli int64) (int64, bool) {
+	if storedMilli <= 0 || oldMilli <= 0 || storedMilli >= oldMilli {
+		return 0, false
+	}
+	if storedMilli == resourceHistoryOldMilli(pod, rows) ||
+		storedMilli == resourceOldMilliExcludingNativeSidecars(pod, rows, res) {
+		return oldMilli, true
+	}
+	return 0, false
+}
+
+func rememberRepairedBase(keys []string, key string) []string {
+	if key == "" {
+		return keys
+	}
+	for _, existing := range keys {
+		if existing == key {
+			return keys
+		}
+	}
+	return append(keys, key)
+}
+
 func podCPUMillis(pod *corev1.Pod, rows map[string]hpaCPURow) (oldMilli, newMilli int64, ok bool) {
 	if pod == nil {
 		return 0, 0, false
@@ -599,7 +660,7 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 		}
 
 		foundAdjustable := false
-		repairedCPU := false
+		var repairedBases []string
 		pending := make([]hpaPendingTarget, 0, len(hpa.Spec.Metrics))
 		var clamps []hpaClampNote
 		for j := range hpa.Spec.Metrics {
@@ -629,7 +690,7 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 			// currentTarget * (old / new) and do not gain a request annotation.
 			baseTarget := currentTarget
 			baseRequestMilli := basis.oldMilli
-			repairPartialCPU := false
+			repairPartial := false
 			if basis.containerMemory {
 				if storedTarget, storedMilli, ok := storedContainerMemory(hpa.Annotations, basis.container); ok {
 					baseTarget = storedTarget
@@ -638,16 +699,16 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 			} else if storedTarget, storedMilli, ok := storedHPABase(hpa.Annotations, basis.targetKey, basis.baseKey); ok {
 				baseTarget = storedTarget
 				baseRequestMilli = storedMilli
-				// Replace the stored base only when it equals the history old
-				// sum. The gap is containers with no history row. A larger
-				// stored value is already a full pod, and this cycle's pod
-				// sum includes later growth. A smaller stored value may
-				// already include the sidecar, so adding it counts twice.
-				if basis.resource && basis.resName == string(corev1.ResourceCPU) && storedMilli < basis.oldMilli {
-					historyOld := resourceHistoryOldMilli(scope.pod, scope.rows)
-					if storedMilli == historyOld {
-						baseRequestMilli = basis.oldMilli
-						repairPartialCPU = true
+				// ContainerResource keeps its own base. A pod Resource base
+				// can be replaced; see repairedPodResourceBase.
+				if basis.resource {
+					rows := scope.rows
+					if basis.resName == string(corev1.ResourceMemory) {
+						rows = scope.memRows
+					}
+					if next, repair := repairedPodResourceBase(scope.pod, rows, corev1.ResourceName(basis.resName), storedMilli, basis.oldMilli); repair {
+						baseRequestMilli = next
+						repairPartial = true
 					}
 				}
 			}
@@ -665,12 +726,12 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 			}
 			if basis.containerMemory {
 				rememberContainerMemory(hpa.Annotations, basis.container, currentTarget, basis.oldMilli)
-			} else if basis.targetKey != "" && (hpa.Annotations[basis.targetKey] == "" || repairPartialCPU) {
+			} else if basis.targetKey != "" && (hpa.Annotations[basis.targetKey] == "" || repairPartial) {
 				hpa.Annotations[basis.targetKey] = strconv.FormatInt(int64(baseTarget), 10)
 				baseQ := hpaRequestQuantity(basis.resName, baseRequestMilli)
 				hpa.Annotations[basis.baseKey] = baseQ.String()
-				if repairPartialCPU {
-					repairedCPU = true
+				if repairPartial {
+					repairedBases = rememberRepairedBase(repairedBases, basis.baseKey)
 				}
 			}
 			if basis.resName == string(corev1.ResourceMemory) {
@@ -737,9 +798,11 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 			}
 			continue
 		}
-		if repairedCPU && r.Recorder != nil && scope.policy != nil {
-			r.Recorder.Eventf(scope.policy, nil, corev1.EventTypeWarning, "HPABaseRepaired", "hpa",
-				"Stored %s was below the pre-resize pod sum and was replaced", annotationHPAOriginalCPURequest)
+		if r.Recorder != nil && scope.policy != nil {
+			for _, key := range repairedBases {
+				r.Recorder.Eventf(scope.policy, nil, corev1.EventTypeWarning, "HPABaseRepaired", "hpa",
+					"Stored %s was below the pre-resize pod sum and was replaced", key)
+			}
 		}
 		for _, note := range clamps {
 			r.emitEventOnce(scope.policy, corev1.EventTypeNormal, "HPATargetClamped", "hpa", "%s", note.message)

@@ -1714,6 +1714,89 @@ func TestRetuneHPAAfterResize_NativeSidecarInPodTotal(t *testing.T) {
 		"an unchanged sidecar container metric is not retuned")
 }
 
+func TestRetuneHPAAfterResize_NativeSidecarHistoryRepairsPartialBase(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
+		annotationHPAOriginalCPU:        "80",
+		annotationHPAOriginalCPURequest: "400m",
+	}, cpuResourceMetric(80))
+	proxy := podContainer(t, "istio-proxy", "100m", "1000m")
+	always := corev1.ContainerRestartPolicyAlways
+	proxy.RestartPolicy = &always
+	pod := workloadPod("api-server", podContainer(t, "app", "200m", "1000m"))
+	pod.Spec.InitContainers = []corev1.Container{
+		proxy,
+		podContainer(t, "migrate", "25m", "1000m"),
+	}
+	scheme := testScheme()
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(hpa.DeepCopy()).Build()
+	recorder := events.NewFakeRecorder(4)
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+	r.Recorder = recorder
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	r.retuneHPAAfterResize(context.Background(), policy, attunev1alpha1.UpdateTypeAuto,
+		[]attunev1alpha1.ResizeHistoryEntry{
+			cpuHistory("app", "400m", "200m"),
+			cpuHistory("istio-proxy", "200m", "100m"),
+			cpuHistory("migrate", "50m", "25m"),
+		},
+		[]attunev1alpha1.WorkloadRecommendation{{Workload: "api-server", Kind: "Deployment"}},
+		[]autoscalingv2.HorizontalPodAutoscaler{hpa},
+		map[string][]corev1.Pod{"api-server": {pod}})
+
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(160), metricUtil(t, updated, 0),
+		"80 * 600/300 = 160; 106 keeps the app-only 400m base")
+	assert.Equal(t, "80", updated.Annotations[annotationHPAOriginalCPU])
+	assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest],
+		"one-shot init history stays out of the repaired base")
+	notes := recorderNotes(recorder)
+	require.NotEmpty(t, notes)
+	assert.Contains(t, notes[0], "HPABaseRepaired")
+	assert.Contains(t, notes[0], annotationHPAOriginalCPURequest)
+}
+
+func TestRetuneHPAAfterResize_NativeSidecarHistoryDoesNotDoubleCount(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
+		annotationHPAOriginalCPU:        "80",
+		annotationHPAOriginalCPURequest: "600m",
+	}, cpuResourceMetric(80))
+	proxy := podContainer(t, "istio-proxy", "200m", "1000m")
+	always := corev1.ContainerRestartPolicyAlways
+	proxy.RestartPolicy = &always
+	pod := workloadPod("api-server", podContainer(t, "app", "800m", "1000m"))
+	pod.Spec.InitContainers = []corev1.Container{proxy}
+	scheme := testScheme()
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(hpa.DeepCopy()).Build()
+	recorder := events.NewFakeRecorder(4)
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+	r.Recorder = recorder
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	r.retuneHPAAfterResize(context.Background(), policy, attunev1alpha1.UpdateTypeAuto,
+		[]attunev1alpha1.ResizeHistoryEntry{
+			cpuHistory("app", "700m", "800m"),
+			cpuHistory("istio-proxy", "200m", "200m"),
+		},
+		[]attunev1alpha1.WorkloadRecommendation{{Workload: "api-server", Kind: "Deployment"}},
+		[]autoscalingv2.HorizontalPodAutoscaler{hpa},
+		map[string][]corev1.Pod{"api-server": {pod}})
+
+	for _, note := range recorderNotes(recorder) {
+		assert.NotContains(t, note, "HPABaseRepaired")
+	}
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(48), metricUtil(t, updated, 0),
+		"80 * 600/1000 = 48; 72 rebases onto the pre-resize sum")
+	assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest])
+}
+
 // adjustHPATargets applies one precomputed CPU pair to every adjustable
 // CPU utilization metric.
 func (r *AttunePolicyReconciler) adjustHPATargets(
