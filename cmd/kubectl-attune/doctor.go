@@ -252,7 +252,7 @@ func appendListedResources(ctx context.Context, dynClient dynamic.Interface, res
 			return out, errs
 		}
 		if reportMissing && isNoResourceMatch(err) {
-			return out, append(errs, fmt.Errorf("Attune CRDs are not installed in this cluster: %w", err))
+			return out, append(errs, fmt.Errorf("the Attune CRDs are not installed in this cluster: %w", err))
 		}
 		return out, append(errs, fmt.Errorf("list %s: %w", kind, err))
 	}
