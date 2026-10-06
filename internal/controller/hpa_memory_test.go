@@ -147,7 +147,11 @@ func runMemoryRetune(t *testing.T, opts memoryRetuneOpts) (client.Client, int) {
 	reconciler := NewAttunePolicyReconciler()
 	reconciler.Client = cl
 	reconciler.Scheme = scheme
-	reconciler.Recorder = opts.recorder
+	// A nil *FakeRecorder assigned to the EventRecorder interface is not a
+	// nil interface, and Eventf would panic. Leave the field unset instead.
+	if opts.recorder != nil {
+		reconciler.Recorder = opts.recorder
+	}
 	if opts.policy == nil {
 		opts.policy = newTestPolicy("p", "default")
 		opts.policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
@@ -558,6 +562,94 @@ func TestRetuneHPAMemory_NativeSidecarInPodTotal(t *testing.T) {
 		"native sidecar memory stays in the pod total: 80 * 2Gi/1536Mi = 106")
 	assert.Equal(t, "2Gi", updated.Annotations[annotationHPAOriginalMemoryRequest])
 	assert.Equal(t, 1, updates)
+}
+
+func TestRetuneHPAMemory_PartialStoredBaseIncludesNativeSidecar(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
+		annotationHPAOriginalMemory:        "80",
+		annotationHPAOriginalMemoryRequest: "1Gi",
+	}, memoryResourceMetric(80))
+	proxy := memContainer(t, "istio-proxy", "1Gi", "2Gi")
+	always := corev1.ContainerRestartPolicyAlways
+	proxy.RestartPolicy = &always
+	pod := workloadPod("api-server", memContainer(t, "app", "512Mi", "2Gi"))
+	pod.Spec.InitContainers = []corev1.Container{
+		proxy,
+		memContainer(t, "migrate", "128Mi", "2Gi"),
+	}
+	recorder := events.NewFakeRecorder(4)
+	cl, _ := runMemoryRetune(t, memoryRetuneOpts{
+		hpas:     []autoscalingv2.HorizontalPodAutoscaler{hpa},
+		pod:      &pod,
+		recorder: recorder,
+		history: []attunev1alpha1.ResizeHistoryEntry{
+			memoryHistory("app", "1Gi", "512Mi"),
+			memoryHistory("migrate", "256Mi", "128Mi"),
+		},
+	})
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(106), metricUtil(t, updated, 0),
+		"80 * 2Gi/1536Mi = 106; 53 keeps the app-only 1Gi base")
+	assert.Equal(t, "80", updated.Annotations[annotationHPAOriginalMemory])
+	assert.Equal(t, "2Gi", updated.Annotations[annotationHPAOriginalMemoryRequest],
+		"one-shot init history stays out of the repaired base")
+	notes := recorderNotes(recorder)
+	require.NotEmpty(t, notes)
+	assert.Contains(t, notes[0], "HPABaseRepaired")
+	assert.Contains(t, notes[0], annotationHPAOriginalMemoryRequest)
+}
+
+func TestRetuneHPAMemory_NativeSidecarHistoryRepairsPartialBase(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
+		annotationHPAOriginalMemory:        "80",
+		annotationHPAOriginalMemoryRequest: "1Gi",
+	}, memoryResourceMetric(80))
+	proxy := memContainer(t, "istio-proxy", "1Gi", "2Gi")
+	always := corev1.ContainerRestartPolicyAlways
+	proxy.RestartPolicy = &always
+	pod := workloadPod("api-server", memContainer(t, "app", "512Mi", "2Gi"))
+	pod.Spec.InitContainers = []corev1.Container{proxy}
+	cl, _ := runMemoryRetune(t, memoryRetuneOpts{
+		hpas: []autoscalingv2.HorizontalPodAutoscaler{hpa},
+		pod:  &pod,
+		history: []attunev1alpha1.ResizeHistoryEntry{
+			memoryHistory("app", "1Gi", "512Mi"),
+			memoryHistory("istio-proxy", "1Gi", "1Gi"),
+		},
+	})
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(106), metricUtil(t, updated, 0),
+		"80 * 2Gi/1536Mi = 106; 53 keeps 1Gi when the sidecar history row hides the gap")
+	assert.Equal(t, "2Gi", updated.Annotations[annotationHPAOriginalMemoryRequest])
+}
+
+func TestRetuneHPAMemory_NativeSidecarStoredBaseDoesNotGrow(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
+		annotationHPAOriginalMemory:        "80",
+		annotationHPAOriginalMemoryRequest: "2Gi",
+	}, memoryResourceMetric(80))
+	proxy := memContainer(t, "istio-proxy", "1Gi", "2Gi")
+	always := corev1.ContainerRestartPolicyAlways
+	proxy.RestartPolicy = &always
+	pod := workloadPod("api-server", memContainer(t, "app", "4Gi", "8Gi"))
+	pod.Spec.InitContainers = []corev1.Container{proxy}
+	recorder := events.NewFakeRecorder(4)
+	cl, _ := runMemoryRetune(t, memoryRetuneOpts{
+		hpas:     []autoscalingv2.HorizontalPodAutoscaler{hpa},
+		pod:      &pod,
+		recorder: recorder,
+		history:  []attunev1alpha1.ResizeHistoryEntry{memoryHistory("app", "3Gi", "4Gi")},
+	})
+	for _, note := range recorderNotes(recorder) {
+		assert.NotContains(t, note, "HPABaseRepaired")
+	}
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(32), metricUtil(t, updated, 0),
+		"80 * 2Gi/5Gi = 32; 64 rebases onto the grown pre-resize sum")
+	assert.Equal(t, "2Gi", updated.Annotations[annotationHPAOriginalMemoryRequest])
 }
 
 func TestRetuneHPAMemory_OffPodHistoryDilutes(t *testing.T) {

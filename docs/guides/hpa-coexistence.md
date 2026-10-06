@@ -69,14 +69,19 @@ The first `Resource` adjustment stores the original utilization percent as
 `attune.io/original-target-cpu` and the original pod CPU request as
 `attune.io/original-cpu-request` (`600m` in that example). Later resizes
 reuse those stored values so the absolute threshold does not drift.
-Attune replaces that stored request only when it equals the history old
-sum of `spec.containers` and other containers have no history row. A
-stored full-pod base stays across later growth. A stored base that is
-already below the history old sum also stays, so a sidecar already
-inside it is not added again. Init containers and native sidecars stay
-out of the Resource sum. `HPABaseRepaired` means the update that rewrote
-that stored request succeeded. A failed HPA update does not emit the
-Warning. A value an older operator already replaced is left in place.
+The pod sum is `spec.containers` plus init containers with
+`restartPolicy: Always`. A one-shot init stays out of that sum.
+Attune replaces the stored request when it is below this cycle's
+pre-resize pod sum and equals either the history old sum or that sum
+with native sidecars removed. The gap is a container with no history
+row, or a native sidecar missing from an older stored base, including
+when that sidecar has its own history row. A stored full-pod base stays
+across later growth. A stored base that matches neither sum also stays,
+so a sidecar already inside it is not added again. `HPABaseRepaired`
+means the update that rewrote `attune.io/original-cpu-request`
+succeeded. The event names that annotation. A failed HPA update does
+not emit the Warning. A value an older operator already replaced with a
+grown sum is left in place.
 A conflicting HPA write is retried from a fresh object. A non-conflict
 failure is logged, and the target is corrected on the next resize of
 that workload.
@@ -144,7 +149,12 @@ The original Resource target and request are stored on the HPA as
 ContainerResource baselines share one JSON annotation,
 `attune.io/original-container-memory`, keyed by container name. A later
 resize multiplies the stored original target by the stored request divided
-by the new request.
+by the new request. Attune replaces `attune.io/original-memory-request`
+on the same rule as `attune.io/original-cpu-request`. The stored value
+is below the pre-resize pod sum and equals the history old sum or that
+sum with native sidecars removed. `HPABaseRepaired` names
+`attune.io/original-memory-request` after that update succeeds.
+ContainerResource JSON baselines are not repaired this way.
 
 `updateStrategy.hpaTargetBounds.memory` is an optional percent band. It is
 not filled with 50 and 90. Set `min` or `max` when you want a tighter range
