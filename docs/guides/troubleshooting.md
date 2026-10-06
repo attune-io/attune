@@ -2199,7 +2199,7 @@ alert fires.
 **Cause**: Opt-in `updateStrategy.export.pullRequest` could not create or
 update a PR. Common cases:
 
-1. Token Secret missing, wrong key, or RBAC cannot read Secrets.
+1. Token Secret missing, wrong key, or [RBAC cannot read Secrets](../getting-started/installation.md#secret-access).
 2. Invalid `provider` / `repository` / optional `apiUrl`. Preflight
    rejects a non-HTTPS URL, userinfo, loopback, link-local (including
    IMDS), or a private RFC1918/ULA host when

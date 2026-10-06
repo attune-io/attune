@@ -162,6 +162,40 @@ kubectl apply -f \
     A default install does not send a Prometheus token. See
     [Choose how Attune authenticates](../guides/prometheus-setup.md#choose-how-attune-authenticates).
 
+## Secret access
+
+The operator ServiceAccount can `get` any Secret in the cluster. It cannot
+`list` or `watch` Secrets. Helm, Kustomize, and OperatorHub install that
+rule on the ClusterRole. `watchNamespaces` limits which namespaces the
+informer cache watches. It does not narrow Secret `get`. Limiting Secret
+`get` to specific namespaces means a Role in each of those namespaces.
+The chart does not ship that Role.
+
+The operator reads a Secret only when a field names it.
+
+| Field | Namespace |
+| --- | --- |
+| `metricsSource.prometheus.bearerTokenSecret` | namespace of the AttunePolicy or AttuneNamespaceDefaults |
+| `metricsSource.datadog.apiKeySecretRef` | namespace of the AttunePolicy or AttuneNamespaceDefaults |
+| `updateStrategy.export.pullRequest.tokenSecretRef` | namespace of the AttunePolicy or AttuneNamespaceDefaults |
+| Helm `prometheusAuth.existingSecret` | operator namespace |
+| Helm `datadogAuth.existingSecret` | operator namespace |
+
+Creating or updating an AttunePolicy or AttuneNamespaceDefaults runs a
+SubjectAccessReview for each Secret named by `bearerTokenSecret`,
+`apiKeySecretRef`, or `tokenSecretRef`. The user who submitted the object
+must be allowed to `get` that Secret in the object's namespace. When the review denies access, the API server rejects the
+object with `the admission user must have get on Secret "<name>" in namespace "<namespace>"`.
+
+An object that is already stored keeps using its Secret refs. The check
+runs on the next update. A missing SubjectAccessReview still allows the
+object. Cluster AttuneDefaults does not run this check. It warns, and
+those Secret names are still read from each policy namespace. With
+`--datadog-api-key-secret`, a cluster-chosen Datadog config reads the
+operator-namespace Secret instead. The Helm operator-namespace Secrets
+are read by the operator ServiceAccount. Admission does not review the
+policy author for those names.
+
 ## Verify the installation
 
 Check that the operator pod is running:
