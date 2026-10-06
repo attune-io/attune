@@ -19,6 +19,19 @@ import (
 	"github.com/attune-io/attune/internal/argorollout"
 )
 
+func TestGitOpsTextDoesNotClaimDiffApplies(t *testing.T) {
+	t.Parallel()
+	marker := gitlabBootstrapMarkerContent()
+	assert.NotContains(t, marker, "Apply template patches via")
+	assert.Contains(t, marker, "kubectl attune diff -o yaml")
+	assert.Contains(t, marker, "Commit that patch")
+
+	body := FormatPRBody("default", "pol", nil)
+	assert.NotContains(t, body, "Apply via")
+	assert.Contains(t, body, "kubectl attune diff -o yaml")
+	assert.Contains(t, body, "commit it on this branch")
+}
+
 func TestComputeDrift_AboveThreshold(t *testing.T) {
 	t.Parallel()
 	dep := &appsv1.Deployment{

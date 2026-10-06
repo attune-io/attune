@@ -264,8 +264,9 @@ loop again. Attune does not rewrite those annotations on an Unchanged
 skip; rewriting them would fight the next GitOps apply. Inspect with
 `kubectl get attunepolicy <name> -o jsonpath='{.status.gitopsPR}'`.
 Field reference: [configuration](../reference/configuration.md#status-fields-gitops-pr).
-Apply real template patches (`kubectl attune diff`) so drift
-clears (`NoDrift`).
+Commit the patch from `kubectl attune diff -o yaml` so drift
+clears (`NoDrift`). The command prints the patch. It does not
+edit the workload.
 
 ### Branch bootstrap
 

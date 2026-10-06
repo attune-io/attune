@@ -115,7 +115,7 @@ const bootstrapCommitMessage = "chore(attune): bootstrap recommendation branch"
 
 const gitlabMarkerPath = ".attune/RECOMMENDATION_DRIFT.md"
 
-const gitlabMarkerPreamble = "Attune recommendation drift branch.\n\nSee the merge request description for the drift table. Apply template patches via `kubectl attune diff` or your GitOps pipeline.\n"
+const gitlabMarkerPreamble = "Attune recommendation drift branch.\n\nSee the merge request description for the drift table. `kubectl attune diff -o yaml` prints a patch. Commit that patch on this branch, or send it through your GitOps pipeline.\n"
 
 func gitlabBootstrapMarkerContent() string {
 	return gitlabMarkerPreamble + "\nbootstrapped: " + time.Now().UTC().Format(time.RFC3339Nano) + "\n"
