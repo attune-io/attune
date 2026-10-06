@@ -1428,3 +1428,58 @@ func TestCapMatrixByContainer_EdgeCases(t *testing.T) {
 	out2 := capMatrixByContainer(matrix, 2)
 	require.Len(t, out2, 2)
 }
+
+func TestRejectProxyHost(t *testing.T) {
+	orig := prometheusLookupIP
+	t.Cleanup(func() { prometheusLookupIP = orig })
+
+	tests := []struct {
+		name      string
+		check     func(context.Context, string) error
+		host      string
+		setLookup bool
+		ips       []string
+		lookupErr error
+		wantErr   string
+	}{
+		{name: "literal loopback v4 allowed", check: rejectProxyHost, host: "127.0.0.1"},
+		{name: "literal loopback v6 allowed", check: rejectProxyHost, host: "::1"},
+		{name: "literal metadata v4 blocked", check: rejectProxyHost, host: "169.254.169.254", wantErr: "SSRF blocked"},
+		{name: "literal metadata v6 blocked", check: rejectProxyHost, host: "fd00:ec2::254", wantErr: "SSRF blocked"},
+		{name: "literal unspecified blocked", check: rejectProxyHost, host: "0.0.0.0", wantErr: "SSRF blocked"},
+		{name: "literal private proxy allowed", check: rejectProxyHost, host: "10.0.0.5"},
+		{name: "name resolving to loopback allowed", check: rejectProxyHost, host: "proxy.example", setLookup: true, ips: []string{"127.0.0.1"}},
+		{name: "name resolving to loopback and metadata blocked", check: rejectProxyHost, host: "mixed.example", setLookup: true, ips: []string{"127.0.0.1", "169.254.169.254"}, wantErr: "SSRF blocked"},
+		{name: "lookup error", check: rejectProxyHost, host: "missing.example", setLookup: true, lookupErr: fmt.Errorf("no such host"), wantErr: "DNS resolution failed"},
+		{name: "empty lookup answer", check: rejectProxyHost, host: "empty.example", setLookup: true, wantErr: "DNS resolution failed"},
+		{name: "empty host", check: rejectProxyHost, host: "", wantErr: "empty host"},
+		{name: "target check blocks literal loopback v4", check: rejectBlockedHost, host: "127.0.0.1", wantErr: "SSRF blocked"},
+		{name: "target check blocks literal loopback v6", check: rejectBlockedHost, host: "::1", wantErr: "SSRF blocked"},
+		{name: "target check blocks name resolving to loopback", check: rejectBlockedHost, host: "proxy.example", setLookup: true, ips: []string{"127.0.0.1"}, wantErr: "SSRF blocked"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prometheusLookupIP = orig
+			if tt.setLookup {
+				prometheusLookupIP = func(context.Context, string) ([]net.IPAddr, error) {
+					if tt.lookupErr != nil {
+						return nil, tt.lookupErr
+					}
+					out := make([]net.IPAddr, 0, len(tt.ips))
+					for _, ip := range tt.ips {
+						out = append(out, net.IPAddr{IP: net.ParseIP(ip)})
+					}
+					return out, nil
+				}
+			}
+			err := tt.check(context.Background(), tt.host)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
