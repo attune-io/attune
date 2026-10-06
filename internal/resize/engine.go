@@ -26,6 +26,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -92,7 +93,16 @@ func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container s
 	// statuses) between our Get and UpdateResize, bumping resourceVersion.
 	// This is common during sequential multi-container resizes where the
 	// kubelet applies the first container's resize before we submit the second.
+	//
+	// A non-conflict write error can arrive after the apiserver stored
+	// the new spec (timeout while reading the response, empty body).
+	// confirm is set only when this attempt changed the container and
+	// the error is not a conflict. The caller treats that as success
+	// when a follow-up Get already shows the target, so safety still
+	// runs and the budget stays spent. A rejected write leaves confirm
+	// unset. A canceled context fails the follow-up Get and stays an error.
 	var current, applied corev1.ResourceRequirements
+	var confirm *corev1.ResourceRequirements
 	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 		fresh, fetchErr := r.client.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 		if fetchErr != nil {
@@ -129,13 +139,24 @@ func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container s
 			"container", container, "method", MethodInPlace)
 
 		_, updateErr := r.client.CoreV1().Pods(pod.Namespace).UpdateResize(ctx, pod.Name, updated, metav1.UpdateOptions{})
+		if updateErr != nil && !apierrors.IsConflict(updateErr) && !ResourceRequirementsEqual(current, applied) {
+			confirm = applied.DeepCopy()
+		} else {
+			confirm = nil
+		}
 		return updateErr
 	})
 	if err != nil {
-		return []ResizeResult{
-			{PodName: pod.Name, Container: container, Resource: "cpu", Method: MethodInPlace, Success: false, Error: err},
-			{PodName: pod.Name, Container: container, Resource: "memory", Method: MethodInPlace, Success: false, Error: err},
-		}, fmt.Errorf("calling UpdateResize for pod %s/%s: %w", pod.Namespace, pod.Name, err)
+		if confirm != nil && r.resizeTargetLanded(ctx, pod.Namespace, pod.Name, container, *confirm) {
+			applied = *confirm
+			r.logger.Info("resize write error after the apiserver committed the target; treating as success",
+				"pod", pod.Name, "namespace", pod.Namespace, "container", container, "writeError", err.Error())
+		} else {
+			return []ResizeResult{
+				{PodName: pod.Name, Container: container, Resource: "cpu", Method: MethodInPlace, Success: false, Error: err},
+				{PodName: pod.Name, Container: container, Resource: "memory", Method: MethodInPlace, Success: false, Error: err},
+			}, fmt.Errorf("calling UpdateResize for pod %s/%s: %w", pod.Namespace, pod.Name, err)
+		}
 	}
 
 	fromCPU := current.Requests[corev1.ResourceCPU]
@@ -238,6 +259,54 @@ func findContainer(pod *corev1.Pod, name string) (idx int, isInit bool) {
 		}
 	}
 	return -1, false
+}
+
+// ResourceRequirementsEqual reports semantic equality of requests and limits.
+// Nil and empty lists are equal. Quantity format (100m versus 0.1) is not a difference.
+func ResourceRequirementsEqual(a, b corev1.ResourceRequirements) bool {
+	return resourceListEqual(a.Requests, b.Requests) && resourceListEqual(a.Limits, b.Limits)
+}
+
+// ContainerResourcesMatch reports whether the named container's requests and
+// limits already equal want. Missing containers do not match.
+func ContainerResourcesMatch(pod *corev1.Pod, container string, want corev1.ResourceRequirements) bool {
+	if pod == nil {
+		return false
+	}
+	idx, isInit := findContainer(pod, container)
+	if idx < 0 {
+		return false
+	}
+	if isInit {
+		return ResourceRequirementsEqual(pod.Spec.InitContainers[idx].Resources, want)
+	}
+	return ResourceRequirementsEqual(pod.Spec.Containers[idx].Resources, want)
+}
+
+func resourceListEqual(a, b corev1.ResourceList) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, av := range a {
+		bv, ok := b[k]
+		if !ok || !av.Equal(bv) {
+			return false
+		}
+	}
+	return true
+}
+
+// resizeTargetLanded is a live Get, not the informer cache. A canceled
+// context or a spec that is still at the old size returns false.
+func (r *PodResizer) resizeTargetLanded(ctx context.Context, namespace, name, container string, want corev1.ResourceRequirements) bool {
+	if r.client == nil {
+		return false
+	}
+	fresh, err := r.client.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return false
+	}
+	return ContainerResourcesMatch(fresh, container, want)
 }
 
 // ResizeApplyOutstanding reports that an accepted resize is still not

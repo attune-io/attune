@@ -10,6 +10,16 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### A committed resize still runs safety after a write timeout
+
+An in-place resize or revert that returns a timeout or a decode
+error after the API server stored the new requests is treated as
+success when a follow-up read shows that container already has the
+target. Immediate safety observation still runs, and the workload
+budget stays spent. A rejected write is unchanged. A canceled
+context cannot confirm the write and still reports failure. No
+policy edit and no CRD change are needed.
+
 ### Startup boost stamps survive status updates
 
 A startup boost timestamp is written with a metadata merge patch.
