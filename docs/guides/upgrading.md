@@ -10,6 +10,18 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### kubectl attune doctor names a missing policy type
+
+When the AttunePolicy type is not installed, `kubectl attune doctor`
+prints `Attune CRDs are not installed` and the Helm install command.
+The row stays optional WARN and the command still exits 0. A
+`Ready=False` policy is named with its reason even when another
+policy has no Ready condition. An incomplete list stays WARN when
+the policies that came back are Ready. No policy edit and no CRD
+change are needed.
+
+See [CLI: doctor](../reference/cli.md#doctor).
+
 ### Startup boost follows a resize in the same reconcile
 
 A startup boost or boost expiry reads the pod from the API server
