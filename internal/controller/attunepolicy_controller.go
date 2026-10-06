@@ -159,7 +159,7 @@ type GVKMapper interface {
 //+kubebuilder:rbac:groups=attune.io,resources=attunedefaults,verbs=get;list;watch
 //+kubebuilder:rbac:groups=attune.io,resources=attunenamespacedefaults,verbs=get;list;watch
 //+kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;daemonsets;replicasets,verbs=get;list;watch
-//+kubebuilder:rbac:groups=argoproj.io,resources=rollouts,verbs=get;list;watch;patch;update
+//+kubebuilder:rbac:groups=argoproj.io,resources=rollouts,verbs=get;list;patch;update
 //+kubebuilder:rbac:groups=apps,resources=controllerrevisions,verbs=get;list;watch
 //+kubebuilder:rbac:groups=apps,resources=deployments;statefulsets,verbs=patch;update
 //+kubebuilder:rbac:groups=batch,resources=cronjobs;jobs,verbs=get;list;watch
@@ -177,7 +177,7 @@ type GVKMapper interface {
 //+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=resourcequotas;limitranges,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
-//+kubebuilder:rbac:groups=config.openshift.io,resources=apiservers,verbs=get;list
+//+kubebuilder:rbac:groups=config.openshift.io,resources=apiservers,verbs=get
 
 // AttunePolicyReconciler reconciles an AttunePolicy object.
 type AttunePolicyReconciler struct {

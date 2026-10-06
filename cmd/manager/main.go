@@ -227,6 +227,10 @@ func main() {
 		LeaderElectionID:       "attune.attune.io",
 		Client: client.Options{
 			Cache: &client.CacheOptions{
+				// Rollout stays out of the cache so the manager starts when
+				// the CRD is missing. Get and List use the live API reader
+				// and do not need watch. A later Rollout informer has to add
+				// watch back and handle that missing-CRD start failure.
 				DisableFor: []client.Object{&corev1.Secret{}, &argorollout.Rollout{}},
 			},
 		},

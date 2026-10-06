@@ -261,7 +261,6 @@ spec:
                 - list
                 - patch
                 - update
-                - watch
             - apiGroups:
                 - attune.io
               resources:
@@ -333,7 +332,6 @@ spec:
                 - apiservers
               verbs:
                 - get
-                - list
             - apiGroups:
                 - events.k8s.io
               resources:

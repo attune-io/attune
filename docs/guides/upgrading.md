@@ -10,6 +10,14 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### ClusterRole drops two unused verbs
+
+Helm, Kustomize, and OperatorHub upgrades drop `list` on
+`config.openshift.io` `apiservers` and `watch` on `argoproj.io`
+`rollouts`. OpenShift TLS profile detection still reads the cluster
+API server. Rollout targets still resolve, list by selector, and
+persist templates. No policy edit and no CRD change are needed.
+
 ### OperatorHub installs grant the manager ClusterRole
 
 An OperatorHub install grants the same cluster permissions as the Helm

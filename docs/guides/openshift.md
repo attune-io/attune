@@ -151,7 +151,6 @@ additional rule is added:
     - apiservers
   verbs:
     - get
-    - list
 ```
 
 This is read-only access to the cluster TLS configuration. The operator

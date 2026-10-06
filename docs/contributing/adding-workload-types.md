@@ -109,11 +109,12 @@ mapper. NotFound of a named Rollout stays on the empty-list path.
 **File:** `internal/controller/attunepolicy_controller.go`
 
 Template persistence patches the Rollout, so the marker needs `patch`
-and `update` as well as read verbs. The resource is `rollouts`, not
+and `update` as well as `get` and `list`. Do not include `watch`.
+Rollouts stay outside the cache. The resource is `rollouts`, not
 `rollouts.argoproj.io`. Put the marker on the controller.
 
 ```go
-//+kubebuilder:rbac:groups=argoproj.io,resources=rollouts,verbs=get;list;watch;patch;update
+//+kubebuilder:rbac:groups=argoproj.io,resources=rollouts,verbs=get;list;patch;update
 ```
 
 Then run `make manifests` to regenerate `config/rbac/role.yaml`.
@@ -132,7 +133,6 @@ flag.
   verbs:
     - get
     - list
-    - watch
     - patch
     - update
 ```
@@ -142,7 +142,7 @@ flag.
 **File:** `charts/attune/tests/rbac_test.yaml`
 
 ```yaml
-- it: should include argoproj.io rollouts get list watch patch and update
+- it: should include argoproj.io rollouts get list patch and update
   asserts:
     - contains:
         path: rules
@@ -154,7 +154,6 @@ flag.
           verbs:
             - get
             - list
-            - watch
             - patch
             - update
 ```
