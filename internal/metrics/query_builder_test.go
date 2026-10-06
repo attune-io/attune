@@ -293,10 +293,15 @@ func TestCloudWatchPodNameMatchesController(t *testing.T) {
 	}{
 		{"deployment full pod", `api-[a-z0-9]+-[a-z0-9]{5}`, "api-7d8f9c6b5-xk2pq", true},
 		{"deployment replicaset", `api-[a-z0-9]+-[a-z0-9]{5}`, "api-7d8f9c6b5", true},
-		{"deployment short name", `api-[a-z0-9]+-[a-z0-9]{5}`, "api", false},
+		// awscontainerinsightreceiver podstore.addPodOwnersAndPodName
+		// (main, read 2026-10-06) writes PodName as the Deployment name
+		// when the ReplicaSet parent is known. prefer_full_pod_name is false.
+		{"deployment name", `api-[a-z0-9]+-[a-z0-9]{5}`, "api", true},
 		{"deployment sibling word", `api-[a-z0-9]+-[a-z0-9]{5}`, "api-v2", false},
 		{"deployment sibling worker", `api-[a-z0-9]+-[a-z0-9]{5}`, "api-worker", false},
 		{"deployment cron stamp", `api-[a-z0-9]+-[a-z0-9]{5}`, "api-1700000000", false},
+		{"deployment hash vowel", `api-[a-z0-9]+-[a-z0-9]{5}`, "api-aeiou2", false},
+		{"deployment hash zero", `api-[a-z0-9]+-[a-z0-9]{5}`, "api-abcd0ef", false},
 		{"deployment sibling replicaset", `api-[a-z0-9]+-[a-z0-9]{5}`, "api-v2-7d8f9c6b", false},
 		{"daemonset controller", `web-[a-z0-9]{5}`, "web", true},
 		{"daemonset full pod", `web-[a-z0-9]{5}`, "web-fghij", true},
@@ -312,9 +317,12 @@ func TestCloudWatchPodNameMatchesController(t *testing.T) {
 		{"cronjob ten digit job", `nightly-[0-9]{8,9}-[a-z0-9]{5}`, "nightly-1700000000", false},
 		{"cronjob seconds stamp", `nightly-[0-9]{8,9}-[a-z0-9]{5}`, "nightly-1767225600", false},
 		{"indexed cron job name", `nightly-[0-9]{8,9}-[0-9]+-[a-z0-9]{5}`, "nightly-29453760", true},
+		{"indexed cron name", `nightly-[0-9]{8,9}-[0-9]+-[a-z0-9]{5}`, "nightly", true},
 		{"indexed cron index", `nightly-[0-9]{8,9}-[0-9]+-[a-z0-9]{5}`, "nightly-29453760-3", false},
 		{"indexed cron pod", `nightly-[0-9]{8,9}-[0-9]+-[a-z0-9]{5}`, "nightly-29453760-3-fghij", true},
-		{"cronjob workload only", `nightly-[0-9]{8,9}-[a-z0-9]{5}`, "nightly", false},
+		// The same receiver writes PodName as the CronJob name when the Job
+		// parent parses as a CronJob.
+		{"cronjob name", `nightly-[0-9]{8,9}-[a-z0-9]{5}`, "nightly", true},
 		{"sampled deployment pod", `api-7d8f9c6b5-xk2pq`, "api-7d8f9c6b5", true},
 		{"sampled numbered job", `migrate-2-fghij`, "migrate-2", true},
 		{"sampled numbered job parent", `migrate-2-fghij`, "migrate", false},

@@ -360,6 +360,27 @@ spec:
     historyWindow: 168h     # query the last 7 days of metrics
 ```
 
+### CloudWatch policy has no samples
+
+**Symptom**: A CloudWatch policy stays `InsufficientData` while
+Container Insights is scraping the workload.
+
+**Cause**: With `prefer_full_pod_name` left false, `PodName` is the
+Deployment name or the CronJob name, not the pod name. A policy for
+`api` does not read a series named `api-v2` or `api-worker`. Those
+siblings share a prefix and are a different workload. DaemonSet and
+StatefulSet series are unchanged.
+
+**Fix**:
+
+1. In CloudWatch, open one `container_cpu_usage_total` point for the
+   namespace and read `PodName`.
+2. A Deployment named `api` shows `api`. A CronJob named `nightly`
+   shows `nightly`. A cluster that sets `prefer_full_pod_name: true`
+   shows the full pod name instead.
+3. If `PodName` is a sibling, point the policy at that workload. Attune
+   has no field that selects the dimension.
+
 ### CronJob pod name does not match
 
 **Symptom**: A CronJob policy stays `InsufficientData` while its pods run.

@@ -18,7 +18,9 @@ policy setup, and verification for EKS clusters.
 
 Container Insights publishes these metrics to the `ContainerInsights`
 namespace with dimensions `ClusterName`, `Namespace`, `PodName`, and
-`ContainerName`:
+`ContainerName`. With `prefer_full_pod_name` left false, `PodName` is
+the Deployment name or the CronJob name, not the pod name. Attune
+matches those names. A sibling such as `api-v2` is a different series.
 
 | Metric | What it measures |
 |--------|-----------------|
