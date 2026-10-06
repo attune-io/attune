@@ -664,6 +664,13 @@ rate(container_cpu_cfs_throttled_periods_total{...}[$STEP])
 / rate(container_cpu_cfs_periods_total{...}[$STEP])
 ```
 
+CloudWatch Container Insights uses the same workload, and matches
+`PodName` rather than a PromQL pod selector. With `prefer_full_pod_name`
+left false, that dimension is the Deployment name or the CronJob name.
+The ReplicaSet hash and the Job stamp still match when the parent name
+is absent. A sibling name does not match. `prefer_full_pod_name: true`
+publishes the full pod name.
+
 ### 5.3 Time-of-Day Awareness
 
 Instead of a single histogram over the entire history window, build 24 hourly profiles

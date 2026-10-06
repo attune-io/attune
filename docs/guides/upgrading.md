@@ -10,6 +10,25 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### CloudWatch matches the Deployment and CronJob names
+
+Container Insights writes the Deployment name in `PodName` for a
+Deployment, and the CronJob name for a CronJob, when
+`prefer_full_pod_name` is left false. A Deployment or CronJob policy
+that had no samples for that reason now reads those series. No policy
+YAML change and no CRD change are needed.
+
+The ReplicaSet hash and the Job stamp still match when the parent name
+is absent. A sibling such as `api-v2` or `api-worker` does not match a
+policy for `api`. DaemonSet, StatefulSet, and bare Job matching stay
+as they are. `prefer_full_pod_name: true` still matches the full pod
+name.
+
+Auto mode can resize once the new samples pass the existing gates.
+Recommend and Observe show recommendations and do not resize.
+
+See [CloudWatch Container Insights](../reference/configuration.md#cloudwatch-container-insights).
+
 ### kubectl attune doctor names a missing policy type
 
 When the AttunePolicy type is not installed, `kubectl attune doctor`

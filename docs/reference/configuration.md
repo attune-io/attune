@@ -496,6 +496,15 @@ operator queries. The wizard inherit option uses that omit shape.
 | `metricsSource.cloudwatch.roleArn` | string | `""` | Optional IAM role ARN for cross-account access (`arn:aws:iam::ACCOUNT:role/NAME`; IRSA/Pod Identity used if empty) |
 | `metricsSource.cloudwatch.cpuUnit` | string | `Millicores` | Scale of `container_cpu_usage_total`. Millicores divides by 1000. Cores leaves the value unchanged. Nanocores divides by 1e9. Empty means Millicores. |
 
+`PodName` is not always the pod name. With the receiver flag
+`prefer_full_pod_name` left false (the default), a Deployment series
+uses the Deployment name and a CronJob series uses the CronJob name.
+Attune also accepts the ReplicaSet hash and the Job stamp when the
+parent name is absent. A sibling such as `api-v2` or `api-worker` does
+not match a policy for `api`. `prefer_full_pod_name: true` publishes
+the full pod name, which the workload regex already matches. Prometheus,
+Datadog, and VPA do not use this match.
+
 ## Policy-Level Fields
 
 Bound fields (`minAllowed`, `maxAllowed`) and their admission caps

@@ -384,10 +384,12 @@ func podNameMatches(podRegex, name string) bool {
 	return re.MatchString(name)
 }
 
-// cloudWatchPodNameMatches accepts a real pod name or the controller name
-// Container Insights writes to the PodName dimension. The default receiver
-// sets PodName from the owner (ReplicaSet, DaemonSet, StatefulSet, or Job)
-// and leaves FullPodName off. prefer_full_pod_name publishes the pod name,
+// cloudWatchPodNameMatches accepts a real pod name or the PodName dimension
+// Container Insights writes. With prefer_full_pod_name left false, the
+// awscontainerinsightreceiver sets that dimension to the Deployment name
+// when the ReplicaSet parent is known, and to the CronJob name when the
+// Job parent is a CronJob. A ReplicaSet hash or Job stamp still matches
+// when that parent is absent. prefer_full_pod_name publishes the pod name,
 // which the workload regex already matches.
 func cloudWatchPodNameMatches(podRegex, name string) bool {
 	if podNameMatches(podRegex, name) {
@@ -425,19 +427,27 @@ func cloudWatchControllerAlt(alt string) string {
 	)
 	switch {
 	case strings.HasSuffix(alt, stamp+index+podHash):
-		return strings.TrimSuffix(alt, index+podHash)
+		return cloudWatchStampedOwner(strings.TrimSuffix(alt, stamp+index+podHash))
 	case strings.HasSuffix(alt, stamp+podHash):
-		return strings.TrimSuffix(alt, podHash)
+		return cloudWatchStampedOwner(strings.TrimSuffix(alt, stamp+podHash))
 	case strings.HasSuffix(alt, index+podHash):
 		return strings.TrimSuffix(alt, index+podHash)
 	case strings.HasSuffix(alt, rsHash+podHash):
 		// Pod-template-hash is SafeEncodeString of a uint32 decimal.
 		// The alphabet omits vowels and 0, 1, and 3, and the length is
 		// the decimal width (almost always 5-10). That rejects a sibling
-		// owner such as api-v2, api-worker, or a CronJob stamp.
+		// owner such as api-v2, api-worker, or a CronJob stamp that
+		// contains 0, 1, or 3.
 		base := strings.TrimSuffix(alt, podHash)
 		if strings.HasSuffix(base, rsHash) {
-			return strings.TrimSuffix(base, rsHash) + "-[" + podTemplateHashAlphabet + "]{5,10}"
+			owner := strings.TrimSuffix(base, rsHash)
+			hash := "-[" + podTemplateHashAlphabet + "]{5,10}"
+			if owner == "" {
+				return hash
+			}
+			// Deployment name, plus the ReplicaSet hash when the parent
+			// lookup does not find a Deployment.
+			return owner + "(?:" + hash + ")?"
 		}
 		return base
 	case strings.HasSuffix(alt, podHash):
@@ -452,6 +462,15 @@ func cloudWatchControllerAlt(alt string) string {
 // podTemplateHashAlphabet is kubernetes rand.SafeEncodeString's alphabet.
 // ReplicaSet names use it for pod-template-hash.
 const podTemplateHashAlphabet = "bcdfghjklmnpqrstvwxz2456789"
+
+// cloudWatchStampedOwner matches a CronJob name and the Job stamp under it.
+// An empty owner is not a workload name, so it does not match every stamp.
+func cloudWatchStampedOwner(owner string) string {
+	if owner == "" {
+		return ""
+	}
+	return owner + `(?:-[0-9]{8,9})?`
+}
 
 // cloudWatchLiteralController reduces one escaped pod name to its owner.
 // A 5-character pod hash is dropped, and the preceding token is kept, so a
