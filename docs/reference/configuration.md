@@ -667,8 +667,14 @@ Per-resource fields in `cpu` and `memory` that limit how much a recommendation c
 |-------|------|---------|-------------|
 | `maxIncreasePercent` | int32 | inherits `maxChangePercent` | Maximum percentage increase allowed per resize cycle. If unset, falls back to `maxChangePercent` (CPU: 50, memory: 30). |
 | `maxDecreasePercent` | int32 | inherits `maxChangePercent` | Maximum percentage decrease allowed per resize cycle. If unset, falls back to `maxChangePercent` (CPU: 50, memory: 30). |
-| `maxChangePercent` | int32 | CPU: `50`, memory: `30` | Symmetric change cap. Used as fallback for `maxIncreasePercent` and `maxDecreasePercent` when they are unset. |
+| `maxChangePercent` | int32 | CPU: `50`, memory: `30` | Symmetric change cap. Used as fallback for `maxIncreasePercent` and `maxDecreasePercent` when they are unset. A capped memory request is rounded up to a whole byte. |
 | `decreaseUsageMarginPercent` | int32 | memory: `10` (CPU: ignored) | Minimum headroom above recent memory usage when decreasing memory **limits**. Target limit must be at least `usage * (1 + margin/100)`, where usage is the recommendation raw percentile. Prevents client-side OOM races on Kubernetes 1.34+. Set `0` to require limit strictly above usage. |
+
+A memory request capped by `maxChangePercent`, `maxIncreasePercent`, or
+`maxDecreasePercent` is rounded up to a whole byte. The rounded value
+keeps the recommended quantity's format, so a decimal bound such as `2G`
+stays decimal. CPU caps stay in millicores, including when the recommended
+quantity is binary. A recommendation that does not hit the cap is unchanged.
 
 ### Controlled Values
 

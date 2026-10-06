@@ -175,7 +175,7 @@ func (e *RecommendationEngine) RecommendWithExplanation(profile metrics.UsagePro
 	afterBounds, boundsApplied := applyBounds(afterConfidence, e.minBound, e.maxBound)
 
 	afterChangeFilter, changeFilterApplied := applyChangeFilter(
-		current, afterBounds, e.minChangePercent, e.maxIncreasePercent, e.maxDecreasePercent)
+		current, afterBounds, e.minChangePercent, e.maxIncreasePercent, e.maxDecreasePercent, e.isCPU)
 	// Bounds are a hard limit. The change filter runs on the clamped
 	// target, so a current value already outside [min, max] can be kept
 	// (step under minChangePercent) or only partly moved (directional
