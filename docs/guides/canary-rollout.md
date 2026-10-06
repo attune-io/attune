@@ -50,13 +50,14 @@ spec:
    `canary.observationPeriod`, otherwise 5m), the safety monitor checks for
    OOMKill, restart spikes, pod NotReady, CPU throttle, and SLO guardrail
    breaches. An `evaluationWindow` longer than that period is evaluated
-   after it. Promotion still uses the observation period only. Set the
-   effective period to at least the longest window when the canary watch
-   should cover the SLO check. Skipped cycles (budget, node pressure,
+   after it. Promotion waits for the longer of that observation period and
+   the longest guardrail `evaluationWindow`, and only when the metrics
+   source can run the guardrail query. A missing window counts as 5m. VPA
+   does not extend the wait. Skipped cycles (budget, node pressure,
    already at target) do not start the clock.
-5. **Verdict**: if that app's canary pods remain healthy, **that app**
-   is promoted (`status.canary.workloads[].phase=FullRollout`). Other
-   apps on the same policy keep watching. Policy `status.canary.phase`
+5. **Verdict**: if that app's canary pods remain healthy through that wait,
+   **that app** is promoted (`status.canary.workloads[].phase=FullRollout`).
+   Other apps on the same policy keep watching. Policy `status.canary.phase`
    becomes `FullRollout` only when every listed app has been promoted.
    A revert on one app resets that app's clock only.
 6. **Isolation**: while an app is still in canary, CREATE initial sizing,
@@ -117,9 +118,12 @@ kubectl get attunepolicy my-app -o jsonpath='{.status.resizeHistory}' | jq '.[] 
 
 When `autoPromote: true`, the operator handles promotion automatically:
 
-1. After the canary pods pass the observation period measured from the
-   successful in-place resize, with zero reverts, the operator sets
-   `status.canary.phase: FullRollout`.
+1. After the canary pods pass the longer of the observation period and the
+   longest guardrail `evaluationWindow`, measured from the successful
+   in-place resize, with zero reverts, the operator sets
+   `status.canary.phase: FullRollout`. That longer wait applies only when
+   the metrics source can run the guardrail query. A missing window counts
+   as 5m. VPA does not extend the wait.
 2. On the next reconcile, all eligible pods are resized (same as Auto mode).
 3. If any revert occurs during observation, promotion is blocked, the
    observation clock is cleared, and a new watch starts after the next

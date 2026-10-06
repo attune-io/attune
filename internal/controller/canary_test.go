@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	pkgdefaults "github.com/attune-io/attune/pkg/defaults"
 )
 
 // makeCanaryPod creates a pod for canary selection tests. When running is true
@@ -490,7 +491,7 @@ func TestResolveCanaryPhase_DoesNotStartWatchWithoutInPlaceSuccess(t *testing.T)
 	r := NewAttunePolicyReconciler()
 	r.SetNowFunc(func() time.Time { return now })
 
-	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, false)
 	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode)
 	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
 	assert.NotEqual(t, attunev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
@@ -512,14 +513,14 @@ func TestResolveCanaryPhase_DoesNotPromoteLateResizeWithoutWatchingIt(t *testing
 	r := NewAttunePolicyReconciler()
 	r.SetNowFunc(func() time.Time { return now })
 
-	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, false)
 	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "late first success must not promote on a premature clock")
 	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
 	require.NotNil(t, policy.Status.Canary.StartTime)
 	assert.Equal(t, lateSuccess.Time, policy.Status.Canary.StartTime.Time, "watch must re-anchor to the successful resize")
 
 	r.SetNowFunc(func() time.Time { return lateSuccess.Add(10 * time.Minute) })
-	mode = r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	mode = r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, false)
 	assert.Equal(t, attunev1alpha1.UpdateTypeAuto, mode, "same resize aged a full period should promote")
 	assert.Equal(t, attunev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
 }
@@ -543,7 +544,7 @@ func TestResolveCanaryPhase_ResetsWhenSuccessFlippedToReverted(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	r.SetNowFunc(func() time.Time { return now })
 
-	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, false)
 	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode)
 	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
 	assert.Nil(t, policy.Status.Canary.StartTime, "in-place Success flipped to Reverted must clear the clock")
@@ -568,7 +569,7 @@ func TestResolveCanaryPhase_ResetsOnRevert(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	r.SetNowFunc(func() time.Time { return now })
 
-	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, false)
 	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode)
 	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
 	assert.Nil(t, policy.Status.Canary.StartTime, "revert must start a new observation instead of freezing")
@@ -579,13 +580,13 @@ func TestResolveCanaryPhase_ResetsOnRevert(t *testing.T) {
 		Workload: "api-server", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: nextSuccess,
 	})
 	r.SetNowFunc(func() time.Time { return nextSuccess.Time })
-	mode = r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	mode = r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, false)
 	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode)
 	require.NotNil(t, policy.Status.Canary.StartTime)
 	assert.Equal(t, nextSuccess.Time, policy.Status.Canary.StartTime.Time)
 
 	r.SetNowFunc(func() time.Time { return nextSuccess.Add(10 * time.Minute) })
-	mode = r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	mode = r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, false)
 	assert.Equal(t, attunev1alpha1.UpdateTypeAuto, mode)
 	assert.Equal(t, attunev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
 }
@@ -610,7 +611,7 @@ func TestResolveCanaryPhase_PromotesOneAppOnly(t *testing.T) {
 
 	r := NewAttunePolicyReconciler()
 	r.SetNowFunc(func() time.Time { return now })
-	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, false)
 
 	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "fleet stays in canary while B is still watching")
 	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
@@ -618,6 +619,177 @@ func TestResolveCanaryPhase_PromotesOneAppOnly(t *testing.T) {
 	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.WorkloadStatus("app-b").Phase)
 	assert.True(t, policy.Status.Canary.AllowsHPARetune("app-a"))
 	assert.False(t, policy.Status.Canary.AllowsHPARetune("app-b"))
+}
+
+func sloGuardrail(name string, window *time.Duration) attunev1alpha1.SLOGuardrail {
+	g := attunev1alpha1.SLOGuardrail{Name: name, Query: "vector(1)", Threshold: "1"}
+	if window != nil {
+		g.EvaluationWindow = &metav1.Duration{Duration: *window}
+	}
+	return g
+}
+
+func fleetCanaryReady(period, age time.Duration, now time.Time) *attunev1alpha1.AttunePolicy {
+	start := metav1.NewTime(now.Add(-age))
+	policy := canaryAutoPromotePolicy(period)
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase:     attunev1alpha1.CanaryPhaseInProgress,
+		StartTime: &start,
+	}
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{
+		{Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: start},
+	}
+	return policy
+}
+
+func TestResolveCanaryPhase_LongSLOWindowDelaysPromotion(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	policy := fleetCanaryReady(10*time.Minute, 11*time.Minute, now)
+	short := 15 * time.Minute
+	long := 30 * time.Minute
+	policy.Spec.UpdateStrategy.SLOGuardrails = []attunev1alpha1.SLOGuardrail{
+		sloGuardrail("short", &short),
+		sloGuardrail("p99-latency", &long),
+	}
+
+	r := NewAttunePolicyReconciler()
+	r.SetNowFunc(func() time.Time { return now })
+	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, true)
+	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "11m is inside the 30m window")
+	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
+
+	r.SetNowFunc(func() time.Time { return policy.Status.Canary.StartTime.Add(16 * time.Minute) })
+	mode = r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, true)
+	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "16m must wait for the longer window, not the 15m one")
+
+	r.SetNowFunc(func() time.Time { return policy.Status.Canary.StartTime.Add(31 * time.Minute) })
+	mode = r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, true)
+	assert.Equal(t, attunev1alpha1.UpdateTypeAuto, mode)
+	assert.Equal(t, attunev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
+}
+
+func TestResolveCanaryPhase_LongSLOWindowDelaysOneApp(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	start := metav1.NewTime(now.Add(-11 * time.Minute))
+	policy := canaryAutoPromotePolicy(10 * time.Minute)
+	long := 30 * time.Minute
+	policy.Spec.UpdateStrategy.SLOGuardrails = []attunev1alpha1.SLOGuardrail{sloGuardrail("p99-latency", &long)}
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase: attunev1alpha1.CanaryPhaseInProgress,
+		Workloads: []attunev1alpha1.CanaryWorkloadStatus{{
+			Workload:  "app-a",
+			Phase:     attunev1alpha1.CanaryPhaseInProgress,
+			StartTime: &start,
+		}},
+	}
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{{
+		Workload: "app-a", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: start,
+	}}
+
+	r := NewAttunePolicyReconciler()
+	r.SetNowFunc(func() time.Time { return now })
+	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, true)
+	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode)
+	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.WorkloadStatus("app-a").Phase)
+
+	r.SetNowFunc(func() time.Time { return start.Add(31 * time.Minute) })
+	mode = r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, true)
+	assert.Equal(t, attunev1alpha1.UpdateTypeAuto, mode)
+	assert.Equal(t, attunev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.WorkloadStatus("app-a").Phase)
+}
+
+func TestResolveCanaryPhase_OmittedWindowDoesNotOutlastPeriod(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	policy := fleetCanaryReady(10*time.Minute, 9*time.Minute, now)
+	policy.Spec.UpdateStrategy.SLOGuardrails = []attunev1alpha1.SLOGuardrail{sloGuardrail("p99-latency", nil)}
+
+	r := NewAttunePolicyReconciler()
+	r.SetNowFunc(func() time.Time { return now })
+	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, true)
+	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "9m is still inside the 10m period")
+
+	r.SetNowFunc(func() time.Time { return policy.Status.Canary.StartTime.Add(10 * time.Minute) })
+	mode = r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, true)
+	assert.Equal(t, attunev1alpha1.UpdateTypeAuto, mode, "omitted window defaults to 5m, which is shorter than 10m")
+}
+
+func TestResolveCanaryPhase_OmittedOrZeroWindowUsesFiveMinutes(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	zero := time.Duration(0)
+	for _, window := range []*time.Duration{nil, &zero} {
+		policy := fleetCanaryReady(time.Minute, time.Minute, now)
+		policy.Spec.UpdateStrategy.SLOGuardrails = []attunev1alpha1.SLOGuardrail{sloGuardrail("p99-latency", window)}
+		r := NewAttunePolicyReconciler()
+		r.SetNowFunc(func() time.Time { return now })
+		mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, true)
+		assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode)
+		r.SetNowFunc(func() time.Time { return policy.Status.Canary.StartTime.Add(5 * time.Minute) })
+		mode = r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, true)
+		assert.Equal(t, attunev1alpha1.UpdateTypeAuto, mode)
+	}
+}
+
+func TestResolveCanaryPhase_NoQuerierIgnoresLongWindow(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	policy := fleetCanaryReady(10*time.Minute, 10*time.Minute, now)
+	long := 30 * time.Minute
+	policy.Spec.UpdateStrategy.SLOGuardrails = []attunev1alpha1.SLOGuardrail{sloGuardrail("p99-latency", &long)}
+
+	r := NewAttunePolicyReconciler()
+	r.SetNowFunc(func() time.Time { return now })
+	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, false)
+	assert.Equal(t, attunev1alpha1.UpdateTypeAuto, mode, "no SLO querier must not extend the wait")
+}
+
+func TestResolveCanaryPhase_InheritedSLOWindowDelaysPromotion(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	policy := fleetCanaryReady(10*time.Minute, 11*time.Minute, now)
+	long := 30 * time.Minute
+	defs := &attunev1alpha1.AttuneDefaults{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				SLOGuardrails: []attunev1alpha1.SLOGuardrail{sloGuardrail("p99-latency", &long)},
+			},
+		},
+	}
+	inherited := pkgdefaults.MergeDefaults(policy, defs)
+	require.Contains(t, inherited, "sloGuardrails")
+	require.Len(t, policy.Spec.UpdateStrategy.SLOGuardrails, 1)
+
+	r := NewAttunePolicyReconciler()
+	r.SetNowFunc(func() time.Time { return now })
+	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, true)
+	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "a guardrail inherited from AttuneDefaults still holds promotion")
+	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
+}
+
+func TestResolveCanaryPhase_RevertDuringSLOWindowResetsWatch(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	start := metav1.NewTime(now.Add(-20 * time.Minute))
+	policy := canaryAutoPromotePolicy(10 * time.Minute)
+	long := 30 * time.Minute
+	policy.Spec.UpdateStrategy.SLOGuardrails = []attunev1alpha1.SLOGuardrail{sloGuardrail("p99-latency", &long)}
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase:     attunev1alpha1.CanaryPhaseInProgress,
+		StartTime: &start,
+		Pods:      []string{"api-server-aaa"},
+	}
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{
+		flippedSuccessRevert("api-server", "InPlace", start.Time, "slo:p99-latency"),
+	}
+
+	r := NewAttunePolicyReconciler()
+	r.SetNowFunc(func() time.Time { return now })
+	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, true)
+	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode)
+	assert.Nil(t, policy.Status.Canary.StartTime, "a revert inside the longer wait still clears the clock")
+	assert.Empty(t, policy.Status.Canary.Pods)
+
+	r.SetNowFunc(func() time.Time { return start.Add(31 * time.Minute) })
+	mode = r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, true)
+	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "no promotion at 31m after the watch reset")
+	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
+	assert.Nil(t, policy.Status.Canary.StartTime)
 }
 
 func TestResolveCanaryPhase_DoesNotPromoteFromLeftoverHistory(t *testing.T) {
@@ -636,7 +808,7 @@ func TestResolveCanaryPhase_DoesNotPromoteFromLeftoverHistory(t *testing.T) {
 
 	r := NewAttunePolicyReconciler()
 	r.SetNowFunc(func() time.Time { return now })
-	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, false)
 	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode)
 	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.WorkloadStatus("app-b").Phase,
 		"leftover Success from before this canary watch must not promote")
@@ -662,7 +834,7 @@ func TestResolveCanaryPhase_LaterRevertedRowIsNonProductionShape(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	r.SetNowFunc(func() time.Time { return now })
 
-	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, false)
 	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode)
 	assert.Nil(t, policy.Status.Canary.StartTime, "even a later Reverted row must reset the clock")
 }
@@ -888,7 +1060,7 @@ func TestResolveCanaryPhase_DoesNotInitializeWithoutHistory(t *testing.T) {
 	}
 
 	reconciler := NewAttunePolicyReconciler()
-	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, false)
 
 	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "first call should stay in canary mode")
 	assert.Nil(t, policy.Status.Canary, "observation must not start before an in-place resize")
@@ -913,7 +1085,7 @@ func TestResolveCanaryPhase_PromotesAfterObservation(t *testing.T) {
 	}
 
 	reconciler := NewAttunePolicyReconciler()
-	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, false)
 
 	assert.Equal(t, attunev1alpha1.UpdateTypeAuto, mode, "should promote to auto after observation passes")
 	assert.Equal(t, attunev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
@@ -937,7 +1109,7 @@ func TestResolveCanaryPhase_LegacyHistoryWithoutMethodPromotesCanary(t *testing.
 	}
 
 	reconciler := NewAttunePolicyReconciler()
-	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, false)
 
 	assert.Equal(t, attunev1alpha1.UpdateTypeAuto, mode, "legacy in-place history without method should still promote canary")
 	assert.Equal(t, attunev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
@@ -961,7 +1133,7 @@ func TestResolveCanaryPhase_EvictionDoesNotPromoteCanary(t *testing.T) {
 	}
 
 	reconciler := NewAttunePolicyReconciler()
-	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, false)
 
 	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "eviction-only history should not count as a successful canary resize")
 	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
@@ -982,7 +1154,7 @@ func TestResolveCanaryPhase_WaitsDuringObservation(t *testing.T) {
 	}
 
 	reconciler := NewAttunePolicyReconciler()
-	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, false)
 
 	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "should stay in canary during observation")
 }
@@ -1006,7 +1178,7 @@ func TestResolveCanaryPhase_BlocksOnRevert(t *testing.T) {
 	}
 
 	reconciler := NewAttunePolicyReconciler()
-	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, false)
 
 	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "should block promotion when revert happened")
 	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
@@ -1020,7 +1192,7 @@ func TestResolveCanaryPhase_FullRolloutStaysAuto(t *testing.T) {
 	}
 
 	reconciler := NewAttunePolicyReconciler()
-	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, false)
 
 	assert.Equal(t, attunev1alpha1.UpdateTypeAuto, mode, "FullRollout should map to Auto")
 }
@@ -1043,7 +1215,7 @@ func TestResolveCanaryPhase_ResetsOnSpecChange(t *testing.T) {
 	}
 
 	reconciler := NewAttunePolicyReconciler()
-	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, false)
 
 	// Should reset and wait for the next in-place resize, staying in canary mode.
 	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "spec change should reset canary, not stay in FullRollout")
@@ -1073,7 +1245,7 @@ func TestResolveCanaryPhase_NoResetWhenGenerationMatches(t *testing.T) {
 	}
 
 	reconciler := NewAttunePolicyReconciler()
-	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, false)
 
 	// Same generation: should promote normally after observation period.
 	assert.Equal(t, attunev1alpha1.UpdateTypeAuto, mode, "same generation should promote normally")

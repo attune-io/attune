@@ -476,8 +476,9 @@ func (r *AttunePolicyReconciler) executeResizes(
 		workloadMap[w.GetName()] = w
 	}
 
-	// Canary auto-promotion: if all canary pods passed the observation
-	// period without reverts, promote to full rollout.
+	// Canary auto-promotion: a clean watch promotes to full rollout.
+	// The wait is the observation period, or the longest SLO window
+	// when this collector can run a guardrail query.
 	if mode == attunev1alpha1.UpdateTypeCanary && canaryAutoPromote {
 		if policy.Status.Canary == nil {
 			policy.Status.Canary = &attunev1alpha1.CanaryStatus{
@@ -501,7 +502,8 @@ func (r *AttunePolicyReconciler) executeResizes(
 		// history would FullRollout and instantly promote the next app.
 		emptied := pruneStaleCanaryWorkloads(policy.Status.Canary, workloadMap)
 		if !emptied {
-			mode = r.resolveCanaryPhase(ctx, policy, mode)
+			_, hasSLOQuerier := collector.(safety.SLOQuerier)
+			mode = r.resolveCanaryPhase(ctx, policy, mode, hasSLOQuerier)
 		}
 	}
 
@@ -1691,18 +1693,44 @@ func buildResizeTarget(rec attunev1alpha1.ContainerRecommendation) (corev1.Resou
 	return target, clamped
 }
 
-// resolveCanaryPhase checks whether canary pods have passed the observation
-// period without reverts. If so, it promotes to FullRollout and returns
+// canaryPromotionWait is how long a canary watch must run before promotion.
+// Without an SLO querier the wait is the observation period. With a querier
+// and at least one guardrail, it is the longer of that period and the longest
+// evaluation window. A missing or non-positive window counts as 5m.
+func canaryPromotionWait(policy *attunev1alpha1.AttunePolicy, period time.Duration, hasSLOQuerier bool) time.Duration {
+	if !hasSLOQuerier || policy == nil || policy.Spec.UpdateStrategy == nil || len(policy.Spec.UpdateStrategy.SLOGuardrails) == 0 {
+		return period
+	}
+	var longest time.Duration
+	for _, guardrail := range policy.Spec.UpdateStrategy.SLOGuardrails {
+		window := safety.DefaultSLOEvaluationWindow
+		if guardrail.EvaluationWindow != nil && guardrail.EvaluationWindow.Duration > 0 {
+			window = guardrail.EvaluationWindow.Duration
+		}
+		if window > longest {
+			longest = window
+		}
+	}
+	if longest > period {
+		return longest
+	}
+	return period
+}
+
+// resolveCanaryPhase checks whether canary pods have passed the promotion
+// wait without reverts. If so, it promotes to FullRollout and returns
 // ModeAuto so selectPodsForResize resizes all pods.
 //
 // Observation starts after a successful in-place canary resize (see
 // startCanaryWatch), not on the first executeResizes attempt. A premature
 // StartTime from an earlier cycle is re-anchored to the first real success.
 // A revert clears the clock so the next in-place success starts a new watch
-// instead of freezing or promoting immediately.
-func (r *AttunePolicyReconciler) resolveCanaryPhase(ctx context.Context, policy *attunev1alpha1.AttunePolicy, currentMode attunev1alpha1.UpdateType) attunev1alpha1.UpdateType {
+// instead of freezing or promoting immediately. hasSLOQuerier is the collector
+// type assert for this call. A field on the reconciler would race across policies.
+func (r *AttunePolicyReconciler) resolveCanaryPhase(ctx context.Context, policy *attunev1alpha1.AttunePolicy, currentMode attunev1alpha1.UpdateType, hasSLOQuerier bool) attunev1alpha1.UpdateType {
 	logger := log.FromContext(ctx)
 	observationPeriod := getObservationPeriod(policy)
+	promotionWait := canaryPromotionWait(policy, observationPeriod, hasSLOQuerier)
 
 	cs := policy.Status.Canary
 
@@ -1731,13 +1759,13 @@ func (r *AttunePolicyReconciler) resolveCanaryPhase(ctx context.Context, policy 
 	named := canaryWorkloadNames(policy)
 	if len(named) > 0 {
 		for _, name := range named {
-			r.resolveOneCanaryWorkload(policy, cs, name, observationPeriod)
+			r.resolveOneCanaryWorkload(policy, cs, name, observationPeriod, hasSLOQuerier)
 		}
 		cs.SyncRollupClock()
 		cs.RollupPhase()
 		if cs.Phase == attunev1alpha1.CanaryPhaseFullRollout {
 			logger.Info("Canary observation passed for all apps, promoting to full rollout",
-				"policy", policy.Name, "observationPeriod", observationPeriod)
+				"policy", policy.Name, "observationPeriod", observationPeriod, "promotionWait", promotionWait)
 			return attunev1alpha1.UpdateTypeAuto
 		}
 		return currentMode
@@ -1767,11 +1795,11 @@ func (r *AttunePolicyReconciler) resolveCanaryPhase(ctx context.Context, policy 
 			"policy", policy.Name, "startTime", cs.StartTime.Time)
 	}
 
-	if r.now().Sub(cs.StartTime.Time) < observationPeriod {
+	if r.now().Sub(cs.StartTime.Time) < promotionWait {
 		return currentMode
 	}
 	logger.Info("Canary observation passed, promoting to full rollout",
-		"policy", policy.Name, "observationPeriod", observationPeriod)
+		"policy", policy.Name, "observationPeriod", observationPeriod, "promotionWait", promotionWait)
 	cs.Phase = attunev1alpha1.CanaryPhaseFullRollout
 	return attunev1alpha1.UpdateTypeAuto
 }
@@ -1822,8 +1850,10 @@ func (r *AttunePolicyReconciler) resolveOneCanaryWorkload(
 	cs *attunev1alpha1.CanaryStatus,
 	workload string,
 	observationPeriod time.Duration,
+	hasSLOQuerier bool,
 ) {
 	logger := log.FromContext(context.Background())
+	promotionWait := canaryPromotionWait(policy, observationPeriod, hasSLOQuerier)
 	ws := cs.UpsertWorkload(workload)
 	if ws.Phase == attunev1alpha1.CanaryPhaseFullRollout {
 		return
@@ -1850,11 +1880,11 @@ func (r *AttunePolicyReconciler) resolveOneCanaryWorkload(
 		t := *firstSuccess
 		ws.StartTime = &t
 	}
-	if r.now().Sub(ws.StartTime.Time) < observationPeriod {
+	if r.now().Sub(ws.StartTime.Time) < promotionWait {
 		return
 	}
 	logger.Info("Canary observation passed for workload, promoting",
-		"policy", policy.Name, "workload", workload, "observationPeriod", observationPeriod)
+		"policy", policy.Name, "workload", workload, "observationPeriod", observationPeriod, "promotionWait", promotionWait)
 	ws.Phase = attunev1alpha1.CanaryPhaseFullRollout
 }
 
