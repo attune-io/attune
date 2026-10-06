@@ -1395,6 +1395,22 @@ sum of `spec.containers`. It does not write an older number back.
 3. Do not expect this version to restore the number from before that
    rewrite.
 
+### HPA target did not change after a resize
+
+**Symptom**: Pods were resized and the HorizontalPodAutoscaler utilization
+target is still the old percent.
+
+**Cause**: The HPA update failed. A conflict is retried. Any other error
+is logged as `Failed to update HPA target` and is not retried until that
+workload is resized again.
+
+**Fix**:
+
+1. Check the operator log for `Failed to update HPA target`.
+2. Confirm the HPA has `attune.io/auto-tune: "true"`.
+3. The next successful in-place resize of that workload tries the retune
+   again.
+
 ### HPABaseRepaired and the stored CPU request disagree
 
 **Symptom**: The policy shows Warning `HPABaseRepaired`, but

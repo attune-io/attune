@@ -77,6 +77,10 @@ inside it is not added again. Init containers and native sidecars stay
 out of the Resource sum. `HPABaseRepaired` means the update that rewrote
 that stored request succeeded. A failed HPA update does not emit the
 Warning. A value an older operator already replaced is left in place.
+A conflicting HPA write is retried from a fresh object. A non-conflict
+failure is logged, and the target is corrected on the next resize of
+that workload.
+
 A single-container workload at `200m` and 80% (160m absolute) becomes 40% at
 `400m`, then 20% at `800m`, not 40% again.
 

@@ -23,8 +23,10 @@ import (
 
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
@@ -552,8 +554,8 @@ func copyHPATuneAnnotations(dst, src map[string]string) {
 }
 
 // tuneHPAs updates every matching auto-tune HPA. Changed metrics on one HPA
-// are written with a single Update. Get or Update errors are logged and do
-// not abort the next HPA.
+// are written with a single Update. A conflict retries the live Get and
+// that Update. Other errors are logged and do not abort the next HPA.
 func (r *AttunePolicyReconciler) tuneHPAs(
 	ctx context.Context,
 	hpas []autoscalingv2.HorizontalPodAutoscaler,
@@ -678,28 +680,35 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 			continue
 		}
 
-		// Re-fetch the HPA to get a fresh resourceVersion. The HPA list
-		// was fetched at the start of Reconcile and the HPA controller
-		// may have updated it since then (e.g., during concurrent resizes).
-		var fresh autoscalingv2.HorizontalPodAutoscaler
-		// Live API read so strip-transformed cache entries cannot wipe metrics.
-		if getErr := r.liveReader().Get(ctx, types.NamespacedName{Name: hpa.Name, Namespace: hpa.Namespace}, &fresh); getErr != nil {
-			logger.Error(getErr, "Failed to re-fetch HPA for target update", "hpa", hpa.Name)
-			continue
-		}
-		// Apply only our operator annotations to the fresh copy.
-		// Copying ALL annotations from the stale hpa would overwrite
-		// annotations set by other controllers (ArgoCD, Flux, etc.)
-		// between the initial List and this re-fetch.
-		if fresh.Annotations == nil {
-			fresh.Annotations = make(map[string]string)
-		}
-		copyHPATuneAnnotations(fresh.Annotations, hpa.Annotations)
-		for _, upd := range pending {
-			applyHPAMetricTarget(&fresh, upd.index, upd.resName, upd.resource, upd.container, upd.target)
-		}
-		if err := r.Update(ctx, &fresh); err != nil {
-			logger.Error(err, "Failed to update HPA target", "hpa", hpa.Name)
+		// The HPA list is from the start of Reconcile. The HPA controller
+		// writes status on its own sync and bumps resourceVersion. Retry
+		// the live Get and this Update together. Re-apply pending on each
+		// fresh object. Copy only Attune annotations so another controller's
+		// keys survive. A non-conflict error is not retried.
+		var refetchErr error
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			var fresh autoscalingv2.HorizontalPodAutoscaler
+			// Live API read so strip-transformed cache entries cannot wipe metrics.
+			if getErr := r.liveReader().Get(ctx, types.NamespacedName{Name: hpa.Name, Namespace: hpa.Namespace}, &fresh); getErr != nil {
+				refetchErr = getErr
+				return getErr
+			}
+			refetchErr = nil
+			if fresh.Annotations == nil {
+				fresh.Annotations = make(map[string]string)
+			}
+			copyHPATuneAnnotations(fresh.Annotations, hpa.Annotations)
+			for _, upd := range pending {
+				applyHPAMetricTarget(&fresh, upd.index, upd.resName, upd.resource, upd.container, upd.target)
+			}
+			return r.Update(ctx, &fresh)
+		})
+		if err != nil {
+			if refetchErr != nil && !apierrors.IsConflict(err) {
+				logger.Error(err, "Failed to re-fetch HPA for target update", "hpa", hpa.Name)
+			} else {
+				logger.Error(err, "Failed to update HPA target", "hpa", hpa.Name)
+			}
 			continue
 		}
 		if repairedCPU && r.Recorder != nil && scope.policy != nil {
