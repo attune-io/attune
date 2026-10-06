@@ -31,6 +31,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -656,6 +658,180 @@ func TestWorkload_GetPodSelectorLabels(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestWorkload_PodSelector(t *testing.T) {
+	expr := &metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{{
+			Key:      "tier",
+			Operator: metav1.LabelSelectorOpIn,
+			Values:   []string{"cache"},
+		}},
+	}
+	template := corev1.PodTemplateSpec{
+		ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "from-template"}},
+	}
+
+	tests := []struct {
+		name     string
+		adapter  WorkloadAdapter
+		wantNil  bool
+		match    labels.Set
+		mismatch labels.Set
+	}{
+		{
+			name: "DaemonSet matchExpressions",
+			adapter: &daemonSetAdapter{DaemonSet: &appsv1.DaemonSet{
+				Spec: appsv1.DaemonSetSpec{Selector: expr},
+			}},
+			match:    labels.Set{"tier": "cache"},
+			mismatch: labels.Set{"tier": "web"},
+		},
+		{
+			name: "ReplicaSet matchExpressions",
+			adapter: &replicaSetAdapter{ReplicaSet: &appsv1.ReplicaSet{
+				Spec: appsv1.ReplicaSetSpec{Selector: expr.DeepCopy()},
+			}},
+			match:    labels.Set{"tier": "cache"},
+			mismatch: labels.Set{"app": "from-template"},
+		},
+		{
+			name: "DaemonSet nil selector ignores template labels",
+			adapter: &daemonSetAdapter{DaemonSet: &appsv1.DaemonSet{
+				Spec: appsv1.DaemonSetSpec{Template: template},
+			}},
+			wantNil: true,
+		},
+		{
+			name: "ReplicaSet nil selector ignores template labels",
+			adapter: &replicaSetAdapter{ReplicaSet: &appsv1.ReplicaSet{
+				Spec: appsv1.ReplicaSetSpec{Template: template},
+			}},
+			wantNil: true,
+		},
+		{
+			name: "Job selector wins over template labels",
+			adapter: &jobAdapter{Job: &batchv1.Job{
+				Spec: batchv1.JobSpec{
+					Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"job": "keep"}},
+					Template: template,
+				},
+			}},
+			match:    labels.Set{"job": "keep"},
+			mismatch: labels.Set{"app": "from-template"},
+		},
+		{
+			name: "Job without selector uses template labels",
+			adapter: &jobAdapter{Job: &batchv1.Job{
+				Spec: batchv1.JobSpec{Template: template},
+			}},
+			match:    labels.Set{"app": "from-template"},
+			mismatch: labels.Set{"app": "other"},
+		},
+		{
+			name: "CronJob without selector uses template labels",
+			adapter: &cronJobAdapter{CronJob: &batchv1.CronJob{
+				Spec: batchv1.CronJobSpec{
+					JobTemplate: batchv1.JobTemplateSpec{
+						Spec: batchv1.JobSpec{Template: template},
+					},
+				},
+			}},
+			match:    labels.Set{"app": "from-template"},
+			mismatch: labels.Set{},
+		},
+		{
+			name: "CronJob without selector or template labels",
+			adapter: &cronJobAdapter{CronJob: &batchv1.CronJob{
+				Spec: batchv1.CronJobSpec{
+					JobTemplate: batchv1.JobTemplateSpec{Spec: batchv1.JobSpec{}},
+				},
+			}},
+			wantNil: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.adapter.PodSelector()
+			require.NoError(t, err)
+			if tt.wantNil {
+				assert.Nil(t, got)
+				return
+			}
+			require.NotNil(t, got)
+			assert.True(t, got.Matches(tt.match), "selector %s", got)
+			assert.False(t, got.Matches(tt.mismatch), "selector %s", got)
+		})
+	}
+}
+
+func TestSelectorFrom(t *testing.T) {
+	t.Run("empty selector without fallback is nil", func(t *testing.T) {
+		got, err := selectorFrom(&metav1.LabelSelector{}, nil)
+		require.NoError(t, err)
+		assert.Nil(t, got)
+	})
+
+	t.Run("empty selector with fallback is equality not match-all", func(t *testing.T) {
+		got, err := selectorFrom(&metav1.LabelSelector{}, map[string]string{"app": "batch"})
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.True(t, got.Matches(labels.Set{"app": "batch"}))
+		assert.False(t, got.Matches(labels.Set{"app": "other"}))
+		assert.False(t, got.Matches(labels.Set{}))
+	})
+
+	t.Run("invalid operator", func(t *testing.T) {
+		_, err := selectorFrom(&metav1.LabelSelector{
+			MatchExpressions: []metav1.LabelSelectorRequirement{{
+				Key:      "tier",
+				Operator: "BadOp",
+				Values:   []string{"cache"},
+			}},
+		}, nil)
+		require.Error(t, err)
+	})
+}
+
+func TestGetPodsForWorkload_CronJobWithoutSelector(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+
+	cj := &batchv1.CronJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "nightly", Namespace: "batch-ns"},
+		Spec: batchv1.CronJobSpec{
+			JobTemplate: batchv1.JobTemplateSpec{
+				Spec: batchv1.JobSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "batch"}},
+					},
+				},
+			},
+		},
+	}
+	match := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "match",
+			Namespace: "batch-ns",
+			Labels:    map[string]string{"app": "batch"},
+		},
+	}
+	other := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "other",
+			Namespace: "batch-ns",
+			Labels:    map[string]string{"app": "web"},
+		},
+	}
+
+	r := NewAttunePolicyReconciler()
+	r.Client = fake.NewClientBuilder().WithScheme(scheme).WithObjects(match, other).Build()
+
+	got, err := r.getPodsForWorkload(context.Background(), cj)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "match", got[0].Name)
 }
 
 // ---------- newWorkloadAdapter ----------
