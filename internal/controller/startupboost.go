@@ -170,6 +170,26 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 
 			boostAtStr := pod.Annotations[annotationStartupBoostAt]
 			podAge := now.Sub(pod.CreationTimestamp.Time)
+			// podsByWorkload is listed before executeResizes. That resize
+			// can already have lowered CPU below the boost target, or
+			// changed the memory request, while this object still has the
+			// earlier spec. Decide from the live pod. A Get error keeps
+			// the listed object.
+			if boostAtStr != "" || podAge < boostDuration {
+				fresh, err := r.fetchLivePodForResize(ctx, pod)
+				if err != nil {
+					logger.Info("Startup boost live pod read failed; using the listed pod",
+						"pod", pod.Name, "namespace", pod.Namespace, "error", err.Error())
+				} else if fresh != nil {
+					pods[i] = *fresh
+					pod = &pods[i]
+					if pod.Status.Phase != corev1.PodRunning {
+						continue
+					}
+					boostAtStr = pod.Annotations[annotationStartupBoostAt]
+					podAge = now.Sub(pod.CreationTimestamp.Time)
+				}
+			}
 
 			if boostAtStr == "" && podAge < boostDuration {
 				// New pod within boost window: apply boosted CPU.
@@ -244,9 +264,9 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 							corev1.ResourceCPU: boostDest.DeepCopy(),
 						}
 						// PreservesQoS on Guaranteed needs a memory limit on
-						// this hand-built target. podsByWorkload is from
-						// before executeResizes, so the live limit can still
-						// be the pre-multiplier value.
+						// this hand-built target. A failed live read can
+						// still be the pre-resize limit. RequestsAndLimits
+						// uses the recommendation limit.
 						if memLim, ok := boostMemoryLimit(effMem.ControlledValues, c.Resources.Limits, recCPU.memoryLimit); ok {
 							boostRec.Recommended.MemoryLimit = memLim.DeepCopy()
 							boostTarget.Limits[corev1.ResourceMemory] = memLim.DeepCopy()
@@ -413,10 +433,9 @@ type startupBoostCPU struct {
 }
 
 // boostMemoryLimit chooses the memory limit copied onto a boost or expiry
-// target. The pod list predates executeResizes, so the live limit can be
-// the pre-multiplier value. Use the recommendation when memory is
-// RequestsAndLimits and that limit is already set. Otherwise keep the
-// live limit so the QoS check still sees one.
+// target. A failed live read can still see the pre-resize limit. Use the
+// recommendation when memory is RequestsAndLimits and that limit is already
+// set. Otherwise keep the container limit so the QoS check still sees one.
 func boostMemoryLimit(memoryCV *string, live corev1.ResourceList, recommended resource.Quantity) (resource.Quantity, bool) {
 	if memoryCV != nil && *memoryCV == attunev1alpha1.ControlledRequestsAndLimits && !recommended.IsZero() {
 		return recommended.DeepCopy(), true

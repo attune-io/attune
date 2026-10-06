@@ -10,6 +10,15 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## Unreleased
 
+### Startup boost follows a resize in the same reconcile
+
+A startup boost or boost expiry reads the pod from the API server
+when that pod is inside the boost window or already stamped. A
+resize earlier in the same reconcile no longer leaves a young pod
+at the steady CPU, and the boost write keeps the memory request
+that resize just stored. A failed read still uses the earlier pod
+list. No policy edit and no CRD change are needed.
+
 ### A committed resize still runs safety after a write timeout
 
 An in-place resize or revert that returns a timeout or a decode
