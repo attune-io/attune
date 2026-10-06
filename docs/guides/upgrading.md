@@ -8,7 +8,21 @@ Maintainers: before publishing a release after multi-version product changes,
 run the full E2E Nightly matrix on tip of `main` (see
 [Releasing: full E2E matrix](../contributing/releasing.md#1b-full-e2e-matrix-required-before-tagging-a-product-release)).
 
-## Unreleased
+## v0.1.32 to v0.1.33
+
+v0.1.33 adds per-container CPU and memory settings, memory HPA retune,
+a usage surge window, an OOM bump, limit multipliers, Amazon Managed
+Prometheus signing, and Argo Rollout targets. Those stay off until you
+set them.
+
+Three changes apply on the next reconcile with no policy edit. An
+omitted `maxAllowed` is no longer a hidden ceiling of `4000m` CPU and
+`8Gi` memory. CloudWatch policies that omit `cpuUnit` treat
+`container_cpu_usage_total` as millicores. A stored HPA Resource base
+that left out a native sidecar is rewritten to the pre-resize pod sum.
+
+Apply the v0.1.33 CRDs before the controller. Helm does not update
+CRDs on `helm upgrade`.
 
 ### Stored HPA base includes a native sidecar
 
@@ -588,29 +602,6 @@ read `pod-template-generation`. Pods that have the hash label resize the
 same way. A pod with no hash label is still skipped when the current hash
 is known.
 
-### Copy into the next release notes
-
-These behaviors change when the operator is upgraded, with no YAML edit.
-The generated notes for the next release must list them. Do not edit
-release pull request 889 to add the list.
-
-- Lowering `memory.maxAllowed` during a `memory.oomBump` hold publishes the cap on the next reconcile. The stored floor stays. Default memory `allowDecrease` still refuses the decrease until it is enabled
-- A newer OOM during `memory.oomBump.hold` steps above the live request. In Auto, OneShot, and Canary, a step that cannot rise counts once as `skipped`. Recommend and Observe still count that skip on every reconcile
-- An OOM-bump revert raises a memory limit only when that container's effective `controlledValues` is `RequestsAndLimits`
-- CronJob pod names match an 8- or 9-digit minute stamp. A 10-digit unix-seconds suffix does not match
-- Omitted `maxAllowed` is not capped
-- CloudWatch `cpuUnit` empty means Millicores
-- A stored `0s` cooldown, safety period, or SLO window on a policy or on defaults can be updated and deleted. A new `0s` is rejected. A stored `0s` cooldown still waits 1h
-- A policy that sets `limitMultiplier` must set `controlledValues: RequestsAndLimits` on that same object. Admission rejects the apply. A stored policy stays `InvalidConfig` until edited
-- A policy that sets `controlledValues: RequestsOnly` does not inherit `limitMultiplier`. Omitting `controlledValues` still inherits it and can be `InvalidConfig`
-- RollingUpdate DaemonSets resize the current revision. The pod label is the hash, not the revision name
-- A QoS check with `spec.resources` uses one rule on both sides
-- A stored HPA CPU base that is missing other containers is repaired. Growth of the same containers keeps the stored original. An annotation an older operator already rewrote is left in place
-- A failed Rollout `workloadRef` read keeps reason `WorkloadRefUnread`. A readable ref still reports `TemplateWorkloadRef`
-- Datadog null points are dropped
-- Scaled memory limits are rounded up to a whole byte. A fractional limit already on a pod or template is not changed for this alone
-- CronJob policies match pods on the minute stamp and collect samples. With initialSizing, new CronJob pods are sized at creation. Running CronJob pods are not resized
-
 ### Stored cooldown of 0s
 
 A stored `cooldown: 0s` is not a wait. The controller treats it as the 1h
@@ -645,6 +636,13 @@ An in-place resize that would change the pod QoS class is skipped,
 including when `resizeMethod` is `InPlaceOrRecreate`. The pod is not
 evicted. `InPlaceOnly`, the default, already could not apply that resize,
 because the API rejects a QoS class change.
+
+When the pod has `spec.resources`, both sides of that check use one
+rule. If in-place pod-level resize is on, both sides use the pod-level
+envelope. If it is off, both sides use the containers. Attune does not
+compare `status.qosClass` with a container class. A pod with no
+`spec.resources` still uses `status.qosClass` for the current class.
+See [Resize API](../architecture/resize-api.md).
 
 ### Standalone ReplicaSet initial sizing
 
@@ -742,24 +740,25 @@ policy that sets `RequestsOnly` does not inherit that multiplier. A
 policy that omits `controlledValues` still inherits it, then resolves
 to `RequestsOnly`, so that pair is rejected at reconcile.
 
-### HPA auto-tune keeps the stored CPU base
+### HPA auto-tune keeps the stored base
 
 An HPA annotated `attune.io/auto-tune: "true"` stores the pod CPU total
-on the first Resource retune. Later resizes reuse that stored request.
+and the pod memory total on the first Resource retune for that
+resource. The sum is `spec.containers` plus init containers with
+`restartPolicy: Always`. A one-shot init stays out.
 
-A stored base is replaced only when it equals the history old sum of
-`spec.containers` and the live pod total is larger. That gap is
-containers with no history row. The update writes the pre-resize pod
-sum to `attune.io/original-cpu-request` and emits `HPABaseRepaired` only
-after that HPA update succeeds. A failed write does not emit the
+Later resizes reuse that stored request. Attune replaces it when it is
+below this cycle's pre-resize pod sum and equals either the history
+old sum or that sum with native sidecars removed. The update writes
+the pre-resize sum and emits `HPABaseRepaired` only after the HPA
+update succeeds. The event names `attune.io/original-cpu-request` or
+`attune.io/original-memory-request`. A failed write does not emit the
 Warning.
 
-A stored base above that history sum stays, including after the same
-containers grow. A stored base below that history sum also stays.
-Attune does not add the no-history containers on top of it, because
-that base may already include them. Init containers and native
-sidecars stay out of the Resource sum. ContainerResource bases are not
-repaired this way.
+A stored base that matches neither sum stays. That includes a full base
+after the same containers grow, and a smaller base that already
+includes the sidecar. ContainerResource bases are not repaired this
+way.
 
 An annotation that an older operator already replaced with a grown sum
 is left as stored. This release does not write the earlier number back.
@@ -769,10 +768,13 @@ Deleting the keys still stores a fresh base on the next resize. Leave
 
 - `attune.io/original-target-cpu`
 - `attune.io/original-cpu-request`
+- `attune.io/original-target-memory`
+- `attune.io/original-memory-request`
 - any `attune.io/hpa-cpu-target.*` key
 - any `attune.io/hpa-cpu-base.*` key
 
-The next successful CPU resize stores the full base when the keys are gone.
+The next successful resize of that resource stores the full base when
+the keys are gone.
 
 ### Omitted maxAllowed is not capped
 
@@ -818,6 +820,40 @@ To keep the old scale, set `cpuUnit: Nanocores` on each policy that has its own 
 If the new scale is too small, CPU requests sit at 1m or minAllowed. If it is too large, they move toward maxAllowed. CPU `allowDecrease` still defaults to true, and CloudWatch does not run throttle revert, so a bad step is not undone by the throttle check. Confirm one raw GetMetricData sample against the container limit before rollout.
 
 The OpenTelemetry `awscontainerinsightreceiver` multiplies the core rate by 1000, and its README lists `container_cpu_usage_total` as Millicore ([cpu extractor](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/receiver/awscontainerinsightreceiver/internal/cadvisor/extractors/cpu_extractor.go)).
+
+### Upgrade the chart and image
+
+1. Apply the v0.1.33 CRDs before the controller. The previous CRD
+   requires `explanation.cpu.bounds.max` and
+   `explanation.memory.bounds.max`. The next status write for a policy
+   that omits `maxAllowed` fails until these CRDs are applied. Helm
+   does not update CRDs on `helm upgrade`.
+
+   ```bash
+   kubectl apply --server-side --force-conflicts -f \
+     https://github.com/attune-io/attune/releases/latest/download/crds.yaml
+   ```
+
+   `releases/latest` is v0.1.33 only after that tag is published. Do
+   not apply an older `crds.yaml`.
+
+2. Upgrade the chart to 0.1.33, or set `image.tag` to `0.1.33` or
+   `v0.1.33`. A Helm upgrade updates the ClusterRole. Raw manifests
+   need the same rules: `apps/controllerrevisions` get, list, and
+   watch, and `argoproj.io` `rollouts` get, list, watch, patch, and
+   update. `list` on `config.openshift.io` `apiservers` and `watch` on
+   `rollouts` are no longer required.
+
+3. Pull `ghcr.io/attune-io/attune:v0.1.33` or
+   `ghcr.io/attune-io/attune:0.1.33`. Both tags point at the same
+   digest.
+
+4. To keep the old ceiling, set `cpu.maxAllowed: "4000m"` and
+   `memory.maxAllowed: "8Gi"` on the policy or on `AttuneDefaults`
+   before the new controller reconciles.
+
+5. To keep the v0.1.32 CloudWatch scale, set `cpuUnit: Nanocores` on
+   each policy that has its own `cloudwatch` block.
 
 ## v0.1.31 to v0.1.32
 
