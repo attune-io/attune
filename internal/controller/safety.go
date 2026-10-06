@@ -401,7 +401,7 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 			}
 
 			if !verdict.Safe {
-				confirmed, confirmErr := r.confirmSafetyVerdict(ctx, monitor, pod, record)
+				confirmed, livePod, confirmErr := r.confirmSafetyVerdict(ctx, monitor, pod, record)
 				if confirmErr != nil {
 					logger.Error(confirmErr, "Safety confirm Get failed", "pod", pod.Name, "container", record.Container)
 					operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation").Inc()
@@ -433,7 +433,40 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 				if suppress {
 					logger.Info("OOM bump hold suppresses revert",
 						"pod", pod.Name, "container", record.Container, "reason", verdict.Reason)
-					continue
+					// A missing live pod cannot prove throttle, SLO, and Ready passed.
+					if livePod == nil {
+						revertFailed = true
+						continue
+					}
+					follow, followErr := monitor.CheckNonCritical(ctx, livePod, record, r.now())
+					if followErr != nil {
+						logger.Error(followErr, "Safety check after suppressed revert failed",
+							"pod", pod.Name, "container", record.Container)
+						operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation").Inc()
+						revertFailed = true
+						continue
+					}
+					if follow.Safe {
+						if follow.ThrottleDeferred {
+							logger.V(1).Info("Throttle check deferred (within grace period), keeping observation",
+								"pod", pod.Name, "container", record.Container)
+							throttlePending = true
+							operatormetrics.ThrottleDeferredTotal.WithLabelValues(pod.Namespace, trackedWorkload).Inc()
+						}
+						if follow.SLODeferred {
+							logger.V(1).Info("SLO check deferred (evaluation window still open), keeping observation",
+								"pod", pod.Name, "container", record.Container)
+							sloPending = true
+						}
+						continue
+					}
+					verdict = follow
+					adjusted, suppress = r.oomBumpRevertGate(ctx, policy, livePod, record, verdict.Reason, r.now())
+					if suppress {
+						logger.Info("OOM bump hold suppresses revert",
+							"pod", pod.Name, "container", record.Container, "reason", verdict.Reason)
+						continue
+					}
 				}
 				// Another container can keep this pod tracked while its SLO
 				// window is open. Do not revert a container again once this
@@ -703,23 +736,28 @@ func appliedRevertTarget(pod *corev1.Pod, record safety.ResizeRecord) corev1.Res
 
 // confirmSafetyVerdict re-Gets the pod and re-evaluates before revert so a
 // flapping Ready=False on the listed snapshot does not undo a now-healthy pod.
+// The returned pod is the object that verdict was computed from.
 func (r *AttunePolicyReconciler) confirmSafetyVerdict(
 	ctx context.Context,
 	monitor *safety.Monitor,
 	listed *corev1.Pod,
 	record safety.ResizeRecord,
-) (safety.SafetyVerdict, error) {
+) (safety.SafetyVerdict, *corev1.Pod, error) {
 	if r.Clientset == nil {
-		return safety.SafetyVerdict{}, fmt.Errorf("confirming safety verdict for %s/%s: no clientset", listed.Namespace, listed.Name)
+		return safety.SafetyVerdict{}, nil, fmt.Errorf("confirming safety verdict for %s/%s: no clientset", listed.Namespace, listed.Name)
 	}
 	fresh, err := r.Clientset.CoreV1().Pods(listed.Namespace).Get(ctx, listed.Name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
-		return safety.SafetyVerdict{Safe: true}, nil
+		return safety.SafetyVerdict{Safe: true}, nil, nil
 	}
 	if err != nil {
-		return safety.SafetyVerdict{}, fmt.Errorf("confirming safety verdict for %s/%s: %w", listed.Namespace, listed.Name, err)
+		return safety.SafetyVerdict{}, nil, fmt.Errorf("confirming safety verdict for %s/%s: %w", listed.Namespace, listed.Name, err)
 	}
-	return monitor.CheckPodObject(ctx, fresh, record, r.now())
+	verdict, err := monitor.CheckPodObject(ctx, fresh, record, r.now())
+	if err != nil {
+		return safety.SafetyVerdict{}, fresh, err
+	}
+	return verdict, fresh, nil
 }
 
 // confirmCriticalStatuses re-Gets and re-runs only OOM/restart checks.
