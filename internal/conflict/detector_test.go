@@ -998,7 +998,8 @@ func TestCheckPolicyConflictInMemory_MatchExpressionsIn(t *testing.T) {
 
 	result := detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment",
 		map[string]string{"env": "prod"}, "current", 100)
-	assert.NotNil(t, result, "In expression matching 'prod' should detect conflict")
+	require.NotNil(t, result, "In expression matching 'prod' should detect conflict")
+	assert.Equal(t, ConflictPolicy, result.Type)
 	assert.Equal(t, "expr-policy", result.Name)
 }
 
@@ -1032,7 +1033,9 @@ func TestCheckPolicyConflictInMemory_MatchExpressionsExists(t *testing.T) {
 
 	result := detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment",
 		map[string]string{"tier": "frontend"}, "current", 100)
-	assert.NotNil(t, result, "Exists expression should match when label is present")
+	require.NotNil(t, result, "Exists expression should match when label is present")
+	assert.Equal(t, ConflictPolicy, result.Type)
+	assert.Equal(t, "exists-policy", result.Name)
 
 	result = detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment",
 		map[string]string{"app": "web"}, "current", 100)
@@ -1055,7 +1058,9 @@ func TestCheckPolicyConflictInMemory_CombinedMatchLabelsAndExpressions(t *testin
 	// Both matchLabels and matchExpressions must match.
 	result := detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment",
 		map[string]string{"app": "web", "env": "prod"}, "current", 100)
-	assert.NotNil(t, result, "both conditions met should detect conflict")
+	require.NotNil(t, result, "both conditions met should detect conflict")
+	assert.Equal(t, ConflictPolicy, result.Type)
+	assert.Equal(t, "combined-policy", result.Name)
 
 	// matchLabels match but expression doesn't.
 	result = detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment",
