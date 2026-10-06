@@ -69,8 +69,9 @@ rules:
     verbs:
       - patch
       - update
-  # Argo Rollouts: read for discovery; patch and update spec.template when
-  # templatePersistence is enabled. Installing this rule does not require
+  # Argo Rollouts: get and list for discovery; patch and update
+  # spec.template when templatePersistence is enabled. No watch: Rollouts
+  # stay outside the informer cache. Installing this rule does not require
   # the Rollout CRD.
   - apiGroups:
       - argoproj.io
@@ -79,7 +80,6 @@ rules:
     verbs:
       - get
       - list
-      - watch
       - patch
       - update
   # Batch workloads: read-only (Job/CronJob recommend-only support)
@@ -156,7 +156,6 @@ rules:
       - apiservers
     verbs:
       - get
-      - list
   {{- end }}
   # Prometheus Operator: read-only (auto-discovery)
   - apiGroups:

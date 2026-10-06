@@ -176,7 +176,8 @@ call for a resource type, check:
 1. Does the RBAC marker include `list` and `watch`? If not, add them.
 2. Is the resource in `DisableFor` (`cmd/manager/main.go`)? If yes,
    Get and List bypass the cache and use the live API reader.
-   Secrets only need `get`. A type that is listed also needs `list`.
+   A `DisableFor` resource does not need `watch`. It needs `get` for
+   Get and `list` for any List.
 
 **When changing a client call's verb** (e.g., `r.Update()` to `r.Patch()`,
 or `r.Get()` to `r.List()`), the RBAC marker must also be updated. The
@@ -215,10 +216,13 @@ package. Moving the marker to `internal/controller/attunepolicy_controller.go`
 fixed it.
 
 Currently, `DisableFor` lists Secrets and the Argo Rollout type.
-Secrets are get-only. Rollout is there so the manager starts when
-the Rollout CRD is missing; Get and List use the live API reader.
-Do not remove Rollout from `DisableFor`. All other resources
-accessed via the client need `list`/`watch`.
+A `DisableFor` resource does not need `watch`. It needs `get` for
+Get and `list` for any List. Secrets are get-only. Rollout is there
+so the manager starts when the Rollout CRD is missing; Get and List
+use the live API reader. Do not remove Rollout from `DisableFor`.
+If a later change adds a Rollout informer, add `watch` back and
+handle the missing-CRD start failure. All other resources accessed
+via the client need `list`/`watch`.
 
 ### Adding a new defaultable field
 

@@ -192,7 +192,6 @@ tests:
               - apiservers
             verbs:
               - get
-              - list
 
   - it: should include OpenShift RBAC when openshift.enabled is true
     set:
@@ -208,6 +207,14 @@ tests:
               - apiservers
             verbs:
               - get
+      - notContains:
+          path: rules
+          content:
+            apiGroups:
+              - config.openshift.io
+            resources:
+              - apiservers
+            verbs:
               - list
 
   - it: should include secret get-only permissions for bearer token
@@ -275,7 +282,7 @@ tests:
             verbs:
               - patch
               - update
-  - it: should include argoproj.io rollouts get list watch patch and update
+  - it: should include argoproj.io rollouts get list patch and update
     asserts:
       - contains:
           path: rules
@@ -287,6 +294,16 @@ tests:
             verbs:
               - get
               - list
-              - watch
               - patch
               - update
+  - it: should not watch argoproj.io rollouts
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups:
+              - argoproj.io
+            resources:
+              - rollouts
+            verbs:
+              - watch

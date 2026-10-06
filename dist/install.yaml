@@ -5299,7 +5299,6 @@ rules:
   - list
   - patch
   - update
-  - watch
 - apiGroups:
   - attune.io
   resources:
@@ -5371,7 +5370,6 @@ rules:
   - apiservers
   verbs:
   - get
-  - list
 - apiGroups:
   - events.k8s.io
   resources:
