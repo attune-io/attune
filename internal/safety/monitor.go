@@ -475,7 +475,11 @@ func (m *Monitor) RevertPod(ctx context.Context, record ResizeRecord) error {
 	// Retry loop handles 409 Conflict errors that occur when the kubelet
 	// updates pod status between our Get and UpdateResize, bumping
 	// resourceVersion. This mirrors the retry logic in ResizePod.
-	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+	// A non-conflict write error after the original resources are stored
+	// is success when a follow-up Get shows them. Otherwise the caller
+	// records a revert failure while the pod is already back.
+	var confirm *corev1.ResourceRequirements
+	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 		pod, err := m.client.CoreV1().Pods(record.Namespace).Get(ctx, record.PodName, metav1.GetOptions{})
 		if apierrors.IsNotFound(err) {
 			m.logger.Info("pod deleted during observation, skipping revert",
@@ -510,9 +514,12 @@ func (m *Monitor) RevertPod(ctx context.Context, record ResizeRecord) error {
 				"container", record.Container, "request", revertTarget.Requests.Memory().String())
 		}
 		found := false
+		var before, applied corev1.ResourceRequirements
 		for i, c := range updated.Spec.InitContainers {
 			if c.Name == record.Container {
-				updated.Spec.InitContainers[i].Resources = resize.MergeResources(c.Resources, revertTarget)
+				before = c.Resources
+				applied = resize.MergeResources(c.Resources, revertTarget)
+				updated.Spec.InitContainers[i].Resources = applied
 				found = true
 				break
 			}
@@ -520,7 +527,9 @@ func (m *Monitor) RevertPod(ctx context.Context, record ResizeRecord) error {
 		if !found {
 			for i, c := range updated.Spec.Containers {
 				if c.Name == record.Container {
-					updated.Spec.Containers[i].Resources = resize.MergeResources(c.Resources, revertTarget)
+					before = c.Resources
+					applied = resize.MergeResources(c.Resources, revertTarget)
+					updated.Spec.Containers[i].Resources = applied
 					found = true
 					break
 				}
@@ -549,10 +558,24 @@ func (m *Monitor) RevertPod(ctx context.Context, record ResizeRecord) error {
 		m.logger.Info("reverting pod resize", logFields...)
 
 		_, err = m.client.CoreV1().Pods(record.Namespace).UpdateResize(ctx, record.PodName, updated, metav1.UpdateOptions{})
+		if err != nil && !apierrors.IsConflict(err) && found && !resize.ResourceRequirementsEqual(before, applied) {
+			confirm = applied.DeepCopy()
+		} else {
+			confirm = nil
+		}
 		if err != nil {
 			return fmt.Errorf("reverting resize for pod %s/%s: %w", record.Namespace, record.PodName, err)
 		}
 
 		return nil
 	})
+	if err != nil && confirm != nil {
+		fresh, getErr := m.client.CoreV1().Pods(record.Namespace).Get(ctx, record.PodName, metav1.GetOptions{})
+		if getErr == nil && resize.ContainerResourcesMatch(fresh, record.Container, *confirm) {
+			m.logger.Info("revert write error after the apiserver committed the original resources; treating as success",
+				"pod", record.PodName, "namespace", record.Namespace, "container", record.Container, "writeError", err.Error())
+			return nil
+		}
+	}
+	return err
 }

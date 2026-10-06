@@ -505,6 +505,73 @@ func TestResizePod_UpdateResizeAPIError(t *testing.T) {
 	assert.Equal(t, "InPlace", results[0].Method)
 }
 
+func TestResizePod_TimeoutAfterCommitIsSuccess(t *testing.T) {
+	pod := newTestPod("web-0", "default", "app", "100m", "128Mi", "200m", "256Mi")
+	fakeClient := fake.NewSimpleClientset(pod)
+	fakeClient.PrependReactor("update", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() != "resize" {
+			return false, nil, nil
+		}
+		obj := action.(k8stesting.UpdateAction).GetObject()
+		if err := fakeClient.Tracker().Update(corev1.SchemeGroupVersion.WithResource("pods"), obj, action.GetNamespace()); err != nil {
+			return true, nil, err
+		}
+		return true, nil, fmt.Errorf("net/http: timeout awaiting response headers")
+	})
+
+	resizer := NewPodResizer(fakeClient, testr.New(t))
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("250m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("1Gi"),
+		},
+	}
+
+	results, err := resizer.ResizePod(context.Background(), pod, "app", target)
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+	assert.True(t, results[0].Success, "committed cpu resize must not be reported as failure")
+	assert.True(t, results[1].Success, "committed memory resize must not be reported as failure")
+	assert.True(t, results[0].From.Equal(resource.MustParse("100m")), "from cpu %s", results[0].From.String())
+	assert.True(t, results[0].To.Equal(resource.MustParse("250m")), "to cpu %s", results[0].To.String())
+	assert.True(t, results[1].From.Equal(resource.MustParse("128Mi")), "from memory %s", results[1].From.String())
+	assert.True(t, results[1].To.Equal(resource.MustParse("512Mi")), "to memory %s", results[1].To.String())
+}
+
+func TestResizePod_TimeoutWhenAlreadyAtTargetStaysError(t *testing.T) {
+	pod := newTestPod("web-0", "default", "app", "250m", "512Mi", "500m", "1Gi")
+	fakeClient := fake.NewSimpleClientset(pod)
+	fakeClient.PrependReactor("update", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() != "resize" {
+			return false, nil, nil
+		}
+		return true, nil, fmt.Errorf("net/http: timeout awaiting response headers")
+	})
+
+	resizer := NewPodResizer(fakeClient, testr.New(t))
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("250m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("1Gi"),
+		},
+	}
+
+	results, err := resizer.ResizePod(context.Background(), pod, "app", target)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "timeout awaiting response headers")
+	require.Len(t, results, 2)
+	assert.False(t, results[0].Success)
+	assert.False(t, results[1].Success)
+}
+
 func TestResizePod_ConflictThenSuccess(t *testing.T) {
 	pod := newTestPod("web-0", "default", "app", "100m", "128Mi", "200m", "256Mi")
 	fakeClient := fake.NewSimpleClientset(pod)

@@ -589,6 +589,87 @@ func TestApplyStartupBoosts_AboveBoostTargetDoesNotStamp(t *testing.T) {
 		"template leftover above the boost target must not be stamped")
 }
 
+func TestApplyStartupBoosts_UsesLiveSpecAfterSameReconcileResize(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name        string
+		snapshotCPU string
+	}{
+		{name: "listed CPU still above boost", snapshotCPU: "500m"},
+		{name: "listed CPU already equals boost", snapshotCPU: "200m"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scheme := testScheme()
+			policy := &attunev1alpha1.AttunePolicy{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+				Spec: attunev1alpha1.AttunePolicySpec{
+					CPU: attunev1alpha1.ResourceConfig{
+						StartupBoost: &attunev1alpha1.StartupBoost{
+							Multiplier: "2.0",
+							Duration:   metav1.Duration{Duration: 2 * time.Minute},
+						},
+					},
+				},
+			}
+			live := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "boost-app-abc",
+					Namespace:         "default",
+					CreationTimestamp: metav1.NewTime(now.Add(-30 * time.Second)),
+				},
+				Status: corev1.PodStatus{Phase: corev1.PodRunning},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name: "main",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("128Mi"),
+							},
+						},
+					}},
+				},
+			}
+			snapshot := live.DeepCopy()
+			snapshot.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse(tt.snapshotCPU)
+			snapshot.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory] = resource.MustParse("512Mi")
+
+			clientset := kubefake.NewSimpleClientset(live)
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(live).Build()
+			r := NewAttunePolicyReconciler()
+			r.Client = fakeClient
+			r.Scheme = scheme
+			r.Clientset = clientset
+			r.SetNowFunc(func() time.Time { return now })
+			resizer := resize.NewPodResizer(clientset, ctrl.Log)
+			recs := []attunev1alpha1.WorkloadRecommendation{{
+				Workload: "boost-app",
+				Kind:     "Deployment",
+				Containers: []attunev1alpha1.ContainerRecommendation{{
+					Name: "main",
+					Recommended: attunev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("100m"),
+					},
+				}},
+			}}
+			r.applyStartupBoosts(context.Background(), policy, map[string][]corev1.Pod{"boost-app": {*snapshot}}, recs, resizer, nil)
+
+			got, getErr := clientset.CoreV1().Pods(live.Namespace).Get(context.Background(), live.Name, metav1.GetOptions{})
+			require.NoError(t, getErr)
+			gotCPU := got.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+			gotMem := got.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory]
+			assert.True(t, gotCPU.Equal(resource.MustParse("200m")), "CPU request got %s want 200m", gotCPU.String())
+			assert.True(t, gotMem.Equal(resource.MustParse("128Mi")), "memory request got %s want 128Mi", gotMem.String())
+			var stamped corev1.Pod
+			require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+				Name: live.Name, Namespace: live.Namespace,
+			}, &stamped))
+			assert.NotEmpty(t, stamped.Annotations[annotationStartupBoostAt])
+		})
+	}
+}
+
 func TestApplyStartupBoosts_RetriesAnnotationWhenAlreadyBoosted(t *testing.T) {
 	// After a successful boost resize, if annotation persist fails, the
 	// next reconcile sees current >= boosted and must retry the annotation

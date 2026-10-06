@@ -18,6 +18,7 @@ package safety
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"sync/atomic"
 	"testing"
@@ -1428,6 +1429,60 @@ func TestRevertPod_UpdateResizeError(t *testing.T) {
 	err := monitor.RevertPod(context.Background(), record)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "reverting resize for pod")
+}
+
+func TestRevertPod_TimeoutAfterCommitIsSuccess(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "app",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("750m"),
+							corev1.ResourceMemory: resource.MustParse("512Mi"),
+						},
+					},
+				},
+			},
+		},
+	}
+	clientset := fake.NewSimpleClientset(pod)
+	clientset.PrependReactor("update", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() != "resize" {
+			return false, nil, nil
+		}
+		obj := action.(k8stesting.UpdateAction).GetObject()
+		if err := clientset.Tracker().Update(corev1.SchemeGroupVersion.WithResource("pods"), obj, action.GetNamespace()); err != nil {
+			return true, nil, err
+		}
+		return true, nil, fmt.Errorf("net/http: timeout awaiting response headers")
+	})
+
+	monitor := NewMonitor(clientset, testr.New(t))
+	record := ResizeRecord{
+		PodName:   "test-pod",
+		Namespace: "default",
+		Container: "app",
+		OriginalResources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("500m"),
+				corev1.ResourceMemory: resource.MustParse("256Mi"),
+			},
+		},
+		ResizedAt: time.Now().Add(-1 * time.Minute),
+	}
+
+	err := monitor.RevertPod(context.Background(), record)
+	require.NoError(t, err)
+
+	stored, getErr := clientset.CoreV1().Pods("default").Get(context.Background(), "test-pod", metav1.GetOptions{})
+	require.NoError(t, getErr)
+	gotCPU := stored.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+	gotMem := stored.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory]
+	assert.True(t, gotCPU.Equal(resource.MustParse("500m")), "cpu %s", gotCPU.String())
+	assert.True(t, gotMem.Equal(resource.MustParse("256Mi")), "memory %s", gotMem.String())
 }
 
 func TestRevertPod_RetriesOnConflict(t *testing.T) {
