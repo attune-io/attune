@@ -133,6 +133,11 @@ You can also set `sloGuardrails` on `AttuneDefaults` or
   `AttuneDefaults` keep operator credentials and are not rewritten.
   `--slo-guardrail-enforce-namespace=false` skips the tenant guardrails
   instead (`SLOGuardrails` / `SLOGuardrailNoTenantCredentials`).
+  A scoped query that returns no samples does not revert. The condition
+  reason is `SLOGuardrailNoSamples`. Metrics whose `namespace` label is
+  the controller namespace, not the workload namespace, match nothing
+  after scoping. Move that guardrail to `AttuneDefaults`, or give the
+  policy its own Prometheus credentials.
 - The revert event says the guardrail breached and names the comparison.
   It does not include the numeric value. That value is in the operator
   log at V(1).
@@ -142,7 +147,7 @@ You can also set `sloGuardrails` on `AttuneDefaults` or
 | Symptom | What to check |
 |---------|----------------|
 | Revert reason `slo:p99-latency` | Threshold too tight, or traffic mix after resize changed latency |
-| No SLO reverts while latency is bad | Query returns empty/error (fails open); metric labels wrong; window not elapsed |
+| No SLO reverts while latency is bad | Query returns empty/error (fails open); metric labels wrong; window not elapsed. A tenant query limited to the policy namespace sets `SLOGuardrailNoSamples` when it returns nothing |
 | False reverts right after resize | Widen `evaluationWindow`; exclude cold-start noise from the query |
 | Guardrail never evaluated | Mode is Observe/Recommend (no applying resize), or `autoRevert: false`. A window longer than the observation period waits, then runs; it is not skipped. Datadog and CloudWatch never evaluate guardrails. A tenant query that cannot be limited to the policy namespace is skipped. |
 | `SafetyObservation` stays `Evaluating` | The observation period has elapsed and a throttle grace period or an SLO window is still open. Tracking annotations stay until that check runs. |

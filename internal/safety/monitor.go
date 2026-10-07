@@ -21,6 +21,7 @@ package safety
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -136,6 +137,7 @@ type Monitor struct {
 	sloNamespace string
 	sloSkipMu    sync.Mutex
 	sloSkipped   []string
+	sloEmpty     []string
 }
 
 type sloMemoEntry struct {
@@ -221,9 +223,27 @@ func (m *Monitor) SLOSkipNames() []string {
 	return out
 }
 
+// SLOEmptyNames returns scoped guardrails whose query returned no samples.
+func (m *Monitor) SLOEmptyNames() []string {
+	if m == nil {
+		return nil
+	}
+	m.sloSkipMu.Lock()
+	defer m.sloSkipMu.Unlock()
+	out := make([]string, len(m.sloEmpty))
+	copy(out, m.sloEmpty)
+	return out
+}
+
 func (m *Monitor) noteSLOSkip(name string) {
 	m.sloSkipMu.Lock()
 	m.sloSkipped = append(m.sloSkipped, name)
+	m.sloSkipMu.Unlock()
+}
+
+func (m *Monitor) noteSLOEmpty(name string) {
+	m.sloSkipMu.Lock()
+	m.sloEmpty = append(m.sloEmpty, name)
 	m.sloSkipMu.Unlock()
 }
 
@@ -454,6 +474,12 @@ func (m *Monitor) checkSLOGuardrails(ctx context.Context, record ResizeRecord, n
 
 		value, err := m.querySLO(ctx, query, now)
 		if err != nil {
+			if m.sloAuth == SLOAuthEnforceNamespace && errors.Is(err, rsmetrics.ErrEmptyInstantQuery) {
+				m.noteSLOEmpty(g.Name)
+				m.logger.Info("SLO guardrail query returned no samples after namespace scoping, skipping",
+					"guardrail", g.Name, "pod", record.PodName, "namespace", record.Namespace)
+				continue
+			}
 			m.logger.Error(err, "SLO guardrail query failed, skipping",
 				"guardrail", g.Name, "pod", record.PodName, "namespace", record.Namespace)
 			continue

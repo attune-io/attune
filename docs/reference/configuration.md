@@ -213,6 +213,29 @@ Cluster-wide Datadog credentials belong on the operator. A policy or
 | `datadogAuth.existingSecret.name` | string | `""` | Secret in the **operator** namespace (`--datadog-api-key-secret`). Used only when cluster `AttuneDefaults` chose the Datadog block. Empty keeps the policy-namespace lookup of an inherited name. |
 | `datadogAuth.existingSecret.key` | string | `api-key` | API key field in that Secret (`--datadog-api-key-secret-key`). An optional `app-key` in the same Secret is still read. Attune trims both ends of each value and keeps interior spaces. A whitespace-only `app-key` is omitted. |
 
+## SigV4 allowlists
+
+Empty rejects `sigv4` and `cloudwatch.roleArn` on `AttunePolicy` and
+`AttuneNamespaceDefaults`. Cluster `AttuneDefaults` is not filtered.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `sigv4.allowedRoleArns` | list | `[]` | Role ARN globs a namespace author may ask the operator to assume (`--sigv4-allowed-role-arns`). A star matches any characters, including slashes. Applies to `prometheus.sigv4.roleArn` and `cloudwatch.roleArn`. |
+| `sigv4.allowedWorkspaceHosts` | list | `[]` | Prometheus host globs for `sigv4` with no `roleArn` (`--sigv4-allowed-workspace-hosts`). The operator identity signs the query. |
+
+## SLO guardrail namespace
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `sloGuardrails.enforceNamespace` | bool | `true` | Rewrite tenant guardrails that use operator Prometheus credentials so every selector includes the policy namespace (`--slo-guardrail-enforce-namespace`). Set false to skip those guardrails instead. A scoped query with no samples does not revert. |
+
+## Aggregate policy roles
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `rbac.aggregateToEdit` | bool | `false` | Add `aggregate-to-edit` and `aggregate-to-admin` on the policy editor ClusterRole. Off keeps `AttunePolicy` create out of the built-in `edit` and `admin` roles. |
+| `rbac.aggregateToView` | bool | `false` | Add `aggregate-to-view` on the policy viewer ClusterRole. |
+
 ## OpenShift
 
 | Key | Type | Default | Description |
@@ -863,7 +886,7 @@ The controller sets these conditions on each `AttunePolicy`:
 | `TemplatePersistence` | `TemplateWorkloadRef` | False when a Rollout `spec.workloadRef` was read. Attune does not patch that template. Recommendations still read the referenced pod template. Ready stays independent. This reason is not written over `WorkloadRefUnread`. Removed when no targeted Rollout has `spec.workloadRef` and the unread reason is not set. |
 | `TemplatePersistence` | `WorkloadRefUnread` | False when the referenced object cannot be read or has no containers. No recommendation is stored for that Rollout. Template persistence leaves this reason in place for that reconcile, including Recommend mode. Removed on a later reconcile whose workload errors no longer include a workloadRef read failure. |
 | `GitOpsPullRequest` | `PullRequestOpen`, `PullRequestFailed`, `GitOpsEndpointBlocked`, `NoDrift`, `PullRequestUnchanged`, `PullRequestCooldown`, `PullRequestDryRun`, `PullRequestDisabled` | Opt-in `export.pullRequest` automation status (see [GitOps integration](../guides/gitops-integration.md)) |
-| `SLOGuardrails` | `SLOGuardrailNoTenantCredentials`, `SLOGuardrailQueryRejected` | True when a tenant guardrail was not sent. `SLOGuardrailNoTenantCredentials` means `--slo-guardrail-enforce-namespace=false` and the query would have used operator Prometheus credentials. `SLOGuardrailQueryRejected` means the query could not be limited to the policy namespace. |
+| `SLOGuardrails` | `SLOGuardrailNoTenantCredentials`, `SLOGuardrailQueryRejected`, `SLOGuardrailNoSamples`, `Scoped` | True when a tenant guardrail was not sent or returned no samples. `SLOGuardrailNoTenantCredentials` means `--slo-guardrail-enforce-namespace=false` and the query would have used operator Prometheus credentials. `SLOGuardrailQueryRejected` means the query could not be limited to the policy namespace. `SLOGuardrailNoSamples` means the scoped query returned no samples, so it did not revert. `Scoped` is False after a later pass sends the queries and they return a sample. |
 
 `explanation.memory.finalAdjustment` can include `oomBump` when the published memory request was raised or held by `memory.oomBump`. The block is absent by default, so this note is not written until `oomBump` is set.
 

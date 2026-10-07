@@ -8,10 +8,39 @@ Maintainers: before publishing a release after multi-version product changes,
 run the full E2E Nightly matrix on tip of `main` (see
 [Releasing: full E2E matrix](../contributing/releasing.md#1b-full-e2e-matrix-required-before-tagging-a-product-release)).
 
-## v0.1.33 to v0.1.34
+## v0.1.32 to v0.1.33
 
-v0.1.34 limits what a namespace author can make the operator do. Cluster
-`AttuneDefaults` is unchanged.
+v0.1.33 adds per-container CPU and memory settings, memory HPA retune,
+a usage surge window, an OOM bump, limit multipliers, Amazon Managed
+Prometheus signing, and Argo Rollout targets. Those stay off until you
+set them.
+
+v0.1.33 also limits what a namespace author can make the operator do.
+Cluster `AttuneDefaults` is unchanged. Set the allowlists in the
+checklist below before the new controller reconciles if a policy or
+`AttuneNamespaceDefaults` sets `sigv4` or `cloudwatch.roleArn`.
+
+Three changes apply on the next reconcile with no policy edit and no
+install change. An omitted `maxAllowed` is no longer a hidden ceiling
+of `4000m` CPU and `8Gi` memory. CloudWatch policies that omit
+`cpuUnit` treat `container_cpu_usage_total` as millicores. A stored HPA
+Resource base that left out a native sidecar is rewritten to the
+pre-resize pod sum.
+
+These also apply with no policy edit. A cross-namespace
+`metricsSource.vpa.namespace` on a policy or namespace defaults object
+becomes `InvalidConfig`. A `sigv4.roleArn` or `cloudwatch.roleArn` that
+is not on the operator allowlist becomes `InvalidConfig`, and `sigv4`
+with no role is rejected until the workspace host is allowlisted.
+Tenant SLO guardrails that would use operator Prometheus credentials
+are limited to the policy namespace. Datadog and CloudWatch stop
+evaluating guardrails. A paused policy stays `Paused`. A policy that
+is not paused still reverts an OOM or crash from a resize it already
+applied, and it still expires a startup boost, but it does not query
+the rejected metrics source or raise a new boost.
+
+Apply the v0.1.33 CRDs before the controller. Helm does not update
+CRDs on `helm upgrade`.
 
 ### VPA namespace
 
@@ -62,6 +91,12 @@ cluster `AttuneDefaults` are not rewritten.
 to skip those tenant guardrails instead. Ready is not changed. The
 `SLOGuardrails` condition reason is `SLOGuardrailNoTenantCredentials`.
 
+A scoped query that returns no samples does not revert. The condition
+reason is `SLOGuardrailNoSamples`. That happens when the series use a
+different `namespace` label than the policy namespace, for example an
+ingress controller's own namespace. After a later query returns a
+sample, the reason becomes `Scoped`.
+
 Move a cluster-wide guardrail to `AttuneDefaults`, or give the policy
 its own Prometheus credentials, if it must keep reading outside the
 policy namespace.
@@ -70,22 +105,6 @@ Breach events no longer include the query value. The operator log at
 V(1) still has it.
 
 See [Tenancy](../security/tenancy.md).
-
-## v0.1.32 to v0.1.33
-
-v0.1.33 adds per-container CPU and memory settings, memory HPA retune,
-a usage surge window, an OOM bump, limit multipliers, Amazon Managed
-Prometheus signing, and Argo Rollout targets. Those stay off until you
-set them.
-
-Three changes apply on the next reconcile with no policy edit. An
-omitted `maxAllowed` is no longer a hidden ceiling of `4000m` CPU and
-`8Gi` memory. CloudWatch policies that omit `cpuUnit` treat
-`container_cpu_usage_total` as millicores. A stored HPA Resource base
-that left out a native sidecar is rewritten to the pre-resize pod sum.
-
-Apply the v0.1.33 CRDs before the controller. Helm does not update
-CRDs on `helm upgrade`.
 
 ### Startup series cap keeps each container
 
@@ -942,6 +961,24 @@ The OpenTelemetry `awscontainerinsightreceiver` multiplies the core rate by 1000
 
 5. To keep the v0.1.32 CloudWatch scale, set `cpuUnit: Nanocores` on
    each policy that has its own `cloudwatch` block.
+
+6. Before the new controller starts, set `sigv4.allowedRoleArns` when a
+   policy or `AttuneNamespaceDefaults` sets `prometheus.sigv4.roleArn`
+   or `cloudwatch.roleArn`. Set `sigv4.allowedWorkspaceHosts` when
+   `sigv4` has no `roleArn`. Both lists are empty until you set them.
+   Cluster `AttuneDefaults` is not filtered. A namespaced assume sends
+   `ExternalId` `attune:<namespace>`.
+
+7. `sloGuardrails.enforceNamespace` defaults to true. A tenant guardrail
+   that uses operator Prometheus credentials gains
+   `namespace="<policy namespace>"` on every selector. A selector that
+   already names another namespace is not sent
+   (`SLOGuardrailQueryRejected`). A scoped query that returns no samples
+   does not revert (`SLOGuardrailNoSamples`). Set the Helm value to
+   false only to skip those guardrails instead. Move a cluster-wide
+   guardrail to `AttuneDefaults`, or give the policy its own Prometheus
+   credentials, when the series use a different `namespace` label (for
+   example an ingress controller).
 
 ## v0.1.31 to v0.1.32
 

@@ -115,6 +115,12 @@ const (
 	// ReasonSLOGuardrailQueryRejected is set when a tenant guardrail could
 	// not be limited to the policy namespace.
 	ReasonSLOGuardrailQueryRejected = "SLOGuardrailQueryRejected"
+	// ReasonSLOGuardrailNoSamples is set when a scoped tenant guardrail
+	// query returned no samples, so it did not revert.
+	ReasonSLOGuardrailNoSamples = "SLOGuardrailNoSamples"
+	// ReasonSLOGuardrailScoped is set when tenant guardrails were limited
+	// to the policy namespace and sent.
+	ReasonSLOGuardrailScoped = "Scoped"
 )
 
 // IsMetricsUnavailable reports whether a Ready reason means the metrics

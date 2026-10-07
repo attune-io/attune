@@ -254,7 +254,10 @@ var prometheusLookupIP = func(ctx context.Context, host string) ([]net.IPAddr, e
 }
 
 var (
-	errEmptyInstantQuery     = errors.New("empty result from instant query")
+	// ErrEmptyInstantQuery is returned when an instant query has no samples.
+	// Callers use it to tell a scoped guardrail that matched nothing from a
+	// transport failure.
+	ErrEmptyInstantQuery     = errors.New("empty result from instant query")
 	errNonFiniteInstantQuery = errors.New("instant query returned NaN or Inf (often 0/0 in PromQL); rewrite the query so it always returns a finite scalar")
 )
 
@@ -670,7 +673,7 @@ func (c *PrometheusCollector) Query(ctx context.Context, query string, ts time.T
 	switch v := result.(type) {
 	case model.Vector:
 		if len(v) == 0 {
-			return 0, errEmptyInstantQuery
+			return 0, ErrEmptyInstantQuery
 		}
 		if len(v) != 1 {
 			return 0, fmt.Errorf("expected exactly one sample from instant query, got %d", len(v))
@@ -706,7 +709,7 @@ func (c *PrometheusCollector) GetThrottleRatio(ctx context.Context, namespace, p
 	)
 	val, err := c.Query(ctx, query, ts)
 	if err != nil {
-		if errors.Is(err, errEmptyInstantQuery) || errors.Is(err, errNonFiniteInstantQuery) {
+		if errors.Is(err, ErrEmptyInstantQuery) || errors.Is(err, errNonFiniteInstantQuery) {
 			return 0, nil
 		}
 		return 0, err
