@@ -138,6 +138,7 @@ type Monitor struct {
 	sloSkipMu    sync.Mutex
 	sloSkipped   []string
 	sloEmpty     []string
+	sloSampled   []string
 }
 
 type sloMemoEntry struct {
@@ -241,10 +242,37 @@ func (m *Monitor) noteSLOSkip(name string) {
 	m.sloSkipMu.Unlock()
 }
 
+// SLOSampledNames returns guardrails that returned a finite sample this pass.
+func (m *Monitor) SLOSampledNames() []string {
+	if m == nil {
+		return nil
+	}
+	m.sloSkipMu.Lock()
+	defer m.sloSkipMu.Unlock()
+	out := make([]string, len(m.sloSampled))
+	copy(out, m.sloSampled)
+	return out
+}
+
 func (m *Monitor) noteSLOEmpty(name string) {
 	m.sloSkipMu.Lock()
-	m.sloEmpty = append(m.sloEmpty, name)
+	m.appendSLONameLocked(&m.sloEmpty, name)
 	m.sloSkipMu.Unlock()
+}
+
+func (m *Monitor) noteSLOSampled(name string) {
+	m.sloSkipMu.Lock()
+	m.appendSLONameLocked(&m.sloSampled, name)
+	m.sloSkipMu.Unlock()
+}
+
+func (m *Monitor) appendSLONameLocked(dst *[]string, name string) {
+	for _, existing := range *dst {
+		if existing == name {
+			return
+		}
+	}
+	*dst = append(*dst, name)
 }
 
 // WithSLOQueryMemo enables per-pass memoization of interpolated SLO queries.
@@ -489,6 +517,7 @@ func (m *Monitor) checkSLOGuardrails(ctx context.Context, record ResizeRecord, n
 				"guardrail", g.Name, "value", value, "pod", record.PodName, "namespace", record.Namespace)
 			continue
 		}
+		m.noteSLOSampled(g.Name)
 
 		threshold, err := strconv.ParseFloat(g.Threshold, 64)
 		if err != nil || math.IsNaN(threshold) || math.IsInf(threshold, 0) {

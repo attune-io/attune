@@ -582,6 +582,74 @@ func TestRetryTemplateRestoreIfAlreadyReverted_SafeWithoutRevertDoesNotRestore(t
 		"Safe match without a Reverted row must not restore the original snapshot")
 }
 
+func TestCheckPending_KeepTrackingRetriesTemplateRestore(t *testing.T) {
+	deploy := persistAtRec64MiDeployment()
+	resizedAt := time.Now().Add(-2 * time.Hour).UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "api-abc",
+			Namespace: "default",
+			Labels:    map[string]string{labelTracked: "true", "app": "api"},
+			Annotations: map[string]string{
+				annotationResizedAt:                    resizedAt,
+				annotationResizedContainers:            "app",
+				annotationResizedWorkload:              "api",
+				annotationPolicy:                       "p",
+				annotationOriginalCPUPrefix + "app":    "200m",
+				annotationOriginalMemoryPrefix + "app": "256Mi",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "app",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("200m"),
+						corev1.ResourceMemory: resource.MustParse("256Mi"),
+					},
+				},
+			}},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{{
+				Type:   corev1.PodReady,
+				Status: corev1.ConditionTrue,
+			}},
+		},
+	}
+	scheme := testScheme()
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+	r.Clientset = kubefake.NewSimpleClientset(pod.DeepCopy())
+
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: boolPtr(true),
+		When:    attunev1alpha1.TemplatePersistenceAfterSuccessfulResize,
+	}
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{{
+		Workload:  "api",
+		Container: "app",
+		Result:    attunev1alpha1.ResizeResultReverted,
+	}}
+
+	pending := r.checkPendingSafetyObservations(contextWithSafetyKeepTracking(context.Background()), policy, nil, []client.Object{deploy})
+	assert.True(t, pending, "rejected metrics keep the observation open")
+
+	var got appsv1.Deployment
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(deploy), &got))
+	assert.True(t, got.Spec.Template.Spec.Containers[0].Resources.Requests.Memory().Equal(resource.MustParse("256Mi")),
+		"keep-tracking still retries the template restore")
+
+	var live corev1.Pod
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(pod), &live))
+	assert.Equal(t, "true", live.Labels[labelTracked])
+	assert.Equal(t, resizedAt, live.Annotations[annotationResizedAt])
+}
+
 func TestAcquireReleaseEvictionLock_DeletesWhenIdle(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	key := "default/api"

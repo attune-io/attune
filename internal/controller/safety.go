@@ -368,6 +368,12 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 									"pod", pod.Name, "container", record.Container, "reason", v.Reason)
 								continue
 							}
+							if latestHistoryIsReverted(policy.Status.ResizeHistory, trackedWorkload, record.Container) &&
+								liveContainerMatchesOriginal(pod, record) {
+								logger.V(1).Info("Container already reverted, skipping another early revert",
+									"pod", pod.Name, "container", record.Container)
+								continue
+							}
 							logger.Info("Critical safety event detected during observation period, reverting early",
 								"pod", pod.Name, "container", record.Container, "reason", v.Reason)
 							if err := r.revertAndRestoreAfterSafety(ctx, revertPod, policy, workloads, adjusted, pod, trackedWorkload,
@@ -512,9 +518,8 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 		// Only remove tracking annotations if all reverts succeeded and no
 		// throttle or SLO checks are still pending. If any condition holds,
 		// keep annotations so the next reconciliation retries or completes
-		// the deferred check. A rejected metrics source still reverts
-		// OOM and crash loops, and it does not declare the resize safe.
-		if revertFailed || throttlePending || sloPending || safetyKeepTracking(ctx) {
+		// the deferred check.
+		if revertFailed || throttlePending || sloPending {
 			observationsPending = true
 			continue
 		}
@@ -572,6 +577,13 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 			observationsPending = true
 			continue
 		}
+		// A rejected metrics source still reverts OOM and crash loops, and
+		// it retries a template restore, but it does not declare the
+		// resize safe by clearing tracking.
+		if safetyKeepTracking(ctx) {
+			observationsPending = true
+			continue
+		}
 		// Merge-patch nulls tracking keys. No Get and no resourceVersion,
 		// so kubelet status churn cannot 409 the cleanup.
 		if err := r.patchRemoveTrackingAnnotations(ctx, pod); err != nil {
@@ -580,7 +592,7 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 			observationsPending = true
 		}
 	}
-	r.recordSLOGuardrailSkips(ctx, policy, collector, monitor.SLOSkipNames(), monitor.SLOEmptyNames())
+	r.recordSLOGuardrailSkips(ctx, policy, collector, monitor.SLOSkipNames(), monitor.SLOEmptyNames(), monitor.SLOSampledNames())
 	r.setSafetyObservationCondition(policy, safetySummary)
 	return observationsPending
 }
