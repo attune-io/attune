@@ -6,6 +6,77 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.33](https://github.com/attune-io/attune/compare/v0.1.32...v0.1.33) (2026-10-07)
+
+
+### Features
+
+* keep startup-boost samples out of the CPU percentile ([#898](https://github.com/attune-io/attune/issues/898)) ([060382a](https://github.com/attune-io/attune/commit/060382abf67b8b880975469b723e9f692c2e891f))
+* per-container CPU and memory settings ([#904](https://github.com/attune-io/attune/issues/904)) ([13b1135](https://github.com/attune-io/attune/commit/13b113558f56dbb76d0c3fd54a42842254f95bfd))
+* raise memory after an OOMKill on the original request ([#899](https://github.com/attune-io/attune/issues/899)) ([60ea11e](https://github.com/attune-io/attune/commit/60ea11e6cf0455a7dd82e4847ae2c15d53981832)), closes [#878](https://github.com/attune-io/attune/issues/878)
+* retune memory HPA targets after a resize ([#903](https://github.com/attune-io/attune/issues/903)) ([6f74284](https://github.com/attune-io/attune/commit/6f74284ae4604e845cb6bee18e95c8497dce12c6))
+* set a limit as a multiple of the request ([#897](https://github.com/attune-io/attune/issues/897)) ([8d4b95e](https://github.com/attune-io/attune/commit/8d4b95ef68635cc33c6fd8dea80f4102bc2d2a71))
+* shorten the history window during a usage surge ([#901](https://github.com/attune-io/attune/issues/901)) ([a92a44e](https://github.com/attune-io/attune/commit/a92a44e099ec4a08e428ea0395e11f9d525b7a0e))
+* sign Amazon Managed Prometheus queries with SigV4 ([#910](https://github.com/attune-io/attune/issues/910)) ([d86424f](https://github.com/attune-io/attune/commit/d86424fb8bd8f9898aea8c172bf43242c1ccea0f)), closes [#885](https://github.com/attune-io/attune/issues/885)
+* target Argo Rollout workloads ([#909](https://github.com/attune-io/attune/issues/909)) ([f546698](https://github.com/attune-io/attune/commit/f546698c8544379324ce8aa9cf6db7c792befe5b))
+
+
+### Bug Fixes
+
+* allow memory limit decreases on kubernetes 1.34 ([#995](https://github.com/attune-io/attune/issues/995)) ([1d58821](https://github.com/attune-io/attune/commit/1d58821e5dc5ba315f5e64df4c3f719fd8b40e5a))
+* assign the e2e nightly failure issue ([#1017](https://github.com/attune-io/attune/issues/1017)) ([214618d](https://github.com/attune-io/attune/commit/214618d8dcd27d3269ff7392567131088dff6eb5))
+* confirm a timed-out resize and boost from the live pod ([#1015](https://github.com/attune-io/attune/issues/1015)) ([8b6ff18](https://github.com/attune-io/attune/commit/8b6ff1852dfd3b97a9e009bf689263822cbac11e))
+* **controller:** expire only the containers startup boost raised ([#1024](https://github.com/attune-io/attune/issues/1024)) ([89e370c](https://github.com/attune-io/attune/commit/89e370cd333f092f0641c4518cde2da04df72d8f))
+* copy inherited oomBump so built-ins do not rewrite defaults ([#911](https://github.com/attune-io/attune/issues/911)) ([4f08eb7](https://github.com/attune-io/attune/commit/4f08eb7ebc74aee1ad1ca37263a910d2d76ba64f)), closes [#902](https://github.com/attune-io/attune/issues/902)
+* correct resize gates, oom floors, and policy defaults ([#990](https://github.com/attune-io/attune/issues/990)) ([9865ec6](https://github.com/attune-io/attune/commit/9865ec66a704d83f0a488d5b4ad6b68f8fc2de8b))
+* count an OOM at maxAllowed once ([#1006](https://github.com/attune-io/attune/issues/1006)) ([fa7caf8](https://github.com/attune-io/attune/commit/fa7caf82d95f9ce57412fabd37312b65744cf0e4))
+* count native sidecars and rollout templates ([#1020](https://github.com/attune-io/attune/issues/1020)) ([61b3e16](https://github.com/attune-io/attune/commit/61b3e1696806f4a92ebdddd64ad6c898c0d9afe1))
+* count only this cycle's in-place resizes ([#890](https://github.com/attune-io/attune/issues/890)) ([8f5a7f8](https://github.com/attune-io/attune/commit/8f5a7f89ec2e9d909fb33a3b1de908ded7495ccf)), closes [#867](https://github.com/attune-io/attune/issues/867)
+* drop Datadog null points instead of storing them as zero ([#887](https://github.com/attune-io/attune/issues/887)) ([d56861c](https://github.com/attune-io/attune/commit/d56861cb9a94d430bc6cb1cd29d3728e459c3496)), closes [#872](https://github.com/attune-io/attune/issues/872)
+* drop unused apiservers list and rollouts watch ([#1010](https://github.com/attune-io/attune/issues/1010)) ([f3e5297](https://github.com/attune-io/attune/commit/f3e5297dd19fee8a7f413288036ce9fb39989668))
+* evaluate SLO windows longer than the observation period ([#1005](https://github.com/attune-io/attune/issues/1005)) ([44bd6b9](https://github.com/attune-io/attune/commit/44bd6b9aa75158c34f3a1cb3d717c0a37992fcde))
+* generate OperatorHub cluster rules from role.yaml ([#1009](https://github.com/attune-io/attune/issues/1009)) ([d598376](https://github.com/attune-io/attune/commit/d59837622998c422d579927838e76c8efc596587))
+* keep a stored 0s on defaults through unrelated updates ([#988](https://github.com/attune-io/attune/issues/988)) ([b2022fa](https://github.com/attune-io/attune/commit/b2022fa422ae14d9b5b5e1205a86d298d7a8e2f5))
+* keep capped startup series per container and admit unwatched policies ([#1032](https://github.com/attune-io/attune/issues/1032)) ([c3224c4](https://github.com/attune-io/attune/commit/c3224c44ec437d7c1b65c94248cbc81c5decfff5)), closes [#1026](https://github.com/attune-io/attune/issues/1026) [#1025](https://github.com/attune-io/attune/issues/1025)
+* keep inherited defaults after a status write ([#1003](https://github.com/attune-io/attune/issues/1003)) ([1598817](https://github.com/attune-io/attune/commit/15988171ba158decd9be632501743c71c3107a7c))
+* keep observation open after a held OOM revert ([#1008](https://github.com/attune-io/attune/issues/1008)) ([842d6ba](https://github.com/attune-io/attune/commit/842d6bae8be7a9158c7d6cd5a85af91fed8a2cbd))
+* keep safety observation open until the kubelet applies the resize ([#1001](https://github.com/attune-io/attune/issues/1001)) ([625bf08](https://github.com/attune-io/attune/commit/625bf086e5eaa893ce1b08c47071c90151db726a))
+* keep the go e2e suite inside one k3d node ([#922](https://github.com/attune-io/attune/issues/922)) ([55ed6b9](https://github.com/attune-io/attune/commit/55ed6b914491a6a22d67f7b1372b654e56c39c21)), closes [#921](https://github.com/attune-io/attune/issues/921)
+* keep unchanged policies on the previous behavior ([#917](https://github.com/attune-io/attune/issues/917)) ([579b8ff](https://github.com/attune-io/attune/commit/579b8ffbb347d2dc1d4f7e7a6e05f55d555faee9))
+* keep workloadref unread reason during template persistence ([#983](https://github.com/attune-io/attune/issues/983)) ([2c54905](https://github.com/attune-io/attune/commit/2c54905bd1e1958e86d7c8416f9f91b9a209d072))
+* list defaults in policy admission only for a surge window ([#982](https://github.com/attune-io/attune/issues/982)) ([f01b936](https://github.com/attune-io/attune/commit/f01b93671767a058e2eead71834f4387ef4b416d))
+* match CloudWatch Deployment and CronJob names ([#1019](https://github.com/attune-io/attune/issues/1019)) ([bac2c0e](https://github.com/attune-io/attune/commit/bac2c0e077f9d59a52d2bc0f18f57b71358d09c8)), closes [#958](https://github.com/attune-io/attune/issues/958)
+* match cronjob pod names on the minute stamp ([#987](https://github.com/attune-io/attune/issues/987)) ([4ad8dbb](https://github.com/attune-io/attune/commit/4ad8dbbe1d9a4b1b53acdef236ee406e488ee0da))
+* name a missing Attune CRD in kubectl attune doctor ([#1018](https://github.com/attune-io/attune/issues/1018)) ([bbb3bd6](https://github.com/attune-io/attune/commit/bbb3bd62c36c815b56c4bf448d7693ad2a9b8edd))
+* persist a revert while tenant metrics stay rejected ([#1035](https://github.com/attune-io/attune/issues/1035)) ([6dffe34](https://github.com/attune-io/attune/commit/6dffe3485496fdb890a9fe7068bec9669e04fcfa))
+* persist resize tracking with a merge patch ([#1002](https://github.com/attune-io/attune/issues/1002)) ([880458a](https://github.com/attune-io/attune/commit/880458aedf46e464f03eca177221f256ce637e5f))
+* persist startup boost stamps with a merge patch ([#1014](https://github.com/attune-io/attune/issues/1014)) ([9fecf44](https://github.com/attune-io/attune/commit/9fecf4411a2811d744350d75f90d4190d7e409a4))
+* recommend during a rollout and skip resize only while pods are replaced ([#895](https://github.com/attune-io/attune/issues/895)) ([76aaa79](https://github.com/attune-io/attune/commit/76aaa7930f5e3611c751a87d508df138bb7e53d0)), closes [#866](https://github.com/attune-io/attune/issues/866)
+* reject a schedule window whose start equals its end ([#999](https://github.com/attune-io/attune/issues/999)) ([9dfab64](https://github.com/attune-io/attune/commit/9dfab64ebe59a74f60d30b03ed9ef4d4c99cb12e))
+* reject a zero cooldown instead of stopping reconcile ([#888](https://github.com/attune-io/attune/issues/888)) ([cd1ce5d](https://github.com/attune-io/attune/commit/cd1ce5dc95a93d25511d4b6b914c48c2922bd74a)), closes [#870](https://github.com/attune-io/attune/issues/870)
+* repair a stored HPA base that omits a native sidecar ([#1022](https://github.com/attune-io/attune/issues/1022)) ([a1d7282](https://github.com/attune-io/attune/commit/a1d7282ab466daf605114bb49406585cad3d7b2c))
+* require secret get access on namespace defaults ([#994](https://github.com/attune-io/attune/issues/994)) ([84e3719](https://github.com/attune-io/attune/commit/84e371967ecd69f6d3685cb2f9fe3722acf2d90d))
+* resize current daemonset pods and skip in-progress rollouts ([#947](https://github.com/attune-io/attune/issues/947)) ([ae7f067](https://github.com/attune-io/attune/commit/ae7f067455bf9a05951cacbaefb777ece06f679a))
+* restore namespace-defaults rows in the configuration reference ([#916](https://github.com/attune-io/attune/issues/916)) ([48d9b63](https://github.com/attune-io/attune/commit/48d9b63f5fc957947aeb9ce7ee4ef18efd72e99d))
+* retry an HPA retune when the update conflicts ([#1004](https://github.com/attune-io/attune/issues/1004)) ([98c44e4](https://github.com/attune-io/attune/commit/98c44e49c64bb5e3c6ef8dc84e80974d4c70e191))
+* round capped memory requests up to a whole byte ([#1013](https://github.com/attune-io/attune/issues/1013)) ([1f023e8](https://github.com/attune-io/attune/commit/1f023e8b883a89ab6dfd872a488f763e05011e45))
+* round scaled memory limits up to a whole byte ([#984](https://github.com/attune-io/attune/issues/984)) ([d9f46ba](https://github.com/attune-io/attune/commit/d9f46bac5a8941fc20817a87bd112376ae8c9015))
+* scale CloudWatch CPU as millicores by default ([#892](https://github.com/attune-io/attune/issues/892)) ([85a2a30](https://github.com/attune-io/attune/commit/85a2a301af4b7a1f055092f846ba7d9fdbff2659)), closes [#865](https://github.com/attune-io/attune/issues/865)
+* scale HPA CPU targets from the full pod total ([#896](https://github.com/attune-io/attune/issues/896)) ([4269a96](https://github.com/attune-io/attune/commit/4269a9690a334b02044a3ae2756f3d1824ed9f14))
+* scope tenant metrics access to the policy namespace ([#1033](https://github.com/attune-io/attune/issues/1033)) ([b5a3f6e](https://github.com/attune-io/attune/commit/b5a3f6e5d7a8843ff44f460e3bedf271dfd92e50))
+* show budget caps in explain and on deferred resize events ([#915](https://github.com/attune-io/attune/issues/915)) ([479877d](https://github.com/attune-io/attune/commit/479877d20d7e9a43f1568b22e34e59db473071c1))
+* size ReplicaSet pods at create when the selector matches ([#891](https://github.com/attune-io/attune/issues/891)) ([02d77f9](https://github.com/attune-io/attune/commit/02d77f994ade7a4e53422052bff6b922fd8475e0))
+* skip daemonset pods when controllerrevisions cannot be listed ([#919](https://github.com/attune-io/attune/issues/919)) ([77af9dc](https://github.com/attune-io/attune/commit/77af9dc62427b28d3ab9b1ce694d99f876143663))
+* skip in-place resize when it would change QoS class ([#894](https://github.com/attune-io/attune/issues/894)) ([fa02aeb](https://github.com/attune-io/attune/commit/fa02aeb49f9e0a8abeadae194c07f42908ed430f))
+* stop treating an omitted maxAllowed as 4000m and 8Gi ([#893](https://github.com/attune-io/attune/issues/893)) ([4f44c4f](https://github.com/attune-io/attune/commit/4f44c4f413863f75f1abe8f08cde59ce7cafbef5))
+* unwind in-flight resizes when tenant metrics are rejected ([#1034](https://github.com/attune-io/attune/issues/1034)) ([067b6fe](https://github.com/attune-io/attune/commit/067b6fe0d80db93d98afa6838074112aa638f98d))
+* wait to promote a canary until the SLO window elapses ([#1007](https://github.com/attune-io/attune/issues/1007)) ([b062592](https://github.com/attune-io/attune/commit/b0625925ef784aa0ac2dbe26a0040b4a90a0e34e))
+
+
+### Reverts
+
+* put back the rollout, cooldown, datadog, and default fixes ([#918](https://github.com/attune-io/attune/issues/918)) ([eb066af](https://github.com/attune-io/attune/commit/eb066aff0822563222b09fa8e6edf7bc22a9ef67))
+
 ## [0.1.32](https://github.com/attune-io/attune/compare/v0.1.31...v0.1.32) (2026-09-24)
 
 
