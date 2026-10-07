@@ -1598,8 +1598,10 @@ func TestCheckPod_SLOBreachedAbove(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, verdict.Safe)
 	assert.Equal(t, "slo:p99-latency", verdict.Reason)
-	assert.Contains(t, verdict.Message, "0.9500")
-	assert.Contains(t, verdict.Message, "above")
+	assert.NotContains(t, verdict.Message, "0.9500")
+	assert.NotContains(t, verdict.Message, "0.95")
+	assert.Contains(t, verdict.Message, "above threshold")
+	assert.Contains(t, verdict.Message, "p99-latency")
 	// Verify template interpolation replaced {{ .Namespace }}.
 	assert.Contains(t, querier.gotQuery, `namespace="default"`)
 }

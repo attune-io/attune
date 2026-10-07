@@ -47,6 +47,9 @@ type AttunePolicyValidator struct {
 	// cache returns "unknown namespace" for a policy outside
 	// --watch-namespaces, and that error would deny admission.
 	APIReader client.Reader
+	// SigV4Allowlist restricts roleArn and operator-identity sigv4 hosts
+	// on this policy. An empty list rejects both.
+	SigV4Allowlist validation.SigV4Allowlist
 }
 
 // defaultsReader prefers the live API reader. The cached client misses
@@ -59,6 +62,26 @@ func (v *AttunePolicyValidator) defaultsReader() client.Reader {
 		return v.APIReader
 	}
 	return v.Client
+}
+
+// metricsTenancy is the admission scope for metrics references.
+// restrict is false for cluster AttuneDefaults.
+type metricsTenancy struct {
+	namespace string
+	restrict  bool
+	allow     validation.SigV4Allowlist
+}
+
+const sloNonPrometheusWarning = "sloGuardrails are not evaluated for a Datadog or CloudWatch metrics source; use Prometheus"
+
+func nonPrometheusSLOWarning(ms *attunev1alpha1.MetricsSource, guardrails []attunev1alpha1.SLOGuardrail) admission.Warnings {
+	if len(guardrails) == 0 || ms == nil {
+		return nil
+	}
+	if ms.Datadog != nil || ms.CloudWatch != nil {
+		return admission.Warnings{sloNonPrometheusWarning}
+	}
+	return nil
 }
 
 // ValidateCreate validates a new AttunePolicy.
@@ -282,8 +305,19 @@ func (v *AttunePolicyValidator) validate(ctx context.Context, old, policy *attun
 	if err := exclusiveMetricsProviderError(&policy.Spec.MetricsSource); err != nil {
 		return warnings, err
 	}
-	if err := validateMetricsSourceProviderFields(&policy.Spec.MetricsSource); err != nil {
+	allow := validation.SigV4Allowlist{}
+	if v != nil {
+		allow = v.SigV4Allowlist
+	}
+	if err := validateMetricsSourceProviderFields(&policy.Spec.MetricsSource, metricsTenancy{
+		namespace: policy.Namespace,
+		restrict:  true,
+		allow:     allow,
+	}); err != nil {
 		return warnings, err
+	}
+	if us != nil {
+		warnings = append(warnings, nonPrometheusSLOWarning(&policy.Spec.MetricsSource, us.SLOGuardrails)...)
 	}
 
 	// Validate Prometheus settings if specified.
@@ -912,13 +946,16 @@ func exclusiveMetricsProviderError(ms *attunev1alpha1.MetricsSource) error {
 	return nil
 }
 
-func validateMetricsSourceProviderFields(ms *attunev1alpha1.MetricsSource) error {
+func validateMetricsSourceProviderFields(ms *attunev1alpha1.MetricsSource, tenancy metricsTenancy) error {
 	if ms == nil {
 		return nil
 	}
 	if vpa := ms.VPA; vpa != nil {
 		if vpa.Name == "" {
 			return fmt.Errorf("metricsSource.vpa.name is required")
+		}
+		if err := validation.VPANamespace(tenancy.namespace, vpa.Namespace, !tenancy.restrict); err != nil {
+			return err
 		}
 	}
 	if prometheus := ms.Prometheus; prometheus != nil {
@@ -927,6 +964,11 @@ func validateMetricsSourceProviderFields(ms *attunev1alpha1.MetricsSource) error
 		}
 		if err := validatePrometheusSigV4(prometheus); err != nil {
 			return err
+		}
+		if tenancy.restrict && prometheus.SigV4 != nil {
+			if err := validation.SigV4PolicyAllowed(prometheus.Address, prometheus.SigV4.RoleARN, tenancy.allow); err != nil {
+				return err
+			}
 		}
 	}
 	if dd := ms.Datadog; dd != nil {
@@ -955,6 +997,11 @@ func validateMetricsSourceProviderFields(ms *attunev1alpha1.MetricsSource) error
 		}
 		if err := validation.CloudWatchRoleARN(cw.RoleARN); err != nil {
 			return fmt.Errorf("metricsSource.cloudwatch.roleArn: %w", err)
+		}
+		if tenancy.restrict {
+			if err := validation.CloudWatchRoleAllowed(cw.RoleARN, tenancy.allow); err != nil {
+				return err
+			}
 		}
 		switch cw.CPUUnit {
 		case "", attunev1alpha1.DefaultCloudWatchCPUUnit, "Cores", "Nanocores":

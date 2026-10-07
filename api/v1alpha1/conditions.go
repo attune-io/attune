@@ -34,6 +34,8 @@ const (
 	// ConditionTemplatePersistence is False when Attune skips a Rollout
 	// template patch because spec.workloadRef is set. Ready stays independent.
 	ConditionTemplatePersistence = "TemplatePersistence"
+	// ConditionSLOGuardrails is True when a tenant guardrail was not sent.
+	ConditionSLOGuardrails = "SLOGuardrails"
 )
 
 // Condition reason constants for AttunePolicy.
@@ -107,6 +109,12 @@ const (
 	ReasonSafetyEvaluating     = "Evaluating"
 	ReasonSafetyRestorePending = "RestorePending"
 	ReasonSafetyIncomplete     = "Incomplete"
+	// ReasonSLOGuardrailNoTenantCredentials is set when a tenant guardrail
+	// would have used operator credentials and namespace enforcement is off.
+	ReasonSLOGuardrailNoTenantCredentials = "SLOGuardrailNoTenantCredentials"
+	// ReasonSLOGuardrailQueryRejected is set when a tenant guardrail could
+	// not be limited to the policy namespace.
+	ReasonSLOGuardrailQueryRejected = "SLOGuardrailQueryRejected"
 )
 
 // IsMetricsUnavailable reports whether a Ready reason means the metrics

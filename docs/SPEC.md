@@ -939,6 +939,10 @@ A stored `attune.io/original-memory-request` or `attune.io/original-cpu-request`
 
 `updateStrategy.hpaTargetBounds` is optional. Nil or an empty object applies no user band and does not fill 50 or 90. CPU and memory bands are separate. When a side is set, Attune truncates, floors at 1, applies the limit cap, then `max`, then `min`, and publishes the limit cap again if `min` would exceed it. `HPATargetClamped` is a Normal event emitted after the HPA update succeeds, and only when the user band changes the post-limit percent. `min` and `max` are integers from 1 to 10000. `max` must be greater than or equal to `min` when both are set. AttuneDefaults may supply the block. There is no Helm value that turns the annotation or the band on.
 
+### 7.7 Namespace authors
+
+Cluster `AttuneDefaults`, operator flags, and Helm values are cluster trust. `AttunePolicy` and `AttuneNamespaceDefaults` are namespace trust. A namespace author does not receive operator Prometheus or Datadog credentials for an address they chose. Their VPA reference stays in their namespace unless cluster `AttuneDefaults` named it. Their `sigv4.roleArn` and `cloudwatch.roleArn` must match the operator allowlists, which are empty until set. A namespaced AssumeRole sends `ExternalId` `attune:<namespace>`. Their SLO guardrails run only on Prometheus, and when those queries would use operator credentials every vector selector is limited to the policy namespace. The breach event does not include the sample value. See [Tenancy](security/tenancy.md).
+
 ---
 
 <a id="metrics--observability"></a>

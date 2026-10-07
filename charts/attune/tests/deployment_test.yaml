@@ -181,6 +181,26 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --datadog-api-key-secret-key=api-key
 
+  - it: should pass sigv4 allowlists and can disable namespace enforcement
+    set:
+      sigv4:
+        allowedRoleArns:
+          - "arn:aws:iam::123456789012:role/attune-*"
+        allowedWorkspaceHosts:
+          - "aps-workspaces.us-east-1.amazonaws.com"
+      sloGuardrails:
+        enforceNamespace: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --sigv4-allowed-role-arns=arn:aws:iam::123456789012:role/attune-*
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --sigv4-allowed-workspace-hosts=aps-workspaces.us-east-1.amazonaws.com
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --slo-guardrail-enforce-namespace=false
+
   - it: should not pass datadog api key flags by default
     asserts:
       - notContains:

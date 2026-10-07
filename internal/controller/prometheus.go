@@ -225,6 +225,9 @@ func collectorCacheKey(config *attunev1alpha1.PrometheusConfig, opts *rsmetrics.
 	}
 	if opts != nil && opts.SigV4 != nil {
 		key += fmt.Sprintf("|sigv4:%s|role:%s", opts.SigV4.Region, opts.SigV4.RoleARN)
+		if opts.SigV4.ExternalID != "" {
+			key += "|ext:" + opts.SigV4.ExternalID
+		}
 	}
 	return key
 }
@@ -1000,13 +1003,17 @@ func (r *AttunePolicyReconciler) buildCollectorOptions(ctx context.Context, name
 			Region:  config.SigV4.Region,
 			RoleARN: config.SigV4.RoleARN,
 		}
+		if strings.TrimSpace(config.SigV4.RoleARN) != "" {
+			opts.SigV4.ExternalID = rsmetrics.ExternalIDForNamespace(namespace)
+		}
 		return opts, nil
 	}
-	token, err := r.resolvePrometheusBearerToken(ctx, namespace, config, auth)
+	token, operatorAuth, err := r.resolvePrometheusBearerToken(ctx, namespace, config, auth)
 	if err != nil {
 		return nil, err
 	}
 	opts.BearerToken = token
+	opts.OperatorAuth = operatorAuth
 	return opts, nil
 }
 
@@ -1026,25 +1033,25 @@ func (r *AttunePolicyReconciler) allowOperatorPrometheusAuth(auth prometheusAuth
 
 // resolvePrometheusBearerToken prefers a policy-namespace Secret, then an
 // operator-namespace Secret, then the manager or query ServiceAccount token.
-func (r *AttunePolicyReconciler) resolvePrometheusBearerToken(ctx context.Context, namespace string, config *attunev1alpha1.PrometheusConfig, auth prometheusAuthContext) (string, error) {
+func (r *AttunePolicyReconciler) resolvePrometheusBearerToken(ctx context.Context, namespace string, config *attunev1alpha1.PrometheusConfig, auth prometheusAuthContext) (string, bool, error) {
 	allowOperator := r.allowOperatorPrometheusAuth(auth, config)
 	if config.BearerTokenSecret != nil {
 		secretName := config.BearerTokenSecret.Name
 		secretKey := config.BearerTokenSecret.Key
 		token, err := r.readSecretKey(ctx, namespace, secretName, secretKey)
 		if err == nil {
-			return token, nil
+			return token, false, nil
 		}
 		inheritedMiss := !auth.policySetBearer && apierrors.IsNotFound(err)
 		if inheritedMiss && allowOperator {
 			log.FromContext(ctx).V(1).Info("inherited AttuneDefaults bearerTokenSecret not found in the policy namespace; using operator Prometheus auth",
 				"secret", namespace+"/"+secretName)
 		} else {
-			return "", fmt.Errorf("cannot read bearer token secret %s/%s: %w", secretName, secretKey, err)
+			return "", false, fmt.Errorf("cannot read bearer token secret %s/%s: %w", secretName, secretKey, err)
 		}
 	}
 	if !allowOperator {
-		return "", nil
+		return "", false, nil
 	}
 	if r.PrometheusBearerTokenSecretName != "" {
 		key := r.PrometheusBearerTokenSecretKey
@@ -1053,21 +1060,25 @@ func (r *AttunePolicyReconciler) resolvePrometheusBearerToken(ctx context.Contex
 		}
 		ns, err := r.requireOperatorNamespace()
 		if err != nil {
-			return "", err
+			return "", false, err
 		}
 		token, err := r.readSecretKey(ctx, ns, r.PrometheusBearerTokenSecretName, key)
 		if err != nil {
-			return "", fmt.Errorf("cannot read operator bearer token secret %s/%s: %w", r.PrometheusBearerTokenSecretName, key, err)
+			return "", false, fmt.Errorf("cannot read operator bearer token secret %s/%s: %w", r.PrometheusBearerTokenSecretName, key, err)
 		}
 		if strings.TrimSpace(token) == "" {
-			return "", fmt.Errorf("operator bearer token secret %s/%s is empty", r.PrometheusBearerTokenSecretName, key)
+			return "", false, fmt.Errorf("operator bearer token secret %s/%s is empty", r.PrometheusBearerTokenSecretName, key)
 		}
-		return token, nil
+		return token, true, nil
 	}
 	if r.PrometheusUseServiceAccountToken {
-		return r.readServiceAccountToken(ctx)
+		token, err := r.readServiceAccountToken(ctx)
+		if err != nil {
+			return "", false, err
+		}
+		return token, token != "", nil
 	}
-	return "", nil
+	return "", false, nil
 }
 
 func (r *AttunePolicyReconciler) requireOperatorNamespace() (string, error) {
@@ -1318,9 +1329,16 @@ func (r *AttunePolicyReconciler) resolveCloudWatchCollector(ctx context.Context,
 
 	// Cache the collector keyed by region + cluster + role, with full
 	// TTL eviction, capacity bound, and race-safe LoadOrStore.
+	externalID := ""
+	if strings.TrimSpace(cw.RoleARN) != "" {
+		externalID = rsmetrics.ExternalIDForNamespace(policy.Namespace)
+	}
 	cacheKey := fmt.Sprintf("cloudwatch:%s|%s|%s", cw.Region, cw.ClusterName, cw.RoleARN)
+	if externalID != "" {
+		cacheKey += "|ext:" + externalID
+	}
 	collector, err := r.getOrCreateCollectorByKey(cacheKey, "cloudwatch:"+cw.Region, func() (rsmetrics.MetricsCollector, error) {
-		inner, innerErr := rsmetrics.NewCloudWatchCollector(ctx, cw.Region, cw.ClusterName, cw.RoleARN, log.FromContext(ctx).WithName("cloudwatch"))
+		inner, innerErr := rsmetrics.NewCloudWatchCollector(ctx, cw.Region, cw.ClusterName, cw.RoleARN, externalID, log.FromContext(ctx).WithName("cloudwatch"))
 		if innerErr != nil {
 			return nil, innerErr
 		}

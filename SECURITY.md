@@ -55,6 +55,12 @@ feature: [Report a vulnerability](https://github.com/attune-io/attune/security/a
   monitors Go modules, GitHub Actions, and Docker base images weekly
 - Static analysis via golangci-lint (50+ linters) runs on every push
 
+### Tenancy
+
+What an `AttunePolicy` author can make the operator do is documented in
+[Tenancy](docs/security/tenancy.md). The rendered page is
+[Tenancy](https://attune-io.github.io/attune/security/tenancy/).
+
 ### Runtime
 
 - The operator runs as non-root (`runAsUser: 65532`) with a read-only

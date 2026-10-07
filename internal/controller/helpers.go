@@ -1394,6 +1394,10 @@ func (r *AttunePolicyReconciler) updateStatusWithRetry(
 // if the metrics collector supports it, and optional SLO guardrail checking
 // if the policy has SLO guardrails configured.
 func (r *AttunePolicyReconciler) newSafetyMonitor(logger logr.Logger, collector rsmetrics.MetricsCollector, guardrails ...[]attunev1alpha1.SLOGuardrail) *safety.Monitor {
+	return r.newSafetyMonitorIn(context.Background(), logger, nil, collector, guardrails...)
+}
+
+func (r *AttunePolicyReconciler) newSafetyMonitorIn(ctx context.Context, logger logr.Logger, policy *attunev1alpha1.AttunePolicy, collector rsmetrics.MetricsCollector, guardrails ...[]attunev1alpha1.SLOGuardrail) *safety.Monitor {
 	monitor := safety.NewMonitor(r.Clientset, logger)
 	if tc, ok := collector.(safety.ThrottleChecker); ok {
 		// RateLimitedCollector always satisfies ThrottleChecker, but the
@@ -1409,9 +1413,20 @@ func (r *AttunePolicyReconciler) newSafetyMonitor(logger logr.Logger, collector 
 			monitor.WithThrottleChecker(tc, safety.DefaultThrottleThreshold)
 		}
 	}
-	if len(guardrails) > 0 && len(guardrails[0]) > 0 {
-		if sq, ok := collector.(safety.SLOQuerier); ok {
-			monitor.WithSLOChecker(sq, guardrails[0])
+	if len(guardrails) == 0 || len(guardrails[0]) == 0 {
+		return monitor
+	}
+	mode := r.sloAuthMode(ctx, collector)
+	if mode == safety.SLOAuthSkip || !rsmetrics.CollectorSupportsSLO(collector) {
+		if !rsmetrics.CollectorSupportsSLO(collector) {
+			logger.V(1).Info("SLO guardrails are not evaluated for this metrics source")
+		}
+		return monitor
+	}
+	if sq, ok := collector.(safety.SLOQuerier); ok {
+		monitor.WithSLOChecker(sq, guardrails[0])
+		if mode == safety.SLOAuthEnforceNamespace && policy != nil {
+			monitor.SetSLOAuth(mode, policy.Namespace)
 		}
 	}
 	return monitor

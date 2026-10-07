@@ -73,6 +73,58 @@ func (c *RateLimitedCollector) SupportsThrottle() bool {
 	return ok
 }
 
+// SupportsSLO reports whether the inner collector evaluates PromQL SLO guardrails.
+func (c *RateLimitedCollector) SupportsSLO() bool {
+	if c == nil {
+		return false
+	}
+	return CollectorSupportsSLO(c.inner)
+}
+
+// UsesOperatorAuth reports whether the inner collector sends operator credentials.
+func (c *RateLimitedCollector) UsesOperatorAuth() bool {
+	if c == nil {
+		return false
+	}
+	return CollectorUsesOperatorAuth(c.inner)
+}
+
+// CollectorSupportsSLO reports whether guardrail PromQL should be registered.
+// Datadog and CloudWatch implement Query but do not speak PromQL.
+// Other Query implementations, including test doubles, stay registered.
+func CollectorSupportsSLO(c MetricsCollector) bool {
+	if c == nil {
+		return false
+	}
+	if rl, ok := c.(*RateLimitedCollector); ok {
+		return CollectorSupportsSLO(rl.inner)
+	}
+	switch c.(type) {
+	case *DatadogCollector, *CloudWatchCollector:
+		return false
+	default:
+		_, ok := c.(interface {
+			Query(context.Context, string, time.Time) (float64, error)
+		})
+		return ok
+	}
+}
+
+// CollectorUsesOperatorAuth reports whether c sends operator credentials.
+func CollectorUsesOperatorAuth(c MetricsCollector) bool {
+	if c == nil {
+		return false
+	}
+	if rl, ok := c.(*RateLimitedCollector); ok {
+		return CollectorUsesOperatorAuth(rl.inner)
+	}
+	type operatorAuth interface {
+		UsesOperatorAuth() bool
+	}
+	u, ok := c.(operatorAuth)
+	return ok && u.UsesOperatorAuth()
+}
+
 // GetThrottleRatio delegates to the inner collector if it implements
 // throttle.Checker. Returns 0.0 if the inner collector does not
 // support throttle queries.

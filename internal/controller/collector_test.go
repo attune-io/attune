@@ -628,7 +628,7 @@ func TestResolveCloudWatchCollector_QueryBuilder(t *testing.T) {
 	reconciler := newReconcilerWithClient()
 
 	// Pre-seed the collector cache so the factory is not called (avoids AWS SDK).
-	cacheKey := fmt.Sprintf("cloudwatch:%s|%s|%s", "eu-west-1", "prod-cluster", "arn:aws:iam::123456789012:role/test")
+	cacheKey := fmt.Sprintf("cloudwatch:%s|%s|%s|ext:%s", "eu-west-1", "prod-cluster", "arn:aws:iam::123456789012:role/test", "attune:default")
 	mc := &mockCollector{}
 	reconciler.collectors.Store(cacheKey, &collectorEntry{collector: mc, lastUsed: time.Now()})
 
@@ -700,7 +700,7 @@ func TestResolveCloudWatchCollector_CacheKeyIncludesRoleARN(t *testing.T) {
 	mc1 := &mockCollector{}
 	mc2 := &mockCollector{}
 	reconciler.collectors.Store("cloudwatch:us-east-1|cluster|", &collectorEntry{collector: mc1, lastUsed: time.Now()})
-	reconciler.collectors.Store("cloudwatch:us-east-1|cluster|arn:aws:iam::111:role/x", &collectorEntry{collector: mc2, lastUsed: time.Now()})
+	reconciler.collectors.Store("cloudwatch:us-east-1|cluster|arn:aws:iam::111:role/x|ext:attune:default", &collectorEntry{collector: mc2, lastUsed: time.Now()})
 
 	policy1 := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "default"},

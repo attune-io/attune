@@ -55,6 +55,7 @@ import (
 	rsmetrics "github.com/attune-io/attune/internal/metrics"
 	"github.com/attune-io/attune/internal/operatormetrics"
 	"github.com/attune-io/attune/internal/resize"
+	"github.com/attune-io/attune/internal/safety"
 	"github.com/attune-io/attune/internal/transform"
 	pkgdefaults "github.com/attune-io/attune/pkg/defaults"
 )
@@ -260,9 +261,20 @@ type AttunePolicyReconciler struct {
 	DatadogAPIKeySecretName string
 	// DatadogAPIKeySecretKey is the API key field in that Secret (default api-key).
 	DatadogAPIKeySecretKey string
-	queryTokenMu           sync.Mutex
-	queryToken             string
-	queryTokenExpiry       time.Time
+	// SigV4AllowedRoleARNs is the glob allowlist for a namespace-authored
+	// sigv4.roleArn or cloudwatch.roleArn. Empty rejects those fields.
+	// Cluster AttuneDefaults is not filtered.
+	SigV4AllowedRoleARNs []string
+	// SigV4AllowedWorkspaceHosts is the glob allowlist for a namespace-authored
+	// sigv4 block that omits roleArn and therefore signs with the operator identity.
+	SigV4AllowedWorkspaceHosts []string
+	// SLOGuardrailEnforceNamespace rewrites tenant guardrails that would use
+	// operator Prometheus credentials so every selector includes the policy namespace.
+	// False skips those guardrails instead. NewAttunePolicyReconciler sets true.
+	SLOGuardrailEnforceNamespace bool
+	queryTokenMu                 sync.Mutex
+	queryToken                   string
+	queryTokenExpiry             time.Time
 	// readServiceAccountTokenFn overrides the projected token file in tests.
 	readServiceAccountTokenFn func() (string, error)
 	nowFunc                   atomic.Pointer[func() time.Time]
@@ -323,8 +335,9 @@ type AttunePolicyReconciler struct {
 // etc.) before calling SetupWithManager or using the reconciler directly.
 func NewAttunePolicyReconciler() *AttunePolicyReconciler {
 	return &AttunePolicyReconciler{
-		eventDedup: newEventDedup(time.Hour),
-		oomBumps:   newOOMBumpPending(),
+		eventDedup:                   newEventDedup(time.Hour),
+		oomBumps:                     newOOMBumpPending(),
+		SLOGuardrailEnforceNamespace: true,
 	}
 }
 
@@ -466,7 +479,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Merge defaults into the policy. Namespace-scoped defaults take precedence,
 	// and defaults lookup failures fail closed rather than silently falling back
 	// to another scope.
-	defaults, namespaceSetAddress, namespaceSetDatadog, err := r.fetchDefaultsForAuth(ctx, policy.Namespace)
+	defaults, namespaceSetAddress, namespaceSetDatadog, nsSpec, err := r.fetchDefaultsForAuth(ctx, policy.Namespace)
 	if err != nil {
 		logger.Error(err, "Failed to fetch defaults")
 		operatormetrics.ReconcileErrorsTotal.WithLabelValues("fetch_defaults").Inc()
@@ -474,6 +487,12 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			fmt.Sprintf("Failed to fetch defaults: %v", err))
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
+	if err := refuseTenantMetrics(policy.Namespace, &policy, nsSpec, r.sigv4Allowlist()); err != nil {
+		logger.Error(err, "Rejected tenant metrics configuration")
+		r.setFailedCondition(ctx, &policy, attunev1alpha1.ReasonInvalidConfig, err.Error())
+		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
+	}
+	ctx = context.WithValue(ctx, sloPlanKey{}, sloPlan{tenantGuardrails: tenantWroteGuardrails(&policy, nsSpec)})
 	promAuth := prometheusAuthFromUnmerged(&policy)
 	promAuth.namespaceSetAddress = namespaceSetAddress
 	ddAuth := datadogAuthFromUnmerged(&policy)
@@ -516,6 +535,11 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		r.setFailedCondition(ctx, &policy, attunev1alpha1.ReasonMetricsUnavailable,
 			fmt.Sprintf("Cannot resolve metrics source: %v", err))
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
+	}
+	if r.sloAuthMode(ctx, collector) == safety.SLOAuthSkip &&
+		rsmetrics.CollectorSupportsSLO(collector) &&
+		rsmetrics.CollectorUsesOperatorAuth(collector) {
+		r.noteSkippedTenantGuardrail(&policy)
 	}
 
 	// Step 3: Discover target workloads (before safety check to avoid duplicate API calls).

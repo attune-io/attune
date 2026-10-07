@@ -115,6 +115,8 @@ helm install attune oci://ghcr.io/attune-io/charts/attune \
 | prometheusBurst | int | `20` | Prometheus query burst allowance. |
 | prometheusQPS | int | `10` | Prometheus query rate limit (queries per second). Higher values reduce reconcile latency but increase Prometheus load. |
 | prometheusTimeout | string | `"5m"` | Maximum time for workload processing (including Prometheus queries) per reconciliation cycle (Go duration). If exceeded, partial results are used and the status condition indicates the timeout. |
+| rbac.aggregateToEdit | bool | `false` | Add aggregate-to-edit and aggregate-to-admin on the policy editor role. Off keeps AttunePolicy create out of the built-in edit and admin roles. |
+| rbac.aggregateToView | bool | `false` | Add aggregate-to-view on the policy viewer role. |
 | replicaCount | int | `1` | Number of operator replicas (use 2 for HA with leader election) |
 | requeueJitter | string | `"2m"` | Maximum extra delay added only to full cooldown requeues. Skipped while Ready is InsufficientData or MetricsUnavailable so bootstrap is not delayed by jitter. Set to "0s" to disable. Default 2m (empty omits the flag and keeps the binary default). |
 | resources | object | `{}` | Operator pod resources. When empty, defaults are derived from clusterSize (or "small" if clusterSize is also empty). Set explicit values for production. |
@@ -122,6 +124,10 @@ helm install attune oci://ghcr.io/attune-io/charts/attune \
 | serviceAccount.annotations | object | `{}` | Annotations to add to the ServiceAccount |
 | serviceAccount.create | bool | `true` | Create a ServiceAccount |
 | serviceAccount.name | string | `""` | ServiceAccount name (generated if not set) |
+| sigv4 | object | `{"allowedRoleArns":[],"allowedWorkspaceHosts":[]}` | IAM roles and AMP hosts a namespace author may ask the operator to use. Empty rejects sigv4 and roleArn on AttunePolicy and AttuneNamespaceDefaults. Cluster AttuneDefaults is not filtered. |
+| sigv4.allowedRoleArns | list | `[]` | Role ARN globs. A star matches any characters, including slashes. |
+| sigv4.allowedWorkspaceHosts | list | `[]` | Prometheus host globs for sigv4 with no roleArn. |
+| sloGuardrails.enforceNamespace | bool | `true` | Rewrite tenant guardrails that use operator Prometheus credentials so every selector includes the policy namespace. Set false to skip those guardrails instead. |
 | statusIncludeExplanations | bool | `true` | Write recommendation explanation chains into status (can bloat large policies). |
 | tolerations | list | `[]` | Tolerations |
 | topologySpreadConstraints | list | `[]` | Topology spread constraints |

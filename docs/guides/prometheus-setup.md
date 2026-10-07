@@ -211,6 +211,25 @@ identity chain (IRSA or Pod Identity). A set `roleArn` is assumed through
 STS. The role needs `aps:QueryMetrics`. See the
 [AMP QueryMetrics API](https://docs.aws.amazon.com/prometheus/latest/userguide/AMP-APIReference-QueryMetrics.html).
 
+On `AttunePolicy` and `AttuneNamespaceDefaults`, a set `roleArn` must
+match `--sigv4-allowed-role-arns` (`sigv4.allowedRoleArns` in Helm).
+`sigv4` with no `roleArn` signs with the operator identity, and the
+workspace host must match `--sigv4-allowed-workspace-hosts`
+(`sigv4.allowedWorkspaceHosts`). Both lists are empty until you set
+them. Cluster `AttuneDefaults` is not filtered. A namespaced assume
+sends `ExternalId` `attune:<namespace>`, so the role trust policy can
+require that value. A trust policy that does not check `ExternalId`
+still works.
+
+```json
+{
+  "Effect": "Allow",
+  "Principal": {"AWS": "arn:aws:iam::123456789012:role/attune-operator"},
+  "Action": "sts:AssumeRole",
+  "Condition": {"StringEquals": {"sts:ExternalId": "attune:payments"}}
+}
+```
+
 Do not set `bearerTokenSecret`, an `Authorization` header, or an `X-Amz-*`
 header together with `sigv4`. The webhook rejects that combination. When
 `sigv4` is set, Attune does not attach `prometheusAuth`, the operator

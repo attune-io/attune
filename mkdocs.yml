@@ -69,6 +69,8 @@ nav:
       - Bin Packing: guides/bin-packing.md
       - Troubleshooting: guides/troubleshooting.md
       - Upgrading: guides/upgrading.md
+  - Security:
+      - Tenancy: security/tenancy.md
   - Reference:
       - API Reference: reference/api.md
       - CLI Reference: reference/cli.md

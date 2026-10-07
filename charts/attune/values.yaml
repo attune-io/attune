@@ -30,6 +30,28 @@ serviceAccount:
   # -- ServiceAccount name (generated if not set)
   name: ""
 
+rbac:
+  # -- Add aggregate-to-edit and aggregate-to-admin on the policy editor role.
+  # Off keeps AttunePolicy create out of the built-in edit and admin roles.
+  aggregateToEdit: false
+  # -- Add aggregate-to-view on the policy viewer role.
+  aggregateToView: false
+
+# -- IAM roles and AMP hosts a namespace author may ask the operator to use.
+# Empty rejects sigv4 and roleArn on AttunePolicy and AttuneNamespaceDefaults.
+# Cluster AttuneDefaults is not filtered.
+sigv4:
+  # -- Role ARN globs. A star matches any characters, including slashes.
+  allowedRoleArns: []
+  # -- Prometheus host globs for sigv4 with no roleArn.
+  allowedWorkspaceHosts: []
+
+sloGuardrails:
+  # -- Rewrite tenant guardrails that use operator Prometheus credentials
+  # so every selector includes the policy namespace.
+  # Set false to skip those guardrails instead.
+  enforceNamespace: true
+
 # -- Pod annotations
 podAnnotations: {}
 

@@ -77,6 +77,58 @@
         }
       }
     },
+    "rbac": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional aggregate labels for the policy editor and viewer roles",
+      "properties": {
+        "aggregateToEdit": {
+          "type": "boolean",
+          "default": false,
+          "description": "Add aggregate-to-edit and aggregate-to-admin on the policy editor role"
+        },
+        "aggregateToView": {
+          "type": "boolean",
+          "default": false,
+          "description": "Add aggregate-to-view on the policy viewer role"
+        }
+      }
+    },
+    "sigv4": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Allowlists for namespace-authored SigV4 and CloudWatch roleArn. Empty rejects those fields. Cluster AttuneDefaults is not filtered.",
+      "properties": {
+        "allowedRoleArns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Role ARN globs. A star matches any characters, including slashes."
+        },
+        "allowedWorkspaceHosts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Prometheus host globs for sigv4 with no roleArn"
+        }
+      }
+    },
+    "sloGuardrails": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Operator behavior for tenant SLO guardrails",
+      "properties": {
+        "enforceNamespace": {
+          "type": "boolean",
+          "default": true,
+          "description": "Rewrite tenant guardrails that use operator Prometheus credentials so every selector includes the policy namespace. False skips those guardrails."
+        }
+      }
+    },
     "podAnnotations": {
       "type": "object",
       "additionalProperties": {

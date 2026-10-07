@@ -31,6 +31,7 @@ import (
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	"github.com/attune-io/attune/internal/operatormetrics"
+	"github.com/attune-io/attune/internal/validation"
 )
 
 func validPolicy() *attunev1alpha1.AttunePolicy {
@@ -1166,6 +1167,7 @@ func TestValidate_PrometheusSigV4(t *testing.T) {
 				Address: address,
 				SigV4:   &attunev1alpha1.SigV4Config{Region: "us-east-1"},
 			},
+			wantErr: "--sigv4-allowed-workspace-hosts",
 		},
 		{
 			name: "region role and non-auth header",
@@ -1174,6 +1176,7 @@ func TestValidate_PrometheusSigV4(t *testing.T) {
 				Headers: map[string]string{"X-Scope-OrgID": "tenant-a"},
 				SigV4:   &attunev1alpha1.SigV4Config{Region: "us-east-1", RoleARN: role},
 			},
+			wantErr: "--sigv4-allowed-role-arns",
 		},
 		{
 			name: "empty sigv4",
@@ -1753,12 +1756,13 @@ func TestValidate_CloudWatchCPUUnit(t *testing.T) {
 }
 
 func TestValidate_CloudWatchValidRoleARN(t *testing.T) {
-	validator := &AttunePolicyValidator{}
+	role := "arn:aws:iam::123456789012:role/CloudWatchReadOnly"
+	validator := &AttunePolicyValidator{SigV4Allowlist: validation.SigV4Allowlist{RoleARNs: []string{role}}}
 	policy := validPolicy()
 	policy.Spec.MetricsSource.CloudWatch = &attunev1alpha1.CloudWatchConfig{
 		Region:      "us-east-1",
 		ClusterName: "my-eks-cluster",
-		RoleARN:     "arn:aws:iam::123456789012:role/CloudWatchReadOnly",
+		RoleARN:     role,
 	}
 
 	_, err := validator.ValidateCreate(context.Background(), policy)
@@ -2023,6 +2027,7 @@ func TestValidate_VPAValid(t *testing.T) {
 func TestValidate_VPAWithNamespace(t *testing.T) {
 	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
+	policy.Namespace = "monitoring"
 	policy.Spec.MetricsSource.VPA = &attunev1alpha1.VPAConfig{
 		Name:      "my-vpa",
 		Namespace: "monitoring",

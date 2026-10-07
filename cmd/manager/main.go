@@ -51,6 +51,7 @@ import (
 	"github.com/attune-io/attune/internal/metrics"
 	_ "github.com/attune-io/attune/internal/operatormetrics"
 	"github.com/attune-io/attune/internal/transform"
+	"github.com/attune-io/attune/internal/validation"
 	"github.com/attune-io/attune/internal/webhook"
 )
 
@@ -161,6 +162,15 @@ func main() {
 		"Name of a Secret in the operator namespace holding the Datadog API key. Used only when cluster AttuneDefaults chose the Datadog block, not a policy or AttuneNamespaceDefaults block. Empty keeps the policy-namespace lookup of apiKeySecretRef. An optional app-key in the same Secret is still read.")
 	flag.StringVar(&datadogAPIKeySecretKey, "datadog-api-key-secret-key", "api-key",
 		"Key in --datadog-api-key-secret that holds the Datadog API key.")
+	var sigv4AllowedRoleARNs stringList
+	var sigv4AllowedWorkspaceHosts stringList
+	flag.Var(&sigv4AllowedRoleARNs, "sigv4-allowed-role-arns",
+		"Repeatable glob of IAM role ARNs a namespace author may set on sigv4.roleArn or cloudwatch.roleArn. * matches any characters, including /. Empty rejects those fields. Cluster AttuneDefaults is not filtered.")
+	flag.Var(&sigv4AllowedWorkspaceHosts, "sigv4-allowed-workspace-hosts",
+		"Repeatable glob of Prometheus hosts a namespace author may sign with sigv4 and no roleArn. Empty rejects that shape. Cluster AttuneDefaults is not filtered.")
+	var sloGuardrailEnforceNamespace bool
+	flag.BoolVar(&sloGuardrailEnforceNamespace, "slo-guardrail-enforce-namespace", true,
+		"When true, tenant SLO guardrails that would use operator Prometheus credentials gain namespace=<policy namespace> on every selector. A conflicting matcher is not sent. When false, those guardrails are skipped.")
 	flag.BoolVar(&fleetReportEnabled, "fleet-report-enabled", false,
 		"When true, periodically write a versioned fleet summary ConfigMap for multi-cluster collectors.")
 	flag.StringVar(&fleetReportNamespace, "fleet-report-namespace", "",
@@ -360,6 +370,9 @@ func main() {
 	reconciler.PrometheusQueryServiceAccount = prometheusQueryServiceAccount
 	reconciler.DatadogAPIKeySecretName = datadogAPIKeySecretName
 	reconciler.DatadogAPIKeySecretKey = datadogAPIKeySecretKey
+	reconciler.SigV4AllowedRoleARNs = []string(sigv4AllowedRoleARNs)
+	reconciler.SigV4AllowedWorkspaceHosts = []string(sigv4AllowedWorkspaceHosts)
+	reconciler.SLOGuardrailEnforceNamespace = sloGuardrailEnforceNamespace
 	if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
 		reconciler.OperatorNamespace = ns
 	}
@@ -418,6 +431,10 @@ func main() {
 				// Live read. The cache does not include namespaces outside
 				// --watch-namespaces, and a list error there denies admission.
 				APIReader: mgr.GetAPIReader(),
+				SigV4Allowlist: validation.SigV4Allowlist{
+					RoleARNs: []string(sigv4AllowedRoleARNs),
+					Hosts:    []string(sigv4AllowedWorkspaceHosts),
+				},
 			}).
 			Complete(); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "AttunePolicy")
@@ -432,6 +449,10 @@ func main() {
 		if err = ctrl.NewWebhookManagedBy(mgr, &attunev1alpha1.AttuneNamespaceDefaults{}).
 			WithValidator(&webhook.AttuneNamespaceDefaultsValidator{
 				SecretAccess: webhook.NewSARSecretChecker(clientset),
+				SigV4Allowlist: validation.SigV4Allowlist{
+					RoleARNs: []string(sigv4AllowedRoleARNs),
+					Hosts:    []string(sigv4AllowedWorkspaceHosts),
+				},
 			}).
 			Complete(); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "AttuneNamespaceDefaults")
@@ -479,4 +500,19 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+// stringList is a repeatable flag value. Each Set appends one entry.
+type stringList []string
+
+func (s *stringList) String() string {
+	if s == nil {
+		return ""
+	}
+	return strings.Join(*s, ",")
+}
+
+func (s *stringList) Set(value string) error {
+	*s = append(*s, value)
+	return nil
 }

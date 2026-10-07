@@ -97,6 +97,13 @@ type PrometheusCollector struct {
 	// maxSeries caps matrix series per range query. 0 = DefaultMaxPrometheusSeries;
 	// negative = unlimited.
 	maxSeries int
+	// operatorAuth is true when queries use the operator bearer token or SigV4.
+	operatorAuth bool
+}
+
+// UsesOperatorAuth reports whether this collector sends operator credentials.
+func (c *PrometheusCollector) UsesOperatorAuth() bool {
+	return c != nil && c.operatorAuth
 }
 
 // Close releases resources held by the collector. It closes idle HTTP
@@ -271,6 +278,9 @@ type CollectorOptions struct {
 	// BearerToken is sent as "Authorization: Bearer <token>".
 	// Ignored when SigV4 is set.
 	BearerToken string
+	// OperatorAuth is true when BearerToken is the operator identity
+	// rather than a Secret in the policy namespace.
+	OperatorAuth bool
 	// SigV4 signs Amazon Managed Prometheus queries (service aps).
 	// Nil means do not sign.
 	SigV4 *SigV4Options
@@ -411,14 +421,17 @@ func NewPrometheusCollectorWithOptions(address string, logger logr.Logger, opts 
 		return nil, fmt.Errorf("creating prometheus client: %w", err)
 	}
 	maxSeries := 0
+	operatorAuth := false
 	if opts != nil {
 		maxSeries = opts.MaxSeries
+		operatorAuth = opts.OperatorAuth || opts.SigV4 != nil
 	}
 	return &PrometheusCollector{
-		api:       promv1.NewAPI(client),
-		logger:    logger,
-		transport: httpTransport,
-		maxSeries: maxSeries,
+		api:          promv1.NewAPI(client),
+		logger:       logger,
+		transport:    httpTransport,
+		maxSeries:    maxSeries,
+		operatorAuth: operatorAuth,
 	}, nil
 }
 

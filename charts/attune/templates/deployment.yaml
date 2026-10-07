@@ -72,6 +72,15 @@ spec:
             - --datadog-api-key-secret={{ .Values.datadogAuth.existingSecret.name }}
             - --datadog-api-key-secret-key={{ .Values.datadogAuth.existingSecret.key | default "api-key" }}
             {{- end }}
+            {{- range .Values.sigv4.allowedRoleArns }}
+            - --sigv4-allowed-role-arns={{ . }}
+            {{- end }}
+            {{- range .Values.sigv4.allowedWorkspaceHosts }}
+            - --sigv4-allowed-workspace-hosts={{ . }}
+            {{- end }}
+            {{- if not .Values.sloGuardrails.enforceNamespace }}
+            - --slo-guardrail-enforce-namespace=false
+            {{- end }}
             {{- $mcr := include "attune.maxConcurrentReconciles" . | trim }}
             {{- if $mcr }}
             - --max-concurrent-reconciles={{ $mcr }}

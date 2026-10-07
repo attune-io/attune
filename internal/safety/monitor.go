@@ -25,6 +25,7 @@ import (
 	"math"
 	"slices"
 	"strconv"
+	"sync"
 	"text/template"
 	"time"
 
@@ -57,6 +58,20 @@ const DefaultSLOEvaluationWindow = 5 * time.Minute
 type SLOQuerier interface {
 	Query(ctx context.Context, query string, ts time.Time) (float64, error)
 }
+
+// SLOAuthMode controls how a tenant-authored guardrail is queried.
+type SLOAuthMode int
+
+const (
+	// SLOAuthInherit sends the interpolated query as written.
+	SLOAuthInherit SLOAuthMode = iota
+	// SLOAuthEnforceNamespace adds namespace="<policy namespace>" before the query is sent.
+	SLOAuthEnforceNamespace
+	// SLOAuthSkip does not register the querier. The controller uses this
+	// when a tenant guardrail would otherwise run with operator credentials
+	// and namespace enforcement is off.
+	SLOAuthSkip
+)
 
 // sloTemplateData holds the variables available for interpolation in SLO queries.
 type sloTemplateData struct {
@@ -117,6 +132,10 @@ type Monitor struct {
 	// the interpolated PromQL string. A workload-level query then runs once
 	// for every pod that interpolates to the same string.
 	sloQueryMemo map[string]sloMemoEntry
+	sloAuth      SLOAuthMode
+	sloNamespace string
+	sloSkipMu    sync.Mutex
+	sloSkipped   []string
 }
 
 type sloMemoEntry struct {
@@ -172,6 +191,40 @@ func (m *Monitor) WithSLOChecker(querier SLOQuerier, guardrails []attunev1alpha1
 		m.sloTemplates[g.Query] = tmpl
 	}
 	return m
+}
+
+// SetSLOAuth selects namespace enforcement for later guardrail queries.
+// Inherit leaves the query unchanged. Skip is handled by not registering
+// a querier; setting it here still refuses to send an unscoped query.
+func (m *Monitor) SetSLOAuth(mode SLOAuthMode, namespace string) {
+	if m == nil {
+		return
+	}
+	m.sloAuth = mode
+	m.sloNamespace = namespace
+}
+
+// HasSLOChecker reports whether guardrail queries will run.
+func (m *Monitor) HasSLOChecker() bool {
+	return m != nil && m.sloQuerier != nil && len(m.sloGuardrails) > 0
+}
+
+// SLOSkipNames returns guardrails that were not sent.
+func (m *Monitor) SLOSkipNames() []string {
+	if m == nil {
+		return nil
+	}
+	m.sloSkipMu.Lock()
+	defer m.sloSkipMu.Unlock()
+	out := make([]string, len(m.sloSkipped))
+	copy(out, m.sloSkipped)
+	return out
+}
+
+func (m *Monitor) noteSLOSkip(name string) {
+	m.sloSkipMu.Lock()
+	m.sloSkipped = append(m.sloSkipped, name)
+	m.sloSkipMu.Unlock()
 }
 
 // WithSLOQueryMemo enables per-pass memoization of interpolated SLO queries.
@@ -372,15 +425,30 @@ func (m *Monitor) checkSLOGuardrails(ctx context.Context, record ResizeRecord, n
 		if g.EvaluationWindow != nil && g.EvaluationWindow.Duration > 0 {
 			evalWindow = g.EvaluationWindow.Duration
 		}
-		if now.Sub(record.ResizedAt) < evalWindow {
-			deferred = true
-			continue
-		}
 
 		query, err := interpolateSLOQuery(g.Query, record, m.sloTemplates[g.Query])
 		if err != nil {
 			m.logger.Error(err, "SLO guardrail query interpolation failed, skipping",
 				"guardrail", g.Name, "pod", record.PodName, "namespace", record.Namespace)
+			continue
+		}
+		if m.sloAuth == SLOAuthEnforceNamespace || m.sloAuth == SLOAuthSkip {
+			scoped, scopeErr := EnforcePromQLNamespace(query, m.sloNamespace)
+			if scopeErr != nil || m.sloAuth == SLOAuthSkip {
+				if scopeErr != nil {
+					m.logger.Info("SLO guardrail query is not scoped to the policy namespace, skipping",
+						"guardrail", g.Name, "pod", record.PodName, "namespace", record.Namespace, "error", scopeErr.Error())
+				} else {
+					m.logger.Info("SLO guardrail skipped because it would use operator credentials",
+						"guardrail", g.Name, "pod", record.PodName, "namespace", record.Namespace)
+				}
+				m.noteSLOSkip(g.Name)
+				continue
+			}
+			query = scoped
+		}
+		if now.Sub(record.ResizedAt) < evalWindow {
+			deferred = true
 			continue
 		}
 
@@ -417,11 +485,14 @@ func (m *Monitor) checkSLOGuardrails(ctx context.Context, record ResizeRecord, n
 		}
 
 		if breached {
+			m.logger.V(1).Info("SLO guardrail breached",
+				"guardrail", g.Name, "pod", record.PodName, "namespace", record.Namespace,
+				"value", value, "comparison", comparison, "threshold", threshold)
 			return &SafetyVerdict{
 				Safe:   false,
 				Reason: "slo:" + g.Name,
-				Message: fmt.Sprintf("SLO guardrail %q breached for pod %s/%s: value %.4f %s threshold %.4f",
-					g.Name, record.Namespace, record.PodName, value, comparison, threshold),
+				Message: fmt.Sprintf("SLO guardrail %q breached for pod %s/%s (%s threshold)",
+					g.Name, record.Namespace, record.PodName, comparison),
 			}
 		}
 	}

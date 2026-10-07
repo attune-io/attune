@@ -261,7 +261,7 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 		return
 	}
 
-	monitor := r.newSafetyMonitor(logger, collector, policy.Spec.UpdateStrategy.SLOGuardrails).
+	monitor := r.newSafetyMonitorIn(ctx, logger, policy, collector, policy.Spec.UpdateStrategy.SLOGuardrails).
 		WithSLOQueryMemo()
 	observationPeriod := getObservationPeriod(policy)
 
@@ -565,6 +565,7 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 			observationsPending = true
 		}
 	}
+	r.recordSLOGuardrailSkips(ctx, policy, collector, monitor.SLOSkipNames())
 	r.setSafetyObservationCondition(policy, safetySummary)
 	return observationsPending
 }

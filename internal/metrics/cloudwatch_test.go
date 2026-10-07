@@ -779,10 +779,10 @@ func TestCloudWatchCollector_QueryRangeGrouped_ShortValuesNoPanic(t *testing.T) 
 func TestNewCloudWatchCollector_RejectsHostileInputs(t *testing.T) {
 	t.Parallel()
 	_, err := NewCloudWatchCollector(context.Background(), "us-east-1",
-		`x" Namespace="kube-system" MetricName="container_memory_working_set`, "", logr.Discard())
+		`x" Namespace="kube-system" MetricName="container_memory_working_set`, "", "", logr.Discard())
 	require.Error(t, err)
 	_, err = NewCloudWatchCollector(context.Background(), "us-east-1", "prod",
-		`arn:aws:iam::123456789012:role/x" extra`, logr.Discard())
+		`arn:aws:iam::123456789012:role/x" extra`, "", logr.Discard())
 	require.Error(t, err)
 }
 

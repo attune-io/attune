@@ -1,0 +1,40 @@
+suite: aggregate policy roles
+templates:
+  - templates/aggregate-roles.yaml
+tests:
+  - it: renders editor and viewer without aggregate labels
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-attune-policy-editor
+        documentIndex: 0
+      - isNull:
+          path: metadata.labels["rbac.authorization.k8s.io/aggregate-to-edit"]
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-attune-policy-viewer
+        documentIndex: 1
+      - isNull:
+          path: metadata.labels["rbac.authorization.k8s.io/aggregate-to-view"]
+        documentIndex: 1
+
+  - it: adds aggregate labels when enabled
+    set:
+      rbac.aggregateToEdit: true
+      rbac.aggregateToView: true
+    asserts:
+      - equal:
+          path: metadata.labels["rbac.authorization.k8s.io/aggregate-to-edit"]
+          value: "true"
+        documentIndex: 0
+      - equal:
+          path: metadata.labels["rbac.authorization.k8s.io/aggregate-to-admin"]
+          value: "true"
+        documentIndex: 0
+      - equal:
+          path: metadata.labels["rbac.authorization.k8s.io/aggregate-to-view"]
+          value: "true"
+        documentIndex: 1
