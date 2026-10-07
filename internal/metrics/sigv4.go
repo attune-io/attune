@@ -54,6 +54,9 @@ type SigV4Options struct {
 	Region string
 	// RoleARN is an optional IAM role to assume. Empty uses the default chain.
 	RoleARN string
+	// ExternalID is sent on AssumeRole for a namespaced policy (attune:<namespace>).
+	// Empty leaves the STS ExternalId unset.
+	ExternalID string
 	// Credentials, when set with an empty RoleARN, replaces the default chain.
 	Credentials aws.CredentialsProvider
 	// STSClient, when set with RoleARN, assumes that role without loading AWS config.
@@ -171,9 +174,9 @@ func resolveSigV4Provider(ctx context.Context, opts *SigV4Options) (aws.Credenti
 		return opts.Credentials, nil
 	}
 	if opts.STSClient != nil && opts.RoleARN != "" {
-		return assumeRoleProvider(opts.STSClient, opts.RoleARN), nil
+		return assumeRoleProvider(opts.STSClient, opts.RoleARN, opts.ExternalID), nil
 	}
-	cfg, err := loadAWSConfig(ctx, opts.Region, opts.RoleARN)
+	cfg, err := loadAWSConfig(ctx, opts.Region, opts.RoleARN, opts.ExternalID)
 	if err != nil {
 		return nil, fmt.Errorf("prometheus sigv4 credentials: %w", err)
 	}

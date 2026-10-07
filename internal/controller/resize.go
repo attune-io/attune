@@ -502,7 +502,10 @@ func (r *AttunePolicyReconciler) executeResizes(
 		// history would FullRollout and instantly promote the next app.
 		emptied := pruneStaleCanaryWorkloads(policy.Status.Canary, workloadMap)
 		if !emptied {
-			_, hasSLOQuerier := collector.(safety.SLOQuerier)
+			hasSLOQuerier := false
+			if policy.Spec.UpdateStrategy != nil {
+				hasSLOQuerier = r.sloQuerierActive(ctx, collector, policy.Namespace, policy.Spec.UpdateStrategy.SLOGuardrails)
+			}
 			mode = r.resolveCanaryPhase(ctx, policy, mode, hasSLOQuerier)
 		}
 	}
@@ -510,7 +513,7 @@ func (r *AttunePolicyReconciler) executeResizes(
 	resizer := resize.NewPodResizer(r.Clientset, logger)
 	resizer.AllowInPlaceMemoryLimitDecrease = r.AllowInPlaceMemoryLimitDecrease
 	resizer.InPlacePodLevelResources = r.inPlacePodLevelResources()
-	monitor := r.newSafetyMonitor(logger, collector, policy.Spec.UpdateStrategy.SLOGuardrails)
+	monitor := r.newSafetyMonitorIn(ctx, logger, policy, collector, policy.Spec.UpdateStrategy.SLOGuardrails)
 
 	var totalResized int
 	var history []attunev1alpha1.ResizeHistoryEntry

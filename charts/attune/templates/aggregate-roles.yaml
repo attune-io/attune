@@ -1,0 +1,49 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "attune.fullname" . }}-policy-editor
+  labels:
+    {{- include "attune.labels" . | nindent 4 }}
+    {{- if .Values.rbac.aggregateToEdit }}
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+    {{- end }}
+rules:
+  - apiGroups:
+      - attune.io
+    resources:
+      - attunepolicies
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - attune.io
+    resources:
+      - attunepolicies/status
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "attune.fullname" . }}-policy-viewer
+  labels:
+    {{- include "attune.labels" . | nindent 4 }}
+    {{- if .Values.rbac.aggregateToView }}
+    rbac.authorization.k8s.io/aggregate-to-view: "true"
+    {{- end }}
+rules:
+  - apiGroups:
+      - attune.io
+    resources:
+      - attunepolicies
+      - attunepolicies/status
+    verbs:
+      - get
+      - list
+      - watch

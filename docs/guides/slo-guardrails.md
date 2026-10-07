@@ -120,8 +120,22 @@ You can also set `sloGuardrails` on `AttuneDefaults` or
   does not add that wait.
 - Use `kubectl attune history` to confirm revert reasons; SLO breaches show as
   `slo:<name>`.
-- Guardrails require a working Prometheus (or compatible) metrics source on the
-  policy. They do not run against Datadog/CloudWatch query languages.
+- Guardrails run only against a Prometheus-compatible source. Datadog and
+  CloudWatch do not evaluate them, and they do not extend canary promotion
+  or safety observation for a guardrail window. Admission warns when the
+  same object sets `sloGuardrails` and one of those sources.
+- A guardrail written on the policy or on `AttuneNamespaceDefaults` is
+  scoped to the policy namespace when the query would use operator
+  Prometheus credentials. Every vector selector gains
+  `namespace="<policy namespace>"`. A selector that already matches a
+  different namespace is not sent, is not a breach, and does not hold
+  the observation window. Guardrails inherited from cluster
+  `AttuneDefaults` keep operator credentials and are not rewritten.
+  `--slo-guardrail-enforce-namespace=false` skips the tenant guardrails
+  instead (`SLOGuardrails` / `SLOGuardrailNoTenantCredentials`).
+- The revert event says the guardrail breached and names the comparison.
+  It does not include the numeric value. That value is in the operator
+  log at V(1).
 
 ## Troubleshooting
 
@@ -130,7 +144,7 @@ You can also set `sloGuardrails` on `AttuneDefaults` or
 | Revert reason `slo:p99-latency` | Threshold too tight, or traffic mix after resize changed latency |
 | No SLO reverts while latency is bad | Query returns empty/error (fails open); metric labels wrong; window not elapsed |
 | False reverts right after resize | Widen `evaluationWindow`; exclude cold-start noise from the query |
-| Guardrail never evaluated | Mode is Observe/Recommend (no applying resize), or `autoRevert: false`. A window longer than the observation period waits, then runs; it is not skipped. |
+| Guardrail never evaluated | Mode is Observe/Recommend (no applying resize), or `autoRevert: false`. A window longer than the observation period waits, then runs; it is not skipped. Datadog and CloudWatch never evaluate guardrails. A tenant query that cannot be limited to the policy namespace is skipped. |
 | `SafetyObservation` stays `Evaluating` | The observation period has elapsed and a throttle grace period or an SLO window is still open. Tracking annotations stay until that check runs. |
 
 Query failures log at Error (`SLO guardrail query failed`). Leftover

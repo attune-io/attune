@@ -192,7 +192,10 @@ type TargetRef struct {
 type VPAConfig struct {
 	// Name is the name of the VerticalPodAutoscaler object.
 	Name string `json:"name"`
-	// Namespace is the namespace of the VPA. Defaults to the policy's namespace.
+	// Namespace is the namespace of the VPA. Empty uses the policy namespace.
+	// AttunePolicy and AttuneNamespaceDefaults may only name their own
+	// namespace. Cluster AttuneDefaults may name another namespace, and
+	// policies that inherit only that value still read it.
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
 }
@@ -275,8 +278,12 @@ type SigV4Config struct {
 	// +kubebuilder:validation:MinLength=1
 	Region string `json:"region"`
 
-	// RoleARN is an optional IAM role to assume. Empty uses the pod
-	// identity credential chain (IRSA or Pod Identity).
+	// RoleARN is an optional IAM role to assume. Empty uses the operator
+	// identity. On AttunePolicy and AttuneNamespaceDefaults a set role must
+	// match --sigv4-allowed-role-arns, and an empty role requires the
+	// workspace host in --sigv4-allowed-workspace-hosts. Cluster
+	// AttuneDefaults is not filtered by those lists. A namespaced assume
+	// sends ExternalId attune:<namespace>.
 	// +optional
 	RoleARN string `json:"roleArn,omitempty"`
 }
@@ -370,7 +377,10 @@ type CloudWatchConfig struct {
 	ClusterName string `json:"clusterName"`
 
 	// RoleARN is an optional IAM role ARN to assume for cross-account access.
-	// If not set, uses the pod's service account IAM role (IRSA/Pod Identity).
+	// Empty uses the operator identity. On AttunePolicy and
+	// AttuneNamespaceDefaults a set role must match --sigv4-allowed-role-arns.
+	// Cluster AttuneDefaults is not filtered. A namespaced assume sends
+	// ExternalId attune:<namespace>.
 	// +optional
 	RoleARN string `json:"roleArn,omitempty"`
 

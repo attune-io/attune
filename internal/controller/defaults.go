@@ -41,7 +41,7 @@ import (
 // If multiple defaults objects exist at the same scope, selection is
 // deterministic: the lexicographically smallest metadata.name wins.
 func (r *AttunePolicyReconciler) fetchDefaults(ctx context.Context, namespace string) (*attunev1alpha1.AttuneDefaults, error) {
-	effective, _, _, err := r.fetchDefaultsForAuth(ctx, namespace)
+	effective, _, _, _, err := r.fetchDefaultsForAuth(ctx, namespace)
 	return effective, err
 }
 
@@ -49,12 +49,13 @@ func (r *AttunePolicyReconciler) fetchDefaults(ctx context.Context, namespace st
 // AttuneNamespaceDefaults set a Prometheus address or a Datadog block.
 // Both flags come from this list so operator credentials follow the
 // object that was merged.
-func (r *AttunePolicyReconciler) fetchDefaultsForAuth(ctx context.Context, namespace string) (*attunev1alpha1.AttuneDefaults, bool, bool, error) {
+func (r *AttunePolicyReconciler) fetchDefaultsForAuth(ctx context.Context, namespace string) (*attunev1alpha1.AttuneDefaults, bool, bool, *attunev1alpha1.AttuneDefaultsSpec, error) {
 	var nsList attunev1alpha1.AttuneNamespaceDefaultsList
 	if err := r.List(ctx, &nsList, client.InNamespace(namespace)); err != nil {
-		return nil, false, false, fmt.Errorf("listing AttuneNamespaceDefaults in %s: %w", namespace, err)
+		return nil, false, false, nil, fmt.Errorf("listing AttuneNamespaceDefaults in %s: %w", namespace, err)
 	}
 	var nsDefaults *attunev1alpha1.AttuneDefaults
+	var nsSpec *attunev1alpha1.AttuneDefaultsSpec
 	namespaceSetAddress := false
 	namespaceSetDatadog := false
 	if len(nsList.Items) > 0 {
@@ -66,6 +67,7 @@ func (r *AttunePolicyReconciler) fetchDefaultsForAuth(ctx context.Context, names
 		}
 		namespaceSetAddress = metricsSourceHasPrometheusAddress(picked.Spec.MetricsSource)
 		namespaceSetDatadog = metricsSourceHasDatadog(picked.Spec.MetricsSource)
+		nsSpec = picked.Spec.DeepCopy()
 		nsDefaults = &attunev1alpha1.AttuneDefaults{
 			ObjectMeta: picked.ObjectMeta,
 			Spec:       picked.Spec,
@@ -74,7 +76,7 @@ func (r *AttunePolicyReconciler) fetchDefaultsForAuth(ctx context.Context, names
 
 	var clusterList attunev1alpha1.AttuneDefaultsList
 	if err := r.List(ctx, &clusterList); err != nil {
-		return nil, false, false, fmt.Errorf("listing AttuneDefaults: %w", err)
+		return nil, false, false, nil, fmt.Errorf("listing AttuneDefaults: %w", err)
 	}
 	var clusterDefaults *attunev1alpha1.AttuneDefaults
 	if len(clusterList.Items) > 0 {
@@ -86,7 +88,7 @@ func (r *AttunePolicyReconciler) fetchDefaultsForAuth(ctx context.Context, names
 		}
 	}
 
-	return pkgdefaults.CombineDefaultsLayers(clusterDefaults, nsDefaults), namespaceSetAddress, namespaceSetDatadog, nil
+	return pkgdefaults.CombineDefaultsLayers(clusterDefaults, nsDefaults), namespaceSetAddress, namespaceSetDatadog, nsSpec, nil
 }
 
 func metricsSourceHasPrometheusAddress(ms *attunev1alpha1.MetricsSource) bool {

@@ -63,14 +63,14 @@ type CloudWatchCollector struct {
 // NewCloudWatchCollector creates a collector that queries CloudWatch Container
 // Insights metrics. It uses the default AWS credential chain (IRSA, Pod Identity,
 // instance profile) and optionally assumes a cross-account IAM role.
-func NewCloudWatchCollector(ctx context.Context, region, clusterName, roleARN string, logger logr.Logger) (*CloudWatchCollector, error) {
+func NewCloudWatchCollector(ctx context.Context, region, clusterName, roleARN, externalID string, logger logr.Logger) (*CloudWatchCollector, error) {
 	if err := validation.CloudWatchClusterName(clusterName); err != nil {
 		return nil, fmt.Errorf("cloudwatch clusterName: %w", err)
 	}
 	if err := validation.CloudWatchRoleARN(roleARN); err != nil {
 		return nil, fmt.Errorf("cloudwatch roleArn: %w", err)
 	}
-	cfg, err := loadAWSConfig(ctx, region, roleARN)
+	cfg, err := loadAWSConfig(ctx, region, roleARN, externalID)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +85,7 @@ func NewCloudWatchCollector(ctx context.Context, region, clusterName, roleARN st
 // loadAWSConfig loads the default credential chain for region.
 // An empty region is rejected before LoadDefaultConfig so AWS_REGION is not
 // used in place of the policy region. A set roleARN assumes that role.
-func loadAWSConfig(ctx context.Context, region, roleARN string) (aws.Config, error) {
+func loadAWSConfig(ctx context.Context, region, roleARN, externalID string) (aws.Config, error) {
 	if strings.TrimSpace(region) == "" {
 		return aws.Config{}, fmt.Errorf("AWS region is required")
 	}
@@ -94,13 +94,22 @@ func loadAWSConfig(ctx context.Context, region, roleARN string) (aws.Config, err
 		return aws.Config{}, fmt.Errorf("loading AWS config: %w", err)
 	}
 	if roleARN != "" {
-		cfg.Credentials = assumeRoleProvider(sts.NewFromConfig(cfg), roleARN)
+		cfg.Credentials = assumeRoleProvider(sts.NewFromConfig(cfg), roleARN, externalID)
 	}
 	return cfg, nil
 }
 
-func assumeRoleProvider(client stscreds.AssumeRoleAPIClient, roleARN string) aws.CredentialsProvider {
-	return aws.NewCredentialsCache(stscreds.NewAssumeRoleProvider(client, roleARN))
+// ExternalIDForNamespace is the STS ExternalId for a namespaced assume.
+func ExternalIDForNamespace(namespace string) string {
+	return "attune:" + namespace
+}
+
+func assumeRoleProvider(client stscreds.AssumeRoleAPIClient, roleARN, externalID string) aws.CredentialsProvider {
+	return aws.NewCredentialsCache(stscreds.NewAssumeRoleProvider(client, roleARN, func(opts *stscreds.AssumeRoleOptions) {
+		if externalID != "" {
+			opts.ExternalID = aws.String(externalID)
+		}
+	}))
 }
 
 // NewCloudWatchCollectorWithClient creates a collector with a pre-configured

@@ -8,6 +8,69 @@ Maintainers: before publishing a release after multi-version product changes,
 run the full E2E Nightly matrix on tip of `main` (see
 [Releasing: full E2E matrix](../contributing/releasing.md#1b-full-e2e-matrix-required-before-tagging-a-product-release)).
 
+## v0.1.33 to v0.1.34
+
+v0.1.34 limits what a namespace author can make the operator do. Cluster
+`AttuneDefaults` is unchanged.
+
+### VPA namespace
+
+`metricsSource.vpa.namespace` on an `AttunePolicy` or
+`AttuneNamespaceDefaults` must be empty or that object's namespace.
+A different namespace is `InvalidConfig` and is not read. A namespace
+inherited only from cluster `AttuneDefaults` is still read.
+
+### SigV4 and CloudWatch roles
+
+`--sigv4-allowed-role-arns` and `--sigv4-allowed-workspace-hosts` are
+empty by default. Helm values are `sigv4.allowedRoleArns` and
+`sigv4.allowedWorkspaceHosts`.
+
+A `sigv4.roleArn` or `cloudwatch.roleArn` on a policy or namespace
+defaults object must match the role list. `sigv4` with no `roleArn`
+must match the host list. Cluster `AttuneDefaults` is not filtered.
+
+Add the role and host before upgrade if a policy sets them today:
+
+```yaml
+sigv4:
+  allowedRoleArns:
+    - "arn:aws:iam::123456789012:role/attune-*"
+  allowedWorkspaceHosts:
+    - "aps-workspaces.us-east-1.amazonaws.com"
+```
+
+`*` matches any characters, including `/`.
+
+A namespaced AssumeRole now sends `ExternalId` `attune:<namespace>`.
+A trust policy that does not check `ExternalId` still works. One that
+requires a different value must allow `attune:<namespace>`.
+
+### SLO guardrails
+
+Datadog and CloudWatch do not evaluate guardrails, and they do not
+extend canary promotion or safety observation for a guardrail window.
+
+A guardrail written on the policy or on `AttuneNamespaceDefaults` is
+scoped to the policy namespace when the query would use operator
+Prometheus credentials. `sum(foo)` gains `namespace="<policy namespace>"`.
+A selector that already matches another namespace is not sent and does
+not hold observation or canary promotion. Guardrails inherited from
+cluster `AttuneDefaults` are not rewritten.
+
+`--slo-guardrail-enforce-namespace` defaults to true. Set it to false
+to skip those tenant guardrails instead. Ready is not changed. The
+`SLOGuardrails` condition reason is `SLOGuardrailNoTenantCredentials`.
+
+Move a cluster-wide guardrail to `AttuneDefaults`, or give the policy
+its own Prometheus credentials, if it must keep reading outside the
+policy namespace.
+
+Breach events no longer include the query value. The operator log at
+V(1) still has it.
+
+See [Tenancy](../security/tenancy.md).
+
 ## v0.1.32 to v0.1.33
 
 v0.1.33 adds per-container CPU and memory settings, memory HPA retune,

@@ -40,6 +40,9 @@ type AttuneDefaultsValidator struct{}
 type AttuneNamespaceDefaultsValidator struct {
 	// SecretAccess, when set, requires the admission user to get each referenced Secret.
 	SecretAccess SecretAccessChecker
+	// SigV4Allowlist restricts roleArn and operator-identity sigv4 hosts.
+	// An empty list rejects both. Cluster AttuneDefaults is not filtered.
+	SigV4Allowlist validation.SigV4Allowlist
 }
 
 // ValidateCreate validates a new AttuneDefaults.
@@ -74,7 +77,7 @@ func (v *AttuneDefaultsValidator) validate(defaults *attunev1alpha1.AttuneDefaul
 }
 
 func (v *AttuneDefaultsValidator) validatePrevious(defaults *attunev1alpha1.AttuneDefaults, previous *attunev1alpha1.AttuneDefaultsSpec) (admission.Warnings, error) {
-	w, err := validateDefaultsSpecPrevious(defaults.Spec, previous)
+	w, err := validateDefaultsSpecPrevious(defaults.Spec, previous, metricsTenancy{})
 	if err != nil {
 		return w, err
 	}
@@ -116,7 +119,7 @@ const DeprecatedClusterGitOpsTokenWarning = "updateStrategy.export.pullRequest.t
 func (v *AttuneNamespaceDefaultsValidator) ValidateCreate(ctx context.Context, defaults *attunev1alpha1.AttuneNamespaceDefaults) (admission.Warnings, error) {
 	timer := operatormetrics.NewWebhookTimer("namespace_defaults_validate_create")
 	defer timer.Observe()
-	w, err := validateDefaultsSpec(defaults.Spec)
+	w, err := validateDefaultsSpecPrevious(defaults.Spec, nil, v.tenancy(defaults.Namespace))
 	if err == nil {
 		err = v.checkReferencedSecretAccess(ctx, defaults)
 	}
@@ -132,12 +135,20 @@ func (v *AttuneNamespaceDefaultsValidator) ValidateUpdate(ctx context.Context, o
 	if old != nil {
 		previous = &old.Spec
 	}
-	w, err := validateDefaultsSpecPrevious(defaults.Spec, previous)
+	w, err := validateDefaultsSpecPrevious(defaults.Spec, previous, v.tenancy(defaults.Namespace))
 	if err == nil {
 		err = v.checkReferencedSecretAccess(ctx, defaults)
 	}
 	timer.RecordResult(err)
 	return w, err
+}
+
+func (v *AttuneNamespaceDefaultsValidator) tenancy(namespace string) metricsTenancy {
+	allow := validation.SigV4Allowlist{}
+	if v != nil {
+		allow = v.SigV4Allowlist
+	}
+	return metricsTenancy{namespace: namespace, restrict: true, allow: allow}
 }
 
 // ValidateDelete validates an AttuneNamespaceDefaults deletion (always succeeds).
@@ -156,14 +167,14 @@ func defaultsStrategyDuration(spec *attunev1alpha1.AttuneDefaultsSpec, safety bo
 }
 
 func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec) (admission.Warnings, error) {
-	return validateDefaultsSpecPrevious(spec, nil)
+	return validateDefaultsSpecPrevious(spec, nil, metricsTenancy{})
 }
 
-func validateDefaultsSpecPrevious(spec attunev1alpha1.AttuneDefaultsSpec, previous *attunev1alpha1.AttuneDefaultsSpec) (admission.Warnings, error) {
+func validateDefaultsSpecPrevious(spec attunev1alpha1.AttuneDefaultsSpec, previous *attunev1alpha1.AttuneDefaultsSpec, tenancy metricsTenancy) (admission.Warnings, error) {
 	if err := exclusiveMetricsProviderError(spec.MetricsSource); err != nil {
 		return nil, err
 	}
-	if err := validateMetricsSourceProviderFields(spec.MetricsSource); err != nil {
+	if err := validateMetricsSourceProviderFields(spec.MetricsSource, tenancy); err != nil {
 		return nil, err
 	}
 
@@ -326,6 +337,9 @@ func validateDefaultsSpecPrevious(spec attunev1alpha1.AttuneDefaultsSpec, previo
 		}
 	}
 
+	if spec.UpdateStrategy != nil {
+		warnings = append(warnings, nonPrometheusSLOWarning(spec.MetricsSource, spec.UpdateStrategy.SLOGuardrails)...)
+	}
 	return warnings, nil
 }
 

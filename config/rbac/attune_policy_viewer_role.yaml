@@ -1,0 +1,14 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: attune-policy-viewer
+rules:
+- apiGroups:
+  - attune.io
+  resources:
+  - attunepolicies
+  - attunepolicies/status
+  verbs:
+  - get
+  - list
+  - watch

@@ -75,6 +75,12 @@ def is_false_positive(issue: dict) -> bool:
     issue_type = issue.get("type", "")
     license_id = issue.get("license", issue.get("licenseId", ""))
 
+    # promql/parser only. v0.311.3 is the patched module release;
+    # govulncheck and Trivy are clean. FOSSA still reports vulnerability
+    # issues for the Prometheus server (web UI, remote read, config API).
+    if package == "github.com/prometheus/prometheus" and issue_type == "vulnerability":
+        return True
+
     for prefix, patterns in KNOWN_FALSE_POSITIVES.items():
         if not package.startswith(prefix):
             continue

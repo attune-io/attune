@@ -476,7 +476,7 @@ operator queries. The wizard inherit option uses that omit shape.
 |-------|------|---------|-------------|
 | `metricsSource.prometheus.bearerTokenSecret` | object | (optional) | Secret `name` + `key` for a bearer token in the **policy** namespace (`AttunePolicy` or `AttuneNamespaceDefaults`). Deprecated on cluster `AttuneDefaults`: the name is still inherited and read in each policy namespace; use `prometheusAuth` or `openshift.bindClusterMonitoringView` instead. Amazon Managed Prometheus does not use this Secret. Attune trims both ends of the token and keeps interior spaces. |
 | `metricsSource.prometheus.sigv4.region` | string | (required when `sigv4` is set) | AWS region of the Amazon Managed Prometheus workspace, for example `us-east-1`. There is no default. Attune signs queries with SigV4 service `aps`. Omitted `sigv4` does not sign. Do not combine with `bearerTokenSecret`, an `Authorization` header, or an `X-Amz-*` header. |
-| `metricsSource.prometheus.sigv4.roleArn` | string | (optional) | IAM role ARN to assume. Empty uses the pod identity chain (IRSA or Pod Identity). The role needs `aps:QueryMetrics`. |
+| `metricsSource.prometheus.sigv4.roleArn` | string | (optional) | IAM role ARN to assume. Empty uses the operator identity. On `AttunePolicy` and `AttuneNamespaceDefaults` a set role must match `--sigv4-allowed-role-arns`, and an empty role requires the workspace host in `--sigv4-allowed-workspace-hosts`. Cluster `AttuneDefaults` is not filtered. A namespaced assume sends `ExternalId` `attune:<namespace>`. The role needs `aps:QueryMetrics`. |
 | `metricsSource.prometheus.tls.insecureSkipVerify` | bool | `false` | Skip TLS certificate verification. Use only for a self-signed development endpoint. Prefer the cluster CA when you have the bundle. |
 
 ### Datadog
@@ -493,7 +493,7 @@ operator queries. The wizard inherit option uses that omit shape.
 |-------|------|---------|-------------|
 | `metricsSource.cloudwatch.region` | string | (required) | AWS region (e.g., `us-east-1`) |
 | `metricsSource.cloudwatch.clusterName` | string | (required) | EKS cluster name for Container Insights metric filtering (1-100 chars, alphanumeric / hyphen / underscore) |
-| `metricsSource.cloudwatch.roleArn` | string | `""` | Optional IAM role ARN for cross-account access (`arn:aws:iam::ACCOUNT:role/NAME`; IRSA/Pod Identity used if empty) |
+| `metricsSource.cloudwatch.roleArn` | string | `""` | Optional IAM role ARN for cross-account access (`arn:aws:iam::ACCOUNT:role/NAME`; operator identity if empty). On `AttunePolicy` and `AttuneNamespaceDefaults` a set role must match `--sigv4-allowed-role-arns`. A namespaced assume sends `ExternalId` `attune:<namespace>`. |
 | `metricsSource.cloudwatch.cpuUnit` | string | `Millicores` | Scale of `container_cpu_usage_total`. Millicores divides by 1000. Cores leaves the value unchanged. Nanocores divides by 1e9. Empty means Millicores. |
 
 `PodName` is not always the pod name. With the receiver flag
@@ -793,7 +793,7 @@ memory:
 
 ### SLO Guardrails
 
-Application-level PromQL checks evaluated after each resize during the safety observation period.
+Application-level PromQL checks evaluated after each resize during the safety observation period. They do not run for Datadog or CloudWatch. A guardrail on the policy or on `AttuneNamespaceDefaults` is limited to the policy namespace when it would use operator Prometheus credentials. One inherited from cluster `AttuneDefaults` is not. The breach event omits the numeric value.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -823,7 +823,7 @@ updateStrategy:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `metricsSource.vpa.name` | string | (required) | Name of the VerticalPodAutoscaler object to consume recommendations from |
-| `metricsSource.vpa.namespace` | string | (policy namespace) | Namespace of the VPA. Defaults to the policy's namespace. |
+| `metricsSource.vpa.namespace` | string | (policy namespace) | Namespace of the VPA. Empty uses the policy namespace. On `AttunePolicy` and `AttuneNamespaceDefaults` the value must be that object's namespace. Cluster `AttuneDefaults` may name another namespace, and a policy that inherits only that value still reads it. |
 
 `memory.memoryFromCpuRatio` applies here too: when a valid ratio is set,
 memory is derived from the CPU recommendation instead of the VPA memory
@@ -863,6 +863,7 @@ The controller sets these conditions on each `AttunePolicy`:
 | `TemplatePersistence` | `TemplateWorkloadRef` | False when a Rollout `spec.workloadRef` was read. Attune does not patch that template. Recommendations still read the referenced pod template. Ready stays independent. This reason is not written over `WorkloadRefUnread`. Removed when no targeted Rollout has `spec.workloadRef` and the unread reason is not set. |
 | `TemplatePersistence` | `WorkloadRefUnread` | False when the referenced object cannot be read or has no containers. No recommendation is stored for that Rollout. Template persistence leaves this reason in place for that reconcile, including Recommend mode. Removed on a later reconcile whose workload errors no longer include a workloadRef read failure. |
 | `GitOpsPullRequest` | `PullRequestOpen`, `PullRequestFailed`, `GitOpsEndpointBlocked`, `NoDrift`, `PullRequestUnchanged`, `PullRequestCooldown`, `PullRequestDryRun`, `PullRequestDisabled` | Opt-in `export.pullRequest` automation status (see [GitOps integration](../guides/gitops-integration.md)) |
+| `SLOGuardrails` | `SLOGuardrailNoTenantCredentials`, `SLOGuardrailQueryRejected` | True when a tenant guardrail was not sent. `SLOGuardrailNoTenantCredentials` means `--slo-guardrail-enforce-namespace=false` and the query would have used operator Prometheus credentials. `SLOGuardrailQueryRejected` means the query could not be limited to the policy namespace. |
 
 `explanation.memory.finalAdjustment` can include `oomBump` when the published memory request was raised or held by `memory.oomBump`. The block is absent by default, so this note is not written until `oomBump` is set.
 

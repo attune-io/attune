@@ -116,6 +116,10 @@ approaches:
 
     The operator uses STS `AssumeRole` to obtain temporary credentials.
     The target role must trust the operator's IAM role/identity.
+    On an `AttunePolicy` or `AttuneNamespaceDefaults`, `roleArn` must
+    match `--sigv4-allowed-role-arns` (`sigv4.allowedRoleArns`). The
+    list is empty until you set it. Cluster `AttuneDefaults` is not
+    filtered. A namespaced assume sends `ExternalId` `attune:<namespace>`.
 
 ## Step 2: Create an AttunePolicy
 
@@ -143,7 +147,7 @@ spec:
 |-------|------|---------|-------------|
 | `region` | string | (required) | AWS region where CloudWatch metrics are stored (e.g., `us-east-1`) |
 | `clusterName` | string | (required) | EKS cluster name, used as the `ClusterName` dimension filter (alphanumeric, hyphen, underscore) |
-| `roleArn` | string | (optional) | IAM role ARN to assume for cross-account access (`arn:aws:iam::ACCOUNT:role/NAME`) |
+| `roleArn` | string | (optional) | IAM role ARN to assume for cross-account access (`arn:aws:iam::ACCOUNT:role/NAME`). On a policy or namespace defaults object it must match `--sigv4-allowed-role-arns`. |
 | `cpuUnit` | string | Millicores | Scale of `container_cpu_usage_total`. Millicores divides by 1000. Cores leaves the value unchanged. Nanocores divides by 1e9. Empty means Millicores. |
 
 ## Step 3: Verify the integration

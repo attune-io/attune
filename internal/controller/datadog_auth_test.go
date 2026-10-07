@@ -228,7 +228,7 @@ func TestFetchDefaultsForAuth_DatadogFlagUsesSelectedNamespaceObject(t *testing.
 		},
 	}
 	r := newReconcilerWithClient(selectedQuiet, unselected)
-	_, _, setDD, err := r.fetchDefaultsForAuth(context.Background(), "vpa-test")
+	_, _, setDD, _, err := r.fetchDefaultsForAuth(context.Background(), "vpa-test")
 	require.NoError(t, err)
 	assert.False(t, setDD, "unselected AttuneNamespaceDefaults must not mark Datadog as namespace-chosen")
 
@@ -239,7 +239,7 @@ func TestFetchDefaultsForAuth_DatadogFlagUsesSelectedNamespaceObject(t *testing.
 		},
 	}
 	r = newReconcilerWithClient(selected, unselected)
-	_, _, setDD, err = r.fetchDefaultsForAuth(context.Background(), "vpa-test")
+	_, _, setDD, _, err = r.fetchDefaultsForAuth(context.Background(), "vpa-test")
 	require.NoError(t, err)
 	assert.True(t, setDD)
 }

@@ -133,14 +133,16 @@ func (s *delegatingSigner) SignHTTP(ctx context.Context, creds aws.Credentials, 
 }
 
 type stubAssumeRole struct {
-	calls int
-	arn   string
+	calls      int
+	arn        string
+	externalID string
 }
 
 func (s *stubAssumeRole) AssumeRole(_ context.Context, params *sts.AssumeRoleInput, _ ...func(*sts.Options)) (*sts.AssumeRoleOutput, error) {
 	s.calls++
 	if params != nil {
 		s.arn = aws.ToString(params.RoleArn)
+		s.externalID = aws.ToString(params.ExternalId)
 	}
 	exp := time.Now().Add(time.Hour)
 	return &sts.AssumeRoleOutput{
@@ -157,7 +159,7 @@ func TestLoadAWSConfig_EmptyRegionIgnoresEnv(t *testing.T) {
 	t.Setenv("AWS_REGION", "us-west-2")
 	t.Setenv("AWS_DEFAULT_REGION", "eu-west-1")
 	for _, region := range []string{"", " ", "\t"} {
-		_, err := loadAWSConfig(context.Background(), region, "")
+		_, err := loadAWSConfig(context.Background(), region, "", "")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "AWS region is required")
 		assert.NotContains(t, err.Error(), "loading AWS config")
@@ -167,7 +169,7 @@ func TestLoadAWSConfig_EmptyRegionIgnoresEnv(t *testing.T) {
 func TestNewCloudWatchCollector_EmptyRegion(t *testing.T) {
 	t.Setenv("AWS_REGION", "us-east-1")
 	t.Setenv("AWS_DEFAULT_REGION", "us-east-1")
-	_, err := NewCloudWatchCollector(context.Background(), " ", "prod", "", logr.Discard())
+	_, err := NewCloudWatchCollector(context.Background(), " ", "prod", "", "", logr.Discard())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "AWS region is required")
 	assert.NotContains(t, err.Error(), "loading AWS config")
@@ -540,8 +542,25 @@ func TestPrometheusCollector_SigV4AssumeRoleOnQuery(t *testing.T) {
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, stub.calls, 1)
 	assert.Equal(t, roleARN, stub.arn)
+	assert.Empty(t, stub.externalID)
 	assert.True(t, strings.HasPrefix(auth, "AWS4-HMAC-SHA256"), auth)
 	assert.Contains(t, auth, "/us-west-2/aps/")
+}
+
+func TestAssumeRoleProvider_ExternalID(t *testing.T) {
+	const roleARN = "arn:aws:iam::123456789012:role/attune-amp"
+	stub := &stubAssumeRole{}
+	provider := assumeRoleProvider(stub, roleARN, "attune:team-a")
+	_, err := provider.Retrieve(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, roleARN, stub.arn)
+	assert.Equal(t, "attune:team-a", stub.externalID)
+
+	plain := &stubAssumeRole{}
+	provider = assumeRoleProvider(plain, roleARN, "")
+	_, err = provider.Retrieve(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, plain.externalID)
 }
 
 func TestPrometheusCollector_SigV4FailureLogOmitsSecrets(t *testing.T) {

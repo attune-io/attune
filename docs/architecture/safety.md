@@ -125,9 +125,14 @@ to stabilize before comparing against SLO thresholds.
     fail open and do not extend observation by themselves.
 
 If a guardrail query breaches its threshold, the resize is reverted with
-reason `slo:<guardrail-name>`. The monitor **fails open**: if a query
+reason `slo:<guardrail-name>`. The event names the comparison and does
+not include the numeric value. The monitor **fails open**: if a query
 returns an error, NaN, or Inf, the guardrail is skipped with a log
-message rather than triggering a false revert.
+message rather than triggering a false revert. Datadog and CloudWatch
+do not register a guardrail querier, so they do not hold observation
+for a guardrail window. A tenant guardrail that would use operator
+Prometheus credentials is limited to the policy namespace first. A
+query that cannot be limited is skipped and does not hold observation.
 
 **Mitigation**: review the guardrail's PromQL query and threshold in
 `updateStrategy.sloGuardrails`. Adjust the threshold, widen the

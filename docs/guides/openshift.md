@@ -196,8 +196,10 @@ prometheusAuth:
     create: true
 ```
 
-so Thanos gets a query-only identity instead of the manager token. Keep
-address and TLS on `AttuneDefaults`:
+so Thanos gets a query-only identity instead of the manager token. A
+guardrail written on an `AttunePolicy` is then limited to that policy's
+namespace. A guardrail on cluster `AttuneDefaults` is not rewritten.
+Keep address and TLS on `AttuneDefaults`:
 
 ```yaml
 apiVersion: attune.io/v1alpha1

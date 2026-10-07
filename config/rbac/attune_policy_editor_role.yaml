@@ -1,0 +1,23 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: attune-policy-editor
+rules:
+- apiGroups:
+  - attune.io
+  resources:
+  - attunepolicies
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - attune.io
+  resources:
+  - attunepolicies/status
+  verbs:
+  - get

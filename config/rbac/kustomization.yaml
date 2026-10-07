@@ -10,3 +10,5 @@ resources:
   - prometheus_query_service_account.yaml
   - prometheus_query_token_role.yaml
   - prometheus_query_token_role_binding.yaml
+  - attune_policy_editor_role.yaml
+  - attune_policy_viewer_role.yaml
