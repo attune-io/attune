@@ -216,6 +216,23 @@ class TestMain(unittest.TestCase):
         sys.argv = ["fossa-filter.py", path]
         self.assertEqual(main(), 0)
 
+    def test_prometheus_parser_vulnerability_payload_exit_0(self):
+        # License Check on PR 1033 run 37581650818. Two vulnerability
+        # rows for the parser module after the v0.311.3 bump.
+        path = self._write_tmp(json.dumps([
+            {"revisionId": "go+github.com/prometheus/prometheus$v0.311.3", "type": "vulnerability"},
+            {"revisionId": "go+github.com/prometheus/prometheus$v0.311.3", "type": "vulnerability"},
+        ]))
+        sys.argv = ["fossa-filter.py", path]
+        self.assertEqual(main(), 0)
+
+    def test_prometheus_license_conflict_still_fails(self):
+        path = self._write_tmp(json.dumps([
+            {"revisionId": "go+github.com/prometheus/prometheus$v0.311.3", "type": "policy_conflict", "license": "GPL-3.0"},
+        ]))
+        sys.argv = ["fossa-filter.py", path]
+        self.assertEqual(main(), 1)
+
     def test_genuine_issue_exit_1(self):
         path = self._write_tmp(json.dumps([
             {"revisionId": "go+github.com/evil/pkg$v1.0.0", "type": "policy_conflict", "license": "GPL-3.0"},
