@@ -58,8 +58,7 @@ feature: [Report a vulnerability](https://github.com/attune-io/attune/security/a
 ### Tenancy
 
 What an `AttunePolicy` author can make the operator do is documented in
-[Tenancy](docs/security/tenancy.md). The rendered page is
-[Tenancy](https://attune-io.github.io/attune/security/tenancy/).
+[Tenancy](docs/security/tenancy.md).
 
 ### Runtime
 

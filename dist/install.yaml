@@ -623,7 +623,10 @@ spec:
                       roleArn:
                         description: |-
                           RoleARN is an optional IAM role ARN to assume for cross-account access.
-                          If not set, uses the pod's service account IAM role (IRSA/Pod Identity).
+                          Empty uses the operator identity. On AttunePolicy and
+                          AttuneNamespaceDefaults a set role must match --sigv4-allowed-role-arns.
+                          Cluster AttuneDefaults is not filtered. A namespaced assume sends
+                          ExternalId attune:<namespace>.
                         type: string
                     required:
                     - clusterName
@@ -758,8 +761,12 @@ spec:
                             type: string
                           roleArn:
                             description: |-
-                              RoleARN is an optional IAM role to assume. Empty uses the pod
-                              identity credential chain (IRSA or Pod Identity).
+                              RoleARN is an optional IAM role to assume. Empty uses the operator
+                              identity. On AttunePolicy and AttuneNamespaceDefaults a set role must
+                              match --sigv4-allowed-role-arns, and an empty role requires the
+                              workspace host in --sigv4-allowed-workspace-hosts. Cluster
+                              AttuneDefaults is not filtered by those lists. A namespaced assume
+                              sends ExternalId attune:<namespace>.
                             type: string
                         required:
                         - region
@@ -798,8 +805,11 @@ spec:
                           object.
                         type: string
                       namespace:
-                        description: Namespace is the namespace of the VPA. Defaults
-                          to the policy's namespace.
+                        description: |-
+                          Namespace is the namespace of the VPA. Empty uses the policy namespace.
+                          AttunePolicy and AttuneNamespaceDefaults may only name their own
+                          namespace. Cluster AttuneDefaults may name another namespace, and
+                          policies that inherit only that value still read it.
                         type: string
                     required:
                     - name
@@ -1864,7 +1874,10 @@ spec:
                       roleArn:
                         description: |-
                           RoleARN is an optional IAM role ARN to assume for cross-account access.
-                          If not set, uses the pod's service account IAM role (IRSA/Pod Identity).
+                          Empty uses the operator identity. On AttunePolicy and
+                          AttuneNamespaceDefaults a set role must match --sigv4-allowed-role-arns.
+                          Cluster AttuneDefaults is not filtered. A namespaced assume sends
+                          ExternalId attune:<namespace>.
                         type: string
                     required:
                     - clusterName
@@ -1999,8 +2012,12 @@ spec:
                             type: string
                           roleArn:
                             description: |-
-                              RoleARN is an optional IAM role to assume. Empty uses the pod
-                              identity credential chain (IRSA or Pod Identity).
+                              RoleARN is an optional IAM role to assume. Empty uses the operator
+                              identity. On AttunePolicy and AttuneNamespaceDefaults a set role must
+                              match --sigv4-allowed-role-arns, and an empty role requires the
+                              workspace host in --sigv4-allowed-workspace-hosts. Cluster
+                              AttuneDefaults is not filtered by those lists. A namespaced assume
+                              sends ExternalId attune:<namespace>.
                             type: string
                         required:
                         - region
@@ -2039,8 +2056,11 @@ spec:
                           object.
                         type: string
                       namespace:
-                        description: Namespace is the namespace of the VPA. Defaults
-                          to the policy's namespace.
+                        description: |-
+                          Namespace is the namespace of the VPA. Empty uses the policy namespace.
+                          AttunePolicy and AttuneNamespaceDefaults may only name their own
+                          namespace. Cluster AttuneDefaults may name another namespace, and
+                          policies that inherit only that value still read it.
                         type: string
                     required:
                     - name
@@ -3656,7 +3676,10 @@ spec:
                       roleArn:
                         description: |-
                           RoleARN is an optional IAM role ARN to assume for cross-account access.
-                          If not set, uses the pod's service account IAM role (IRSA/Pod Identity).
+                          Empty uses the operator identity. On AttunePolicy and
+                          AttuneNamespaceDefaults a set role must match --sigv4-allowed-role-arns.
+                          Cluster AttuneDefaults is not filtered. A namespaced assume sends
+                          ExternalId attune:<namespace>.
                         type: string
                     required:
                     - clusterName
@@ -3791,8 +3814,12 @@ spec:
                             type: string
                           roleArn:
                             description: |-
-                              RoleARN is an optional IAM role to assume. Empty uses the pod
-                              identity credential chain (IRSA or Pod Identity).
+                              RoleARN is an optional IAM role to assume. Empty uses the operator
+                              identity. On AttunePolicy and AttuneNamespaceDefaults a set role must
+                              match --sigv4-allowed-role-arns, and an empty role requires the
+                              workspace host in --sigv4-allowed-workspace-hosts. Cluster
+                              AttuneDefaults is not filtered by those lists. A namespaced assume
+                              sends ExternalId attune:<namespace>.
                             type: string
                         required:
                         - region
@@ -3831,8 +3858,11 @@ spec:
                           object.
                         type: string
                       namespace:
-                        description: Namespace is the namespace of the VPA. Defaults
-                          to the policy's namespace.
+                        description: |-
+                          Namespace is the namespace of the VPA. Empty uses the policy namespace.
+                          AttunePolicy and AttuneNamespaceDefaults may only name their own
+                          namespace. Cluster AttuneDefaults may name another namespace, and
+                          policies that inherit only that value still read it.
                         type: string
                     required:
                     - name
@@ -5210,6 +5240,45 @@ rules:
   - serviceaccounts/token
   verbs:
   - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: attune-attune-policy-editor
+rules:
+- apiGroups:
+  - attune.io
+  resources:
+  - attunepolicies
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - attune.io
+  resources:
+  - attunepolicies/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: attune-attune-policy-viewer
+rules:
+- apiGroups:
+  - attune.io
+  resources:
+  - attunepolicies
+  - attunepolicies/status
+  verbs:
+  - get
+  - list
+  - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole

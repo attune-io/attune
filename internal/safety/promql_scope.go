@@ -23,6 +23,9 @@ import (
 	"github.com/prometheus/prometheus/promql/parser"
 )
 
+// promQL parses guardrail queries with the default PromQL feature set.
+var promQL = parser.NewParser(parser.Options{})
+
 // EnforcePromQLNamespace adds namespace="<namespace>" to every vector
 // selector. A selector that already has that exact matcher is unchanged.
 // A different namespace matcher, including regex and negative matchers,
@@ -31,7 +34,7 @@ func EnforcePromQLNamespace(query, namespace string) (string, error) {
 	if namespace == "" {
 		return "", fmt.Errorf("policy namespace is empty")
 	}
-	expr, err := parser.ParseExpr(query)
+	expr, err := promQL.ParseExpr(query)
 	if err != nil {
 		return "", fmt.Errorf("parsing SLO query: %w", err)
 	}
@@ -49,7 +52,7 @@ func EnforcePromQLNamespace(query, namespace string) (string, error) {
 // enforcement. A Go template is not PromQL until interpolation, so it may
 // run. A query that parses and cannot be scoped will not be sent.
 func PromQLQueryMayRun(query, namespace string) bool {
-	if _, err := parser.ParseExpr(query); err != nil {
+	if _, err := promQL.ParseExpr(query); err != nil {
 		return true
 	}
 	_, err := EnforcePromQLNamespace(query, namespace)

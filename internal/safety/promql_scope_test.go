@@ -24,6 +24,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var testParser = parser.NewParser(parser.Options{})
+
 func TestEnforcePromQLNamespace(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -51,7 +53,7 @@ func TestEnforcePromQLNamespace(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.NotContains(t, got, "team-b")
-			expr, err := parser.ParseExpr(got)
+			expr, err := testParser.ParseExpr(got)
 			require.NoError(t, err)
 			counter := &countNamespace{namespace: "team-a"}
 			require.NoError(t, parser.Walk(counter, expr, nil))
