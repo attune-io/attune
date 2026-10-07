@@ -389,7 +389,9 @@ statusIncludeExplanations: true
 # -- Namespaces to watch for AttunePolicy resources. Empty means all namespaces (cluster-scoped).
 # Set this to reduce informer cache memory on large clusters where policies exist in only a few
 # namespaces. Cluster-scoped resources (Nodes, AttuneDefaults) are always watched regardless.
-# Secret get stays cluster-wide. See docs/getting-started/installation.md#secret-access.
+# Secret get stays cluster-wide. AttunePolicy writes in other namespaces are still admitted.
+# Admission reads defaults from the API server. The controller does not reconcile those namespaces.
+# See docs/getting-started/installation.md#secret-access.
 watchNamespaces: []
 
 # -- FIPS 140-3 compliance mode.

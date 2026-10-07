@@ -15,8 +15,11 @@ kubectl get attunepolicy <name> -o jsonpath='{.status.conditions}' | jq .
 
 **Cause:** A range query returned more series than `--max-prometheus-series`
 (default 5000). CloudWatch `GetMetricData` uses the same series default and
-also stops after 20 result pages. Attune keeps partial data (preferring at
-least one series per container) and continues.
+also stops after 20 result pages. Attune keeps partial data (at least one
+series per container when the cap allows) and continues. With
+`cpu.startupBoost.excludeFromHistory: true`, the CPU cap also spreads
+across pods. See
+[One container missing under a capped startup query](#one-container-missing-under-a-capped-startup-query).
 
 **Fix:**
 
@@ -1736,6 +1739,41 @@ to the non-zero max. `boundsApplied` is `max`.
 **Fix**: Lower the defaults min, raise the policy or container max, or
 set an explicit min that is at or below the max. `kubectl attune explain`
 can show the merged pair. Explain does not reject the apply.
+
+### One container missing under a capped startup query
+
+**Symptom**: `cpu.startupBoost.excludeFromHistory` is true, Ready is
+`PrometheusSeriesCapped`, and one container has no CPU samples.
+
+**Cause**: That CPU query is one series per pod and container. The cap
+keeps one series per pod before any pod gets a second series, and
+chooses the container with fewer series already kept. A cap smaller
+than the number of containers still leaves some containers out.
+`samplesForContainer` does not borrow another container's series.
+
+**Fix**: Raise `maxPrometheusSeries` / `--max-prometheus-series` above
+the number of pods times the number of containers you need, or shorten
+`historyWindow` so replaced pods leave the matrix. Omitting
+`excludeFromHistory` uses the default per-container cap instead.
+
+### Policy rejected: unknown namespace for the cache
+
+**Symptom**: `kubectl apply` of an AttunePolicy fails with:
+
+```text
+listing AttuneNamespaceDefaults in team-b: unable to list: team-b because of unknown namespace for the cache
+```
+
+**Cause**: `watchNamespaces` is set, and the running controller read
+`AttuneNamespaceDefaults` from the informer cache. The validating
+webhook has `failurePolicy: Fail` and no namespace selector, so a
+policy outside the list was denied when it set `maxAllowed` without
+`minAllowed`, or a surge window without `metricsSource.historyWindow`.
+
+**Fix**: Upgrade the controller. Current admission reads
+`AttuneDefaults` and `AttuneNamespaceDefaults` from the API server.
+The controller still does not reconcile namespaces outside the list.
+A defaults min above the policy max is still rejected.
 
 ### Policy rejected: invalid schedule timezone
 

@@ -589,7 +589,11 @@ plus the rate window are dropped, then the remaining pod series are
 reduced with `podAggregation`. A sample at the cutoff stays. Nil and
 false keep today's percentile. Memory samples are unchanged. Deleted
 pods stay until `historyWindow`. A recreated pod name keeps samples
-older than the new CreationTimestamp.
+older than the new CreationTimestamp. If that CPU matrix is larger
+than the Prometheus series cap, Attune keeps one series per pod before
+any pod gets a second series, and chooses the container with fewer
+series already kept. A cap smaller than the container count leaves
+some containers out.
 
 ```
 Raw Prometheus Data

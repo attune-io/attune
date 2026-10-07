@@ -55,7 +55,11 @@ Deleted pods stay in history until `historyWindow`, because there is
 no creation time or stamp to cut on. A recreated pod keeps samples
 older than its new creation time. A series with no pod label is left
 unfiltered. Prometheus uses `max by (pod, container)` for that CPU
-query so each pod and container is one series.
+query so each pod and container is one series. If that query is
+larger than `--max-prometheus-series`, each pod is represented before
+any pod gets a second series, and the series chosen for a pod is the
+container with fewer series kept. A cap smaller than the number of
+containers leaves some containers without CPU samples.
 
 If the boosted CPU would exceed `maxAllowed` or the node's allocatable
 CPU, the boost is capped. `RequestsOnly` also dest-caps leftover dest

@@ -38,6 +38,10 @@ or None). A point at the cutoff stays. Nil and false keep today's
 percentile. Memory samples are not filtered. Deleted pods stay until
 `historyWindow`. A recreated pod keeps samples older than its new
 `CreationTimestamp`. A series with no pod label is left unfiltered.
+If that CPU matrix is larger than `--max-prometheus-series`, Attune
+keeps one series per pod before any pod gets a second series, and
+chooses the container with fewer series already kept. A cap smaller
+than the container count leaves some containers out.
 
 ### Usage surge (off until set)
 

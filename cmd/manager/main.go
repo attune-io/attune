@@ -415,7 +415,9 @@ func main() {
 			WithDefaulter(&webhook.AttunePolicyDefaulter{}).
 			WithValidator(&webhook.AttunePolicyValidator{
 				SecretAccess: webhook.NewSARSecretChecker(clientset),
-				Client:       mgr.GetClient(),
+				// Live read. The cache does not include namespaces outside
+				// --watch-namespaces, and a list error there denies admission.
+				APIReader: mgr.GetAPIReader(),
 			}).
 			Complete(); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "AttunePolicy")

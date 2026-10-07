@@ -265,8 +265,12 @@ workloads can make each query much more expensive; see
 ## Ready reason: PrometheusSeriesCapped
 
 When a range query returns more series than `--max-prometheus-series`, Attune
-keeps a partial result (preferring at least one series per container) and may
-set Ready reason `PrometheusSeriesCapped`. Raise the cap, or keep the default
+keeps a partial result and may set Ready reason `PrometheusSeriesCapped`.
+The default query keeps at least one series per container. With
+`cpu.startupBoost.excludeFromHistory: true`, the CPU query also keeps one
+series per pod before any pod gets a second series, and prefers the
+container that has fewer series kept. A cap smaller than the number of
+containers still drops the rest. Raise the cap, or keep the default
 `podAggregation: Max` so series counts stay small.
 
 ## Performance features (built-in)
@@ -502,6 +506,9 @@ Or via CLI flag:
   resources (Pods, Deployments, HPAs, AttunePolicies, etc.)
 - Cluster-scoped resources (Nodes, AttuneDefaults) are always watched
   regardless of this setting
+- AttunePolicy creates and updates outside the list are still admitted.
+  Admission reads defaults from the API server. The controller does not
+  reconcile those namespaces.
 - Requires a restart to change the namespace list
 
 **Memory impact:** On a 10,000-namespace cluster with policies in 50
