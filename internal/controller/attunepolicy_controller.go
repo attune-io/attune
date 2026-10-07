@@ -489,6 +489,16 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 	if err := refuseTenantMetrics(policy.Namespace, &policy, nsSpec, r.sigv4Allowlist()); err != nil {
 		logger.Error(err, "Rejected tenant metrics configuration")
+		// Merge so pause, boost, and safety see the same effective spec
+		// as a healthy reconcile. Do not build the rejected collector.
+		r.mergeDefaults(&policy, defaults)
+		r.applyBuiltInDefaults(&policy)
+		if policy.Spec.Paused != nil && *policy.Spec.Paused {
+			logger.Info("Policy is paused, skipping reconciliation")
+			r.setFailedCondition(ctx, &policy, attunev1alpha1.ReasonPaused, "Reconciliation paused by spec.paused=true")
+			return ctrl.Result{}, nil
+		}
+		r.unwindRejectedTenantMetrics(ctx, &policy)
 		r.setFailedCondition(ctx, &policy, attunev1alpha1.ReasonInvalidConfig, err.Error())
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}

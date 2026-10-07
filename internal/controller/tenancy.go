@@ -19,12 +19,15 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	rsmetrics "github.com/attune-io/attune/internal/metrics"
+	"github.com/attune-io/attune/internal/resize"
 	"github.com/attune-io/attune/internal/safety"
 	"github.com/attune-io/attune/internal/validation"
 )
@@ -144,19 +147,56 @@ func (r *AttunePolicyReconciler) noteSkippedTenantGuardrail(policy *attunev1alph
 		"Tenant SLO guardrails were not run because they would use operator credentials. Move them to AttuneDefaults, give the policy its own Prometheus credentials, or leave --slo-guardrail-enforce-namespace at its default.")
 }
 
+// unwindRejectedTenantMetrics reverts critical pod failures and expires a
+// startup boost that already landed. It does not query the rejected
+// metrics source, apply a new resize, or raise a new boost.
+func (r *AttunePolicyReconciler) unwindRejectedTenantMetrics(ctx context.Context, policy *attunev1alpha1.AttunePolicy) {
+	if r == nil || policy == nil || r.Clientset == nil {
+		return
+	}
+	logger := log.FromContext(ctx)
+	workloads, err := r.discoverWorkloads(ctx, policy)
+	if err != nil {
+		logger.Error(err, "Rejected tenant metrics; workload discovery failed, skipping in-flight unwind")
+		return
+	}
+	if autoRevertEnabled(policy.Spec.UpdateStrategy) {
+		_ = r.checkPendingSafetyObservations(contextWithSafetyKeepTracking(ctx), policy, nil, workloads)
+	}
+	if policy.Spec.Memory.OOMBump != nil {
+		for _, w := range workloads {
+			r.persistPendingAnnotationOnlyOOMBumps(ctx, policy, w)
+		}
+	}
+	if policy.Spec.UpdateStrategy == nil || !isResizeMode(policy.Spec.UpdateStrategy.Type) ||
+		policy.Spec.CPU.StartupBoost == nil || len(policy.Status.Recommendations) == 0 {
+		return
+	}
+	podsByWorkload := r.listPodsForWorkloads(ctx, workloads)
+	resizer := resize.NewPodResizer(r.Clientset, logger)
+	resizer.AllowInPlaceMemoryLimitDecrease = r.AllowInPlaceMemoryLimitDecrease
+	resizer.InPlacePodLevelResources = r.inPlacePodLevelResources()
+	r.applyStartupBoosts(contextWithStartupBoostExpiryOnly(ctx), policy, podsByWorkload, policy.Status.Recommendations, resizer, nil)
+}
+
 func sloSkipMessage(namespace string) string {
 	return fmt.Sprintf("An SLO guardrail was not sent because it is not limited to namespace %q.", namespace)
 }
 
-// recordSLOGuardrailSkips records queries that were not sent. Skip mode
-// keeps SLOGuardrailNoTenantCredentials. Once a later pass sends the
-// queries, that reason and a stale QueryRejected are cleared.
-func (r *AttunePolicyReconciler) recordSLOGuardrailSkips(ctx context.Context, policy *attunev1alpha1.AttunePolicy, collector rsmetrics.MetricsCollector, names []string) {
+// recordSLOGuardrailSkips records queries that were not sent, and scoped
+// queries that returned no samples. Skip mode keeps
+// SLOGuardrailNoTenantCredentials. Once a later pass sends the queries
+// and they return a sample, those reasons are cleared.
+func (r *AttunePolicyReconciler) recordSLOGuardrailSkips(ctx context.Context, policy *attunev1alpha1.AttunePolicy, collector rsmetrics.MetricsCollector, skipped, empty []string) {
 	if policy == nil {
 		return
 	}
-	if len(names) > 0 {
+	if len(skipped) > 0 {
 		r.setSLOGuardrailCondition(policy, metav1.ConditionTrue, attunev1alpha1.ReasonSLOGuardrailQueryRejected, sloSkipMessage(policy.Namespace))
+		return
+	}
+	if len(empty) > 0 {
+		r.setSLOGuardrailCondition(policy, metav1.ConditionTrue, attunev1alpha1.ReasonSLOGuardrailNoSamples, sloNoSamplesMessage(policy.Namespace, empty))
 		return
 	}
 	if r.sloAuthMode(ctx, collector) == safety.SLOAuthSkip {
@@ -167,8 +207,14 @@ func (r *AttunePolicyReconciler) recordSLOGuardrailSkips(ctx context.Context, po
 		return
 	}
 	if cond.Reason != attunev1alpha1.ReasonSLOGuardrailQueryRejected &&
-		cond.Reason != attunev1alpha1.ReasonSLOGuardrailNoTenantCredentials {
+		cond.Reason != attunev1alpha1.ReasonSLOGuardrailNoTenantCredentials &&
+		cond.Reason != attunev1alpha1.ReasonSLOGuardrailNoSamples {
 		return
 	}
-	r.setSLOGuardrailCondition(policy, metav1.ConditionFalse, "Scoped", "Tenant SLO guardrails are limited to the policy namespace.")
+	r.setSLOGuardrailCondition(policy, metav1.ConditionFalse, attunev1alpha1.ReasonSLOGuardrailScoped, "Tenant SLO guardrails are limited to the policy namespace.")
+}
+
+func sloNoSamplesMessage(namespace string, names []string) string {
+	listed := strings.Join(names, ", ")
+	return fmt.Sprintf("SLO guardrail %s returned no samples after it was limited to namespace %q, so it did not revert. A series whose namespace label is not that namespace will not match. Move the guardrail to AttuneDefaults, or give the policy its own Prometheus credentials.", listed, namespace)
 }

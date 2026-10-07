@@ -24,12 +24,15 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	kubefake "k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -337,26 +340,26 @@ func TestRecordSLOGuardrailSkipsClearsStaleRejection(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	policy := policyWithGuardrails("team-a")
 	r.setSLOGuardrailCondition(policy, metav1.ConditionTrue, attunev1alpha1.ReasonSLOGuardrailQueryRejected, "old")
-	r.recordSLOGuardrailSkips(context.Background(), policy, &mockCollector{}, nil)
+	r.recordSLOGuardrailSkips(context.Background(), policy, &mockCollector{}, nil, nil)
 	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionSLOGuardrails)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionFalse, cond.Status)
-	assert.Equal(t, "Scoped", cond.Reason)
+	assert.Equal(t, attunev1alpha1.ReasonSLOGuardrailScoped, cond.Reason)
 
 	r.SLOGuardrailEnforceNamespace = false
 	ctx := context.WithValue(context.Background(), sloPlanKey{}, sloPlan{tenantGuardrails: true})
 	r.noteSkippedTenantGuardrail(policy)
-	r.recordSLOGuardrailSkips(ctx, policy, &operatorCollector{}, nil)
+	r.recordSLOGuardrailSkips(ctx, policy, &operatorCollector{}, nil, nil)
 	cond = meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionSLOGuardrails)
 	require.NotNil(t, cond)
 	assert.Equal(t, attunev1alpha1.ReasonSLOGuardrailNoTenantCredentials, cond.Reason)
 
 	r.SLOGuardrailEnforceNamespace = true
-	r.recordSLOGuardrailSkips(ctx, policy, &operatorCollector{}, nil)
+	r.recordSLOGuardrailSkips(ctx, policy, &operatorCollector{}, nil, nil)
 	cond = meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionSLOGuardrails)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionFalse, cond.Status)
-	assert.Equal(t, "Scoped", cond.Reason)
+	assert.Equal(t, attunev1alpha1.ReasonSLOGuardrailScoped, cond.Reason)
 }
 
 func TestSLOTenancy_RejectedQueryDoesNotExtendCanary(t *testing.T) {
@@ -375,6 +378,251 @@ func TestSLOTenancy_RejectedQueryDoesNotExtendCanary(t *testing.T) {
 
 	policy.Spec.UpdateStrategy.SLOGuardrails[0].Query = `sum(foo{pod="{{ .PodName }}"})`
 	assert.True(t, r.sloQuerierActive(ctx, &operatorCollector{}, policy.Namespace, policy.Spec.UpdateStrategy.SLOGuardrails))
+}
+
+func TestRecordSLOGuardrailSkips_EmptySamples(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+	r.SLOGuardrailEnforceNamespace = true
+	ctx := context.WithValue(context.Background(), sloPlanKey{}, sloPlan{tenantGuardrails: true})
+	policy := policyWithGuardrails("team-a")
+	r.recordSLOGuardrailSkips(ctx, policy, &operatorCollector{}, nil, []string{"ingress"})
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionSLOGuardrails)
+	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionTrue, cond.Status)
+	assert.Equal(t, attunev1alpha1.ReasonSLOGuardrailNoSamples, cond.Reason)
+	assert.Contains(t, cond.Message, "ingress")
+	assert.Contains(t, cond.Message, "team-a")
+
+	r.recordSLOGuardrailSkips(ctx, policy, &operatorCollector{}, nil, nil)
+	cond = meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionSLOGuardrails)
+	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, attunev1alpha1.ReasonSLOGuardrailScoped, cond.Reason)
+}
+
+func TestReconcile_PausedRejectedTenantMetricsStaysPaused(t *testing.T) {
+	paused := true
+	policy := rejectedVPAPolicy("probe", "default")
+	policy.Spec.Paused = &paused
+	pod := rejectedOOMPod("oom-pod", time.Now().UTC().Add(-10*time.Second))
+	deploy := newTestDeployment("api-server", "default", nil)
+	r, c, clientset := rejectedTenantReconciler(t, policy, deploy, pod)
+	built := false
+	r.MetricsFactory = func(string, *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
+		built = true
+		return &mockCollector{}, nil
+	}
+
+	result, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "probe", Namespace: "default"},
+	})
+	require.NoError(t, err)
+	assert.Zero(t, result.RequeueAfter)
+	assert.False(t, built)
+	assert.False(t, resizeWasCalled(clientset))
+	updated := storedProbe(t, c)
+	cond := meta.FindStatusCondition(updated.Status.Conditions, attunev1alpha1.ConditionReady)
+	require.NotNil(t, cond)
+	assert.Equal(t, attunev1alpha1.ReasonPaused, cond.Reason)
+}
+
+func TestReconcile_RejectedTenantMetricsRevertsOOMAndKeepsTracking(t *testing.T) {
+	policy := rejectedVPAPolicy("probe", "default")
+	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
+	pod := rejectedOOMPod("oom-pod", time.Now().UTC().Add(-10*time.Second))
+	deploy := newTestDeployment("api-server", "default", nil)
+	r, c, clientset := rejectedTenantReconciler(t, policy, deploy, pod)
+	built := false
+	r.MetricsFactory = func(string, *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
+		built = true
+		return &mockCollector{}, nil
+	}
+
+	result, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "probe", Namespace: "default"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, time.Minute, result.RequeueAfter)
+	assert.False(t, built, "rejected metrics must not build a collector")
+	assert.True(t, resizeWasCalled(clientset), "OOM during observation must still revert")
+
+	updated := storedProbe(t, c)
+	cond := meta.FindStatusCondition(updated.Status.Conditions, attunev1alpha1.ConditionReady)
+	require.NotNil(t, cond)
+	assert.Equal(t, attunev1alpha1.ReasonInvalidConfig, cond.Reason)
+	var live corev1.Pod
+	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "oom-pod", Namespace: "default"}, &live))
+	assert.NotEmpty(t, live.Annotations["attune.io/resized-at"], "tracking stays until metrics can finish observation")
+}
+
+func TestReconcile_RejectedTenantMetricsDoesNotClearReadyObservation(t *testing.T) {
+	policy := rejectedVPAPolicy("probe", "default")
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := rejectedTrackedPod("ready-pod", resizedAt)
+	pod.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
+	deploy := newTestDeployment("api-server", "default", nil)
+	r, c, _ := rejectedTenantReconciler(t, policy, deploy, pod)
+
+	_, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "probe", Namespace: "default"},
+	})
+	require.NoError(t, err)
+	var live corev1.Pod
+	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "ready-pod", Namespace: "default"}, &live))
+	assert.Equal(t, resizedAt, live.Annotations["attune.io/resized-at"])
+	assert.Equal(t, "true", live.Labels["attune.io/tracked"])
+}
+
+func TestReconcile_RejectedTenantMetricsExpiresBoostWithoutRaising(t *testing.T) {
+	policy := rejectedVPAPolicy("probe", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.CPU.StartupBoost = &attunev1alpha1.StartupBoost{
+		Multiplier: "2",
+		Duration:   metav1.Duration{Duration: time.Minute},
+	}
+	policy.Status.Recommendations = []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api-server",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "main",
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest: resource.MustParse("100m"),
+			},
+		}},
+	}}
+	expired := rejectedTrackedPod("expired-pod", time.Now().Add(-2*time.Hour).UTC().Format(time.RFC3339))
+	expired.Annotations[annotationStartupBoostAt] = time.Now().Add(-2 * time.Hour).UTC().Format(time.RFC3339)
+	expired.Annotations[annotationStartupBoostContainers] = "main"
+	expired.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("400m")
+	fresh := rejectedTrackedPod("fresh-pod", time.Now().UTC().Format(time.RFC3339))
+	fresh.CreationTimestamp = metav1.NewTime(time.Now())
+	fresh.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("100m")
+	deploy := newTestDeployment("api-server", "default", nil)
+	r, _, clientset := rejectedTenantReconciler(t, policy, deploy, expired, fresh)
+
+	_, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "probe", Namespace: "default"},
+	})
+	require.NoError(t, err)
+	var expiredResize, freshResize int
+	for _, action := range clientset.Actions() {
+		if action.GetVerb() != "update" || action.GetSubresource() != "resize" {
+			continue
+		}
+		update, ok := action.(k8stesting.UpdateAction)
+		if !ok || update.GetNamespace() != "default" {
+			continue
+		}
+		pod, ok := update.GetObject().(*corev1.Pod)
+		if !ok {
+			continue
+		}
+		switch pod.Name {
+		case "expired-pod":
+			expiredResize++
+		case "fresh-pod":
+			freshResize++
+		}
+	}
+	assert.Equal(t, 1, expiredResize, "an expired boost still steps down to the stored recommendation")
+	assert.Zero(t, freshResize, "a rejected metrics source does not raise a new boost")
+}
+
+func rejectedVPAPolicy(name, namespace string) *attunev1alpha1.AttunePolicy {
+	policy := newTestPolicy(name, namespace)
+	policy.Spec.MetricsSource.Prometheus = nil
+	policy.Spec.MetricsSource.VPA = &attunev1alpha1.VPAConfig{Name: "other-vpa", Namespace: "other"}
+	return policy
+}
+
+func rejectedTrackedPod(name, resizedAt string) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              name,
+			Namespace:         "default",
+			CreationTimestamp: metav1.NewTime(time.Now().Add(-2 * time.Hour)),
+			Labels: map[string]string{
+				"app":               "api-server",
+				"attune.io/tracked": "true",
+			},
+			Annotations: map[string]string{
+				"attune.io/resized-at":                   resizedAt,
+				"attune.io/resized-workload":             "api-server",
+				"attune.io/resized-containers":           "main",
+				"attune.io/original-cpu-request.main":    "100m",
+				"attune.io/original-memory-request.main": "256Mi",
+				"attune.io/policy":                       "probe",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name:  "main",
+				Image: "nginx",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("100m"),
+						corev1.ResourceMemory: resource.MustParse("256Mi"),
+					},
+				},
+			}},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{{
+				Name: "main",
+			}},
+		},
+	}
+}
+
+func rejectedOOMPod(name string, when time.Time) *corev1.Pod {
+	pod := rejectedTrackedPod(name, when.UTC().Format(time.RFC3339))
+	pod.Status.ContainerStatuses[0].LastTerminationState = corev1.ContainerState{
+		Terminated: &corev1.ContainerStateTerminated{
+			Reason:     "OOMKilled",
+			FinishedAt: metav1.NewTime(time.Now()),
+		},
+	}
+	return pod
+}
+
+func rejectedTenantReconciler(t *testing.T, policy *attunev1alpha1.AttunePolicy, deploy *appsv1.Deployment, pods ...*corev1.Pod) (*AttunePolicyReconciler, client.Client, *kubefake.Clientset) {
+	t.Helper()
+	scheme := testScheme()
+	objects := make([]client.Object, 0, 2+len(pods))
+	objects = append(objects, policy, deploy)
+	clientPods := make([]runtime.Object, 0, len(pods))
+	for _, pod := range pods {
+		objects = append(objects, pod)
+		clientPods = append(clientPods, pod.DeepCopy())
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).
+		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).Build()
+	clientset := kubefake.NewSimpleClientset(clientPods...)
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+	r.Scheme = scheme
+	r.Clientset = clientset
+	r.MetricsFactory = func(string, *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
+		return &mockCollector{}, nil
+	}
+	return r, c, clientset
+}
+
+func storedProbe(t *testing.T, c client.Client) attunev1alpha1.AttunePolicy {
+	t.Helper()
+	var updated attunev1alpha1.AttunePolicy
+	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "probe", Namespace: "default"}, &updated))
+	return updated
+}
+
+func resizeWasCalled(clientset *kubefake.Clientset) bool {
+	for _, action := range clientset.Actions() {
+		if action.GetVerb() == "update" && action.GetSubresource() == "resize" {
+			return true
+		}
+	}
+	return false
 }
 
 func policyWithGuardrails(namespace string) *attunev1alpha1.AttunePolicy {

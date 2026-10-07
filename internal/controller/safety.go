@@ -241,6 +241,20 @@ func (r *AttunePolicyReconciler) countLiveRunningReplicas(
 // has elapsed, it runs a safety check. Unsafe pods are reverted to their
 // original resource values and the annotations are removed. A throttle grace
 // period or an SLO evaluation window that is still open keeps the annotations.
+// safetyKeepTrackingKey marks a pass that may revert OOM and crashes but
+// must not clear tracking. The metrics source was rejected, so throttle
+// and SLO did not run.
+type safetyKeepTrackingKey struct{}
+
+func contextWithSafetyKeepTracking(ctx context.Context) context.Context {
+	return context.WithValue(ctx, safetyKeepTrackingKey{}, true)
+}
+
+func safetyKeepTracking(ctx context.Context) bool {
+	keep, _ := ctx.Value(safetyKeepTrackingKey{}).(bool)
+	return keep
+}
+
 func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Context, policy *attunev1alpha1.AttunePolicy, collector rsmetrics.MetricsCollector, workloads []client.Object) (observationsPending bool) {
 	logger := log.FromContext(ctx)
 	if r.Clientset == nil {
@@ -498,8 +512,9 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 		// Only remove tracking annotations if all reverts succeeded and no
 		// throttle or SLO checks are still pending. If any condition holds,
 		// keep annotations so the next reconciliation retries or completes
-		// the deferred check.
-		if revertFailed || throttlePending || sloPending {
+		// the deferred check. A rejected metrics source still reverts
+		// OOM and crash loops, and it does not declare the resize safe.
+		if revertFailed || throttlePending || sloPending || safetyKeepTracking(ctx) {
 			observationsPending = true
 			continue
 		}
@@ -565,7 +580,7 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 			observationsPending = true
 		}
 	}
-	r.recordSLOGuardrailSkips(ctx, policy, collector, monitor.SLOSkipNames())
+	r.recordSLOGuardrailSkips(ctx, policy, collector, monitor.SLOSkipNames(), monitor.SLOEmptyNames())
 	r.setSafetyObservationCondition(policy, safetySummary)
 	return observationsPending
 }

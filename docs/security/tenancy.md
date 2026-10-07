@@ -65,11 +65,16 @@ namespace enforcement is off.
 | `AttuneNamespaceDefaults` | Admins of that namespace |
 | `AttunePolicy` | The team that owns the workloads in that namespace |
 
-The chart ships `attune-policy-viewer` and `attune-policy-editor`
-ClusterRoles. They do not aggregate into `view`, `edit`, or `admin`
-unless `rbac.aggregateToView` or `rbac.aggregateToEdit` is true. Bind
-the editor role to the teams that should create policies. Do not bind
-`AttuneDefaults` the same way.
+The chart ships `<fullname>-policy-viewer` and `<fullname>-policy-editor`
+ClusterRoles. `helm install attune` names them `attune-policy-viewer`
+and `attune-policy-editor`. A release name that does not contain
+`attune` uses `<release>-attune-policy-editor`. They do not aggregate
+into `view`, `edit`, or `admin` unless `rbac.aggregateToView` or
+`rbac.aggregateToEdit` is true. Bind the editor role to the teams that
+should create policies. Do not bind `AttuneDefaults` the same way.
 
-Kustomize ships the same two roles without aggregate labels, so a
-default install does not grant every `edit` user `AttunePolicy` create.
+Kustomize `config/default` sets `namePrefix: attune-`. The role
+manifests are named `policy-viewer` and `policy-editor`, so the install
+creates `attune-policy-viewer` and `attune-policy-editor`. Bind those
+names. The roles have no aggregate labels, so a default install does
+not grant every `edit` user `AttunePolicy` create.

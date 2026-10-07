@@ -89,6 +89,17 @@ func startupBoostBlocksCPUDecrease(
 	return ""
 }
 
+type startupBoostExpiryOnlyKey struct{}
+
+func contextWithStartupBoostExpiryOnly(ctx context.Context) context.Context {
+	return context.WithValue(ctx, startupBoostExpiryOnlyKey{}, true)
+}
+
+func startupBoostExpiryOnly(ctx context.Context) bool {
+	only, _ := ctx.Value(startupBoostExpiryOnlyKey{}).(bool)
+	return only
+}
+
 // applyStartupBoosts checks for recently created pods that need a temporary
 // CPU boost. Pods within the boost duration that don't have the boost annotation
 // get inflated CPU; pods with an expired boost get reduced to steady-state.
@@ -213,6 +224,11 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 					applyNow = true
 					keepStamp = true
 				}
+			}
+			// A rejected metrics source still expires a boost that already
+			// landed. It must not raise a new pod from a stored recommendation.
+			if startupBoostExpiryOnly(ctx) {
+				applyNow = false
 			}
 
 			if applyNow {

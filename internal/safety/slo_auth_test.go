@@ -29,6 +29,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	rsmetrics "github.com/attune-io/attune/internal/metrics"
 )
 
 func TestCheckPod_EnforceNamespaceRewritesAndHidesValue(t *testing.T) {
@@ -74,6 +75,27 @@ func TestCheckPod_ConflictingNamespaceIsNotQueried(t *testing.T) {
 	assert.False(t, verdict.SLODeferred)
 	assert.Empty(t, querier.gotQuery)
 	assert.Equal(t, []string{"x"}, monitor.SLOSkipNames())
+}
+
+func TestCheckPod_ScopedEmptyQueryIsReported(t *testing.T) {
+	t.Parallel()
+	pod := readyPod("web-0", "team-a")
+	monitor := NewMonitor(fake.NewSimpleClientset(pod), logr.Discard())
+	querier := &mockSLOQuerier{err: rsmetrics.ErrEmptyInstantQuery}
+	monitor.WithSLOChecker(querier, []attunev1alpha1.SLOGuardrail{{
+		Name:       "ingress",
+		Query:      "sum(nginx_ingress_controller_requests)",
+		Threshold:  "1",
+		Comparison: "above",
+	}})
+	monitor.SetSLOAuth(SLOAuthEnforceNamespace, "team-a")
+
+	verdict, err := monitor.CheckPod(context.Background(), elapsedRecord("team-a"), time.Now())
+	require.NoError(t, err)
+	assert.True(t, verdict.Safe, "an empty scoped query does not revert")
+	assert.Contains(t, querier.gotQuery, `namespace="team-a"`)
+	assert.Equal(t, []string{"ingress"}, monitor.SLOEmptyNames())
+	assert.Empty(t, monitor.SLOSkipNames())
 }
 
 func readyPod(name, namespace string) *corev1.Pod {
