@@ -40,10 +40,25 @@ import (
 type AttunePolicyValidator struct {
 	// SecretAccess, when set, requires the admission user to get each referenced Secret.
 	SecretAccess SecretAccessChecker
-	// Client loads AttuneDefaults when a policy omits historyWindow for a
-	// surge window, or omits minAllowed while a max is already known. Nil
-	// keeps the built-in history and does not invent a min.
+	// Client loads AttuneDefaults when APIReader is nil. Tests use it.
+	// Nil for both keeps the built-in history and does not invent a min.
 	Client client.Reader
+	// APIReader loads AttuneDefaults from the API server. The manager
+	// cache returns "unknown namespace" for a policy outside
+	// --watch-namespaces, and that error would deny admission.
+	APIReader client.Reader
+}
+
+// defaultsReader prefers the live API reader. The cached client misses
+// namespaces outside --watch-namespaces.
+func (v *AttunePolicyValidator) defaultsReader() client.Reader {
+	if v == nil {
+		return nil
+	}
+	if v.APIReader != nil {
+		return v.APIReader
+	}
+	return v.Client
 }
 
 // ValidateCreate validates a new AttunePolicy.
@@ -88,10 +103,11 @@ func (v *AttunePolicyValidator) effectiveHistory(ctx context.Context, policy *at
 	if policy == nil || (!surgeWindowSet(&policy.Spec.CPU) && !surgeWindowSet(&policy.Spec.Memory)) {
 		return nil, nil
 	}
-	if v == nil || v.Client == nil {
+	reader := v.defaultsReader()
+	if reader == nil {
 		return nil, nil
 	}
-	merged, err := combinedDefaults(ctx, v.Client, policy.Namespace)
+	merged, err := combinedDefaults(ctx, reader, policy.Namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -1001,10 +1017,11 @@ func (v *AttunePolicyValidator) validateDefaultsBounds(ctx context.Context, poli
 	if policy == nil || !omittedMinWithKnownMax(policy) {
 		return nil
 	}
-	if v == nil || v.Client == nil {
+	reader := v.defaultsReader()
+	if reader == nil {
 		return nil
 	}
-	nsDefaults, clusterDefaults, err := defaultsLayers(ctx, v.Client, policy.Namespace)
+	nsDefaults, clusterDefaults, err := defaultsLayers(ctx, reader, policy.Namespace)
 	if err != nil {
 		return err
 	}

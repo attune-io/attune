@@ -24,6 +24,31 @@ that left out a native sidecar is rewritten to the pre-resize pod sum.
 Apply the v0.1.33 CRDs before the controller. Helm does not update
 CRDs on `helm upgrade`.
 
+### Startup series cap keeps each container
+
+With `cpu.startupBoost.excludeFromHistory: true`, a capped CPU query
+keeps one series per pod before any pod gets a second series. The
+series chosen for a pod is the container with fewer series already
+kept. A cap smaller than the number of containers still leaves some
+containers without CPU samples.
+
+Policies that omit `excludeFromHistory` are unchanged. No policy YAML
+change and no CRD change are needed.
+
+See [One container missing under a capped startup query](troubleshooting.md#one-container-missing-under-a-capped-startup-query).
+
+### Policies outside watchNamespaces are admitted
+
+Admission reads `AttuneDefaults` and `AttuneNamespaceDefaults` from the
+API server. A policy outside `watchNamespaces` can be created and
+updated. The controller still does not reconcile it. A defaults min
+above the policy max is still rejected. An API error while reading
+defaults still rejects the write.
+
+No policy YAML change and no CRD change are needed.
+
+See [Policy rejected: unknown namespace for the cache](troubleshooting.md#policy-rejected-unknown-namespace-for-the-cache).
+
 ### Stored HPA base includes a native sidecar
 
 A pod Resource utilization target counts `spec.containers` plus init

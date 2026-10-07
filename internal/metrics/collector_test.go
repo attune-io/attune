@@ -1022,6 +1022,49 @@ func TestCapMatrixByPodFairShare_YoungPodDoesNotStarveOld(t *testing.T) {
 	assert.Equal(t, "young", string(byContainer[1].Metric["pod"]))
 }
 
+func TestCapMatrixByPodFairShare_EachContainerSurvivesPodCap(t *testing.T) {
+	// Label order matches Prometheus: container sorts before pod, so the
+	// first series on every pod is app when the matrix is sorted.
+	pods := []string{"p0", "p1", "p2", "p3"}
+	matrix := make(model.Matrix, 0, len(pods)*2)
+	for _, container := range []string{"app", "sidecar"} {
+		for _, pod := range pods {
+			matrix = append(matrix, &model.SampleStream{Metric: model.Metric{
+				"container": model.LabelValue(container),
+				"pod":       model.LabelValue(pod),
+			}})
+		}
+	}
+
+	out := capMatrixByPodFairShare(matrix, len(pods))
+	require.Len(t, out, len(pods))
+	containers := map[string]int{}
+	gotPods := map[string]int{}
+	for _, series := range out {
+		containers[string(series.Metric["container"])]++
+		gotPods[string(series.Metric["pod"])]++
+	}
+	assert.GreaterOrEqual(t, containers["app"], 1)
+	assert.GreaterOrEqual(t, containers["sidecar"], 1, "pod round-robin must not keep only the first container")
+	for _, pod := range pods {
+		assert.Equal(t, 1, gotPods[pod], "pod %s", pod)
+	}
+}
+
+func TestCapMatrixByPodFairShare_LimitBelowContainerCount(t *testing.T) {
+	// One pod, three containers, cap 2. Matrix order is the tie break, so
+	// the kept containers are the first two. The third is absent.
+	matrix := model.Matrix{
+		&model.SampleStream{Metric: model.Metric{"container": "a", "pod": "p"}},
+		&model.SampleStream{Metric: model.Metric{"container": "b", "pod": "p"}},
+		&model.SampleStream{Metric: model.Metric{"container": "c", "pod": "p"}},
+	}
+	out := capMatrixByPodFairShare(matrix, 2)
+	require.Len(t, out, 2)
+	assert.Equal(t, "a", string(out[0].Metric["container"]))
+	assert.Equal(t, "b", string(out[1].Metric["container"]))
+}
+
 func TestQueryRangeGrouped_PreservePodFairShareCaps(t *testing.T) {
 	response := `{
 		"status": "success",
@@ -1050,6 +1093,54 @@ func TestQueryRangeGrouped_PreservePodFairShareCaps(t *testing.T) {
 	pods := map[string]int{}
 	for _, sample := range grouped["app"] {
 		pods[sample.Pod]++
+	}
+	assert.Equal(t, 1, pods["young"])
+	assert.Equal(t, 1, pods["old"])
+}
+
+func TestQueryRangeGrouped_PreservePodCapKeepsEachContainer(t *testing.T) {
+	response := `{
+		"status": "success",
+		"data": {
+			"resultType": "matrix",
+			"result": [
+				{"metric": {"pod": "p0", "container": "app"}, "values": [[1700000000, "1"]]},
+				{"metric": {"pod": "p1", "container": "app"}, "values": [[1700000000, "1"]]},
+				{"metric": {"pod": "p0", "container": "sidecar"}, "values": [[1700000000, "1"]]},
+				{"metric": {"pod": "p1", "container": "sidecar"}, "values": [[1700000000, "1"]]}
+			]
+		}
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(response))
+	}))
+	defer server.Close()
+
+	collector, err := NewPrometheusCollectorWithOptions(server.URL, logr.Discard(), &CollectorOptions{MaxSeries: 2}, http.DefaultTransport)
+	require.NoError(t, err)
+	start := time.Unix(1700000000, 0)
+	end := time.Unix(1700000120, 0)
+	grouped, err := collector.QueryRangeGrouped(WithPreservePodSeries(context.Background()), "cpu_usage", start, end, time.Minute)
+	require.ErrorIs(t, err, ErrSeriesCapped)
+	assert.NotEmpty(t, grouped["app"])
+	assert.NotEmpty(t, grouped["sidecar"])
+}
+
+func TestCapMatrixByPodFairShare_RareContainerDoesNotStarveOtherPod(t *testing.T) {
+	// Sidecar exists only on the first pod. The cap has room for both pods
+	// and not for a second series from the first pod.
+	matrix := model.Matrix{
+		&model.SampleStream{Metric: model.Metric{"container": "app", "pod": "young"}},
+		&model.SampleStream{Metric: model.Metric{"container": "sidecar", "pod": "young"}},
+		&model.SampleStream{Metric: model.Metric{"container": "app", "pod": "old"}},
+	}
+	out := capMatrixByPodFairShare(matrix, 2)
+	require.Len(t, out, 2)
+	pods := map[string]int{}
+	for _, series := range out {
+		pods[string(series.Metric["pod"])]++
 	}
 	assert.Equal(t, 1, pods["young"])
 	assert.Equal(t, 1, pods["old"])

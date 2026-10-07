@@ -477,7 +477,8 @@ func (c *PrometheusCollector) QueryRangeGrouped(ctx context.Context, query strin
 		c.logger.V(2).Info("Prometheus range query series capped",
 			"limit", limit, "got", len(matrix), "query", query)
 		if preservePods {
-			// Fair share across pods. Capping by container first can keep
+			// Spread across pods, and within a pod keep the container
+			// that has fewer series. Container-first capping can keep
 			// only the young pod and drop the steady one.
 			matrix = capMatrixByPodFairShare(matrix, limit)
 		} else {
@@ -568,42 +569,75 @@ func capMatrixByContainer(matrix model.Matrix, limit int) model.Matrix {
 	return out
 }
 
-// capMatrixByPodFairShare keeps at most limit series, round-robin across
-// distinct pod labels. One pod cannot fill the cap before the others are
-// represented. Series order within a pod follows the matrix.
+// capMatrixByPodFairShare keeps at most limit series.
+//
+// A pod gets a second series only after every pod that still has one
+// has been represented. The series taken from that pod is the container
+// with the fewest series already kept. Ties follow matrix order, which
+// is Prometheus label order (container before pod). A cap smaller than
+// the number of containers keeps only that many containers.
+//
+// Taking the next series in matrix order instead drops every container
+// after the first once the pod count fills the cap: each pod's first
+// series is the same container.
 func capMatrixByPodFairShare(matrix model.Matrix, limit int) model.Matrix {
 	if limit <= 0 || len(matrix) <= limit {
 		return matrix
 	}
-	byPod := make(map[string]model.Matrix)
+	type podSeries struct {
+		series model.Matrix
+		kept   int
+	}
+	byPod := make(map[string]*podSeries)
 	var podOrder []string
 	for _, series := range matrix {
 		pod := string(series.Metric[model.LabelName("pod")])
-		if _, ok := byPod[pod]; !ok {
+		bucket, ok := byPod[pod]
+		if !ok {
+			bucket = &podSeries{}
+			byPod[pod] = bucket
 			podOrder = append(podOrder, pod)
 		}
-		byPod[pod] = append(byPod[pod], series)
+		bucket.series = append(bucket.series, series)
 	}
 	out := make(model.Matrix, 0, limit)
-	next := make(map[string]int, len(podOrder))
+	kept := make(map[*model.SampleStream]bool, limit)
+	containerKept := make(map[string]int)
 	for len(out) < limit {
-		progressed := false
+		var best *podSeries
 		for _, pod := range podOrder {
-			i := next[pod]
-			series := byPod[pod]
-			if i >= len(series) {
+			bucket := byPod[pod]
+			if bucket.kept >= len(bucket.series) {
 				continue
 			}
-			out = append(out, series[i])
-			next[pod] = i + 1
-			progressed = true
-			if len(out) >= limit {
-				break
+			if best == nil || bucket.kept < best.kept {
+				best = bucket
 			}
 		}
-		if !progressed {
+		if best == nil {
 			break
 		}
+		var chosen *model.SampleStream
+		chosenCount := 0
+		for _, series := range best.series {
+			if kept[series] {
+				continue
+			}
+			container := string(series.Metric[model.LabelName("container")])
+			n := containerKept[container]
+			if chosen == nil || n < chosenCount {
+				chosen = series
+				chosenCount = n
+			}
+		}
+		if chosen == nil {
+			break
+		}
+		kept[chosen] = true
+		best.kept++
+		container := string(chosen.Metric[model.LabelName("container")])
+		containerKept[container]++
+		out = append(out, chosen)
 	}
 	return out
 }

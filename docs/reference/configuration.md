@@ -162,7 +162,7 @@ For detailed PromQL expressions and alert tuning, see the
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `watchNamespaces` | list | `[]` | Namespaces to watch for AttunePolicy resources. Empty list means all namespaces (cluster-scoped). Maps to the `--watch-namespaces` manager flag. Set this on large clusters where policies exist in only a few namespaces to dramatically reduce informer cache memory. Cluster-scoped resources (Nodes, AttuneDefaults) are always watched regardless. Requires a pod restart to change. |
+| `watchNamespaces` | list | `[]` | Namespaces to watch for AttunePolicy resources. Empty list means all namespaces (cluster-scoped). Maps to the `--watch-namespaces` manager flag. Set this on large clusters where policies exist in only a few namespaces to dramatically reduce informer cache memory. Cluster-scoped resources (Nodes, AttuneDefaults) are always watched regardless. AttunePolicy writes in other namespaces are still admitted. Admission reads AttuneDefaults from the API server. The controller does not reconcile those namespaces. Requires a pod restart to change. |
 
 Example:
 
