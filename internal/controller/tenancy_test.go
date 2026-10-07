@@ -589,7 +589,8 @@ func rejectedOOMPod(name string, when time.Time) *corev1.Pod {
 func rejectedTenantReconciler(t *testing.T, policy *attunev1alpha1.AttunePolicy, deploy *appsv1.Deployment, pods ...*corev1.Pod) (*AttunePolicyReconciler, client.Client, *kubefake.Clientset) {
 	t.Helper()
 	scheme := testScheme()
-	objects := []client.Object{policy, deploy}
+	objects := make([]client.Object, 0, 2+len(pods))
+	objects = append(objects, policy, deploy)
 	clientPods := make([]runtime.Object, 0, len(pods))
 	for _, pod := range pods {
 		objects = append(objects, pod)
