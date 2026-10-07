@@ -21,7 +21,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -191,7 +193,29 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 				}
 			}
 
-			if boostAtStr == "" && podAge < boostDuration {
+			keepStamp := false
+			applyNow := boostAtStr == "" && podAge < boostDuration
+			var boostAt time.Time
+			var boostAtOK bool
+			if boostAtStr != "" {
+				var parseErr error
+				boostAt, parseErr = time.Parse(time.RFC3339, boostAtStr)
+				if parseErr != nil {
+					logger.Error(parseErr, "Malformed startup boost annotation, skipping expiry check",
+						"pod", pod.Name, "value", boostAtStr)
+					continue
+				}
+				boostAtOK = true
+				// A partial list means an earlier pass stopped early.
+				// Keep boosting names that are still missing until the
+				// original stamp expires. Legacy stamps have no list.
+				if _, hasList := pod.Annotations[annotationStartupBoostContainers]; hasList && now.Before(boostAt.Add(boostDuration)) {
+					applyNow = true
+					keepStamp = true
+				}
+			}
+
+			if applyNow {
 				// New pod within boost window: apply boosted CPU.
 				// Persist the boost timestamp when we resized or when
 				// current CPU is already at the target. Without this,
@@ -199,44 +223,56 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 				// next reconcile with current >= boosted, no persist
 				// retry, and expiry never runs.
 				persistAnnotation := false
+				var boostedContainers []string
+				alreadyListed := ""
+				if keepStamp {
+					alreadyListed = pod.Annotations[annotationStartupBoostContainers]
+					for _, part := range strings.Split(alreadyListed, ",") {
+						part = strings.TrimSpace(part)
+						if part != "" {
+							boostedContainers = append(boostedContainers, part)
+						}
+					}
+				}
+				stopResizing := false
 				for _, c := range append(nativeSidecars(pod.Spec.InitContainers), pod.Spec.Containers...) {
 					recCPU, ok := recMap[c.Name]
 					if !ok {
 						continue
 					}
-					boostedMillis := int64(float64(recCPU.request.MilliValue()) * multiplier)
-					boostedCPU := *resource.NewMilliQuantity(boostedMillis, resource.DecimalSI)
-					effCPU, effMem := attunev1alpha1.EffectiveContainerResources(policy, c.Name)
-					// Cap at the container effective maxAllowed. Policy
-					// startup boost stays policy-wide; a container max
-					// still caps the boosted CPU.
-					if effCPU.MaxAllowed != nil && boostedCPU.Cmp(*effCPU.MaxAllowed) > 0 {
-						boostedCPU = effCPU.MaxAllowed.DeepCopy()
+					if alreadyListed != "" && startupBoostContainerListed(alreadyListed, c.Name) {
+						continue
 					}
+					if stopResizing {
+						// The live read failed. Requests for containers
+						// we have not resized are still the ones in hand.
+						effCPU, _ := attunev1alpha1.EffectiveContainerResources(policy, c.Name)
+						target, _ := startupBoostCPUTarget(effCPU, c, recCPU, multiplier)
+						if c.Resources.Requests.Cpu().Cmp(target) == 0 {
+							persistAnnotation = true
+							boostedContainers = append(boostedContainers, c.Name)
+						}
+						continue
+					}
+					effCPU, effMem := attunev1alpha1.EffectiveContainerResources(policy, c.Name)
+					boostedCPU, raiseDest := startupBoostCPUTarget(effCPU, c, recCPU, multiplier)
 					// RequestsAndLimits raises dest with the boosted request
 					// so Guaranteed (request==dest at rec dest) still gets
 					// headroom. RequestsOnly dest-caps leftover dest.
-					cpuCV := effCPU.ControlledValues
-					raiseDest := cpuCV != nil &&
-						*cpuCV == attunev1alpha1.ControlledRequestsAndLimits &&
-						!recCPU.dest.IsZero()
 					boostDest := boostedCPU.DeepCopy()
-					if raiseDest {
-						if boostDest.Cmp(recCPU.dest) < 0 {
-							boostDest = recCPU.dest.DeepCopy()
-						}
-					} else if cpuLim, hasLim := c.Resources.Limits[corev1.ResourceCPU]; hasLim && boostedCPU.Cmp(cpuLim) > 0 {
-						boostedCPU = cpuLim.DeepCopy()
+					if raiseDest && boostDest.Cmp(recCPU.dest) < 0 {
+						boostDest = recCPU.dest.DeepCopy()
 					}
 					if c.Resources.Requests.Cpu().Cmp(boostedCPU) > 0 {
-						// Already above the boost target (template leftover).
-						// Do not stamp: expiry would shrink this pod off-pipeline.
+						// Already above the boost target. This container was
+						// not boosted, so it must not stamp the pod by itself.
 						continue
 					}
 					if c.Resources.Requests.Cpu().Cmp(boostedCPU) == 0 {
 						// Exact match: persist so a missed stamp after a
 						// successful boost resize can still expire.
 						persistAnnotation = true
+						boostedContainers = append(boostedContainers, c.Name)
 						continue
 					}
 					// Safety check: verify the boosted target does not violate
@@ -295,11 +331,22 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 							"boostedCPU", boostedCPU.String(),
 							"currentCPU", c.Resources.Requests.Cpu().String())
 						if refreshed == nil {
-							break // re-fetch failed, stop processing containers
+							// ResizePod stored the request. The follow-up
+							// read failed. Expiry still has to undo it.
+							persistAnnotation = true
+							boostedContainers = append(boostedContainers, c.Name)
+							fresh, getErr := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
+							if getErr != nil {
+								stopResizing = true
+								continue
+							}
+							*pod = *fresh
+							continue
 						}
 						continue
 					}
 					persistAnnotation = true
+					boostedContainers = append(boostedContainers, c.Name)
 					operatormetrics.StartupBoostTotal.WithLabelValues(pod.Namespace, rec.Workload, "applied").Inc()
 					logger.Info("Applied startup CPU boost",
 						"pod", pod.Name, "container", c.Name,
@@ -307,117 +354,121 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 					*pod = *refreshed
 				}
 				// Persist when a resize succeeded or the pod is already
-				// at the boosted target inside the window. Do not persist
-				// from a no-op skip outside the window (this block is
-				// only entered when age < duration).
+				// at the boosted target inside the window. A top-up
+				// keeps the original stamp time.
 				if persistAnnotation {
-					// A full pod Update conflicts with kubelet status writes
-					// and can leave the stamp unset, so the boost never expires.
-					stamp := now.UTC().Format(time.RFC3339)
-					if err := r.persistStartupBoostStamp(ctx, pod, stamp, policy.Name); err != nil {
-						logger.Error(err, "Failed to persist startup boost annotation", "pod", pod.Name)
+					newList := formatStartupBoostContainers(boostedContainers)
+					if !keepStamp || newList != alreadyListed {
+						// A full pod Update conflicts with kubelet status writes
+						// and can leave the stamp unset, so the boost never expires.
+						stamp := now.UTC().Format(time.RFC3339)
+						if keepStamp {
+							stamp = boostAtStr
+						}
+						if err := r.persistStartupBoostStamp(ctx, pod, stamp, policy.Name, newList, keepStamp); err != nil {
+							logger.Error(err, "Failed to persist startup boost annotation", "pod", pod.Name)
+						}
 					}
 				}
-			} else if boostAtStr != "" {
-				// Boost was applied: check if it should expire.
-				boostAt, parseErr := time.Parse(time.RFC3339, boostAtStr)
-				if parseErr != nil {
-					logger.Error(parseErr, "Malformed startup boost annotation, skipping expiry check",
-						"pod", pod.Name, "value", boostAtStr)
-					continue
-				}
-				if now.Sub(boostAt) >= boostDuration {
-					// Boost expired: resize back to steady-state.
-					var boostReduceFailed bool
-					for _, c := range append(nativeSidecars(pod.Spec.InitContainers), pod.Spec.Containers...) {
-						recCPU, ok := recMap[c.Name]
-						if !ok {
-							continue
-						}
-						// Pre-check: verify the steady-state target doesn't
-						// violate LimitRange or quota constraints.
-						expireRec := attunev1alpha1.ContainerRecommendation{
-							Name: c.Name,
-							Current: attunev1alpha1.ResourceValues{
-								CPURequest:    c.Resources.Requests.Cpu().DeepCopy(),
-								MemoryRequest: c.Resources.Requests.Memory().DeepCopy(),
-							},
-							Recommended: attunev1alpha1.ResourceValues{
-								CPURequest:    recCPU.request.DeepCopy(),
-								MemoryRequest: c.Resources.Requests.Memory().DeepCopy(),
-							},
-						}
-						expireTarget := corev1.ResourceRequirements{
-							Requests: corev1.ResourceList{
-								corev1.ResourceCPU:    recCPU.request.DeepCopy(),
-								corev1.ResourceMemory: c.Resources.Requests.Memory().DeepCopy(),
-							},
-						}
-						effCPU, effMem := attunev1alpha1.EffectiveContainerResources(policy, c.Name)
-						cpuCV := effCPU.ControlledValues
-						if cpuCV != nil &&
-							*cpuCV == attunev1alpha1.ControlledRequestsAndLimits &&
-							!recCPU.dest.IsZero() {
-							expireRec.Recommended.CPULimit = recCPU.dest.DeepCopy()
-							expireTarget.Limits = corev1.ResourceList{
-								corev1.ResourceCPU: recCPU.dest.DeepCopy(),
-							}
-							if memLim, ok := boostMemoryLimit(effMem.ControlledValues, c.Resources.Limits, recCPU.memoryLimit); ok {
-								expireRec.Recommended.MemoryLimit = memLim.DeepCopy()
-								expireTarget.Limits[corev1.ResourceMemory] = memLim.DeepCopy()
-							}
-						}
-						if dec := r.evaluatePodEnvelope(policy, pod, c.Name, expireTarget); dec.Skip {
-							logger.Info("Skipping boost expiry reduction: "+resize.EnvelopeSkipMessage,
-								"pod", pod.Name, "container", c.Name,
-								"targetCPU", recCPU.request.String())
-							boostReduceFailed = true
-							continue
-						}
-						if skip, reason := r.shouldSkipResize(ctx, pod, expireRec, expireTarget, checks); skip {
-							blocking := reason != ""
-							if reason == "" {
-								reason = "already at target"
-							}
-							logger.Info("Skipping boost expiry reduction: "+reason,
-								"pod", pod.Name, "container", c.Name,
-								"targetCPU", recCPU.request.String())
-							if blocking {
-								boostReduceFailed = true
-							}
-							continue
-						}
-						refreshed, err := r.boostResizeAndRefetch(ctx, resizer, pod, c.Name, expireTarget)
-						if err != nil {
-							operatormetrics.StartupBoostTotal.WithLabelValues(pod.Namespace, rec.Workload, "failed").Inc()
-							logger.Error(err, "Failed to reduce startup boost",
-								"pod", pod.Name, "container", c.Name,
-								"targetCPU", recCPU.request.String(),
-								"currentCPU", c.Resources.Requests.Cpu().String())
-							boostReduceFailed = true
-							if refreshed == nil {
-								break // re-fetch failed
-							}
-							continue
-						}
-						operatormetrics.StartupBoostTotal.WithLabelValues(pod.Namespace, rec.Workload, "expired").Inc()
-						logger.Info("Startup boost expired, reduced to steady-state",
-							"pod", pod.Name, "container", c.Name, "cpu", recCPU.request.String())
-						*pod = *refreshed
-					}
-					// Only remove the boost annotation if all containers were
-					// successfully reduced. If any failed, keep the annotation
-					// so the next reconciliation retries. Without this guard, a
-					// transient failure would leave the pod permanently at
-					// boosted CPU with no future expiry attempt.
-					// Skip the clear when nothing changed (all containers
-					// skipped or already at target) to avoid API churn.
-					if boostReduceFailed {
+			} else if boostAtOK && now.Sub(boostAt) >= boostDuration {
+				// Boost expired: resize back to steady-state.
+				// Read the list once. A later refetch must not widen
+				// expiry to containers that were not boosted.
+				boostContainers, hasBoostList := pod.Annotations[annotationStartupBoostContainers]
+				var boostReduceFailed bool
+				for _, c := range append(nativeSidecars(pod.Spec.InitContainers), pod.Spec.Containers...) {
+					recCPU, ok := recMap[c.Name]
+					if !ok {
 						continue
 					}
-					if err := r.clearStartupBoostStamp(ctx, pod); err != nil {
-						logger.Error(err, "Failed to clear startup boost annotation", "pod", pod.Name)
+					if hasBoostList && !startupBoostContainerListed(boostContainers, c.Name) {
+						// Named at stamp time. A sibling that was not
+						// boosted must not be shrunk here, and that skip
+						// is not a failed reduction.
+						continue
 					}
+					effCPU, effMem := attunev1alpha1.EffectiveContainerResources(policy, c.Name)
+					// Pre-check: verify the steady-state target doesn't
+					// violate LimitRange or quota constraints.
+					expireRec := attunev1alpha1.ContainerRecommendation{
+						Name: c.Name,
+						Current: attunev1alpha1.ResourceValues{
+							CPURequest:    c.Resources.Requests.Cpu().DeepCopy(),
+							MemoryRequest: c.Resources.Requests.Memory().DeepCopy(),
+						},
+						Recommended: attunev1alpha1.ResourceValues{
+							CPURequest:    recCPU.request.DeepCopy(),
+							MemoryRequest: c.Resources.Requests.Memory().DeepCopy(),
+						},
+					}
+					expireTarget := corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    recCPU.request.DeepCopy(),
+							corev1.ResourceMemory: c.Resources.Requests.Memory().DeepCopy(),
+						},
+					}
+					if effCPU.ControlledValues != nil &&
+						*effCPU.ControlledValues == attunev1alpha1.ControlledRequestsAndLimits &&
+						!recCPU.dest.IsZero() {
+						expireRec.Recommended.CPULimit = recCPU.dest.DeepCopy()
+						expireTarget.Limits = corev1.ResourceList{
+							corev1.ResourceCPU: recCPU.dest.DeepCopy(),
+						}
+						if memLim, ok := boostMemoryLimit(effMem.ControlledValues, c.Resources.Limits, recCPU.memoryLimit); ok {
+							expireRec.Recommended.MemoryLimit = memLim.DeepCopy()
+							expireTarget.Limits[corev1.ResourceMemory] = memLim.DeepCopy()
+						}
+					}
+					if dec := r.evaluatePodEnvelope(policy, pod, c.Name, expireTarget); dec.Skip {
+						logger.Info("Skipping boost expiry reduction: "+resize.EnvelopeSkipMessage,
+							"pod", pod.Name, "container", c.Name,
+							"targetCPU", recCPU.request.String())
+						boostReduceFailed = true
+						continue
+					}
+					if skip, reason := r.shouldSkipResize(ctx, pod, expireRec, expireTarget, checks); skip {
+						blocking := reason != ""
+						if reason == "" {
+							reason = "already at target"
+						}
+						logger.Info("Skipping boost expiry reduction: "+reason,
+							"pod", pod.Name, "container", c.Name,
+							"targetCPU", recCPU.request.String())
+						if blocking {
+							boostReduceFailed = true
+						}
+						continue
+					}
+					refreshed, err := r.boostResizeAndRefetch(ctx, resizer, pod, c.Name, expireTarget)
+					if err != nil {
+						operatormetrics.StartupBoostTotal.WithLabelValues(pod.Namespace, rec.Workload, "failed").Inc()
+						logger.Error(err, "Failed to reduce startup boost",
+							"pod", pod.Name, "container", c.Name,
+							"targetCPU", recCPU.request.String(),
+							"currentCPU", c.Resources.Requests.Cpu().String())
+						boostReduceFailed = true
+						if refreshed == nil {
+							break // re-fetch failed
+						}
+						continue
+					}
+					operatormetrics.StartupBoostTotal.WithLabelValues(pod.Namespace, rec.Workload, "expired").Inc()
+					logger.Info("Startup boost expired, reduced to steady-state",
+						"pod", pod.Name, "container", c.Name, "cpu", recCPU.request.String())
+					*pod = *refreshed
+				}
+				// Only remove the boost annotation if all containers were
+				// successfully reduced. If any failed, keep the annotation
+				// so the next reconciliation retries. Without this guard, a
+				// transient failure would leave the pod permanently at
+				// boosted CPU with no future expiry attempt.
+				// Skip the clear when nothing changed (all containers
+				// skipped or already at target) to avoid API churn.
+				if boostReduceFailed {
+					continue
+				}
+				if err := r.clearStartupBoostStamp(ctx, pod); err != nil {
+					logger.Error(err, "Failed to clear startup boost annotation", "pod", pod.Name)
 				}
 			}
 		}
@@ -430,6 +481,49 @@ type startupBoostCPU struct {
 	request     resource.Quantity
 	dest        resource.Quantity
 	memoryLimit resource.Quantity
+}
+
+// startupBoostCPUTarget is the CPU request apply would write.
+// MaxAllowed always caps it. A RequestsOnly CPU limit caps it too.
+// RequestsAndLimits does not cap the request by the live limit; raiseDest
+// tells the caller to raise the limit with the request instead.
+func startupBoostCPUTarget(effCPU attunev1alpha1.ResourceConfig, c corev1.Container, rec startupBoostCPU, multiplier float64) (resource.Quantity, bool) {
+	boostedMillis := int64(float64(rec.request.MilliValue()) * multiplier)
+	boostedCPU := *resource.NewMilliQuantity(boostedMillis, resource.DecimalSI)
+	if effCPU.MaxAllowed != nil && boostedCPU.Cmp(*effCPU.MaxAllowed) > 0 {
+		boostedCPU = effCPU.MaxAllowed.DeepCopy()
+	}
+	raiseDest := effCPU.ControlledValues != nil &&
+		*effCPU.ControlledValues == attunev1alpha1.ControlledRequestsAndLimits &&
+		!rec.dest.IsZero()
+	if !raiseDest {
+		if cpuLim, hasLim := c.Resources.Limits[corev1.ResourceCPU]; hasLim && boostedCPU.Cmp(cpuLim) > 0 {
+			boostedCPU = cpuLim.DeepCopy()
+		}
+	}
+	return boostedCPU, raiseDest
+}
+
+// formatStartupBoostContainers is the stamp value expiry reads back.
+// Names are sorted so a retry writes the same annotation.
+func formatStartupBoostContainers(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	sorted := append([]string(nil), names...)
+	sort.Strings(sorted)
+	return strings.Join(sorted, ",")
+}
+
+// startupBoostContainerListed reports whether name was on the stamp.
+// Container names cannot contain a comma.
+func startupBoostContainerListed(raw, name string) bool {
+	for _, part := range strings.Split(raw, ",") {
+		if strings.TrimSpace(part) == name {
+			return true
+		}
+	}
+	return false
 }
 
 // boostMemoryLimit chooses the memory limit copied onto a boost or expiry
@@ -449,13 +543,19 @@ func boostMemoryLimit(memoryCV *string, live corev1.ResourceList, recommended re
 // persistStartupBoostStamp records the boost window with a metadata merge
 // patch. The patch has no resourceVersion, so a kubelet status write does
 // not drop the stamp. The local pod is updated only after the patch lands.
-func (r *AttunePolicyReconciler) persistStartupBoostStamp(ctx context.Context, pod *corev1.Pod, stamp, policyName string) error {
+func (r *AttunePolicyReconciler) persistStartupBoostStamp(ctx context.Context, pod *corev1.Pod, stamp, policyName, containers string, keepStamp bool) error {
+	annotations := map[string]any{
+		annotationPolicy: policyName,
+	}
+	if !keepStamp {
+		annotations[annotationStartupBoostAt] = stamp
+	}
+	if containers != "" {
+		annotations[annotationStartupBoostContainers] = containers
+	}
 	payload := map[string]any{
 		"metadata": map[string]any{
-			"annotations": map[string]any{
-				annotationStartupBoostAt: stamp,
-				annotationPolicy:         policyName,
-			},
+			"annotations": annotations,
 			"labels": map[string]any{
 				labelTracked: "true",
 			},
@@ -467,8 +567,13 @@ func (r *AttunePolicyReconciler) persistStartupBoostStamp(ctx context.Context, p
 	if pod.Annotations == nil {
 		pod.Annotations = map[string]string{}
 	}
-	pod.Annotations[annotationStartupBoostAt] = stamp
+	if !keepStamp {
+		pod.Annotations[annotationStartupBoostAt] = stamp
+	}
 	pod.Annotations[annotationPolicy] = policyName
+	if containers != "" {
+		pod.Annotations[annotationStartupBoostContainers] = containers
+	}
 	if pod.Labels == nil {
 		pod.Labels = map[string]string{}
 	}
@@ -490,7 +595,8 @@ func (r *AttunePolicyReconciler) clearStartupBoostStamp(ctx context.Context, pod
 	payload := map[string]any{
 		"metadata": map[string]any{
 			"annotations": map[string]any{
-				annotationStartupBoostAt: nil,
+				annotationStartupBoostAt:         nil,
+				annotationStartupBoostContainers: nil,
 			},
 		},
 	}
@@ -498,6 +604,7 @@ func (r *AttunePolicyReconciler) clearStartupBoostStamp(ctx context.Context, pod
 		return err
 	}
 	delete(fresh.Annotations, annotationStartupBoostAt)
+	delete(fresh.Annotations, annotationStartupBoostContainers)
 	*pod = *fresh
 	return nil
 }

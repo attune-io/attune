@@ -34,9 +34,14 @@ dest-caps leftover dest only.
 
 After a successful apply, the operator writes
 `attune.io/startup-boost-at` with a metadata merge patch, so a
-kubelet status update does not clear the stamp. The boost expires
-when that timestamp plus `duration` elapses and dest returns to the
-steady-state recommendation. Container Ready is not checked.
+kubelet status update does not clear the stamp. The same patch writes
+`attune.io/startup-boost-containers`, the containers that were boosted
+or already at the boost target. Expiry resizes only those containers
+back to the steady-state recommendation. A container that was above
+the target is not in the list, so expiry does not shrink it. A stamp
+from an older release has no list and still expires every container.
+The boost expires when that timestamp plus `duration` elapses.
+Container Ready is not checked.
 
 `excludeFromHistory` is separate from the boost apply. When it is true,
 CPU samples from the boost window are left out of the percentile. The

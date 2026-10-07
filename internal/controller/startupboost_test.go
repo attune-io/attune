@@ -589,6 +589,532 @@ func TestApplyStartupBoosts_AboveBoostTargetDoesNotStamp(t *testing.T) {
 		"template leftover above the boost target must not be stamped")
 }
 
+func TestApplyStartupBoosts_ExpirySkipsSiblingAboveBoostTarget(t *testing.T) {
+	// A pod-level stamp is written when any container is boosted or
+	// already at its boost target. Expiry must still leave a sibling
+	// that was above that target alone. Shrinking it here bypasses
+	// cooldown, the schedule window, and safety observation.
+	scheme := testScheme()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
+				StartupBoost: &attunev1alpha1.StartupBoost{
+					Multiplier: "2.0",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute},
+				},
+			},
+		},
+	}
+	mem := resource.MustParse("512Mi")
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "sibling-boost-abc",
+			Namespace:         "default",
+			CreationTimestamp: metav1.NewTime(now.Add(-30 * time.Second)),
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1000m"),
+							corev1.ResourceMemory: mem.DeepCopy(),
+						},
+					},
+				},
+				{
+					Name: "sidecar",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("200m"),
+							corev1.ResourceMemory: mem.DeepCopy(),
+						},
+					},
+				},
+			},
+		},
+	}
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod.DeepCopy()).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+	r.SetNowFunc(func() time.Time { return now })
+
+	resizer := resize.NewPodResizer(clientset, ctrl.Log.WithName("test"))
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "sibling-boost",
+			Kind:     "Deployment",
+			Containers: []attunev1alpha1.ContainerRecommendation{
+				{
+					Name: "main",
+					Recommended: attunev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("200m"),
+					},
+				},
+				{
+					Name: "sidecar",
+					Recommended: attunev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("100m"),
+					},
+				},
+			},
+		},
+	}
+	key := types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}
+
+	r.applyStartupBoosts(context.Background(), policy, map[string][]corev1.Pod{"sibling-boost": {*pod}}, recs, resizer, nil)
+
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			t.Fatal("apply must not resize a container above the boost target or one already at it")
+		}
+	}
+	var stamped corev1.Pod
+	require.NoError(t, fakeClient.Get(context.Background(), key, &stamped))
+	require.NotEmpty(t, stamped.Annotations[annotationStartupBoostAt],
+		"sidecar already at its boost target must stamp the pod")
+	assert.Equal(t, "sidecar", stamped.Annotations[annotationStartupBoostContainers],
+		"the stamp must name only the container that was at the boost target")
+
+	live, err := clientset.CoreV1().Pods(pod.Namespace).Get(context.Background(), pod.Name, metav1.GetOptions{})
+	require.NoError(t, err)
+	if live.Annotations == nil {
+		live.Annotations = map[string]string{}
+	}
+	live.Annotations[annotationStartupBoostAt] = stamped.Annotations[annotationStartupBoostAt]
+	live.Annotations[annotationStartupBoostContainers] = stamped.Annotations[annotationStartupBoostContainers]
+	_, err = clientset.CoreV1().Pods(pod.Namespace).Update(context.Background(), live, metav1.UpdateOptions{})
+	require.NoError(t, err)
+	clientset.ClearActions()
+
+	// The live read runs only when the listed pod is still young or
+	// already stamped. Carry the stamp on the listed object too.
+	expired := pod.DeepCopy()
+	if expired.Annotations == nil {
+		expired.Annotations = map[string]string{}
+	}
+	expired.Annotations[annotationStartupBoostAt] = stamped.Annotations[annotationStartupBoostAt]
+	expired.Annotations[annotationStartupBoostContainers] = stamped.Annotations[annotationStartupBoostContainers]
+
+	now = now.Add(2 * time.Minute)
+	r.applyStartupBoosts(context.Background(), policy, map[string][]corev1.Pod{"sibling-boost": {*expired}}, recs, resizer, nil)
+
+	var resizedMain, resizedSidecar bool
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() != "update" || a.GetSubresource() != "resize" {
+			continue
+		}
+		updatedPod := a.(k8stesting.UpdateAction).GetObject().(*corev1.Pod)
+		for _, c := range updatedPod.Spec.Containers {
+			switch c.Name {
+			case "main":
+				if c.Resources.Requests.Cpu().Cmp(resource.MustParse("1000m")) != 0 {
+					resizedMain = true
+				}
+			case "sidecar":
+				if c.Resources.Requests.Cpu().Cmp(resource.MustParse("100m")) == 0 {
+					resizedSidecar = true
+				}
+			}
+		}
+	}
+	assert.False(t, resizedMain, "expiry must not shrink a sibling left above the boost target")
+	assert.True(t, resizedSidecar, "expiry must still reduce the container that was at the boost target")
+
+	var updated corev1.Pod
+	require.NoError(t, fakeClient.Get(context.Background(), key, &updated))
+	assert.Empty(t, updated.Annotations[annotationStartupBoostAt],
+		"skipping the above-target sibling is not a failed reduction, so the stamp clears")
+	assert.Empty(t, updated.Annotations[annotationStartupBoostContainers],
+		"clearing the stamp must also clear the boosted container list")
+}
+
+func TestApplyStartupBoosts_ExpiryReducesBoostedContainerAfterRecommendationDrop(t *testing.T) {
+	// The boosted request stays put for the whole window. A later drop in
+	// the steady recommendation must not look like "this container was
+	// never boosted," or expiry clears the stamp and leaves the boost.
+	scheme := testScheme()
+	now := time.Date(2026, 1, 1, 0, 5, 0, 0, time.UTC)
+	boostTime := now.Add(-3 * time.Minute)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
+				StartupBoost: &attunev1alpha1.StartupBoost{
+					Multiplier: "2.0",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute},
+				},
+			},
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "drop-app-abc",
+			Namespace:         "default",
+			CreationTimestamp: metav1.NewTime(boostTime),
+			Annotations: map[string]string{
+				annotationStartupBoostAt:         boostTime.UTC().Format(time.RFC3339),
+				annotationStartupBoostContainers: "main",
+			},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "main",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("400m"),
+						corev1.ResourceMemory: resource.MustParse("512Mi"),
+					},
+				},
+			}},
+		},
+	}
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod.DeepCopy()).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+	r.SetNowFunc(func() time.Time { return now })
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "drop-app",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "main",
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest: resource.MustParse("100m"),
+			},
+		}},
+	}}
+	r.applyStartupBoosts(context.Background(), policy, map[string][]corev1.Pod{"drop-app": {*pod}}, recs, resize.NewPodResizer(clientset, ctrl.Log.WithName("test")), nil)
+
+	var reduced bool
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() != "update" || a.GetSubresource() != "resize" {
+			continue
+		}
+		updatedPod := a.(k8stesting.UpdateAction).GetObject().(*corev1.Pod)
+		if updatedPod.Spec.Containers[0].Resources.Requests.Cpu().Cmp(resource.MustParse("100m")) == 0 {
+			reduced = true
+		}
+	}
+	assert.True(t, reduced, "expiry must reduce the container named on the stamp even when its recommendation dropped")
+	var updated corev1.Pod
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, &updated))
+	assert.Empty(t, updated.Annotations[annotationStartupBoostAt])
+	assert.Empty(t, updated.Annotations[annotationStartupBoostContainers])
+}
+
+func TestApplyStartupBoosts_ExpirySkipsUnlistedSiblingWhenRecommendationRises(t *testing.T) {
+	// A sibling left off the stamp was not boosted. A later rise in its
+	// recommendation must not make expiry shrink it off the resize pipeline.
+	scheme := testScheme()
+	now := time.Date(2026, 1, 1, 0, 5, 0, 0, time.UTC)
+	boostTime := now.Add(-3 * time.Minute)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
+				StartupBoost: &attunev1alpha1.StartupBoost{
+					Multiplier: "2.0",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute},
+				},
+			},
+		},
+	}
+	mem := resource.MustParse("512Mi")
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "rise-app-abc",
+			Namespace:         "default",
+			CreationTimestamp: metav1.NewTime(boostTime),
+			Annotations: map[string]string{
+				annotationStartupBoostAt:         boostTime.UTC().Format(time.RFC3339),
+				annotationStartupBoostContainers: "sidecar",
+			},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1000m"),
+							corev1.ResourceMemory: mem.DeepCopy(),
+						},
+					},
+				},
+				{
+					Name: "sidecar",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("200m"),
+							corev1.ResourceMemory: mem.DeepCopy(),
+						},
+					},
+				},
+			},
+		},
+	}
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod.DeepCopy()).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+	r.SetNowFunc(func() time.Time { return now })
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "rise-app",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{
+			{Name: "main", Recommended: attunev1alpha1.ResourceValues{CPURequest: resource.MustParse("600m")}},
+			{Name: "sidecar", Recommended: attunev1alpha1.ResourceValues{CPURequest: resource.MustParse("100m")}},
+		},
+	}}
+	r.applyStartupBoosts(context.Background(), policy, map[string][]corev1.Pod{"rise-app": {*pod}}, recs, resize.NewPodResizer(clientset, ctrl.Log.WithName("test")), nil)
+
+	var resizedMain, resizedSidecar bool
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() != "update" || a.GetSubresource() != "resize" {
+			continue
+		}
+		updatedPod := a.(k8stesting.UpdateAction).GetObject().(*corev1.Pod)
+		for _, c := range updatedPod.Spec.Containers {
+			switch c.Name {
+			case "main":
+				if c.Resources.Requests.Cpu().Cmp(resource.MustParse("1000m")) != 0 {
+					resizedMain = true
+				}
+			case "sidecar":
+				if c.Resources.Requests.Cpu().Cmp(resource.MustParse("100m")) == 0 {
+					resizedSidecar = true
+				}
+			}
+		}
+	}
+	assert.False(t, resizedMain, "expiry must not shrink a container that was not on the boost stamp")
+	assert.True(t, resizedSidecar, "expiry must still reduce the container named on the stamp")
+}
+
+func TestApplyStartupBoosts_RefetchFailureStillRecordsLandedBoost(t *testing.T) {
+	// ResizePod can store the new request and then fail the follow-up
+	// read. That container was boosted. An earlier sibling must not
+	// persist a stamp that leaves it off the expiry list.
+	scheme := testScheme()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
+				StartupBoost: &attunev1alpha1.StartupBoost{
+					Multiplier: "2.0",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute},
+				},
+			},
+		},
+	}
+	mem := resource.MustParse("512Mi")
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "refetch-app-abc",
+			Namespace:         "default",
+			CreationTimestamp: metav1.NewTime(now.Add(-30 * time.Second)),
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "sidecar",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("200m"),
+							corev1.ResourceMemory: mem.DeepCopy(),
+						},
+					},
+				},
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: mem.DeepCopy(),
+						},
+					},
+				},
+			},
+		},
+	}
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+	var gets int
+	clientset.PrependReactor("get", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		gets++
+		// fetchLivePod, ResizePod's pre-update read, then the post-resize read.
+		if gets == 3 {
+			return true, nil, fmt.Errorf("simulated re-fetch failure")
+		}
+		return false, nil, nil
+	})
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod.DeepCopy()).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+	r.SetNowFunc(func() time.Time { return now })
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "refetch-app",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{
+			{Name: "sidecar", Recommended: attunev1alpha1.ResourceValues{CPURequest: resource.MustParse("100m")}},
+			{Name: "main", Recommended: attunev1alpha1.ResourceValues{CPURequest: resource.MustParse("200m")}},
+		},
+	}}
+	r.applyStartupBoosts(context.Background(), policy, map[string][]corev1.Pod{"refetch-app": {*pod}}, recs, resize.NewPodResizer(clientset, ctrl.Log.WithName("test")), nil)
+
+	var stamped corev1.Pod
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, &stamped))
+	assert.Equal(t, "main,sidecar", stamped.Annotations[annotationStartupBoostContainers],
+		"a landed boost must stay on the stamp when the follow-up read fails")
+}
+
+func TestApplyStartupBoosts_RefetchFailureStillBoostsLaterContainer(t *testing.T) {
+	// A failed follow-up read stops further resizes in that call. An
+	// earlier landed boost must stay on the stamp, a later container
+	// already at the target must stay on it too, and a later container
+	// still below the target must be boosted on the next pass inside
+	// the window.
+	scheme := testScheme()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
+				StartupBoost: &attunev1alpha1.StartupBoost{
+					Multiplier: "2.0",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute},
+				},
+			},
+		},
+	}
+	mem := resource.MustParse("512Mi")
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "refetch-tail-abc",
+			Namespace:         "default",
+			CreationTimestamp: metav1.NewTime(now.Add(-30 * time.Second)),
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: mem.DeepCopy(),
+						},
+					},
+				},
+				{
+					Name: "sidecar",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("200m"),
+							corev1.ResourceMemory: mem.DeepCopy(),
+						},
+					},
+				},
+				{
+					Name: "extra",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("50m"),
+							corev1.ResourceMemory: mem.DeepCopy(),
+						},
+					},
+				},
+			},
+		},
+	}
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+	failGets := true
+	var gets int
+	clientset.PrependReactor("get", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if !failGets {
+			return false, nil, nil
+		}
+		gets++
+		if gets == 3 || gets == 4 {
+			return true, nil, fmt.Errorf("simulated re-fetch failure")
+		}
+		return false, nil, nil
+	})
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod.DeepCopy()).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+	r.SetNowFunc(func() time.Time { return now })
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "refetch-tail",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{
+			{Name: "main", Recommended: attunev1alpha1.ResourceValues{CPURequest: resource.MustParse("200m")}},
+			{Name: "sidecar", Recommended: attunev1alpha1.ResourceValues{CPURequest: resource.MustParse("100m")}},
+			{Name: "extra", Recommended: attunev1alpha1.ResourceValues{CPURequest: resource.MustParse("100m")}},
+		},
+	}}
+	key := types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}
+	r.applyStartupBoosts(context.Background(), policy, map[string][]corev1.Pod{"refetch-tail": {*pod}}, recs, resize.NewPodResizer(clientset, ctrl.Log.WithName("test")), nil)
+
+	var stamped corev1.Pod
+	require.NoError(t, fakeClient.Get(context.Background(), key, &stamped))
+	assert.Equal(t, "main,sidecar", stamped.Annotations[annotationStartupBoostContainers],
+		"landed and already-at-target containers stay on the stamp when a later boost could not run")
+	failGets = false
+
+	live, err := clientset.CoreV1().Pods(pod.Namespace).Get(context.Background(), pod.Name, metav1.GetOptions{})
+	require.NoError(t, err)
+	if live.Annotations == nil {
+		live.Annotations = map[string]string{}
+	}
+	live.Annotations[annotationStartupBoostAt] = stamped.Annotations[annotationStartupBoostAt]
+	live.Annotations[annotationStartupBoostContainers] = stamped.Annotations[annotationStartupBoostContainers]
+	_, err = clientset.CoreV1().Pods(pod.Namespace).Update(context.Background(), live, metav1.UpdateOptions{})
+	require.NoError(t, err)
+	failGets = false
+	clientset.ClearActions()
+
+	listed := live.DeepCopy()
+	r.applyStartupBoosts(context.Background(), policy, map[string][]corev1.Pod{"refetch-tail": {*listed}}, recs, resize.NewPodResizer(clientset, ctrl.Log.WithName("test")), nil)
+
+	var boostedExtra bool
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() != "update" || a.GetSubresource() != "resize" {
+			continue
+		}
+		updatedPod := a.(k8stesting.UpdateAction).GetObject().(*corev1.Pod)
+		for _, c := range updatedPod.Spec.Containers {
+			if c.Name == "extra" && c.Resources.Requests.Cpu().Cmp(resource.MustParse("200m")) == 0 {
+				boostedExtra = true
+			}
+		}
+	}
+	assert.True(t, boostedExtra, "a container left below the target must still be boosted inside the window")
+	require.NoError(t, fakeClient.Get(context.Background(), key, &stamped))
+	assert.Equal(t, "extra,main,sidecar", stamped.Annotations[annotationStartupBoostContainers])
+	assert.Equal(t, now.UTC().Format(time.RFC3339), stamped.Annotations[annotationStartupBoostAt],
+		"a later boost inside the window must not move the original stamp")
+}
+
 func TestApplyStartupBoosts_UsesLiveSpecAfterSameReconcileResize(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	tests := []struct {

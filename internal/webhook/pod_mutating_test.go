@@ -1048,6 +1048,7 @@ func TestPodMutatingHandler_StartupBoostRaisesCREATECPU(t *testing.T) {
 	assert.True(t, got.Equal(resource.MustParse("1")),
 		"CREATE CPU %s want 1 (2x 500m boost)", got.String())
 	assert.NotEmpty(t, mutatedPod.Annotations[AnnotationStartupBoostAt])
+	assert.Equal(t, "app", mutatedPod.Annotations[AnnotationStartupBoostContainers])
 }
 
 func TestPodMutatingHandler_StartupBoostDestClamp(t *testing.T) {

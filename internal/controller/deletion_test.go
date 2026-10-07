@@ -69,6 +69,7 @@ func TestHandleDeletion_CleansAnnotationsAndGauges(t *testing.T) {
 				annotationOriginalCPUPrefix + "main":    "100m",
 				annotationOriginalMemoryPrefix + "main": "128Mi",
 				annotationStartupBoostAt:                "2025-01-01T00:00:00Z",
+				annotationStartupBoostContainers:        "main",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -108,6 +109,7 @@ func TestHandleDeletion_CleansAnnotationsAndGauges(t *testing.T) {
 	assert.Empty(t, pod.Annotations[annotationResizedWorkload], "annotationResizedWorkload should be removed")
 	assert.Empty(t, pod.Annotations[annotationResizedContainers], "annotationResizedContainers should be removed")
 	assert.Empty(t, pod.Annotations[annotationStartupBoostAt], "annotationStartupBoostAt should be removed")
+	assert.Empty(t, pod.Annotations[annotationStartupBoostContainers], "annotationStartupBoostContainers should be removed")
 	assert.Empty(t, pod.Annotations[annotationOriginalCPUPrefix+"main"], "original CPU annotation should be removed")
 	assert.Empty(t, pod.Annotations[annotationOriginalMemoryPrefix+"main"], "original memory annotation should be removed")
 	assert.Empty(t, pod.Labels[labelTracked], "labelTracked should be removed")

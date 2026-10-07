@@ -22,7 +22,9 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -54,6 +56,9 @@ const (
 	AnnotationInitialSizingPolicy = "attune.io/initial-sizing-policy"
 	// AnnotationStartupBoostAt records when CREATE applied a startup CPU boost.
 	AnnotationStartupBoostAt = "attune.io/startup-boost-at"
+	// AnnotationStartupBoostContainers names the containers CREATE boosted.
+	// Expiry reduces only this list. Same key as the in-place stamp.
+	AnnotationStartupBoostContainers = "attune.io/startup-boost-containers"
 	// minConfidenceForInitialSizing is the minimum confidence to apply initial sizing.
 	minConfidenceForInitialSizing = 0.5
 )
@@ -164,7 +169,7 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 
 	// Mutate the pod's containers and native sidecars (init restartPolicy Always).
 	mutated := false
-	boosted := false
+	var boostedNames []string
 	for i := range pod.Spec.Containers {
 		container := &pod.Spec.Containers[i]
 		ok, didBoost := h.mutateContainer(container, rec, policy, ownerKind)
@@ -172,7 +177,7 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 			mutated = true
 		}
 		if didBoost {
-			boosted = true
+			boostedNames = append(boostedNames, container.Name)
 		}
 	}
 	for i := range pod.Spec.InitContainers {
@@ -183,7 +188,7 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 				mutated = true
 			}
 			if didBoost {
-				boosted = true
+				boostedNames = append(boostedNames, container.Name)
 			}
 		}
 	}
@@ -210,8 +215,10 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 	}
 	pod.Annotations[AnnotationInitialSizing] = "applied"
 	pod.Annotations[AnnotationInitialSizingPolicy] = fmt.Sprintf("%s/%s", req.Namespace, policy.Name)
-	if boosted {
+	if len(boostedNames) > 0 {
 		pod.Annotations[AnnotationStartupBoostAt] = time.Now().UTC().Format(time.RFC3339)
+		sort.Strings(boostedNames)
+		pod.Annotations[AnnotationStartupBoostContainers] = strings.Join(boostedNames, ",")
 	}
 
 	h.Logger.Info("initial sizing applied",

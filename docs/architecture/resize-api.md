@@ -129,6 +129,7 @@ observation and revert tracking:
 | `attune.io/original-memory-limit.<container>` | Memory limit before the resize (when limit is non-zero) |
 | `attune.io/policy` | Name of the AttunePolicy managing this pod (used for safety observation provenance checks and finalizer cleanup) |
 | `attune.io/startup-boost-at` | RFC 3339 timestamp when a startup CPU boost was applied |
+| `attune.io/startup-boost-containers` | Comma-separated containers that boost applied, or found already at the boost target. Expiry reduces only these. Absent on older stamps, which still expire every container. |
 
 These annotations are removed once the safety observation period completes
 (regardless of whether the resize is kept or reverted). Completion waits
