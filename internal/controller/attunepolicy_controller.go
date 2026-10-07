@@ -105,6 +105,10 @@ const (
 
 	// Startup boost annotation.
 	annotationStartupBoostAt = "attune.io/startup-boost-at"
+	// Containers this stamp actually boosted, or found already at the
+	// boost target. Expiry reduces only these. A missing key is a stamp
+	// from before the list existed and still expires every container.
+	annotationStartupBoostContainers = "attune.io/startup-boost-containers"
 
 	// annotationPolicy records which AttunePolicy manages a pod, enabling
 	// targeted cleanup when the policy is deleted.
@@ -1471,6 +1475,7 @@ func (r *AttunePolicyReconciler) handleDeletion(ctx context.Context, policy *att
 		original := pod.DeepCopy()
 		removeTrackingAnnotations(pod)
 		delete(pod.Annotations, annotationStartupBoostAt)
+		delete(pod.Annotations, annotationStartupBoostContainers)
 		if err := r.Patch(ctx, pod, client.MergeFrom(original)); err != nil {
 			if apierrors.IsNotFound(err) {
 				continue
