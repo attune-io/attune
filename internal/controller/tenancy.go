@@ -21,8 +21,11 @@ import (
 	"fmt"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
@@ -179,15 +182,58 @@ func (r *AttunePolicyReconciler) unwindRejectedTenantMetrics(ctx context.Context
 	r.applyStartupBoosts(contextWithStartupBoostExpiryOnly(ctx), policy, podsByWorkload, policy.Status.Recommendations, resizer, nil)
 }
 
+// finishRejectedTenantStatus persists Ready=InvalidConfig plus any history
+// or condition changes from the unwind. A later reconcile already has
+// Ready set, and setFailedCondition would return without writing the
+// revert mark. That left the next minute calling UpdateResize again.
+func (r *AttunePolicyReconciler) finishRejectedTenantStatus(ctx context.Context, policy *attunev1alpha1.AttunePolicy, before *attunev1alpha1.AttunePolicyStatus, message string) {
+	if r == nil || policy == nil {
+		return
+	}
+	meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+		Type:               attunev1alpha1.ConditionReady,
+		Status:             metav1.ConditionFalse,
+		Reason:             attunev1alpha1.ReasonInvalidConfig,
+		Message:            message,
+		ObservedGeneration: policy.Generation,
+	})
+	if before != nil && equality.Semantic.DeepEqual(before, &policy.Status) {
+		return
+	}
+	desired := policy.Status.DeepCopy()
+	key := types.NamespacedName{Name: policy.Name, Namespace: policy.Namespace}
+	logger := log.FromContext(ctx)
+	for attempt := range 3 {
+		policy.Status = *desired
+		err := r.writeStatusKeepingSpec(ctx, policy)
+		if err == nil {
+			return
+		}
+		if !apierrors.IsConflict(err) {
+			logger.Error(err, "Failed to persist rejected-metrics unwind status")
+			return
+		}
+		logger.Info("rejected-metrics status conflict, retrying", "attempt", attempt+1)
+		if fetchErr := r.takeStoredMetaAfterConflict(ctx, key, policy); fetchErr != nil {
+			logger.Error(fetchErr, "Failed to re-fetch policy for unwind status retry")
+			return
+		}
+	}
+	logger.Error(fmt.Errorf("exhausted retries"), "Failed to persist rejected-metrics unwind status")
+}
+
 func sloSkipMessage(namespace string) string {
 	return fmt.Sprintf("An SLO guardrail was not sent because it is not limited to namespace %q.", namespace)
 }
 
 // recordSLOGuardrailSkips records queries that were not sent, and scoped
 // queries that returned no samples. Skip mode keeps
-// SLOGuardrailNoTenantCredentials. Once a later pass sends the queries
-// and they return a sample, those reasons are cleared.
-func (r *AttunePolicyReconciler) recordSLOGuardrailSkips(ctx context.Context, policy *attunev1alpha1.AttunePolicy, collector rsmetrics.MetricsCollector, skipped, empty []string) {
+// SLOGuardrailNoTenantCredentials. QueryRejected and that skip reason
+// clear when a later pass has nothing left unsent. SLOGuardrailNoSamples
+// clears only when sampled names a guardrail that returned a finite value.
+// A pass with no query (no tracked pods, an open window, or a transport
+// error) leaves NoSamples in place.
+func (r *AttunePolicyReconciler) recordSLOGuardrailSkips(ctx context.Context, policy *attunev1alpha1.AttunePolicy, collector rsmetrics.MetricsCollector, skipped, empty, sampled []string) {
 	if policy == nil {
 		return
 	}
@@ -204,6 +250,9 @@ func (r *AttunePolicyReconciler) recordSLOGuardrailSkips(ctx context.Context, po
 	}
 	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionSLOGuardrails)
 	if cond == nil || cond.Status != metav1.ConditionTrue {
+		return
+	}
+	if cond.Reason == attunev1alpha1.ReasonSLOGuardrailNoSamples && len(sampled) == 0 {
 		return
 	}
 	if cond.Reason != attunev1alpha1.ReasonSLOGuardrailQueryRejected &&

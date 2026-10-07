@@ -41,6 +41,7 @@ import (
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	rsmetrics "github.com/attune-io/attune/internal/metrics"
 	"github.com/attune-io/attune/internal/safety"
+	"github.com/attune-io/attune/internal/validation"
 )
 
 func TestReconcile_CrossNamespaceVPAIsInvalidConfig(t *testing.T) {
@@ -340,7 +341,7 @@ func TestRecordSLOGuardrailSkipsClearsStaleRejection(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	policy := policyWithGuardrails("team-a")
 	r.setSLOGuardrailCondition(policy, metav1.ConditionTrue, attunev1alpha1.ReasonSLOGuardrailQueryRejected, "old")
-	r.recordSLOGuardrailSkips(context.Background(), policy, &mockCollector{}, nil, nil)
+	r.recordSLOGuardrailSkips(context.Background(), policy, &mockCollector{}, nil, nil, nil)
 	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionSLOGuardrails)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionFalse, cond.Status)
@@ -349,13 +350,13 @@ func TestRecordSLOGuardrailSkipsClearsStaleRejection(t *testing.T) {
 	r.SLOGuardrailEnforceNamespace = false
 	ctx := context.WithValue(context.Background(), sloPlanKey{}, sloPlan{tenantGuardrails: true})
 	r.noteSkippedTenantGuardrail(policy)
-	r.recordSLOGuardrailSkips(ctx, policy, &operatorCollector{}, nil, nil)
+	r.recordSLOGuardrailSkips(ctx, policy, &operatorCollector{}, nil, nil, nil)
 	cond = meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionSLOGuardrails)
 	require.NotNil(t, cond)
 	assert.Equal(t, attunev1alpha1.ReasonSLOGuardrailNoTenantCredentials, cond.Reason)
 
 	r.SLOGuardrailEnforceNamespace = true
-	r.recordSLOGuardrailSkips(ctx, policy, &operatorCollector{}, nil, nil)
+	r.recordSLOGuardrailSkips(ctx, policy, &operatorCollector{}, nil, nil, nil)
 	cond = meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionSLOGuardrails)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionFalse, cond.Status)
@@ -385,7 +386,7 @@ func TestRecordSLOGuardrailSkips_EmptySamples(t *testing.T) {
 	r.SLOGuardrailEnforceNamespace = true
 	ctx := context.WithValue(context.Background(), sloPlanKey{}, sloPlan{tenantGuardrails: true})
 	policy := policyWithGuardrails("team-a")
-	r.recordSLOGuardrailSkips(ctx, policy, &operatorCollector{}, nil, []string{"ingress"})
+	r.recordSLOGuardrailSkips(ctx, policy, &operatorCollector{}, nil, []string{"ingress"}, nil)
 	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionSLOGuardrails)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionTrue, cond.Status)
@@ -393,7 +394,12 @@ func TestRecordSLOGuardrailSkips_EmptySamples(t *testing.T) {
 	assert.Contains(t, cond.Message, "ingress")
 	assert.Contains(t, cond.Message, "team-a")
 
-	r.recordSLOGuardrailSkips(ctx, policy, &operatorCollector{}, nil, nil)
+	r.recordSLOGuardrailSkips(ctx, policy, &operatorCollector{}, nil, nil, nil)
+	cond = meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionSLOGuardrails)
+	require.NotNil(t, cond)
+	assert.Equal(t, attunev1alpha1.ReasonSLOGuardrailNoSamples, cond.Reason)
+
+	r.recordSLOGuardrailSkips(ctx, policy, &operatorCollector{}, nil, nil, []string{"ingress"})
 	cond = meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionSLOGuardrails)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionFalse, cond.Status)
@@ -528,6 +534,57 @@ func TestReconcile_RejectedTenantMetricsExpiresBoostWithoutRaising(t *testing.T)
 	assert.Zero(t, freshResize, "a rejected metrics source does not raise a new boost")
 }
 
+func TestReconcile_RejectedTenantMetricsPersistsLaterRevert(t *testing.T) {
+	policy := rejectedVPAPolicy("probe", "default")
+	pod := rejectedOOMPod("oom-pod", time.Now().UTC().Add(-10*time.Second))
+	deploy := newTestDeployment("api-server", "default", nil)
+	r, c, clientset := rejectedTenantReconciler(t, policy, deploy, pod)
+
+	var stored attunev1alpha1.AttunePolicy
+	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "probe", Namespace: "default"}, &stored))
+	vpaErr := validation.VPANamespace("default", "other", false)
+	require.Error(t, vpaErr)
+	stored.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{{
+		Timestamp: metav1.Now(),
+		Workload:  "api-server",
+		Container: "main",
+		Resource:  "cpu",
+		Result:    attunev1alpha1.ResizeResultSuccess,
+	}}
+	meta.SetStatusCondition(&stored.Status.Conditions, metav1.Condition{
+		Type:               attunev1alpha1.ConditionReady,
+		Status:             metav1.ConditionFalse,
+		Reason:             attunev1alpha1.ReasonInvalidConfig,
+		Message:            vpaErr.Error(),
+		ObservedGeneration: stored.Generation,
+	})
+	require.NoError(t, c.Status().Update(context.Background(), &stored))
+
+	_, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "probe", Namespace: "default"},
+	})
+	require.NoError(t, err)
+	updated := storedProbe(t, c)
+	require.NotEmpty(t, updated.Status.ResizeHistory)
+	assert.Equal(t, attunev1alpha1.ResizeResultReverted, updated.Status.ResizeHistory[0].Result)
+	afterFirst := resizeCount(clientset)
+
+	applied, err := clientset.CoreV1().Pods("default").Get(context.Background(), "oom-pod", metav1.GetOptions{})
+	require.NoError(t, err)
+	var listed corev1.Pod
+	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "oom-pod", Namespace: "default"}, &listed))
+	listed.Spec = applied.Spec
+	require.NoError(t, c.Update(context.Background(), &listed))
+
+	_, err = r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "probe", Namespace: "default"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, afterFirst, resizeCount(clientset), "a saved revert must not resize the pod again")
+	again := storedProbe(t, c)
+	assert.Equal(t, attunev1alpha1.ResizeResultReverted, again.Status.ResizeHistory[0].Result)
+}
+
 func rejectedVPAPolicy(name, namespace string) *attunev1alpha1.AttunePolicy {
 	policy := newTestPolicy(name, namespace)
 	policy.Spec.MetricsSource.Prometheus = nil
@@ -617,12 +674,17 @@ func storedProbe(t *testing.T, c client.Client) attunev1alpha1.AttunePolicy {
 }
 
 func resizeWasCalled(clientset *kubefake.Clientset) bool {
+	return resizeCount(clientset) > 0
+}
+
+func resizeCount(clientset *kubefake.Clientset) int {
+	n := 0
 	for _, action := range clientset.Actions() {
 		if action.GetVerb() == "update" && action.GetSubresource() == "resize" {
-			return true
+			n++
 		}
 	}
-	return false
+	return n
 }
 
 func policyWithGuardrails(namespace string) *attunev1alpha1.AttunePolicy {

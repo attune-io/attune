@@ -498,8 +498,9 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			r.setFailedCondition(ctx, &policy, attunev1alpha1.ReasonPaused, "Reconciliation paused by spec.paused=true")
 			return ctrl.Result{}, nil
 		}
+		beforeStatus := policy.Status.DeepCopy()
 		r.unwindRejectedTenantMetrics(ctx, &policy)
-		r.setFailedCondition(ctx, &policy, attunev1alpha1.ReasonInvalidConfig, err.Error())
+		r.finishRejectedTenantStatus(ctx, &policy, beforeStatus, err.Error())
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
 	ctx = context.WithValue(ctx, sloPlanKey{}, sloPlan{tenantGuardrails: tenantWroteGuardrails(&policy, nsSpec)})
