@@ -2,7 +2,7 @@
 # BuildKit features (--platform, --mount) are supported natively since Docker 20.10.
 # No # syntax directive needed; it triggers a registry pull that fails on macOS
 # self-hosted runners where the keychain is locked in headless sessions.
-FROM --platform=$BUILDPLATFORM golang:1.27.1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.2@sha256:5bc7f572bbaa98885a3a1fd9c0aa76b59e3e14e8628bfc316bbfd0c701e4818c AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
