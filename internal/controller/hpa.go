@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -26,6 +27,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -162,15 +164,15 @@ type hpaTuneScope struct {
 }
 
 type hpaMetricBasis struct {
-	ok                 bool
-	longKey            bool
-	resource           bool
-	containerMemory    bool
-	container          string
-	resName            string
-	oldMilli, newMilli int64
-	limit              resource.Quantity
-	targetKey, baseKey string
+	ok                                bool
+	longKey                           bool
+	resource                          bool
+	containerMemory                   bool
+	container                         string
+	resName                           string
+	oldMilli, newMilli                int64
+	limit                             resource.Quantity
+	targetKey, baseKey, containersKey string
 }
 
 type hpaPendingTarget struct {
@@ -316,12 +318,160 @@ func resourceOldMilliExcludingNativeSidecars(pod *corev1.Pod, rows map[string]hp
 	return old
 }
 
+// podResourceContainerSet is the containers podCPUMillis and podMemoryMillis
+// consider. names is the stored list, including a zero request, so a later
+// resize of that container is growth inside the base rather than a container
+// the base missed. milli is only the positive pre-resize contribution, which
+// is what gets added for a name that was not on the list.
+type podResourceContainerSet struct {
+	milli map[string]int64
+	names map[string]struct{}
+}
+
+func podResourceContainers(pod *corev1.Pod, rows map[string]hpaCPURow, res corev1.ResourceName) podResourceContainerSet {
+	out := podResourceContainerSet{
+		milli: map[string]int64{},
+		names: map[string]struct{}{},
+	}
+	if pod == nil {
+		return out
+	}
+	add := func(name string, v int64) {
+		if len(validation.IsDNS1123Label(name)) > 0 {
+			return
+		}
+		out.names[name] = struct{}{}
+		if v > 0 {
+			out.milli[name] = v
+		}
+	}
+	seen := make(map[string]struct{}, len(pod.Spec.Containers)+len(pod.Spec.InitContainers))
+	for _, c := range pod.Spec.Containers {
+		seen[c.Name] = struct{}{}
+		if row, ok := rows[c.Name]; ok && row.ok {
+			add(c.Name, row.old)
+			continue
+		}
+		var v int64
+		if q, has := c.Resources.Requests[res]; has {
+			v = q.MilliValue()
+		}
+		add(c.Name, v)
+	}
+	for _, c := range pod.Spec.InitContainers {
+		seen[c.Name] = struct{}{}
+		if !nativeSidecar(c) {
+			continue
+		}
+		if row, ok := rows[c.Name]; ok && row.ok {
+			add(c.Name, row.old)
+			continue
+		}
+		var v int64
+		if q, has := c.Resources.Requests[res]; has {
+			v = q.MilliValue()
+		}
+		add(c.Name, v)
+	}
+	for name, row := range rows {
+		if _, onPod := seen[name]; onPod || !row.ok {
+			continue
+		}
+		add(name, row.old)
+	}
+	return out
+}
+
+// parseResourceBaseContainers reads a sorted or unsorted container list.
+// An empty value is no list. Any token that is not a DNS-1123 label makes
+// the whole value no list, so the equality repair still applies.
+func parseResourceBaseContainers(raw string) (map[string]struct{}, bool) {
+	if raw == "" {
+		return nil, false
+	}
+	parts := strings.Split(raw, ",")
+	set := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		name := strings.TrimSpace(part)
+		if len(validation.IsDNS1123Label(name)) > 0 {
+			return nil, false
+		}
+		set[name] = struct{}{}
+	}
+	if len(set) == 0 {
+		return nil, false
+	}
+	return set, true
+}
+
+func formatResourceBaseContainers(names map[string]struct{}) string {
+	if len(names) == 0 {
+		return ""
+	}
+	sorted := make([]string, 0, len(names))
+	for name := range names {
+		if len(validation.IsDNS1123Label(name)) > 0 {
+			continue
+		}
+		sorted = append(sorted, name)
+	}
+	if len(sorted) == 0 {
+		return ""
+	}
+	sort.Strings(sorted)
+	return strings.Join(sorted, ",")
+}
+
+// extendStoredResourceBase adds containers that are in this cycle's pod
+// sum and missing from the stored list. A positive pre-resize request is
+// added to the quantity. A zero request is only recorded on the list, so
+// the next resize does not treat Attune's own delta as a missed container.
+// repair is true only when the quantity changes. A listed name that is
+// gone from the pod stays in the quantity and in the list.
+func extendStoredResourceBase(storedMilli int64, listed map[string]struct{}, observed podResourceContainerSet) (next int64, formatted string, repair bool, removed []string) {
+	extended := make(map[string]struct{}, len(listed)+len(observed.names))
+	for name := range listed {
+		extended[name] = struct{}{}
+	}
+	var added int64
+	listChanged := false
+	for name := range observed.names {
+		if _, ok := listed[name]; ok {
+			continue
+		}
+		extended[name] = struct{}{}
+		listChanged = true
+		if v := observed.milli[name]; v > 0 {
+			added += v
+		}
+	}
+	for name := range listed {
+		if _, onPod := observed.names[name]; !onPod {
+			removed = append(removed, name)
+		}
+	}
+	sort.Strings(removed)
+	if !listChanged {
+		return storedMilli, "", false, removed
+	}
+	return storedMilli + added, formatResourceBaseContainers(extended), added > 0, removed
+}
+
+func (s hpaTuneScope) resourceRows(resName string) map[string]hpaCPURow {
+	if resName == string(corev1.ResourceMemory) {
+		return s.memRows
+	}
+	return s.rows
+}
+
 // repairedPodResourceBase replaces a stored pod Resource base when that
-// base left out containers this cycle's pre-resize sum includes.
-// storedMilli has to be strictly below oldMilli, and it has to equal the
-// history-old sum or the same sum with native sidecars removed. A stored
-// value that matches neither stays: it may already include the sidecar,
-// or it may be a full base from before later growth.
+// base left out containers this cycle's pre-resize sum includes and no
+// container list was stored with it. storedMilli has to be strictly below
+// oldMilli, and it has to equal the history-old sum or the same sum with
+// native sidecars removed. A stored value that matches neither stays: it
+// may already include the sidecar, or it may be a full base from before
+// later growth. A full base can still match after the app grows to the
+// stored quantity. A list written with the base is what stops that.
 func repairedPodResourceBase(pod *corev1.Pod, rows map[string]hpaCPURow, res corev1.ResourceName, storedMilli, oldMilli int64) (int64, bool) {
 	if storedMilli <= 0 || oldMilli <= 0 || storedMilli >= oldMilli {
 		return 0, false
@@ -489,6 +639,7 @@ func (s hpaTuneScope) metricBasis(m *autoscalingv2.MetricSpec) (recognized bool,
 		b.resName = string(corev1.ResourceCPU)
 		b.targetKey = annotationHPAOriginalCPU
 		b.baseKey = annotationHPAOriginalCPURequest
+		b.containersKey = annotationHPAOriginalCPURequestContainers
 		if s.badCPU || s.pod == nil {
 			return true, b
 		}
@@ -625,8 +776,10 @@ func copyHPATuneAnnotations(dst, src map[string]string) {
 		annotationHPAAutoTune,
 		annotationHPAOriginalCPU,
 		annotationHPAOriginalCPURequest,
+		annotationHPAOriginalCPURequestContainers,
 		annotationHPAOriginalMemory,
 		annotationHPAOriginalMemoryRequest,
+		annotationHPAOriginalMemoryRequestContainers,
 		annotationHPAOriginalContainerMemory,
 	} {
 		if v, ok := src[k]; ok {
@@ -661,6 +814,7 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 
 		foundAdjustable := false
 		var repairedBases []string
+		listOnlyWrite := false
 		pending := make([]hpaPendingTarget, 0, len(hpa.Spec.Metrics))
 		var clamps []hpaClampNote
 		for j := range hpa.Spec.Metrics {
@@ -675,7 +829,11 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 					"hpa", hpa.Name, "workload", workloadName, "container", basis.container)
 				continue
 			}
-			if !basis.ok || basis.oldMilli == 0 || basis.newMilli == 0 || basis.oldMilli == basis.newMilli {
+			// An unchanged pod total can still be an offsetting resize that
+			// brings a container in from zero. The list has to record that
+			// name before a later cycle adds the new request. A true no-op
+			// still returns below, once the list and the percent are compared.
+			if !basis.ok || basis.oldMilli == 0 || basis.newMilli == 0 {
 				continue
 			}
 			var currentTarget int32
@@ -691,6 +849,8 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 			baseTarget := currentTarget
 			baseRequestMilli := basis.oldMilli
 			repairPartial := false
+			listOnly := false
+			containerList := ""
 			if basis.containerMemory {
 				if storedTarget, storedMilli, ok := storedContainerMemory(hpa.Annotations, basis.container); ok {
 					baseTarget = storedTarget
@@ -700,15 +860,33 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 				baseTarget = storedTarget
 				baseRequestMilli = storedMilli
 				// ContainerResource keeps its own base. A pod Resource base
-				// can be replaced; see repairedPodResourceBase.
+				// with a container list adds only names missing from that
+				// list. Without a list, see repairedPodResourceBase.
 				if basis.resource {
-					rows := scope.rows
-					if basis.resName == string(corev1.ResourceMemory) {
-						rows = scope.memRows
-					}
-					if next, repair := repairedPodResourceBase(scope.pod, rows, corev1.ResourceName(basis.resName), storedMilli, basis.oldMilli); repair {
+					rows := scope.resourceRows(basis.resName)
+					observed := podResourceContainers(scope.pod, rows, corev1.ResourceName(basis.resName))
+					if listed, ok := parseResourceBaseContainers(hpa.Annotations[basis.containersKey]); ok {
+						next, formatted, repair, removed := extendStoredResourceBase(storedMilli, listed, observed)
+						if len(removed) > 0 {
+							logger.Info("HPA base lists containers that are not in this cycle's pod sum",
+								"hpa", hpa.Name, "workload", workloadName, "annotation", basis.containersKey, "containers", removed)
+						}
+						if formatted != "" {
+							containerList = formatted
+							if repair {
+								baseRequestMilli = next
+								repairPartial = true
+							} else {
+								// A container joined at zero. Record the name
+								// now so the next resize does not add Attune's
+								// own delta. The quantity did not change.
+								listOnly = true
+							}
+						}
+					} else if next, repair := repairedPodResourceBase(scope.pod, rows, corev1.ResourceName(basis.resName), storedMilli, basis.oldMilli); repair {
 						baseRequestMilli = next
 						repairPartial = true
+						containerList = formatResourceBaseContainers(observed.names)
 					}
 				}
 			}
@@ -716,17 +894,24 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 			oldQ := hpaRequestQuantity(basis.resName, basis.oldMilli)
 			newQ := hpaRequestQuantity(basis.resName, basis.newMilli)
 			newTarget, computed, emit := publishHPATarget(rawTarget, basis.limit, newQ, bandFor(scope.policy, basis.resName))
-			if newTarget == currentTarget {
+			// A repair still has to be stored when truncation leaves the
+			// percent unchanged. Otherwise the missing container is lost
+			// until a later resize happens to move the target.
+			if newTarget == currentTarget && !repairPartial && !listOnly {
 				continue
+			}
+			if listOnly {
+				listOnlyWrite = true
 			}
 			// First write only. A stored base that differs from this cycle's
 			// sum is the usual second resize, not a cue to rewrite it.
 			if hpa.Annotations == nil {
 				hpa.Annotations = make(map[string]string)
 			}
+			firstWrite := basis.targetKey != "" && hpa.Annotations[basis.targetKey] == ""
 			if basis.containerMemory {
 				rememberContainerMemory(hpa.Annotations, basis.container, currentTarget, basis.oldMilli)
-			} else if basis.targetKey != "" && (hpa.Annotations[basis.targetKey] == "" || repairPartial) {
+			} else if firstWrite || repairPartial {
 				hpa.Annotations[basis.targetKey] = strconv.FormatInt(int64(baseTarget), 10)
 				baseQ := hpaRequestQuantity(basis.resName, baseRequestMilli)
 				hpa.Annotations[basis.baseKey] = baseQ.String()
@@ -734,32 +919,43 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 					repairedBases = rememberRepairedBase(repairedBases, basis.baseKey)
 				}
 			}
-			if basis.resName == string(corev1.ResourceMemory) {
-				logger.Info("Auto-tuning HPA memory target after resize",
-					"hpa", hpa.Name, "workload", workloadName, "container", basis.container,
-					"currentTarget", currentTarget, "newTarget", newTarget,
-					"oldRequest", oldQ.String(), "newRequest", newQ.String())
-			} else {
-				logger.Info("Auto-tuning HPA CPU target after resize",
-					"hpa", hpa.Name, "workload", workloadName, "container", basis.container,
-					"currentTarget", currentTarget, "newTarget", newTarget,
-					"oldRequest", oldQ.String(), "newRequest", newQ.String())
+			if basis.containersKey != "" && (firstWrite || repairPartial || listOnly) {
+				if containerList == "" {
+					observed := podResourceContainers(scope.pod, scope.resourceRows(basis.resName), corev1.ResourceName(basis.resName))
+					containerList = formatResourceBaseContainers(observed.names)
+				}
+				if containerList != "" {
+					hpa.Annotations[basis.containersKey] = containerList
+				}
 			}
-			applyHPAMetricTarget(hpa, j, basis.resName, basis.resource, basis.container, newTarget)
-			pending = append(pending, hpaPendingTarget{
-				index:     j,
-				resource:  basis.resource,
-				container: basis.container,
-				resName:   basis.resName,
-				target:    newTarget,
-			})
-			if emit {
-				clamps = append(clamps, hpaClampNote{
-					message: hpaClampMessage(hpa.Namespace, hpa.Name, basis.resName, basis.container, computed, newTarget),
+			if newTarget != currentTarget {
+				if basis.resName == string(corev1.ResourceMemory) {
+					logger.Info("Auto-tuning HPA memory target after resize",
+						"hpa", hpa.Name, "workload", workloadName, "container", basis.container,
+						"currentTarget", currentTarget, "newTarget", newTarget,
+						"oldRequest", oldQ.String(), "newRequest", newQ.String())
+				} else {
+					logger.Info("Auto-tuning HPA CPU target after resize",
+						"hpa", hpa.Name, "workload", workloadName, "container", basis.container,
+						"currentTarget", currentTarget, "newTarget", newTarget,
+						"oldRequest", oldQ.String(), "newRequest", newQ.String())
+				}
+				applyHPAMetricTarget(hpa, j, basis.resName, basis.resource, basis.container, newTarget)
+				pending = append(pending, hpaPendingTarget{
+					index:     j,
+					resource:  basis.resource,
+					container: basis.container,
+					resName:   basis.resName,
+					target:    newTarget,
 				})
+				if emit {
+					clamps = append(clamps, hpaClampNote{
+						message: hpaClampMessage(hpa.Namespace, hpa.Name, basis.resName, basis.container, computed, newTarget),
+					})
+				}
 			}
 		}
-		if len(pending) == 0 {
+		if len(pending) == 0 && len(repairedBases) == 0 && !listOnlyWrite {
 			if !foundAdjustable {
 				logger.Info("HPA has auto-tune annotation but no adjustable CPU utilization metric",
 					"hpa", hpa.Name, "workload", workloadName)
@@ -801,7 +997,7 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 		if r.Recorder != nil && scope.policy != nil {
 			for _, key := range repairedBases {
 				r.Recorder.Eventf(scope.policy, nil, corev1.EventTypeWarning, "HPABaseRepaired", "hpa",
-					"Stored %s was below the pre-resize pod sum and was replaced", key)
+					"Stored %s left out containers from the pre-resize pod sum and was updated", key)
 			}
 		}
 		for _, note := range clamps {

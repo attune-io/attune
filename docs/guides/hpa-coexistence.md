@@ -66,22 +66,32 @@ stays at `200m`. The pod total goes from `600m` to `400m`, and a target of
 80 becomes 120 (`80 * 600 / 400`), not 160 from the app alone.
 
 The first `Resource` adjustment stores the original utilization percent as
-`attune.io/original-target-cpu` and the original pod CPU request as
-`attune.io/original-cpu-request` (`600m` in that example). Later resizes
-reuse those stored values so the absolute threshold does not drift.
-The pod sum is `spec.containers` plus init containers with
-`restartPolicy: Always`. A one-shot init stays out of that sum.
-Attune replaces the stored request when it is below this cycle's
+`attune.io/original-target-cpu`, the original pod CPU request as
+`attune.io/original-cpu-request` (`600m` in that example), and the
+containers in that sum as `attune.io/original-cpu-request-containers`.
+Later resizes reuse those stored values so the absolute threshold does
+not drift. The pod sum is `spec.containers` plus init containers with
+`restartPolicy: Always`. A one-shot init stays out of that sum. A
+container whose pre-resize request is zero is named on the list so a
+later resize of that container is not added to the stored quantity.
+
+When the list is present, Attune adds a container that is in this cycle's
+pre-resize sum and missing from the list, at that container's pre-resize
+request. A container already named on the list is not added again when
+the app later grows to the stored quantity. A name that remains on the
+list after the container leaves the pod stays in the stored quantity.
+
+A stored base with no list is replaced when it is below this cycle's
 pre-resize pod sum and equals either the history old sum or that sum
-with native sidecars removed. The gap is a container with no history
-row, or a native sidecar missing from an older stored base, including
-when that sidecar has its own history row. A stored full-pod base stays
-across later growth. A stored base that matches neither sum also stays,
-so a sidecar already inside it is not added again. `HPABaseRepaired`
-means the update that rewrote `attune.io/original-cpu-request`
-succeeded. The event names that annotation. A failed HPA update does
-not emit the Warning. A value an older operator already replaced with a
-grown sum is left in place.
+with native sidecars removed. That is how a v0.1.33 base that left out a
+sidecar, or a native sidecar, is repaired. The same numbers also match a
+full base after the app grows to the stored quantity, and that base is
+rewritten until a list exists. A stored value that matches neither sum
+stays. `HPABaseRepaired` means the update that changed
+`attune.io/original-cpu-request` succeeded. The event names that
+annotation. A failed HPA update does not emit the Warning. The repair is
+still stored when the published percent does not change. A value an older
+operator already replaced with a grown sum is left in place.
 A conflicting HPA write is retried from a fresh object. A non-conflict
 failure is logged, and the target is corrected on the next resize of
 that workload.
@@ -146,13 +156,14 @@ AverageValue targets are left unchanged.
 
 The original Resource target and request are stored on the HPA as
 `attune.io/original-target-memory` and `attune.io/original-memory-request`.
+The containers in that sum are stored as
+`attune.io/original-memory-request-containers`.
 ContainerResource baselines share one JSON annotation,
 `attune.io/original-container-memory`, keyed by container name. A later
 resize multiplies the stored original target by the stored request divided
-by the new request. Attune replaces `attune.io/original-memory-request`
-on the same rule as `attune.io/original-cpu-request`. The stored value
-is below the pre-resize pod sum and equals the history old sum or that
-sum with native sidecars removed. `HPABaseRepaired` names
+by the new request. Attune updates `attune.io/original-memory-request`
+on the same rule as `attune.io/original-cpu-request`, including the
+container list. `HPABaseRepaired` names
 `attune.io/original-memory-request` after that update succeeds.
 ContainerResource JSON baselines are not repaired this way.
 

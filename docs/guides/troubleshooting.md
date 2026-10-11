@@ -1415,18 +1415,29 @@ total from before the first Attune resize.
 
 **Cause**: A stored full-pod base was replaced with a grown pod sum, or
 the no-history containers were added onto a base that already included
-them. This version keeps a stored base unless it is below the
-pre-resize pod sum and equals either the history old sum or that sum
-with native sidecars removed. A native sidecar added by that repair is
-expected. It does not write an older number back.
+them. A base that records its containers
+(`attune.io/original-cpu-request-containers` or
+`attune.io/original-memory-request-containers`) adds only a container
+missing from that list. A base with no list is still replaced when it
+is below the pre-resize pod sum and equals either the history old sum
+or that sum with native sidecars removed. That equality also matches a
+full base after the app grows to the stored quantity, so a sidecar can
+be counted twice. A native sidecar added by a real partial repair is
+expected. This version does not write an older number back.
 
 **Fix**:
 
-1. Read `attune.io/original-cpu-request` on the HPA.
-2. If an older operator already replaced it, delete
-   `attune.io/original-target-cpu` and `attune.io/original-cpu-request`.
-   Leave `attune.io/auto-tune: "true"`. The next successful CPU resize
-   stores a fresh base and moves the live target.
+1. Read `attune.io/original-cpu-request` or
+   `attune.io/original-memory-request` on the HPA, and the matching
+   containers annotation when it is set.
+2. If the stored quantity is already the doubled base, delete the
+   target and request annotations for that resource:
+   `attune.io/original-target-cpu` and `attune.io/original-cpu-request`,
+   or `attune.io/original-target-memory` and
+   `attune.io/original-memory-request`. Delete the containers annotation
+   too if it is set. Leave `attune.io/auto-tune: "true"`. The next
+   successful resize of that resource stores a fresh base, the container
+   list, and moves the live target.
 3. Do not expect this version to restore the number from before that
    rewrite.
 

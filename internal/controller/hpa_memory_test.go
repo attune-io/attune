@@ -951,6 +951,7 @@ func TestHPAMemoryAnnotationNames(t *testing.T) {
 	keys := []string{
 		annotationHPAOriginalMemory,
 		annotationHPAOriginalMemoryRequest,
+		annotationHPAOriginalMemoryRequestContainers,
 		annotationHPAOriginalContainerMemory,
 	}
 	for _, key := range keys {
@@ -961,6 +962,7 @@ func TestHPAMemoryAnnotationNames(t *testing.T) {
 	}
 	assert.Equal(t, "attune.io/original-target-memory", annotationHPAOriginalMemory)
 	assert.Equal(t, "attune.io/original-memory-request", annotationHPAOriginalMemoryRequest)
+	assert.Equal(t, "attune.io/original-memory-request-containers", annotationHPAOriginalMemoryRequestContainers)
 	assert.Equal(t, "attune.io/original-container-memory", annotationHPAOriginalContainerMemory)
 	assert.NotEqual(t, annotationOriginalMemoryPrefix, annotationHPAOriginalMemoryRequest)
 }

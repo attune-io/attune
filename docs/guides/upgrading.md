@@ -8,6 +8,46 @@ Maintainers: before publishing a release after multi-version product changes,
 run the full E2E Nightly matrix on tip of `main` (see
 [Releasing: full E2E matrix](../contributing/releasing.md#1b-full-e2e-matrix-required-before-tagging-a-product-release)).
 
+## Unreleased
+
+### HPA auto-tune names the containers in a stored base
+
+The first Resource retune for CPU or memory now stores which containers
+that base includes:
+
+- `attune.io/original-cpu-request-containers`
+- `attune.io/original-memory-request-containers`
+
+The value is a sorted comma-separated list. It includes `spec.containers`
+and init containers with `restartPolicy: Always`, including a container
+whose pre-resize request is zero. A one-shot init stays out. A later
+resize of a container that was already named does not add that request
+on top of the stored quantity.
+
+A later resize adds a container that is in the pod sum and missing from
+the list, at that container's pre-resize request. A container that joins
+with a zero pre-resize request is added to the list without changing the
+stored quantity and without `HPABaseRepaired`, including when the other
+containers change by the same amount and the pod total stays put. A full base is not
+replaced when the app's history old later equals the stored quantity.
+A name that stays on the list after the container leaves the pod stays
+in the stored quantity.
+
+A base written by v0.1.33 or earlier has no list. Attune still replaces
+that quantity when it is below this cycle's pre-resize pod sum and equals
+the history old sum, or that sum with native sidecars removed. That rule
+can still count a sidecar twice when a full base equals history old.
+Delete `attune.io/original-target-cpu` and `attune.io/original-cpu-request`,
+or the memory pair, and the next resize stores a fresh base and the list.
+Delete the containers annotation too if it is set. Leave `attune.io/auto-tune`
+set. A quantity already rewritten to a larger value is left as stored.
+
+`HPABaseRepaired` is still emitted only after the HPA update succeeds,
+and only when the stored quantity changes. No policy YAML change and no
+CRD change are needed.
+
+See [Utilization drifted after a second CPU resize](troubleshooting.md#utilization-drifted-after-a-second-cpu-resize).
+
 ## v0.1.32 to v0.1.33
 
 v0.1.33 adds per-container CPU and memory settings, memory HPA retune,

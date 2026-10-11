@@ -1225,6 +1225,7 @@ func TestRetuneHPAAfterResize_PartialStoredBaseUsesPreResizeSum(t *testing.T) {
 		"80 * 600/500 = 96; 64 keeps the partial base and 80 rebases onto the new total")
 	assert.Equal(t, "80", updated.Annotations[annotationHPAOriginalCPU])
 	assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest])
+	assert.Equal(t, "app,sidecar", updated.Annotations[annotationHPAOriginalCPURequestContainers])
 }
 
 func TestRetuneHPAAfterResize_PartialBaseEventNamesOriginalRequest(t *testing.T) {
@@ -1753,6 +1754,7 @@ func TestRetuneHPAAfterResize_NativeSidecarHistoryRepairsPartialBase(t *testing.
 	assert.Equal(t, "80", updated.Annotations[annotationHPAOriginalCPU])
 	assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest],
 		"one-shot init history stays out of the repaired base")
+	assert.Equal(t, "app,istio-proxy", updated.Annotations[annotationHPAOriginalCPURequestContainers])
 	notes := recorderNotes(recorder)
 	require.NotEmpty(t, notes)
 	assert.Contains(t, notes[0], "HPABaseRepaired")

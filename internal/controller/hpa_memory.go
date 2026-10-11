@@ -234,6 +234,7 @@ func (s hpaTuneScope) memoryMetricBasis(m *autoscalingv2.MetricSpec) (recognized
 		b.resName = string(corev1.ResourceMemory)
 		b.targetKey = annotationHPAOriginalMemory
 		b.baseKey = annotationHPAOriginalMemoryRequest
+		b.containersKey = annotationHPAOriginalMemoryRequestContainers
 		if s.badMem || s.pod == nil {
 			return true, b
 		}

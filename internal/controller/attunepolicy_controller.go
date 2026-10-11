@@ -90,19 +90,21 @@ const (
 	// HPA auto-tune annotations. Pod-total Resource metrics use the bare keys.
 	// ContainerResource metrics use the per-container keys, which are not
 	// prefixes of the bare keys (and the bare keys are not prefixes of them).
-	annotationHPAAutoTune           = "attune.io/auto-tune"
-	annotationHPAOriginalCPU        = "attune.io/original-target-cpu"
-	annotationHPAOriginalCPURequest = "attune.io/original-cpu-request"
-	annotationHPACPUTargetPrefix    = "attune.io/hpa-cpu-target."
-	annotationHPACPUBasePrefix      = "attune.io/hpa-cpu-base."
+	annotationHPAAutoTune                     = "attune.io/auto-tune"
+	annotationHPAOriginalCPU                  = "attune.io/original-target-cpu"
+	annotationHPAOriginalCPURequest           = "attune.io/original-cpu-request"
+	annotationHPAOriginalCPURequestContainers = "attune.io/original-cpu-request-containers"
+	annotationHPACPUTargetPrefix              = "attune.io/hpa-cpu-target."
+	annotationHPACPUBasePrefix                = "attune.io/hpa-cpu-base."
 
 	// Memory HPA baselines. Pod Resource metrics use the two bare keys.
 	// Every ContainerResource baseline shares one JSON object so a
 	// 63-character container name still fits in the annotation name.
 	// These are not the pod rollback prefix annotationOriginalMemoryPrefix.
-	annotationHPAOriginalMemory          = "attune.io/original-target-memory"
-	annotationHPAOriginalMemoryRequest   = "attune.io/original-memory-request"
-	annotationHPAOriginalContainerMemory = "attune.io/original-container-memory"
+	annotationHPAOriginalMemory                  = "attune.io/original-target-memory"
+	annotationHPAOriginalMemoryRequest           = "attune.io/original-memory-request"
+	annotationHPAOriginalMemoryRequestContainers = "attune.io/original-memory-request-containers"
+	annotationHPAOriginalContainerMemory         = "attune.io/original-container-memory"
 
 	// Startup boost annotation.
 	annotationStartupBoostAt = "attune.io/startup-boost-at"
