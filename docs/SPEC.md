@@ -128,7 +128,7 @@ github.com/stretchr/testify             latest
 
 # Tools (CI/build, not Go module deps)
 kubebuilder                             v4.14.0
-golangci-lint                           v2.13.x
+golangci-lint                           v2.14.x
 goreleaser                              v2.15.x
 ko                                      latest
 cosign                                  latest
@@ -1174,7 +1174,7 @@ Jobs:
     - Downstream jobs skip irrelevant work on docs-only or YAML-only diffs
 
   lint:
-    - golangci-lint v2.13.x (with .golangci.yml config)
+    - golangci-lint v2.14.x (with .golangci.yml config)
     - `go mod tidy` cleanliness check
     - License boilerplate verification
     - Documentation defaults / dashboard metrics / tool-version consistency checks
