@@ -466,7 +466,7 @@ func (c *PrometheusCollector) effectiveMaxSeries() int {
 // than MaxSeries allows, the map is truncated and ErrSeriesCapped is returned
 // (partial data is still usable).
 func (c *PrometheusCollector) QueryRangeGrouped(ctx context.Context, query string, start, end time.Time, step time.Duration) (map[string][]Sample, error) {
-	result, warnings, err := c.api.QueryRange(ctx, query, promv1.Range{
+	result, warnings, infos, err := c.api.QueryRange(ctx, query, promv1.Range{
 		Start: start,
 		End:   end,
 		Step:  step,
@@ -477,6 +477,10 @@ func (c *PrometheusCollector) QueryRangeGrouped(ctx context.Context, query strin
 	if len(warnings) > 0 {
 		c.logger.Info("Prometheus range query returned warnings",
 			"warnings", strings.Join(warnings, "; "))
+	}
+	if len(infos) > 0 {
+		c.logger.Info("Prometheus range query returned infos",
+			"infos", strings.Join(infos, "; "))
 	}
 
 	matrix, ok := result.(model.Matrix)
@@ -661,13 +665,17 @@ func capMatrixByPodFairShare(matrix model.Matrix, limit int) model.Matrix {
 // Query executes a Prometheus instant query and returns a single float64 value.
 // It accepts either a scalar result or a vector containing exactly one sample.
 func (c *PrometheusCollector) Query(ctx context.Context, query string, ts time.Time) (float64, error) {
-	result, warnings, err := c.api.Query(ctx, query, ts)
+	result, warnings, infos, err := c.api.Query(ctx, query, ts)
 	if err != nil {
 		return 0, fmt.Errorf("prometheus instant query failed: %w", err)
 	}
 	if len(warnings) > 0 {
 		c.logger.Info("Prometheus instant query returned warnings",
 			"warnings", strings.Join(warnings, "; "))
+	}
+	if len(infos) > 0 {
+		c.logger.Info("Prometheus instant query returned infos",
+			"infos", strings.Join(infos, "; "))
 	}
 
 	switch v := result.(type) {
@@ -796,13 +804,17 @@ func (c *PrometheusCollector) getThrottleRatiosChunk(ctx context.Context, namesp
 			` / rate(container_cpu_cfs_periods_total{namespace="%s",pod=~"%s",container=~"%s"}[5m])`,
 		ns, podRE, ctrRE, ns, podRE, ctrRE,
 	)
-	result, warnings, err := c.api.Query(ctx, query, ts)
+	result, warnings, infos, err := c.api.Query(ctx, query, ts)
 	if err != nil {
 		return nil, fmt.Errorf("prometheus batch throttle query failed: %w", err)
 	}
 	if len(warnings) > 0 {
 		c.logger.Info("Prometheus batch throttle query returned warnings",
 			"warnings", strings.Join(warnings, "; "))
+	}
+	if len(infos) > 0 {
+		c.logger.Info("Prometheus batch throttle query returned infos",
+			"infos", strings.Join(infos, "; "))
 	}
 	vec, ok := result.(model.Vector)
 	if ok {

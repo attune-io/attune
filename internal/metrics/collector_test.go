@@ -186,6 +186,44 @@ func TestQueryRangeGrouped_Success(t *testing.T) {
 	assert.InDelta(t, 0.05, grouped["sidecar"][0].Value, 0.001)
 }
 
+func TestQueryRangeGrouped_InfosKeepSamples(t *testing.T) {
+	response := `{
+		"status": "success",
+		"data": {
+			"resultType": "matrix",
+			"result": [
+				{
+					"metric": {"__name__": "cpu_usage", "pod": "test-pod", "container": "app"},
+					"values": [
+						[1700000000, "0.25"]
+					]
+				}
+			]
+		},
+		"infos": ["lookback truncated", "query is expensive"]
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(response))
+	}))
+	defer server.Close()
+
+	var logged string
+	logger := funcr.NewJSON(func(obj string) { logged += obj + "\n" }, funcr.Options{})
+	collector, err := NewPrometheusCollector(server.URL, logger, http.DefaultTransport)
+	require.NoError(t, err)
+
+	start := time.Unix(1700000000, 0)
+	end := time.Unix(1700000120, 0)
+	grouped, err := collector.QueryRangeGrouped(context.Background(), "cpu_usage", start, end, time.Minute)
+	require.NoError(t, err)
+	require.Len(t, grouped["app"], 1)
+	assert.InDelta(t, 0.25, grouped["app"][0].Value, 0.001)
+	assert.Contains(t, logged, "Prometheus range query returned infos")
+	assert.Contains(t, logged, "lookback truncated; query is expensive")
+}
+
 func TestQueryRangeGrouped_NaNInfFiltered(t *testing.T) {
 	response := `{
 		"status": "success",
