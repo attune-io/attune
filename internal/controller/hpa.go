@@ -826,6 +826,7 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 		foundAdjustable := false
 		var repairedBases []string
 		listOnlyWrite := false
+		storeOriginalBase := false
 		pending := make([]hpaPendingTarget, 0, len(hpa.Spec.Metrics))
 		var clamps []hpaClampNote
 		for j := range hpa.Spec.Metrics {
@@ -919,13 +920,32 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 			oldQ := hpaRequestQuantity(basis.resName, basis.oldMilli)
 			newQ := hpaRequestQuantity(basis.resName, basis.newMilli)
 			newTarget, computed, emit := publishHPATarget(rawTarget, basis.limit, newQ, bandFor(scope.policy, basis.resName))
-			// A repair still has to be stored when truncation leaves the
-			// percent unchanged. Otherwise the missing container is lost
-			// until a later resize happens to move the target.
+			// A repair or a container list is stored when truncation leaves
+			// the percent unchanged. A missing original base is stored for
+			// the same reason, even when the percent does not change.
+			// Otherwise the next resize scales from the intermediate request.
+			// A metric whose request did not change has nothing to remember.
 			if newTarget == currentTarget && !repairPartial && !listOnly {
-				logger.V(1).Info("HPA utilization target unchanged after resize",
-					"hpa", hpa.Name, "workload", workloadName)
-				continue
+				missingOriginalBase := false
+				if basis.oldMilli != basis.newMilli {
+					if basis.containerMemory {
+						_, _, storedOK := storedContainerMemory(hpa.Annotations, basis.container)
+						if !storedOK && !storedContainerMemoryUnparsed(hpa.Annotations, basis.container) {
+							missingOriginalBase = true
+						}
+					} else if basis.targetKey != "" && hpa.Annotations[basis.targetKey] == "" &&
+						!storedHPABaseUnparsed(hpa.Annotations, basis.targetKey, basis.baseKey) {
+						// An unparsed base keeps both annotations, so an
+						// empty target is not that case.
+						missingOriginalBase = true
+					}
+				}
+				if !missingOriginalBase {
+					logger.V(1).Info("HPA utilization target unchanged after resize",
+						"hpa", hpa.Name, "workload", workloadName)
+					continue
+				}
+				storeOriginalBase = true
 			}
 			if listOnly {
 				listOnlyWrite = true
@@ -982,7 +1002,7 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 				}
 			}
 		}
-		if len(pending) == 0 && len(repairedBases) == 0 && !listOnlyWrite {
+		if len(pending) == 0 && len(repairedBases) == 0 && !listOnlyWrite && !storeOriginalBase {
 			if !foundAdjustable {
 				logger.Info("HPA has auto-tune annotation but no adjustable CPU utilization metric",
 					"hpa", hpa.Name, "workload", workloadName)

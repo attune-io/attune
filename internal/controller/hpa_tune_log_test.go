@@ -115,14 +115,64 @@ func TestRetuneHPAAfterResize_UnchangedTargetLog(t *testing.T) {
 	cl, logged := runLoggedHPARetune(t, hpa, pod, []attunev1alpha1.ResizeHistoryEntry{
 		cpuHistory("app", "100m", "99m"),
 	})
-	require.Contains(t, logged, "HPA utilization target unchanged after resize")
-	require.Contains(t, logged, hpa.Name)
+	// The first write stores the original request. The unchanged-target
+	// log is not required on that write.
 	assert.NotContains(t, logged, "80")
 
 	stored := storedHPA(t, cl, hpa.Name)
 	assert.Equal(t, int32(80), metricUtil(t, stored, 0))
-	_, hasRequest := stored.Annotations[annotationHPAOriginalCPURequest]
-	assert.False(t, hasRequest)
+	assert.Equal(t, "100m", stored.Annotations[annotationHPAOriginalCPURequest])
+}
+
+func TestRetuneHPAAfterResize_UnchangedPercentStoresOriginalBase(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", nil, cpuResourceMetric(80))
+	pod := workloadPod("api-server", podContainer(t, "app", "99m", "1000m"))
+	cl, _ := runLoggedHPARetune(t, hpa, pod, []attunev1alpha1.ResizeHistoryEntry{
+		cpuHistory("app", "100m", "99m"),
+	})
+	stored := storedHPA(t, cl, hpa.Name)
+	assert.Equal(t, int32(80), metricUtil(t, stored, 0))
+	require.Equal(t, "100m", stored.Annotations[annotationHPAOriginalCPURequest])
+
+	pod = workloadPod("api-server", podContainer(t, "app", "50m", "1000m"))
+	cl, _ = runLoggedHPARetune(t, stored, pod, []attunev1alpha1.ResizeHistoryEntry{
+		cpuHistory("app", "99m", "50m"),
+	})
+	stored = storedHPA(t, cl, hpa.Name)
+	assert.Equal(t, int32(160), metricUtil(t, stored, 0), "80 * 100/50 = 160; 80 * 99/50 = 158 must not win")
+	assert.NotEqual(t, int32(158), metricUtil(t, stored, 0))
+	assert.Equal(t, "100m", stored.Annotations[annotationHPAOriginalCPURequest])
+}
+
+func TestRetuneHPAAfterResize_UnchangedPercentStoresOriginalContainerMemory(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", nil, memoryContainerMetric("app", 80))
+	pod := workloadPod("api-server", memContainer(t, "app", "990Mi", "2Gi"))
+	cl, _ := runLoggedHPARetune(t, hpa, pod, []attunev1alpha1.ResizeHistoryEntry{
+		memoryHistory("app", "1000Mi", "990Mi"),
+	})
+	stored := storedHPA(t, cl, hpa.Name)
+	assert.Equal(t, int32(80), metricUtil(t, stored, 0))
+	target, milli, ok := storedContainerMemory(stored.Annotations, "app")
+	require.True(t, ok)
+	assert.Equal(t, int32(80), target)
+	originalQty := qty(t, "1000Mi")
+	intermediateQty := qty(t, "990Mi")
+	original := originalQty.MilliValue()
+	assert.Equal(t, original, milli)
+	assert.NotEqual(t, intermediateQty.MilliValue(), milli)
+
+	pod = workloadPod("api-server", memContainer(t, "app", "500Mi", "2Gi"))
+	cl, _ = runLoggedHPARetune(t, stored, pod, []attunev1alpha1.ResizeHistoryEntry{
+		memoryHistory("app", "990Mi", "500Mi"),
+	})
+	stored = storedHPA(t, cl, hpa.Name)
+	assert.Equal(t, int32(160), metricUtil(t, stored, 0), "80 * 1000/500 = 160; 80 * 990/500 = 158 must not win")
+	assert.NotEqual(t, int32(158), metricUtil(t, stored, 0))
+	_, milli, ok = storedContainerMemory(stored.Annotations, "app")
+	require.True(t, ok)
+	assert.Equal(t, original, milli)
 }
 
 func TestRetuneHPAAfterResize_UnparsedContainerMemoryBaseLog(t *testing.T) {
