@@ -1254,21 +1254,56 @@ Jobs:
       failure issue. workflow_dispatch does not open or close that issue.
 ```
 
-#### `release.yaml` - Release (on tag push `v*`)
+#### `release.yaml` - Release (push to main and workflow_dispatch)
+
+A `v*` tag push does not start this workflow. No workflow under
+`.github/workflows/` starts on `push.tags`. `release-please` runs on every
+push to `main`. When a release pull request is merged, that same run
+creates the GitHub Release and the tag, then the publish jobs run
+because `release_created` is true. A tag created by Actions would not
+start a separate workflow. Manual re-release is `workflow_dispatch`
+with `inputs.tag`, or a dispatch whose ref is already a tag. Only the
+`release` job uses the `release` environment. When `inputs.tag` is set,
+the image rebuild, Helm publish, OperatorHub pull request, and Docker
+Hub README are skipped.
 
 ```
 Jobs:
+  release-please:
+    - Runs on every push to main, and on workflow_dispatch when inputs.tag is empty
+    - Opens or updates the release pull request
+    - On a merged release, creates the GitHub Release and tag and sets release_created
+
   release:
-    - docker/build-push-action builds and pushes multi-arch images to GHCR
-    - cosign signs the released container image
-    - syft generates an SBOM
-    - Trivy scans the released image
+    - Runs when release_created is true, or on a manual re-release
+    - Waits on the release environment
     - GoReleaser publishes binaries and release artifacts
-    - Attach install manifest and SBOM to the GitHub release
+    - docker/build-push-action pushes multi-arch images to GHCR and Docker Hub when the Docker build is enabled
+    - cosign signs the GHCR image and docker.io/attuneio/attune
+    - anchore/sbom-action writes the SPDX SBOM
+    - Trivy scans the released image
+    - Attaches the install manifest, CRDs, and SBOM to the GitHub release
+    - A re-release (inputs.tag set) skips the Docker build, image signing, SBOM, Trivy scan, and manifest attach
 
   helm-release:
-    - Package and push the Helm chart to GHCR OCI
-    - Sign the published chart with cosign
+    - Runs after release succeeds, and only when inputs.tag is empty
+    - Packages and pushes the Helm chart to GHCR OCI
+    - Copies the chart to Docker Hub with oras
+    - Signs the GHCR chart and the Docker Hub chart with cosign
+    - Pushes Artifact Hub metadata
+
+  operatorhub-pr:
+    - Runs after release succeeds, and only when inputs.tag is empty
+    - Opens OperatorHub bundle pull requests
+    - The bundle step continues on error so a catalog miss does not fail the release
+
+  dockerhub-readme:
+    - Runs after release succeeds, and only when inputs.tag is empty
+    - Updates the Docker Hub description from docker/README.md
+
+  release-notify:
+    - Runs when release succeeded
+    - Opens an issue if the OperatorHub step or the Helm job failed
 ```
 
 #### `bench-baseline.yaml` - Shared bench cache (push to main, path-filtered)
