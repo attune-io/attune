@@ -708,6 +708,17 @@ func storedHPABase(ann map[string]string, targetKey, baseKey string) (int32, int
 	return int32(v), q.MilliValue(), true
 }
 
+func storedHPABaseUnparsed(ann map[string]string, targetKey, baseKey string) bool {
+	if len(ann) == 0 || targetKey == "" || baseKey == "" {
+		return false
+	}
+	if ann[targetKey] == "" || ann[baseKey] == "" {
+		return false
+	}
+	_, _, ok := storedHPABase(ann, targetKey, baseKey)
+	return !ok
+}
+
 func capHPATarget(newTarget int32, limit, newRequest resource.Quantity) int32 {
 	maxTarget := int32(100)
 	if !newRequest.IsZero() && !limit.IsZero() && limit.Cmp(newRequest) > 0 {
@@ -833,7 +844,12 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 			// brings a container in from zero. The list has to record that
 			// name before a later cycle adds the new request. A true no-op
 			// still returns below, once the list and the percent are compared.
-			if !basis.ok || basis.oldMilli == 0 || basis.newMilli == 0 {
+			if !basis.ok {
+				logger.V(1).Info("HPA auto-tune skipped a metric with no usable request base",
+					"hpa", hpa.Name, "workload", workloadName)
+				continue
+			}
+			if basis.oldMilli == 0 || basis.newMilli == 0 {
 				continue
 			}
 			var currentTarget int32
@@ -855,6 +871,11 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 				if storedTarget, storedMilli, ok := storedContainerMemory(hpa.Annotations, basis.container); ok {
 					baseTarget = storedTarget
 					baseRequestMilli = storedMilli
+				} else if storedContainerMemoryUnparsed(hpa.Annotations, basis.container) {
+					logger.V(1).Info("HPA auto-tune ignored a stored base that did not parse",
+						"hpa", hpa.Name, "workload", workloadName,
+						"targetKey", annotationHPAOriginalContainerMemory,
+						"baseKey", annotationHPAOriginalContainerMemory)
 				}
 			} else if storedTarget, storedMilli, ok := storedHPABase(hpa.Annotations, basis.targetKey, basis.baseKey); ok {
 				baseTarget = storedTarget
@@ -889,6 +910,10 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 						containerList = formatResourceBaseContainers(observed.names)
 					}
 				}
+			} else if storedHPABaseUnparsed(hpa.Annotations, basis.targetKey, basis.baseKey) {
+				logger.V(1).Info("HPA auto-tune ignored a stored base that did not parse",
+					"hpa", hpa.Name, "workload", workloadName,
+					"targetKey", basis.targetKey, "baseKey", basis.baseKey)
 			}
 			rawTarget := int32(float64(baseTarget) * float64(baseRequestMilli) / float64(basis.newMilli))
 			oldQ := hpaRequestQuantity(basis.resName, basis.oldMilli)
@@ -898,6 +923,8 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 			// percent unchanged. Otherwise the missing container is lost
 			// until a later resize happens to move the target.
 			if newTarget == currentTarget && !repairPartial && !listOnly {
+				logger.V(1).Info("HPA utilization target unchanged after resize",
+					"hpa", hpa.Name, "workload", workloadName)
 				continue
 			}
 			if listOnly {

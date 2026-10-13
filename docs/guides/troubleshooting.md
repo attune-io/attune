@@ -1446,9 +1446,16 @@ expected. This version does not write an older number back.
 **Symptom**: Pods were resized and the HorizontalPodAutoscaler utilization
 target is still the old percent.
 
-**Cause**: The HPA update failed. A conflict is retried. Any other error
-is logged as `Failed to update HPA target` and is not retried until that
-workload is resized again.
+**Cause**: The HPA update failed, or the computed integer percent is
+already the current target. A conflict is retried. Any other error is
+logged as `Failed to update HPA target` and is not retried until that
+workload is resized again. When the percent does not move, verbosity 1
+logs `HPA utilization target unchanged after resize`. A recognized
+metric with no usable request base logs `HPA auto-tune skipped a metric
+with no usable request base`. A stored base that is set but does not
+parse logs `HPA auto-tune ignored a stored base that did not parse`,
+and this cycle uses the live percent. Those three lines are off at the
+default log level. The stored annotation is left in place.
 
 **Fix**:
 
@@ -1456,6 +1463,9 @@ workload is resized again.
 2. Confirm the HPA has `attune.io/auto-tune: "true"`.
 3. The next successful in-place resize of that workload tries the retune
    again.
+4. To see why the percent stayed, run the operator with `-v=1` and
+   search for the three messages above. Do not delete a stored base
+   only because the percent did not move.
 
 ### HPABaseRepaired and the stored request disagree
 
