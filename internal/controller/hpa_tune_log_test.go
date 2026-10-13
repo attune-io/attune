@@ -26,6 +26,7 @@ import (
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/events"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -37,7 +38,7 @@ func runLoggedHPARetune(
 	hpa autoscalingv2.HorizontalPodAutoscaler,
 	pod corev1.Pod,
 	history []attunev1alpha1.ResizeHistoryEntry,
-) string {
+) (client.Client, string) {
 	t.Helper()
 	scheme := testScheme()
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(hpa.DeepCopy()).Build()
@@ -57,7 +58,7 @@ func runLoggedHPARetune(
 		[]autoscalingv2.HorizontalPodAutoscaler{hpa},
 		map[string][]corev1.Pod{"api-server": {pod}},
 	)
-	return logged
+	return cl, logged
 }
 
 func TestRetuneHPAAfterResize_UnusableRequestBaseLog(t *testing.T) {
@@ -68,13 +69,18 @@ func TestRetuneHPAAfterResize_UnusableRequestBaseLog(t *testing.T) {
 		podContainer(t, "app", "100m", "1000m"),
 		podContainer(t, "sidecar", "100m", "1000m"),
 	)
-	logged := runLoggedHPARetune(t, hpa, pod, []attunev1alpha1.ResizeHistoryEntry{
+	cl, logged := runLoggedHPARetune(t, hpa, pod, []attunev1alpha1.ResizeHistoryEntry{
 		cpuHistory("app", badQty, "50m"),
 		cpuHistory("sidecar", "100m", "200m"),
 	})
 	require.Contains(t, logged, "HPA auto-tune skipped a metric with no usable request base")
 	require.Contains(t, logged, hpa.Name)
 	assert.NotContains(t, logged, badQty)
+
+	stored := storedHPA(t, cl, hpa.Name)
+	assert.Equal(t, int32(80), metricUtil(t, stored, 0))
+	_, hasRequest := stored.Annotations[annotationHPAOriginalCPURequest]
+	assert.False(t, hasRequest)
 }
 
 func TestRetuneHPAAfterResize_UnparsedStoredBaseLog(t *testing.T) {
@@ -85,38 +91,74 @@ func TestRetuneHPAAfterResize_UnparsedStoredBaseLog(t *testing.T) {
 		annotationHPAOriginalCPURequest: badRequest,
 	}, cpuResourceMetric(80))
 	pod := workloadPod("api-server", podContainer(t, "app", "200m", "1000m"))
-	logged := runLoggedHPARetune(t, hpa, pod, []attunev1alpha1.ResizeHistoryEntry{
+	cl, logged := runLoggedHPARetune(t, hpa, pod, []attunev1alpha1.ResizeHistoryEntry{
 		cpuHistory("app", "100m", "200m"),
 	})
 	require.Contains(t, logged, "HPA auto-tune ignored a stored base that did not parse")
 	require.Contains(t, logged, annotationHPAOriginalCPU)
 	require.Contains(t, logged, annotationHPAOriginalCPURequest)
 	assert.NotContains(t, logged, badRequest)
+
+	stored := storedHPA(t, cl, hpa.Name)
+	// This cycle is 80 * 100m / 200m. The unparsed request is left as
+	// input; retune does not write that string into a new base.
+	assert.Equal(t, int32(40), metricUtil(t, stored, 0))
+	assert.Equal(t, badRequest, stored.Annotations[annotationHPAOriginalCPURequest])
+	_, _, parsed := storedHPABase(stored.Annotations, annotationHPAOriginalCPU, annotationHPAOriginalCPURequest)
+	assert.False(t, parsed)
 }
 
 func TestRetuneHPAAfterResize_UnchangedTargetLog(t *testing.T) {
 	t.Parallel()
 	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", nil, cpuResourceMetric(80))
 	pod := workloadPod("api-server", podContainer(t, "app", "99m", "1000m"))
-	logged := runLoggedHPARetune(t, hpa, pod, []attunev1alpha1.ResizeHistoryEntry{
+	cl, logged := runLoggedHPARetune(t, hpa, pod, []attunev1alpha1.ResizeHistoryEntry{
 		cpuHistory("app", "100m", "99m"),
 	})
 	require.Contains(t, logged, "HPA utilization target unchanged after resize")
 	require.Contains(t, logged, hpa.Name)
 	assert.NotContains(t, logged, "80")
+
+	stored := storedHPA(t, cl, hpa.Name)
+	assert.Equal(t, int32(80), metricUtil(t, stored, 0))
+	_, hasRequest := stored.Annotations[annotationHPAOriginalCPURequest]
+	assert.False(t, hasRequest)
 }
 
 func TestRetuneHPAAfterResize_UnparsedContainerMemoryBaseLog(t *testing.T) {
 	t.Parallel()
 	const badRequest = "zzNotAMemory"
+	const rawMemory = `{"app":{"target":"80","request":"` + badRequest + `"}}`
 	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
-		annotationHPAOriginalContainerMemory: `{"app":{"target":"80","request":"` + badRequest + `"}}`,
+		annotationHPAOriginalContainerMemory: rawMemory,
 	}, memoryContainerMetric("app", 80))
 	pod := workloadPod("api-server", memContainer(t, "app", "512Mi", "2Gi"))
-	logged := runLoggedHPARetune(t, hpa, pod, []attunev1alpha1.ResizeHistoryEntry{
+	cl, logged := runLoggedHPARetune(t, hpa, pod, []attunev1alpha1.ResizeHistoryEntry{
 		memoryHistory("app", "1Gi", "512Mi"),
 	})
 	require.Contains(t, logged, "HPA auto-tune ignored a stored base that did not parse")
 	require.Contains(t, logged, annotationHPAOriginalContainerMemory)
 	assert.NotContains(t, logged, badRequest)
+
+	stored := storedHPA(t, cl, hpa.Name)
+	// 80 * 1Gi / 512Mi. The unparsed JSON request is left as input.
+	assert.Equal(t, int32(160), metricUtil(t, stored, 0))
+	assert.Equal(t, rawMemory, stored.Annotations[annotationHPAOriginalContainerMemory])
+	_, _, parsed := storedContainerMemory(stored.Annotations, "app")
+	assert.False(t, parsed)
+}
+
+func TestRetuneHPAAfterResize_ZeroMilliRequestSkips(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", nil, cpuResourceMetric(80))
+	pod := workloadPod("api-server", podContainer(t, "app", "100m", "1000m"))
+	cl, logged := runLoggedHPARetune(t, hpa, pod, []attunev1alpha1.ResizeHistoryEntry{
+		cpuHistory("app", "0", "100m"),
+	})
+	assert.NotContains(t, logged, "HPA auto-tune skipped a metric with no usable request base")
+
+	stored := storedHPA(t, cl, hpa.Name)
+	assert.Equal(t, int32(80), metricUtil(t, stored, 0))
+	_, hasRequest := stored.Annotations[annotationHPAOriginalCPURequest]
+	assert.False(t, hasRequest)
 }
