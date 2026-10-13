@@ -1449,23 +1449,34 @@ target is still the old percent.
 **Cause**: The HPA update failed, or the computed integer percent is
 already the current target. A conflict is retried. Any other error is
 logged as `Failed to update HPA target` and is not retried until that
-workload is resized again. When the percent does not move, verbosity 1
-logs `HPA utilization target unchanged after resize`. A recognized
-metric with no usable request base logs `HPA auto-tune skipped a metric
-with no usable request base`. A stored base that is set but does not
-parse logs `HPA auto-tune ignored a stored base that did not parse`,
-and this cycle uses the live percent. Those three lines are off at the
-default log level. The stored annotation is left in place.
+workload is resized again. The first time a resize leaves the percent
+unchanged, Attune still stores the pre-resize request
+(`attune.io/original-cpu-request`, `attune.io/original-memory-request`,
+or `attune.io/original-container-memory`). That write does not log
+`HPA utilization target unchanged after resize`. The next resize scales
+from that stored request, not from the request after the resize that
+left the percent unchanged. Verbosity 1 logs `HPA utilization target
+unchanged after resize` when the percent stays put and there is nothing
+new to store: the base is already stored, the request did not change,
+or the stored base did not parse. A recognized metric with no usable
+request base logs `HPA auto-tune skipped a metric with no usable
+request base`. A stored base that is set but does not parse logs
+`HPA auto-tune ignored a stored base that did not parse`, and this
+cycle uses the live percent. Those lines are off at the default log
+level. A base that was already stored is left in place.
 
 **Fix**:
 
 1. Check the operator log for `Failed to update HPA target`.
 2. Confirm the HPA has `attune.io/auto-tune: "true"`.
-3. The next successful in-place resize of that workload tries the retune
+3. If this was the first retune and the percent did not move, read the
+   original-request annotation. A value there is the pre-resize request.
+   Later resizes use it.
+4. The next successful in-place resize of that workload tries the retune
    again.
-4. To see why the percent stayed, run the operator with `-v=1` and
-   search for the three messages above. Do not delete a stored base
-   only because the percent did not move.
+5. To see why a later percent stayed put, run the operator with `-v=1`
+   and search for the messages above. Do not delete a stored base only
+   because the percent did not move.
 
 ### HPABaseRepaired and the stored request disagree
 
