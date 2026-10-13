@@ -364,6 +364,29 @@ func storedContainerMemory(ann map[string]string, container string) (int32, int6
 	return int32(target), qty.MilliValue(), true
 }
 
+func storedContainerMemoryUnparsed(ann map[string]string, container string) bool {
+	if container == "" || len(ann) == 0 {
+		return false
+	}
+	raw, exists := ann[annotationHPAOriginalContainerMemory]
+	if !exists || raw == "" {
+		return false
+	}
+	entries, ok := parseContainerMemory(ann)
+	if !ok {
+		return true
+	}
+	entry, found := entries[container]
+	if !found || entry.Target == "" || entry.Request == "" {
+		return false
+	}
+	if _, err := strconv.ParseInt(entry.Target, 10, 32); err != nil {
+		return true
+	}
+	qty, err := resource.ParseQuantity(entry.Request)
+	return err != nil || qty.IsZero()
+}
+
 // rememberContainerMemory merges one container into the JSON object.
 // Corrupt JSON is left unchanged. An existing target and request pair
 // is not rewritten.
