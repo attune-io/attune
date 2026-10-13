@@ -1276,36 +1276,52 @@ Jobs:
 Writes the default-branch Actions cache that PR `test-bench` jobs restore.
 PR jobs cannot update that cache scope.
 
-#### `security.yaml` - Security Scanning (on PR, weekly schedule, dispatch)
+#### `security.yaml` - Security Scanning (on pull request, merge queue, weekly schedule, and manual dispatch)
 
 ```
 Jobs:
+  codeql:
+    - CodeQL for Go and GitHub Actions, queries security-and-quality
+    - A release-please pull request skips analysis and reports a stand-in
+
   govulncheck:
     - govulncheck ./...
+    - Skipped on a release-please pull request
 
   trivy:
     - Trivy filesystem scan with self-hosted Docker credential-store workaround
+    - Skipped on a release-please pull request
 
   trivy-image:
-    - Build the operator image to a tarball with `docker buildx build --output`
-    - Trivy image scan from the tarball
+    - Build the operator image with `docker buildx build --load`, then `docker save`
+    - Trivy image scan of that tarball
+    - Skipped on a release-please pull request
 
   gitleaks:
     - Full-repo secret scan with `fetch-depth: 0`
+    - Also runs on a release-please pull request
+
+  dependency-review:
+    - dependency-review-action, fail-on-severity high
+    - Pull requests only
 
 Notes:
-  - CodeQL and dependency-review are intentionally disabled for this private repo
-    because they require GitHub Advanced Security
+  - None of these jobs run on a push to main.
+  - CI also runs govulncheck, only when Detect Changes marks `go`
+    (or on a manual CI dispatch). That CI job is not this workflow.
 ```
 
-#### `docs.yaml` - Documentation build validation (on docs pushes + manual)
+#### `docs.yaml` - Documentation build and Pages deploy (docs pushes to main + manual)
 
 ```
 Jobs:
   build:
     - mkdocs build via `make docs-build`
-    - Upload the built site as a workflow artifact
-    - No GitHub Pages deployment workflow is configured
+    - Upload the built site as a Pages artifact
+    - Path filter: `docs/**`, `mkdocs.yml`, `Makefile`, and this workflow
+
+  deploy:
+    - Deploy that artifact to GitHub Pages
 ```
 
 #### `dependabot-auto-merge.yaml` - Dependabot merge automation
