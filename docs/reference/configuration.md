@@ -114,8 +114,8 @@ metrics:
         enabled: false
 ```
 
-For detailed PromQL expressions and alert tuning, see the
-[Prometheus setup guide](../guides/prometheus-setup.md#built-in-alerts).
+For the alert list and how to tune each rule, see the
+[Prometheus setup guide](../guides/prometheus-setup.md#alerting-with-prometheusrule).
 
 ## Webhooks
 

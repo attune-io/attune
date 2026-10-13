@@ -144,8 +144,9 @@ the CRD window/step table for Prometheus load. With None, one Deployment with
 4. Add Prometheus recording rules or capacity on the metrics backend if many
    high-replica workloads reconcile often (shorter cooldown, many policies).
 
-See also [Current limitations](#current-limitations-operator-behavior-today)
-for what product changes would reduce this further.
+See also [Performance features](#performance-features-built-in)
+for the aggregation, status caps, and worker settings that keep
+this cost down.
 
 ## Policy design at scale
 
