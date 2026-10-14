@@ -1178,7 +1178,7 @@ func TestCheckPod_ThrottleDetected(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, verdict.Safe)
 	assert.Equal(t, "throttle", verdict.Reason)
-	assert.Contains(t, verdict.Message, "60%")
+	assert.Equal(t, "container app in pod default/web-0 has 60% CPU throttle ratio (threshold 50%)", verdict.Message)
 
 	// Verify correct identifiers were passed to the throttle checker.
 	assert.Equal(t, "default", checker.gotNS)
