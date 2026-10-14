@@ -506,9 +506,12 @@ directory. When referencing files elsewhere in the repo (e.g., `charts/`,
   `uniqueNS()`, so they are fully isolated. Without `t.Parallel()`, the suite
   runs sequentially (~12+ min); with it, tests run concurrently. CI caps
   that with `go test -parallel=2` after `hack/wait-cluster-quiet.sh`.
+  Nightly K8s 1.32 uses `-parallel=1` and a 45m package timeout.
+  Two tests on that alpha `/resize` node still make the node NotReady
+  and the API stop answering (nightly #1048). Other versions stay at two.
   Default parallelism is the runner CPU count, which schedules more 500m
   pods than one k3d node can hold, and the package timeout then kills
-  tests still queued (nightly #921). The suite timeout is 30m.
+  tests still queued (nightly #921). The suite timeout is 30m, 45m on 1.32.
 - E2E test policies must use `Cooldown: 1m` (the minimum) to avoid long requeue
   delays during data collection.
 - E2E test pods should use Burstable QoS (requests only, no CPU/memory limits)
