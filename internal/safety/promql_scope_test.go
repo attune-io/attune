@@ -95,6 +95,5 @@ func TestEnforcePromQLNamespace_SumFooShape(t *testing.T) {
 	t.Parallel()
 	got, err := EnforcePromQLNamespace("sum(foo)", "team-a")
 	require.NoError(t, err)
-	assert.Contains(t, got, `namespace="team-a"`)
-	assert.Contains(t, got, "foo")
+	assert.Equal(t, `sum(foo{namespace="team-a"})`, got)
 }
