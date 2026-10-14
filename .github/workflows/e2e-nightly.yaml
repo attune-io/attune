@@ -478,8 +478,18 @@ jobs:
           # Chainsaw delete returns before pods are gone. Starting the
           # parallel Go suite on that node made the 1.32 API stop answering
           # and the scheduler report Insufficient cpu (nightly #921).
+          # Two Go tests at once still wedge the 1.32 node after the
+          # cluster is quiet: probes time out, the node goes NotReady,
+          # and the API stops the TLS handshake (nightly #1048).
+          # One test at a time on 1.32. Other versions stay at two.
           bash hack/wait-cluster-quiet.sh
-          go test -tags=e2e ./test/e2e-go/... -race -count=1 -parallel=2 -timeout=30m -v 2>&1 | tee test-results/go-e2e-${{ matrix.k8s-version }}.log
+          parallel=2
+          timeout=30m
+          if [ "${{ matrix.k8s-version }}" = "v1.32" ]; then
+            parallel=1
+            timeout=45m
+          fi
+          go test -tags=e2e ./test/e2e-go/... -race -count=1 -parallel="$parallel" -timeout="$timeout" -v 2>&1 | tee test-results/go-e2e-${{ matrix.k8s-version }}.log
 
       - name: Collect debug info on failure
         if: failure()

@@ -22,13 +22,18 @@ fail() {
 
 echo "DO: CI and the Makefile must call the helper and cap Go E2E parallelism"
 for f in \
-  "${ROOT}/.github/workflows/e2e-nightly.yaml" \
   "${ROOT}/.github/workflows/ci.yaml" \
   "${ROOT}/Makefile"; do
   grep -F -q 'hack/wait-cluster-quiet.sh' "${f}" || fail "${f} does not call the helper"
   grep -F -q -- '-parallel=2' "${f}" || fail "${f} does not set -parallel=2"
   grep -F -q -- '-timeout=30m' "${f}" || fail "${f} does not set -timeout=30m"
 done
+nightly="${ROOT}/.github/workflows/e2e-nightly.yaml"
+grep -F -q 'hack/wait-cluster-quiet.sh' "${nightly}" || fail "nightly does not call the helper"
+grep -F -q 'parallel=2' "${nightly}" || fail "nightly does not default to parallel=2"
+grep -F -q 'timeout=30m' "${nightly}" || fail "nightly does not default to timeout=30m"
+grep -F -q 'parallel=1' "${nightly}" || fail "nightly v1.32 does not set parallel=1"
+grep -F -q 'timeout=45m' "${nightly}" || fail "nightly v1.32 does not set timeout=45m"
 echo "OK: both E2E workflows and Makefile share the gate and the cap"
 
 TMP="$(mktemp -d)"
