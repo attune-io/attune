@@ -224,6 +224,71 @@ func TestQueryRangeGrouped_InfosKeepSamples(t *testing.T) {
 	assert.Contains(t, logged, "lookback truncated; query is expensive")
 }
 
+func TestQuery_InfosKeepSample(t *testing.T) {
+	response := `{
+		"status": "success",
+		"data": {
+			"resultType": "vector",
+			"result": [
+				{
+					"metric": {"__name__": "cpu_usage", "pod": "test-pod"},
+					"value": [1700000000, "0.25"]
+				}
+			]
+		},
+		"infos": ["lookback truncated", "query is expensive"]
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(response))
+	}))
+	defer server.Close()
+
+	var logged string
+	logger := funcr.NewJSON(func(obj string) { logged += obj + "\n" }, funcr.Options{})
+	collector, err := NewPrometheusCollector(server.URL, logger, http.DefaultTransport)
+	require.NoError(t, err)
+
+	val, err := collector.Query(context.Background(), "cpu_usage", time.Unix(1700000000, 0))
+	require.NoError(t, err)
+	assert.InDelta(t, 0.25, val, 0.001)
+	assert.Contains(t, logged, "Prometheus instant query returned infos")
+	assert.Contains(t, logged, "lookback truncated; query is expensive")
+}
+
+func TestQuery_EmptyInfosKeepSample(t *testing.T) {
+	response := `{
+		"status": "success",
+		"data": {
+			"resultType": "vector",
+			"result": [
+				{
+					"metric": {"__name__": "cpu_usage", "pod": "test-pod"},
+					"value": [1700000000, "0.25"]
+				}
+			]
+		},
+		"infos": []
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(response))
+	}))
+	defer server.Close()
+
+	var logged string
+	logger := funcr.NewJSON(func(obj string) { logged += obj + "\n" }, funcr.Options{})
+	collector, err := NewPrometheusCollector(server.URL, logger, http.DefaultTransport)
+	require.NoError(t, err)
+
+	val, err := collector.Query(context.Background(), "cpu_usage", time.Unix(1700000000, 0))
+	require.NoError(t, err)
+	assert.InDelta(t, 0.25, val, 0.001)
+	assert.NotContains(t, logged, "Prometheus instant query returned infos")
+}
+
 func TestQueryRangeGrouped_NaNInfFiltered(t *testing.T) {
 	response := `{
 		"status": "success",
@@ -1353,6 +1418,44 @@ func TestGetThrottleRatios_MultiKeyBatch(t *testing.T) {
 	assert.Contains(t, receivedQuery, "app")
 	assert.Contains(t, receivedQuery, "sidecar")
 	assert.Contains(t, receivedQuery, "worker")
+}
+
+func TestGetThrottleRatios_InfosKeepSamples(t *testing.T) {
+	response := `{
+		"status": "success",
+		"data": {
+			"resultType": "vector",
+			"result": [
+				{
+					"metric": {"pod": "pod-a", "container": "app"},
+					"value": [1700000000, "0.25"]
+				}
+			]
+		},
+		"infos": ["lookback truncated", "query is expensive"]
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(response))
+	}))
+	defer server.Close()
+
+	var logged string
+	logger := funcr.NewJSON(func(obj string) { logged += obj + "\n" }, funcr.Options{})
+	collector, err := NewPrometheusCollector(server.URL, logger, http.DefaultTransport)
+	require.NoError(t, err)
+
+	// Two keys take the batch path into getThrottleRatiosChunk.
+	k := throttle.Key{Pod: "pod-a", Container: "app"}
+	out, err := collector.GetThrottleRatios(context.Background(), "prod", []throttle.Key{
+		k,
+		{Pod: "pod-b", Container: "app"},
+	}, time.Now())
+	require.NoError(t, err)
+	assert.InDelta(t, 0.25, out[k], 1e-9)
+	assert.Contains(t, logged, "Prometheus batch throttle query returned infos")
+	assert.Contains(t, logged, "lookback truncated; query is expensive")
 }
 
 func TestGetThrottleRatios_EscapesRegexInput(t *testing.T) {

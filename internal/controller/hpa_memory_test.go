@@ -796,7 +796,7 @@ func TestRetuneHPAMemory_MemoryOnlyPodIsSelected(t *testing.T) {
 	assert.Equal(t, 1, updates)
 }
 
-func TestRetuneHPAMemory_BandMatchingCurrentSkipsRememberAndEvent(t *testing.T) {
+func TestRetuneHPAMemory_BandMatchingCurrentStoresBaseSkipsEvent(t *testing.T) {
 	t.Parallel()
 	max90 := int32(90)
 	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", nil,
@@ -815,8 +815,10 @@ func TestRetuneHPAMemory_BandMatchingCurrentSkipsRememberAndEvent(t *testing.T) 
 	updated := storedHPA(t, cl, "api-server-hpa")
 	assert.Equal(t, int32(90), metricUtil(t, updated, 0))
 	assert.Equal(t, int32(160), metricUtil(t, updated, 1))
-	assert.Empty(t, updated.Annotations[annotationHPAOriginalMemory])
-	assert.Empty(t, updated.Annotations[annotationHPAOriginalMemoryRequest])
+	// The band keeps the published percent at 90. The missing original
+	// request is still stored so a later resize does not start at 512Mi.
+	assert.Equal(t, "90", updated.Annotations[annotationHPAOriginalMemory])
+	assert.Equal(t, "1Gi", updated.Annotations[annotationHPAOriginalMemoryRequest])
 	assert.Equal(t, "80", updated.Annotations[annotationHPAOriginalCPU])
 	assert.Empty(t, recorderNotes(recorder))
 	assert.Equal(t, 1, updates)
