@@ -512,6 +512,8 @@ directory. When referencing files elsewhere in the repo (e.g., `charts/`,
   Default parallelism is the runner CPU count, which schedules more 500m
   pods than one k3d node can hold, and the package timeout then kills
   tests still queued (nightly #921). The suite timeout is 30m, 45m on 1.32.
+  `TestMain` keeps a 50m context (`e2eSuiteDeadline`) so it outlives
+  those package timeouts. A shorter context cancels every later test at once.
 - E2E test policies must use `Cooldown: 1m` (the minimum) to avoid long requeue
   delays during data collection.
 - E2E test pods should use Burstable QoS (requests only, no CPU/memory limits)

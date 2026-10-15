@@ -75,9 +75,14 @@ var (
 	stressNGImage string
 )
 
+// e2eSuiteDeadline bounds every client call in this package. It must
+// outlive go test -timeout (30m in PR CI, 45m on nightly K8s 1.32).
+// A shorter deadline cancels every later test at once.
+const e2eSuiteDeadline = 50 * time.Minute
+
 func TestMain(m *testing.M) {
 	crlog.SetLogger(zap.New(zap.WriteTo(io.Discard)))
-	ctx, cancel = context.WithTimeout(context.Background(), 20*time.Minute)
+	ctx, cancel = context.WithTimeout(context.Background(), e2eSuiteDeadline)
 
 	stressNGImage = os.Getenv("STRESS_NG_IMAGE")
 	if stressNGImage == "" {
