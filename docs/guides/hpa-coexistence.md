@@ -81,13 +81,14 @@ request. A container already named on the list is not added again when
 the app later grows to the stored quantity. A name that remains on the
 list after the container leaves the pod stays in the stored quantity.
 
-A stored base with no list is replaced when it is below this cycle's
-pre-resize pod sum and equals either the history old sum or that sum
-with native sidecars removed. That is how a v0.1.33 base that left out a
-sidecar, or a native sidecar, is repaired. The same numbers also match a
-full base after the app grows to the stored quantity, and that base is
-rewritten until a list exists. A stored value that matches neither sum
-stays. `HPABaseRepaired` means the update that changed
+A stored base with no list is replaced when no counted history row
+grew, the quantity is below this cycle's pre-resize pod sum, and it
+equals that sum with native sidecars removed or the history-old sum.
+That is a partial base that left a container out. When a counted row
+grew and the stored quantity equals either of those sums, the quantity
+already covers the pod and is left alone. Attune records the container
+list so a later shrink does not add the sidecar on top. A stored value that matches neither sum stays. `HPABaseRepaired`
+means the update that changed
 `attune.io/original-cpu-request` succeeded. The event names that
 annotation. A failed HPA update does not emit the Warning. The repair is
 still stored when the published percent does not change. A value an older

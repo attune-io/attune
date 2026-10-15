@@ -8,11 +8,15 @@ Maintainers: before publishing a release after multi-version product changes,
 run the full E2E Nightly matrix on tip of `main` (see
 [Releasing: full E2E matrix](../contributing/releasing.md#1b-full-e2e-matrix-required-before-tagging-a-product-release)).
 
-## Unreleased
+## v0.1.33 to v0.1.34
+
+No CRD change and no policy YAML change. When 0.1.34 is published,
+upgrade the chart to 0.1.34, or set the image tag to `0.1.34` or
+`v0.1.34`. The image is built with Go 1.27.2.
 
 ### HPA auto-tune names the containers in a stored base
 
-The first Resource retune for CPU or memory now stores which containers
+The first Resource retune for CPU or memory stores which containers
 that base includes:
 
 - `attune.io/original-cpu-request-containers`
@@ -27,26 +31,46 @@ on top of the stored quantity.
 A later resize adds a container that is in the pod sum and missing from
 the list, at that container's pre-resize request. A container that joins
 with a zero pre-resize request is added to the list without changing the
-stored quantity and without `HPABaseRepaired`, including when the other
-containers change by the same amount and the pod total stays put. A full base is not
-replaced when the app's history old later equals the stored quantity.
-A name that stays on the list after the container leaves the pod stays
-in the stored quantity.
+stored quantity and without `HPABaseRepaired`. A name that stays on the
+list after the container leaves the pod stays in the stored quantity.
 
-A base written by v0.1.33 or earlier has no list. Attune still replaces
-that quantity when it is below this cycle's pre-resize pod sum and equals
-the history old sum, or that sum with native sidecars removed. That rule
-can still count a sidecar twice when a full base equals history old.
-Delete `attune.io/original-target-cpu` and `attune.io/original-cpu-request`,
-or the memory pair, and the next resize stores a fresh base and the list.
-Delete the containers annotation too if it is set. Leave `attune.io/auto-tune`
-set. A quantity already rewritten to a larger value is left as stored.
+A base written by v0.1.33 or earlier has no list. Attune replaces
+that quantity when no counted history row grew, the quantity is below
+this cycle's pre-resize pod sum, and it equals that sum with native
+sidecars removed or the history-old sum. When a counted row grew until
+its old request equals either of those sums, the quantity stays and
+the container list is recorded. A later shrink does not add the
+sidecar on top. A quantity an older operator already doubled stays until you
+delete `attune.io/original-target-cpu` and
+`attune.io/original-cpu-request`, or the memory pair. Delete the
+containers annotation too if it is set. Leave `attune.io/auto-tune`
+set. The next resize stores a fresh base and the list.
 
-`HPABaseRepaired` is still emitted only after the HPA update succeeds,
-and only when the stored quantity changes. No policy YAML change and no
-CRD change are needed.
+`HPABaseRepaired` is emitted only after the HPA update succeeds, and
+only when the stored quantity changes.
 
-See [Utilization drifted after a second CPU resize](troubleshooting.md#utilization-drifted-after-a-second-cpu-resize).
+The first time a resize leaves the integer percent unchanged, Attune
+stores the pre-resize request and leaves the percent alone. The next
+resize scales from that stored request.
+
+A conflicting HPA write reads the HPA again. A status-only change still
+publishes the target from this resize. A target or Attune annotation
+on that re-read object is the input to the retune formula. The
+published percent can differ from the utilization target on that
+object. If auto-tune is no longer `"true"`, or the HPA targets a
+different workload, the update is skipped.
+
+See [Utilization drifted after a second CPU resize](troubleshooting.md#utilization-drifted-after-a-second-cpu-resize)
+and [HPA target did not change after a resize](troubleshooting.md#hpa-target-did-not-change-after-a-resize).
+
+### Prometheus info notices stay with the sample
+
+Prometheus query responses can include info notices. Attune logs
+`Prometheus instant query returned infos`,
+`Prometheus range query returned infos`, or
+`Prometheus batch throttle query returned infos`, and still uses the
+sample. An info notice is not a failed query. No policy YAML change
+is needed.
 
 ## v0.1.32 to v0.1.33
 

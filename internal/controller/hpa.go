@@ -398,7 +398,7 @@ func podResourceContainers(pod *corev1.Pod, rows map[string]hpaCPURow, res corev
 
 // parseResourceBaseContainers reads a sorted or unsorted container list.
 // An empty value is no list. Any token that is not a DNS-1123 label makes
-// the whole value no list, so the equality repair still applies.
+// the whole value no list, so repairedPodResourceBase still applies.
 func parseResourceBaseContainers(raw string) (map[string]struct{}, bool) {
 	if raw == "" {
 		return nil, false
@@ -481,20 +481,80 @@ func (s hpaTuneScope) resourceRows(resName string) map[string]hpaCPURow {
 // repairedPodResourceBase replaces a stored pod Resource base when that
 // base left out containers this cycle's pre-resize sum includes and no
 // container list was stored with it. storedMilli has to be strictly below
-// oldMilli, and it has to equal the history-old sum or the same sum with
-// native sidecars removed. A stored value that matches neither stays: it
-// may already include the sidecar, or it may be a full base from before
-// later growth. A full base can still match after the app grows to the
-// stored quantity. A list written with the base is what stops that.
+// oldMilli. It has to equal the pre-resize sum with native sidecars
+// removed, or the history-old sum when no counted history row grew.
+// Growth that lands on the stored quantity is a full base catching up,
+// not a missing container. listLessBaseRecordsContainers keeps that
+// quantity and writes the list so a later shrink does not add the
+// sidecar on top.
 func repairedPodResourceBase(pod *corev1.Pod, rows map[string]hpaCPURow, res corev1.ResourceName, storedMilli, oldMilli int64) (int64, bool) {
 	if storedMilli <= 0 || oldMilli <= 0 || storedMilli >= oldMilli {
 		return 0, false
 	}
-	if storedMilli == resourceHistoryOldMilli(pod, rows) ||
-		storedMilli == resourceOldMilliExcludingNativeSidecars(pod, rows, res) {
+	if resourceHistoryRowGrew(pod, rows) {
+		return 0, false
+	}
+	if storedMilli == resourceOldMilliExcludingNativeSidecars(pod, rows, res) ||
+		storedMilli == resourceHistoryOldMilli(pod, rows) {
 		return oldMilli, true
 	}
 	return 0, false
+}
+
+// listLessBaseRecordsContainers reports that a base with no list already
+// covers the containers in this pod sum. A counted row grew until its old
+// request equals the stored quantity, or equals that quantity with native
+// sidecars removed. Raising the quantity would count the sidecar again.
+func listLessBaseRecordsContainers(pod *corev1.Pod, rows map[string]hpaCPURow, res corev1.ResourceName, storedMilli, oldMilli int64) bool {
+	if storedMilli <= 0 || oldMilli <= 0 || storedMilli >= oldMilli || !resourceHistoryRowGrew(pod, rows) {
+		return false
+	}
+	return storedMilli == resourceHistoryOldMilli(pod, rows) ||
+		storedMilli == resourceOldMilliExcludingNativeSidecars(pod, rows, res)
+}
+
+// resourceHistoryRowGrew reports a history row that resourceHistoryOldMilli
+// counts whose new request is above its old request.
+func resourceHistoryRowGrew(pod *corev1.Pod, rows map[string]hpaCPURow) bool {
+	if len(rows) == 0 {
+		return false
+	}
+	grew := false
+	note := func(name string, include bool) {
+		if !include {
+			return
+		}
+		row, ok := rows[name]
+		if ok && row.ok && row.neu > row.old {
+			grew = true
+		}
+	}
+	if pod == nil {
+		for _, row := range rows {
+			if row.ok && row.neu > row.old {
+				return true
+			}
+		}
+		return false
+	}
+	seen := make(map[string]struct{}, len(pod.Spec.Containers)+len(pod.Spec.InitContainers))
+	for _, c := range pod.Spec.Containers {
+		seen[c.Name] = struct{}{}
+		note(c.Name, true)
+	}
+	for _, c := range pod.Spec.InitContainers {
+		seen[c.Name] = struct{}{}
+		note(c.Name, nativeSidecar(c))
+	}
+	for name, row := range rows {
+		if _, onPod := seen[name]; onPod || !row.ok {
+			continue
+		}
+		if row.neu > row.old {
+			grew = true
+		}
+	}
+	return grew
 }
 
 func rememberRepairedBase(keys []string, key string) []string {
@@ -1017,6 +1077,11 @@ func decideHPATune(
 					baseRequestMilli = next
 					repairPartial = true
 					containerList = formatResourceBaseContainers(observed.names)
+				} else if listLessBaseRecordsContainers(scope.pod, rows, corev1.ResourceName(basis.resName), storedMilli, basis.oldMilli) {
+					containerList = formatResourceBaseContainers(observed.names)
+					if containerList != "" {
+						listOnly = true
+					}
 				}
 			}
 		} else if storedHPABaseUnparsed(hpa.Annotations, basis.targetKey, basis.baseKey) {

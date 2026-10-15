@@ -176,6 +176,13 @@ spec:
                     kubectl get hpa tune-app -n e2e-hpa-auto-tune -o yaml
                     exit 1
                   fi
+                  LIST=$(kubectl get hpa tune-app -n e2e-hpa-auto-tune \
+                    -o jsonpath='{.metadata.annotations.attune\.io/original-cpu-request-containers}' 2>/dev/null || true)
+                  if [ "$LIST" != "app" ]; then
+                    echo "FAIL: original-cpu-request-containers is '$LIST', want app"
+                    kubectl get hpa tune-app -n e2e-hpa-auto-tune -o yaml
+                    exit 1
+                  fi
                   if [ -z "$CURRENT" ] || [ "$CURRENT" = "$ORIG" ]; then
                     echo "FAIL: HPA target was not tuned (still $CURRENT)"
                     kubectl get hpa tune-app -n e2e-hpa-auto-tune -o yaml
