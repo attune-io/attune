@@ -92,7 +92,13 @@ stays. `HPABaseRepaired` means the update that changed
 annotation. A failed HPA update does not emit the Warning. The repair is
 still stored when the published percent does not change. A value an older
 operator already replaced with a grown sum is left in place.
-A conflicting HPA write is retried from a fresh object. A non-conflict
+A conflicting HPA write reads the HPA again. A status-only change still
+publishes the target from this resize. A target or Attune annotation
+that differs on the re-read object is the input to the same retune
+formula, not the percent that gets published. A reset stores that live
+percent as the original target and publishes the scaled percent. If
+that object is no longer marked `attune.io/auto-tune: "true"`, or it
+no longer targets this workload, the update is skipped. A non-conflict
 failure is logged, and the target is corrected on the next resize of
 that workload.
 

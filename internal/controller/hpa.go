@@ -22,8 +22,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/go-logr/logr"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
@@ -176,11 +178,23 @@ type hpaMetricBasis struct {
 }
 
 type hpaPendingTarget struct {
-	index     int
-	resource  bool
-	container string
-	resName   string
-	target    int32
+	index      int
+	resource   bool
+	container  string
+	resName    string
+	target     int32
+	current    int32
+	oldRequest string
+	newRequest string
+}
+
+// hpaTuneDecision is one pass of tuneHPAs over a single HPA object.
+// write is false when that object needs no Update.
+type hpaTuneDecision struct {
+	write         bool
+	repairedBases []string
+	clamps        []hpaClampNote
+	pending       []hpaPendingTarget
 }
 
 // hpaCPURowsFromHistory keeps the first successful in-place CPU row per
@@ -805,8 +819,10 @@ func copyHPATuneAnnotations(dst, src map[string]string) {
 }
 
 // tuneHPAs updates every matching auto-tune HPA. Changed metrics on one HPA
-// are written with a single Update. A conflict retries the live Get and
-// that Update. Other errors are logged and do not abort the next HPA.
+// are written with a single Update. A conflict re-reads the HPA and decides
+// again when the live target or Attune annotations differ from the list.
+// A status-only conflict replays the decision already made. Other errors
+// are logged and do not abort the next HPA.
 func (r *AttunePolicyReconciler) tuneHPAs(
 	ctx context.Context,
 	hpas []autoscalingv2.HorizontalPodAutoscaler,
@@ -823,200 +839,23 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 			continue
 		}
 
-		foundAdjustable := false
-		var repairedBases []string
-		listOnlyWrite := false
-		storeOriginalBase := false
-		pending := make([]hpaPendingTarget, 0, len(hpa.Spec.Metrics))
-		var clamps []hpaClampNote
-		for j := range hpa.Spec.Metrics {
-			m := &hpa.Spec.Metrics[j]
-			recognized, basis := scope.metricBasis(m)
-			if !recognized {
-				continue
-			}
-			foundAdjustable = true
-			if basis.longKey {
-				logger.Info("Skipping HPA ContainerResource auto-tune because the annotation name exceeds 63 characters",
-					"hpa", hpa.Name, "workload", workloadName, "container", basis.container)
-				continue
-			}
-			// An unchanged pod total can still be an offsetting resize that
-			// brings a container in from zero. The list has to record that
-			// name before a later cycle adds the new request. A true no-op
-			// still returns below, once the list and the percent are compared.
-			if !basis.ok {
-				logger.V(1).Info("HPA auto-tune skipped a metric with no usable request base",
-					"hpa", hpa.Name, "workload", workloadName)
-				continue
-			}
-			if basis.oldMilli == 0 || basis.newMilli == 0 {
-				continue
-			}
-			var currentTarget int32
-			if basis.resource {
-				currentTarget = *m.Resource.Target.AverageUtilization
-			} else {
-				currentTarget = *m.ContainerResource.Target.AverageUtilization
-			}
-			// newTarget = originalTarget * (originalRequest / newRequest).
-			// A stored percent with this cycle's old/new request drifts.
-			// Legacy rows that only have the target annotation use
-			// currentTarget * (old / new) and do not gain a request annotation.
-			baseTarget := currentTarget
-			baseRequestMilli := basis.oldMilli
-			repairPartial := false
-			listOnly := false
-			containerList := ""
-			if basis.containerMemory {
-				if storedTarget, storedMilli, ok := storedContainerMemory(hpa.Annotations, basis.container); ok {
-					baseTarget = storedTarget
-					baseRequestMilli = storedMilli
-				} else if storedContainerMemoryUnparsed(hpa.Annotations, basis.container) {
-					logger.V(1).Info("HPA auto-tune ignored a stored base that did not parse",
-						"hpa", hpa.Name, "workload", workloadName,
-						"targetKey", annotationHPAOriginalContainerMemory,
-						"baseKey", annotationHPAOriginalContainerMemory)
-				}
-			} else if storedTarget, storedMilli, ok := storedHPABase(hpa.Annotations, basis.targetKey, basis.baseKey); ok {
-				baseTarget = storedTarget
-				baseRequestMilli = storedMilli
-				// ContainerResource keeps its own base. A pod Resource base
-				// with a container list adds only names missing from that
-				// list. Without a list, see repairedPodResourceBase.
-				if basis.resource {
-					rows := scope.resourceRows(basis.resName)
-					observed := podResourceContainers(scope.pod, rows, corev1.ResourceName(basis.resName))
-					if listed, ok := parseResourceBaseContainers(hpa.Annotations[basis.containersKey]); ok {
-						next, formatted, repair, removed := extendStoredResourceBase(storedMilli, listed, observed)
-						if len(removed) > 0 {
-							logger.Info("HPA base lists containers that are not in this cycle's pod sum",
-								"hpa", hpa.Name, "workload", workloadName, "annotation", basis.containersKey, "containers", removed)
-						}
-						if formatted != "" {
-							containerList = formatted
-							if repair {
-								baseRequestMilli = next
-								repairPartial = true
-							} else {
-								// A container joined at zero. Record the name
-								// now so the next resize does not add Attune's
-								// own delta. The quantity did not change.
-								listOnly = true
-							}
-						}
-					} else if next, repair := repairedPodResourceBase(scope.pod, rows, corev1.ResourceName(basis.resName), storedMilli, basis.oldMilli); repair {
-						baseRequestMilli = next
-						repairPartial = true
-						containerList = formatResourceBaseContainers(observed.names)
-					}
-				}
-			} else if storedHPABaseUnparsed(hpa.Annotations, basis.targetKey, basis.baseKey) {
-				logger.V(1).Info("HPA auto-tune ignored a stored base that did not parse",
-					"hpa", hpa.Name, "workload", workloadName,
-					"targetKey", basis.targetKey, "baseKey", basis.baseKey)
-			}
-			rawTarget := int32(float64(baseTarget) * float64(baseRequestMilli) / float64(basis.newMilli))
-			oldQ := hpaRequestQuantity(basis.resName, basis.oldMilli)
-			newQ := hpaRequestQuantity(basis.resName, basis.newMilli)
-			newTarget, computed, emit := publishHPATarget(rawTarget, basis.limit, newQ, bandFor(scope.policy, basis.resName))
-			// A repair or a container list is stored when truncation leaves
-			// the percent unchanged. A missing original base is stored for
-			// the same reason, even when the percent does not change.
-			// Otherwise the next resize scales from the intermediate request.
-			// A metric whose request did not change has nothing to remember.
-			if newTarget == currentTarget && !repairPartial && !listOnly {
-				missingOriginalBase := false
-				if basis.oldMilli != basis.newMilli {
-					if basis.containerMemory {
-						_, _, storedOK := storedContainerMemory(hpa.Annotations, basis.container)
-						if !storedOK && !storedContainerMemoryUnparsed(hpa.Annotations, basis.container) {
-							missingOriginalBase = true
-						}
-					} else if basis.targetKey != "" && hpa.Annotations[basis.targetKey] == "" &&
-						!storedHPABaseUnparsed(hpa.Annotations, basis.targetKey, basis.baseKey) {
-						// An unparsed base keeps both annotations, so an
-						// empty target is not that case.
-						missingOriginalBase = true
-					}
-				}
-				if !missingOriginalBase {
-					logger.V(1).Info("HPA utilization target unchanged after resize",
-						"hpa", hpa.Name, "workload", workloadName)
-					continue
-				}
-				storeOriginalBase = true
-			}
-			if listOnly {
-				listOnlyWrite = true
-			}
-			// First write only. A stored base that differs from this cycle's
-			// sum is the usual second resize, not a cue to rewrite it.
-			if hpa.Annotations == nil {
-				hpa.Annotations = make(map[string]string)
-			}
-			firstWrite := basis.targetKey != "" && hpa.Annotations[basis.targetKey] == ""
-			if basis.containerMemory {
-				rememberContainerMemory(hpa.Annotations, basis.container, currentTarget, basis.oldMilli)
-			} else if firstWrite || repairPartial {
-				hpa.Annotations[basis.targetKey] = strconv.FormatInt(int64(baseTarget), 10)
-				baseQ := hpaRequestQuantity(basis.resName, baseRequestMilli)
-				hpa.Annotations[basis.baseKey] = baseQ.String()
-				if repairPartial {
-					repairedBases = rememberRepairedBase(repairedBases, basis.baseKey)
-				}
-			}
-			if basis.containersKey != "" && (firstWrite || repairPartial || listOnly) {
-				if containerList == "" {
-					observed := podResourceContainers(scope.pod, scope.resourceRows(basis.resName), corev1.ResourceName(basis.resName))
-					containerList = formatResourceBaseContainers(observed.names)
-				}
-				if containerList != "" {
-					hpa.Annotations[basis.containersKey] = containerList
-				}
-			}
-			if newTarget != currentTarget {
-				if basis.resName == string(corev1.ResourceMemory) {
-					logger.Info("Auto-tuning HPA memory target after resize",
-						"hpa", hpa.Name, "workload", workloadName, "container", basis.container,
-						"currentTarget", currentTarget, "newTarget", newTarget,
-						"oldRequest", oldQ.String(), "newRequest", newQ.String())
-				} else {
-					logger.Info("Auto-tuning HPA CPU target after resize",
-						"hpa", hpa.Name, "workload", workloadName, "container", basis.container,
-						"currentTarget", currentTarget, "newTarget", newTarget,
-						"oldRequest", oldQ.String(), "newRequest", newQ.String())
-				}
-				applyHPAMetricTarget(hpa, j, basis.resName, basis.resource, basis.container, newTarget)
-				pending = append(pending, hpaPendingTarget{
-					index:     j,
-					resource:  basis.resource,
-					container: basis.container,
-					resName:   basis.resName,
-					target:    newTarget,
-				})
-				if emit {
-					clamps = append(clamps, hpaClampNote{
-						message: hpaClampMessage(hpa.Namespace, hpa.Name, basis.resName, basis.container, computed, newTarget),
-					})
-				}
-			}
-		}
-		if len(pending) == 0 && len(repairedBases) == 0 && !listOnlyWrite && !storeOriginalBase {
-			if !foundAdjustable {
-				logger.Info("HPA has auto-tune annotation but no adjustable CPU utilization metric",
-					"hpa", hpa.Name, "workload", workloadName)
-			}
+		listed := hpa.DeepCopy()
+		decision := decideHPATune(ctx, hpa, workloadName, scope)
+		if !decision.write {
 			continue
 		}
 
-		// The HPA list is from the start of Reconcile. The HPA controller
-		// writes status on its own sync and bumps resourceVersion. Retry
-		// the live Get and this Update together. Re-apply pending on each
-		// fresh object. Copy only Attune annotations so another controller's
-		// keys survive. A non-conflict error is not retried.
+		// The list is from the start of Reconcile. The HPA controller writes
+		// status on its own sync and bumps resourceVersion. Retry the live
+		// Get and this Update together. Copy only Attune annotations so
+		// another controller's keys survive. When the re-read object changed
+		// the target or those annotations, decide from that object instead
+		// of replaying the list. A non-conflict error is not retried.
 		var refetchErr error
+		applied := decision
+		didWrite := false
 		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			didWrite = false
 			var fresh autoscalingv2.HorizontalPodAutoscaler
 			// Live API read so strip-transformed cache entries cannot wipe metrics.
 			if getErr := r.liveReader().Get(ctx, types.NamespacedName{Name: hpa.Name, Namespace: hpa.Namespace}, &fresh); getErr != nil {
@@ -1024,14 +863,42 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 				return getErr
 			}
 			refetchErr = nil
-			if fresh.Annotations == nil {
-				fresh.Annotations = make(map[string]string)
+			autoTune := ""
+			if fresh.Annotations != nil {
+				autoTune = fresh.Annotations[annotationHPAAutoTune]
 			}
-			copyHPATuneAnnotations(fresh.Annotations, hpa.Annotations)
-			for _, upd := range pending {
-				applyHPAMetricTarget(&fresh, upd.index, upd.resName, upd.resource, upd.container, upd.target)
+			if autoTune != "true" {
+				logger.Info("HPA auto-tune skipped a re-read object that is not auto-tuned",
+					"hpa", hpa.Name, "workload", workloadName)
+				return nil
 			}
-			return r.Update(ctx, &fresh)
+			if fresh.Spec.ScaleTargetRef != listed.Spec.ScaleTargetRef {
+				logger.Info("HPA auto-tune skipped a re-read object that targets a different workload",
+					"hpa", hpa.Name, "workload", workloadName,
+					"scaleTarget", fresh.Spec.ScaleTargetRef.Name)
+				return nil
+			}
+			chosen := decision
+			if hpaTuneInputsEqual(listed, &fresh) {
+				if fresh.Annotations == nil {
+					fresh.Annotations = map[string]string{}
+				}
+				copyHPATuneAnnotations(fresh.Annotations, hpa.Annotations)
+				for _, upd := range decision.pending {
+					applyHPAMetricTarget(&fresh, upd.index, upd.resName, upd.resource, upd.container, upd.target)
+				}
+			} else {
+				chosen = decideHPATune(ctx, &fresh, workloadName, scope)
+				if !chosen.write {
+					return nil
+				}
+			}
+			if updateErr := r.Update(ctx, &fresh); updateErr != nil {
+				return updateErr
+			}
+			applied = chosen
+			didWrite = true
+			return nil
 		})
 		if err != nil {
 			if refetchErr != nil && !apierrors.IsConflict(err) {
@@ -1041,14 +908,288 @@ func (r *AttunePolicyReconciler) tuneHPAs(
 			}
 			continue
 		}
+		if !didWrite {
+			continue
+		}
+		logAppliedHPATargets(logger, hpa.Name, workloadName, applied.pending)
 		if r.Recorder != nil && scope.policy != nil {
-			for _, key := range repairedBases {
+			for _, key := range applied.repairedBases {
 				r.Recorder.Eventf(scope.policy, nil, corev1.EventTypeWarning, "HPABaseRepaired", "hpa",
 					"Stored %s left out containers from the pre-resize pod sum and was updated", key)
 			}
 		}
-		for _, note := range clamps {
+		for _, note := range applied.clamps {
 			r.emitEventOnce(scope.policy, corev1.EventTypeNormal, "HPATargetClamped", "hpa", "%s", note.message)
 		}
 	}
+}
+
+func decideHPATune(
+	ctx context.Context,
+	hpa *autoscalingv2.HorizontalPodAutoscaler,
+	workloadName string,
+	scope hpaTuneScope,
+) hpaTuneDecision {
+	logger := log.FromContext(ctx)
+	foundAdjustable := false
+	var repairedBases []string
+	listOnlyWrite := false
+	storeOriginalBase := false
+	pending := make([]hpaPendingTarget, 0, len(hpa.Spec.Metrics))
+	var clamps []hpaClampNote
+	for j := range hpa.Spec.Metrics {
+		m := &hpa.Spec.Metrics[j]
+		recognized, basis := scope.metricBasis(m)
+		if !recognized {
+			continue
+		}
+		foundAdjustable = true
+		if basis.longKey {
+			logger.Info("Skipping HPA ContainerResource auto-tune because the annotation name exceeds 63 characters",
+				"hpa", hpa.Name, "workload", workloadName, "container", basis.container)
+			continue
+		}
+		// An unchanged pod total can still be an offsetting resize that
+		// brings a container in from zero. The list has to record that
+		// name before a later cycle adds the new request. A true no-op
+		// still returns below, once the list and the percent are compared.
+		if !basis.ok {
+			logger.V(1).Info("HPA auto-tune skipped a metric with no usable request base",
+				"hpa", hpa.Name, "workload", workloadName)
+			continue
+		}
+		if basis.oldMilli == 0 || basis.newMilli == 0 {
+			continue
+		}
+		var currentTarget int32
+		if basis.resource {
+			currentTarget = *m.Resource.Target.AverageUtilization
+		} else {
+			currentTarget = *m.ContainerResource.Target.AverageUtilization
+		}
+		// newTarget = originalTarget * (originalRequest / newRequest).
+		// A stored percent with this cycle's old/new request drifts.
+		// Legacy rows that only have the target annotation use
+		// currentTarget * (old / new) and do not gain a request annotation.
+		baseTarget := currentTarget
+		baseRequestMilli := basis.oldMilli
+		repairPartial := false
+		listOnly := false
+		containerList := ""
+		if basis.containerMemory {
+			if storedTarget, storedMilli, ok := storedContainerMemory(hpa.Annotations, basis.container); ok {
+				baseTarget = storedTarget
+				baseRequestMilli = storedMilli
+			} else if storedContainerMemoryUnparsed(hpa.Annotations, basis.container) {
+				logger.V(1).Info("HPA auto-tune ignored a stored base that did not parse",
+					"hpa", hpa.Name, "workload", workloadName,
+					"targetKey", annotationHPAOriginalContainerMemory,
+					"baseKey", annotationHPAOriginalContainerMemory)
+			}
+		} else if storedTarget, storedMilli, ok := storedHPABase(hpa.Annotations, basis.targetKey, basis.baseKey); ok {
+			baseTarget = storedTarget
+			baseRequestMilli = storedMilli
+			// ContainerResource keeps its own base. A pod Resource base
+			// with a container list adds only names missing from that
+			// list. Without a list, see repairedPodResourceBase.
+			if basis.resource {
+				rows := scope.resourceRows(basis.resName)
+				observed := podResourceContainers(scope.pod, rows, corev1.ResourceName(basis.resName))
+				if listed, ok := parseResourceBaseContainers(hpa.Annotations[basis.containersKey]); ok {
+					next, formatted, repair, removed := extendStoredResourceBase(storedMilli, listed, observed)
+					if len(removed) > 0 {
+						logger.Info("HPA base lists containers that are not in this cycle's pod sum",
+							"hpa", hpa.Name, "workload", workloadName, "annotation", basis.containersKey, "containers", removed)
+					}
+					if formatted != "" {
+						containerList = formatted
+						if repair {
+							baseRequestMilli = next
+							repairPartial = true
+						} else {
+							// A container joined at zero. Record the name
+							// now so the next resize does not add Attune's
+							// own delta. The quantity did not change.
+							listOnly = true
+						}
+					}
+				} else if next, repair := repairedPodResourceBase(scope.pod, rows, corev1.ResourceName(basis.resName), storedMilli, basis.oldMilli); repair {
+					baseRequestMilli = next
+					repairPartial = true
+					containerList = formatResourceBaseContainers(observed.names)
+				}
+			}
+		} else if storedHPABaseUnparsed(hpa.Annotations, basis.targetKey, basis.baseKey) {
+			logger.V(1).Info("HPA auto-tune ignored a stored base that did not parse",
+				"hpa", hpa.Name, "workload", workloadName,
+				"targetKey", basis.targetKey, "baseKey", basis.baseKey)
+		}
+		rawTarget := int32(float64(baseTarget) * float64(baseRequestMilli) / float64(basis.newMilli))
+		oldQ := hpaRequestQuantity(basis.resName, basis.oldMilli)
+		newQ := hpaRequestQuantity(basis.resName, basis.newMilli)
+		newTarget, computed, emit := publishHPATarget(rawTarget, basis.limit, newQ, bandFor(scope.policy, basis.resName))
+		// A repair or a container list is stored when truncation leaves
+		// the percent unchanged. A missing original base is stored for
+		// the same reason, even when the percent does not change.
+		// Otherwise the next resize scales from the intermediate request.
+		// A metric whose request did not change has nothing to remember.
+		if newTarget == currentTarget && !repairPartial && !listOnly {
+			missingOriginalBase := false
+			if basis.oldMilli != basis.newMilli {
+				if basis.containerMemory {
+					_, _, storedOK := storedContainerMemory(hpa.Annotations, basis.container)
+					if !storedOK && !storedContainerMemoryUnparsed(hpa.Annotations, basis.container) {
+						missingOriginalBase = true
+					}
+				} else if basis.targetKey != "" && hpa.Annotations[basis.targetKey] == "" &&
+					!storedHPABaseUnparsed(hpa.Annotations, basis.targetKey, basis.baseKey) {
+					// An unparsed base keeps both annotations, so an
+					// empty target is not that case.
+					missingOriginalBase = true
+				}
+			}
+			if !missingOriginalBase {
+				logger.V(1).Info("HPA utilization target unchanged after resize",
+					"hpa", hpa.Name, "workload", workloadName)
+				continue
+			}
+			storeOriginalBase = true
+		}
+		if listOnly {
+			listOnlyWrite = true
+		}
+		// First write only. A stored base that differs from this cycle's
+		// sum is the usual second resize, not a cue to rewrite it.
+		if hpa.Annotations == nil {
+			hpa.Annotations = make(map[string]string)
+		}
+		firstWrite := basis.targetKey != "" && hpa.Annotations[basis.targetKey] == ""
+		if basis.containerMemory {
+			rememberContainerMemory(hpa.Annotations, basis.container, currentTarget, basis.oldMilli)
+		} else if firstWrite || repairPartial {
+			hpa.Annotations[basis.targetKey] = strconv.FormatInt(int64(baseTarget), 10)
+			baseQ := hpaRequestQuantity(basis.resName, baseRequestMilli)
+			hpa.Annotations[basis.baseKey] = baseQ.String()
+			if repairPartial {
+				repairedBases = rememberRepairedBase(repairedBases, basis.baseKey)
+			}
+		}
+		if basis.containersKey != "" && (firstWrite || repairPartial || listOnly) {
+			if containerList == "" {
+				observed := podResourceContainers(scope.pod, scope.resourceRows(basis.resName), corev1.ResourceName(basis.resName))
+				containerList = formatResourceBaseContainers(observed.names)
+			}
+			if containerList != "" {
+				hpa.Annotations[basis.containersKey] = containerList
+			}
+		}
+		if newTarget != currentTarget {
+			applyHPAMetricTarget(hpa, j, basis.resName, basis.resource, basis.container, newTarget)
+			pending = append(pending, hpaPendingTarget{
+				index:      j,
+				resource:   basis.resource,
+				container:  basis.container,
+				resName:    basis.resName,
+				target:     newTarget,
+				current:    currentTarget,
+				oldRequest: oldQ.String(),
+				newRequest: newQ.String(),
+			})
+			if emit {
+				clamps = append(clamps, hpaClampNote{
+					message: hpaClampMessage(hpa.Namespace, hpa.Name, basis.resName, basis.container, computed, newTarget),
+				})
+			}
+		}
+	}
+	if len(pending) == 0 && len(repairedBases) == 0 && !listOnlyWrite && !storeOriginalBase {
+		if !foundAdjustable {
+			logger.Info("HPA has auto-tune annotation but no adjustable CPU utilization metric",
+				"hpa", hpa.Name, "workload", workloadName)
+		}
+		return hpaTuneDecision{}
+	}
+	return hpaTuneDecision{
+		write:         true,
+		repairedBases: repairedBases,
+		clamps:        clamps,
+		pending:       pending,
+	}
+}
+
+// hpaTuneInputsEqual reports whether fresh still has the metric targets and
+// Attune tune annotations that the list-time decision used. Status and
+// another controller's annotations are ignored.
+func hpaTuneInputsEqual(listed, fresh *autoscalingv2.HorizontalPodAutoscaler) bool {
+	if listed == nil || fresh == nil {
+		return false
+	}
+	if !equality.Semantic.DeepEqual(listed.Spec.Metrics, fresh.Spec.Metrics) {
+		return false
+	}
+	return attuneHPATuneAnnotationsEqual(listed.Annotations, fresh.Annotations)
+}
+
+func attuneHPATuneAnnotationsEqual(a, b map[string]string) bool {
+	for _, k := range []string{
+		annotationHPAAutoTune,
+		annotationHPAOriginalCPU,
+		annotationHPAOriginalCPURequest,
+		annotationHPAOriginalCPURequestContainers,
+		annotationHPAOriginalMemory,
+		annotationHPAOriginalMemoryRequest,
+		annotationHPAOriginalMemoryRequestContainers,
+		annotationHPAOriginalContainerMemory,
+	} {
+		if annotationValue(a, k) != annotationValue(b, k) {
+			return false
+		}
+	}
+	return prefixAnnotationsEqual(a, b, annotationHPACPUTargetPrefix) &&
+		prefixAnnotationsEqual(a, b, annotationHPACPUBasePrefix)
+}
+
+func logAppliedHPATargets(logger logr.Logger, hpaName, workloadName string, pending []hpaPendingTarget) {
+	for _, upd := range pending {
+		msg := "Auto-tuning HPA CPU target after resize"
+		if upd.resName == string(corev1.ResourceMemory) {
+			msg = "Auto-tuning HPA memory target after resize"
+		}
+		logger.Info(msg,
+			"hpa", hpaName,
+			"workload", workloadName,
+			"container", upd.container,
+			"currentTarget", upd.current,
+			"newTarget", upd.target,
+			"oldRequest", upd.oldRequest,
+			"newRequest", upd.newRequest,
+		)
+	}
+}
+
+func annotationValue(ann map[string]string, key string) string {
+	if ann == nil {
+		return ""
+	}
+	return ann[key]
+}
+
+func prefixAnnotationsEqual(a, b map[string]string, prefix string) bool {
+	if a == nil {
+		a = map[string]string{}
+	}
+	if b == nil {
+		b = map[string]string{}
+	}
+	for k, v := range a {
+		if strings.HasPrefix(k, prefix) && b[k] != v {
+			return false
+		}
+	}
+	for k, v := range b {
+		if strings.HasPrefix(k, prefix) && a[k] != v {
+			return false
+		}
+	}
+	return true
 }
