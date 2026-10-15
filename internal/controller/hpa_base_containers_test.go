@@ -22,8 +22,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/resize"
 )
 
 func TestParseResourceBaseContainers(t *testing.T) {
@@ -371,6 +374,72 @@ func TestRetuneHPAAfterResize_ListLessGrewNativeSidecarStaysInTheStoredBase(t *t
 	for _, note := range notes {
 		assert.NotContains(t, note, "HPABaseRepaired")
 	}
+}
+
+// historyFromResizeResult builds the history row executeResizes appends
+// after a successful in-place resize.
+func historyFromResizeResult(t *testing.T, container, from, to string) attunev1alpha1.ResizeHistoryEntry {
+	t.Helper()
+	fromQ, err := resource.ParseQuantity(from)
+	require.NoError(t, err)
+	toQ, err := resource.ParseQuantity(to)
+	require.NoError(t, err)
+	entry := newHistoryEntry(metav1.Now(), "api-server", container, resize.ResizeResult{
+		PodName:   "api-server-pod",
+		Container: container,
+		Resource:  string(corev1.ResourceCPU),
+		From:      fromQ,
+		To:        toQ,
+		Method:    resize.MethodInPlace,
+		Success:   true,
+	}, attunev1alpha1.ResizeResultSuccess)
+	require.Equal(t, resize.MethodInPlace, entry.Method)
+	require.Equal(t, attunev1alpha1.ResizeResultSuccess, entry.Result)
+	require.Equal(t, fromQ.String(), entry.From)
+	require.Equal(t, toQ.String(), entry.To)
+	return entry
+}
+
+func TestRetuneHPAAfterResize_HistoryFromResizeResultKeepsGrownBase(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
+		annotationHPAOriginalCPU:        "80",
+		annotationHPAOriginalCPURequest: "800m",
+	}, cpuResourceMetric(80))
+	proxy := podContainer(t, "istio-proxy", "200m", "1000m")
+	always := corev1.ContainerRestartPolicyAlways
+	proxy.RestartPolicy = &always
+	pod := workloadPod("api-server", podContainer(t, "app", "900m", "2000m"))
+	pod.Spec.InitContainers = []corev1.Container{proxy}
+	cl, _, notes := runScriptedHPARetune(t, nil, hpa, pod,
+		[]attunev1alpha1.ResizeHistoryEntry{historyFromResizeResult(t, "app", "800m", "900m")}, nil)
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(58), metricUtil(t, updated, 0), "80 * 800/1100 = 58")
+	assert.Equal(t, "800m", updated.Annotations[annotationHPAOriginalCPURequest])
+	assert.Equal(t, "app,istio-proxy", updated.Annotations[annotationHPAOriginalCPURequestContainers])
+	for _, note := range notes {
+		assert.NotContains(t, note, "HPABaseRepaired")
+	}
+}
+
+func TestRetuneHPAAfterResize_HistoryFromResizeResultRepairsShrunkBase(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
+		annotationHPAOriginalCPU:        "80",
+		annotationHPAOriginalCPURequest: "400m",
+	}, cpuResourceMetric(80))
+	pod := workloadPod("api-server",
+		podContainer(t, "app", "200m", "2000m"),
+		podContainer(t, "sidecar", "200m", "1000m"),
+	)
+	cl, _, notes := runScriptedHPARetune(t, nil, hpa, pod,
+		[]attunev1alpha1.ResizeHistoryEntry{historyFromResizeResult(t, "app", "400m", "200m")}, nil)
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(120), metricUtil(t, updated, 0), "80 * 600/400 = 120")
+	assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest])
+	assert.Equal(t, "app,sidecar", updated.Annotations[annotationHPAOriginalCPURequestContainers])
+	require.NotEmpty(t, notes)
+	assert.Contains(t, notes[0], "HPABaseRepaired")
 }
 
 func TestRetuneHPAAfterResize_MalformedContainerListUsesEqualityRule(t *testing.T) {
