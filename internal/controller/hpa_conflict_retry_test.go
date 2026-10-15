@@ -183,3 +183,124 @@ func TestRetuneHPAAfterResize_MemoryConflictThenSuccess(t *testing.T) {
 	assert.Equal(t, "keep", updated.Annotations[otherControllerAnnotation])
 	assert.Empty(t, notes)
 }
+
+func conflictAfterEdit(
+	t *testing.T,
+	edit func(*autoscalingv2.HorizontalPodAutoscaler),
+) func(context.Context, client.WithWatch, client.Object, []client.UpdateOption, int32) error {
+	t.Helper()
+	hpaGR := schema.GroupResource{Group: "autoscaling", Resource: "horizontalpodautoscalers"}
+	return func(ctx context.Context, raw client.WithWatch, obj client.Object, opts []client.UpdateOption, attempt int32) error {
+		if attempt == 1 {
+			var current autoscalingv2.HorizontalPodAutoscaler
+			if err := raw.Get(ctx, client.ObjectKeyFromObject(obj), &current); err != nil {
+				return err
+			}
+			edit(&current)
+			if err := raw.Update(ctx, &current); err != nil {
+				return err
+			}
+			return apierrors.NewConflict(hpaGR, current.Name, fmt.Errorf("edited during retune"))
+		}
+		return raw.Update(ctx, obj, opts...)
+	}
+}
+
+func TestRetuneHPAAfterResize_ConflictRecomputesReset(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
+		annotationHPAOriginalCPU:                  "80",
+		annotationHPAOriginalCPURequest:           "600m",
+		annotationHPAOriginalCPURequestContainers: "app,sidecar",
+	}, cpuResourceMetric(60))
+	pod := workloadPod("api-server",
+		podContainer(t, "app", "650m", "1000m"),
+		podContainer(t, "sidecar", "200m", "1000m"),
+	)
+	cl, updates, notes := runScriptedHPARetune(t, nil, hpa, pod,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "600m", "650m")},
+		conflictAfterEdit(t, func(current *autoscalingv2.HorizontalPodAutoscaler) {
+			delete(current.Annotations, annotationHPAOriginalCPU)
+			delete(current.Annotations, annotationHPAOriginalCPURequest)
+			delete(current.Annotations, annotationHPAOriginalCPURequestContainers)
+			v := int32(70)
+			current.Spec.Metrics[0].Resource.Target.AverageUtilization = &v
+		}))
+
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(2), updates)
+	assert.Equal(t, int32(65), metricUtil(t, updated, 0), "70 * 800m/850m = 65")
+	assert.Equal(t, "70", updated.Annotations[annotationHPAOriginalCPU])
+	assert.Equal(t, "800m", updated.Annotations[annotationHPAOriginalCPURequest])
+	assert.Equal(t, "app,sidecar", updated.Annotations[annotationHPAOriginalCPURequestContainers])
+	for _, note := range notes {
+		assert.NotContains(t, note, "HPABaseRepaired")
+		assert.NotContains(t, note, "HPATargetClamped")
+	}
+}
+
+func TestRetuneHPAAfterResize_ConflictRecomputeDropsStaleRepairEvent(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
+		annotationHPAOriginalCPU:        "80",
+		annotationHPAOriginalCPURequest: "600m",
+	}, cpuResourceMetric(60))
+	pod := workloadPod("api-server",
+		podContainer(t, "app", "650m", "1000m"),
+		podContainer(t, "sidecar", "200m", "1000m"),
+	)
+	cl, updates, notes := runScriptedHPARetune(t, nil, hpa, pod,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "600m", "650m")},
+		conflictAfterEdit(t, func(current *autoscalingv2.HorizontalPodAutoscaler) {
+			delete(current.Annotations, annotationHPAOriginalCPU)
+			delete(current.Annotations, annotationHPAOriginalCPURequest)
+			v := int32(70)
+			current.Spec.Metrics[0].Resource.Target.AverageUtilization = &v
+		}))
+
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(2), updates)
+	assert.Equal(t, int32(65), metricUtil(t, updated, 0))
+	assert.Equal(t, "70", updated.Annotations[annotationHPAOriginalCPU])
+	assert.Equal(t, "800m", updated.Annotations[annotationHPAOriginalCPURequest])
+	assert.Empty(t, notes)
+}
+
+func TestRetuneHPAAfterResize_ConflictSkipsWhenAutoTuneRemoved(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", nil, cpuResourceMetric(80))
+	pod := workloadPod("api-server", podContainer(t, "app", "100m", "1000m"))
+	cl, updates, notes := runScriptedHPARetune(t, nil, hpa, pod,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "100m", "200m")},
+		conflictAfterEdit(t, func(current *autoscalingv2.HorizontalPodAutoscaler) {
+			delete(current.Annotations, annotationHPAAutoTune)
+		}))
+
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(1), updates)
+	assert.Equal(t, int32(80), metricUtil(t, updated, 0))
+	_, hasRequest := updated.Annotations[annotationHPAOriginalCPURequest]
+	assert.False(t, hasRequest)
+	_, hasTune := updated.Annotations[annotationHPAAutoTune]
+	assert.False(t, hasTune)
+	assert.Empty(t, notes)
+}
+
+func TestRetuneHPAAfterResize_ConflictSkipsRetargetedHPA(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", nil, cpuResourceMetric(80))
+	pod := workloadPod("api-server", podContainer(t, "app", "100m", "1000m"))
+	cl, updates, notes := runScriptedHPARetune(t, nil, hpa, pod,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "100m", "200m")},
+		conflictAfterEdit(t, func(current *autoscalingv2.HorizontalPodAutoscaler) {
+			current.Spec.ScaleTargetRef.Name = "other"
+		}))
+
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(1), updates)
+	assert.Equal(t, "other", updated.Spec.ScaleTargetRef.Name)
+	assert.Equal(t, int32(80), metricUtil(t, updated, 0))
+	_, hasRequest := updated.Annotations[annotationHPAOriginalCPURequest]
+	assert.False(t, hasRequest)
+	assert.Empty(t, notes)
+}

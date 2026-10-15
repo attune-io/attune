@@ -1437,7 +1437,11 @@ expected. This version does not write an older number back.
    `attune.io/original-memory-request`. Delete the containers annotation
    too if it is set. Leave `attune.io/auto-tune: "true"`. The next
    successful resize of that resource stores a fresh base, the container
-   list, and moves the live target.
+   list, and moves the live target. A retune already in progress reads
+   the HPA again when its update conflicts. The base it stores is the
+   one on that read, so a reset that landed before the successful
+   update is kept. Read the annotations again after that update
+   finishes.
 3. Do not expect this version to restore the number from before that
    rewrite.
 
@@ -1447,9 +1451,12 @@ expected. This version does not write an older number back.
 target is still the old percent.
 
 **Cause**: The HPA update failed, or the computed integer percent is
-already the current target. A conflict is retried. Any other error is
-logged as `Failed to update HPA target` and is not retried until that
-workload is resized again. The first time a resize leaves the percent
+already the current target. A conflict reads the HPA again and decides
+from that object. A status-only conflict still publishes the resize
+target. A target or Attune annotation edited on the re-read object is
+the input to that decision. Any other error is logged as `Failed to
+update HPA target` and is not retried until that workload is resized
+again. The first time a resize leaves the percent
 unchanged, Attune still stores the pre-resize request
 (`attune.io/original-cpu-request`, `attune.io/original-memory-request`,
 or `attune.io/original-container-memory`). That write does not log
@@ -1485,9 +1492,12 @@ level. A base that was already stored is left in place.
 on the HPA is not the value you expected from that event.
 
 **Cause**: This version emits the Warning only after the HPA update
-succeeds. The event names the annotation it rewrote. A Warning whose
-annotation does not match is from an older operator, or a later writer
-changed the annotation. It is not a failed write from this version.
+succeeds. The event names the annotation it rewrote, and it describes
+the attempt that succeeded. A reset already present on the HPA when
+that update runs is not reported as a repair of the previous base. A
+Warning whose annotation does not match is from an older operator, or
+a later writer changed the annotation. It is not a failed write from
+this version.
 
 **Fix**: Read the annotation named in the event. That is
 `attune.io/original-cpu-request` or `attune.io/original-memory-request`.
