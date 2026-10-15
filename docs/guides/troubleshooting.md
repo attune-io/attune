@@ -1418,12 +1418,12 @@ the no-history containers were added onto a base that already included
 them. A base that records its containers
 (`attune.io/original-cpu-request-containers` or
 `attune.io/original-memory-request-containers`) adds only a container
-missing from that list. A base with no list is still replaced when it
-is below the pre-resize pod sum and equals either the history old sum
-or that sum with native sidecars removed. That equality also matches a
-full base after the app grows to the stored quantity, so a sidecar can
-be counted twice. A native sidecar added by a real partial repair is
-expected. This version does not write an older number back.
+missing from that list. A base with no list is replaced when no counted history row grew and
+the quantity is below the pre-resize pod sum and equals that sum with
+native sidecars removed, or the history-old sum. When a counted row
+grew until its old request equals either of those sums, the quantity
+stays and the container list is recorded.
+A quantity an older operator already doubled is left as stored.
 
 **Fix**:
 

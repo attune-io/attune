@@ -304,7 +304,7 @@ func TestRetuneHPAAfterResize_TwoStepFullBaseKeepsContainerList(t *testing.T) {
 	}
 }
 
-func TestRetuneHPAAfterResize_ListLessFullBaseStillRewritesWhenHistoryOldMatches(t *testing.T) {
+func TestRetuneHPAAfterResize_ListLessGrewBaseRecordsListWithoutAddingSidecar(t *testing.T) {
 	t.Parallel()
 	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
 		annotationHPAOriginalCPU:        "80",
@@ -317,12 +317,60 @@ func TestRetuneHPAAfterResize_ListLessFullBaseStillRewritesWhenHistoryOldMatches
 	cl, _, notes := runScriptedHPARetune(t, nil, hpa, pod,
 		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "600m", "650m")}, nil)
 	updated := storedHPA(t, cl, "api-server-hpa")
-	assert.Equal(t, int32(75), metricUtil(t, updated, 0), "80 * 800/850 = 75")
-	assert.Equal(t, "800m", updated.Annotations[annotationHPAOriginalCPURequest])
+	assert.Equal(t, int32(56), metricUtil(t, updated, 0), "80 * 600/850 = 56")
+	assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest])
 	assert.Equal(t, "app,sidecar", updated.Annotations[annotationHPAOriginalCPURequestContainers])
-	require.NotEmpty(t, notes)
-	assert.Contains(t, notes[0], "HPABaseRepaired")
-	assert.Contains(t, notes[0], annotationHPAOriginalCPURequest)
+	for _, note := range notes {
+		assert.NotContains(t, note, "HPABaseRepaired")
+	}
+
+	next := workloadPod("api-server",
+		podContainer(t, "app", "500m", "2000m"),
+		podContainer(t, "sidecar", "200m", "1000m"),
+	)
+	cl, _, notes = runScriptedHPARetune(t, nil, updated, next,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "650m", "500m")}, nil)
+	second := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(68), metricUtil(t, second, 0), "80 * 600/700 = 68")
+	assert.Equal(t, "600m", second.Annotations[annotationHPAOriginalCPURequest])
+	assert.Equal(t, "app,sidecar", second.Annotations[annotationHPAOriginalCPURequestContainers])
+	for _, note := range notes {
+		assert.NotContains(t, note, "HPABaseRepaired")
+	}
+}
+
+func TestRetuneHPAAfterResize_ListLessGrewNativeSidecarStaysInTheStoredBase(t *testing.T) {
+	t.Parallel()
+	hpa := newAutoTuneHPA("api-server-hpa", "Deployment", map[string]string{
+		annotationHPAOriginalCPU:        "80",
+		annotationHPAOriginalCPURequest: "800m",
+	}, cpuResourceMetric(80))
+	proxy := podContainer(t, "istio-proxy", "200m", "1000m")
+	always := corev1.ContainerRestartPolicyAlways
+	proxy.RestartPolicy = &always
+	pod := workloadPod("api-server", podContainer(t, "app", "900m", "2000m"))
+	pod.Spec.InitContainers = []corev1.Container{proxy}
+	cl, _, notes := runScriptedHPARetune(t, nil, hpa, pod,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "800m", "900m")}, nil)
+	updated := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(58), metricUtil(t, updated, 0), "80 * 800/1100 = 58")
+	assert.Equal(t, "800m", updated.Annotations[annotationHPAOriginalCPURequest])
+	assert.Equal(t, "app,istio-proxy", updated.Annotations[annotationHPAOriginalCPURequestContainers])
+	for _, note := range notes {
+		assert.NotContains(t, note, "HPABaseRepaired")
+	}
+
+	shrunk := workloadPod("api-server", podContainer(t, "app", "700m", "2000m"))
+	shrunk.Spec.InitContainers = []corev1.Container{proxy}
+	cl, _, notes = runScriptedHPARetune(t, nil, updated, shrunk,
+		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "900m", "700m")}, nil)
+	second := storedHPA(t, cl, "api-server-hpa")
+	assert.Equal(t, int32(71), metricUtil(t, second, 0), "80 * 800/900 = 71")
+	assert.Equal(t, "800m", second.Annotations[annotationHPAOriginalCPURequest])
+	assert.Equal(t, "app,istio-proxy", second.Annotations[annotationHPAOriginalCPURequestContainers])
+	for _, note := range notes {
+		assert.NotContains(t, note, "HPABaseRepaired")
+	}
 }
 
 func TestRetuneHPAAfterResize_MalformedContainerListUsesEqualityRule(t *testing.T) {
@@ -339,11 +387,12 @@ func TestRetuneHPAAfterResize_MalformedContainerListUsesEqualityRule(t *testing.
 	cl, _, notes := runScriptedHPARetune(t, nil, hpa, pod,
 		[]attunev1alpha1.ResizeHistoryEntry{cpuHistory("app", "600m", "650m")}, nil)
 	updated := storedHPA(t, cl, "api-server-hpa")
-	assert.Equal(t, int32(75), metricUtil(t, updated, 0))
-	assert.Equal(t, "800m", updated.Annotations[annotationHPAOriginalCPURequest])
+	assert.Equal(t, int32(56), metricUtil(t, updated, 0), "80 * 600/850 = 56")
+	assert.Equal(t, "600m", updated.Annotations[annotationHPAOriginalCPURequest])
 	assert.Equal(t, "app,sidecar", updated.Annotations[annotationHPAOriginalCPURequestContainers])
-	require.NotEmpty(t, notes)
-	assert.Contains(t, notes[0], "HPABaseRepaired")
+	for _, note := range notes {
+		assert.NotContains(t, note, "HPABaseRepaired")
+	}
 }
 
 func TestRetuneHPAAfterResize_ListAddsSidecarThatAppearedLater(t *testing.T) {
