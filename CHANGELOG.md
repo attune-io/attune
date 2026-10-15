@@ -6,6 +6,18 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.34](https://github.com/attune-io/attune/compare/v0.1.33...v0.1.34) (2026-10-15)
+
+
+### Bug Fixes
+
+* install the pinned govulncheck binary ([#1045](https://github.com/attune-io/attune/issues/1045)) ([c3de5ce](https://github.com/attune-io/attune/commit/c3de5ce9eceeb92ac6266820e63fdb6df6f412fc))
+* keep a grown hpa base when it has no container list ([#1053](https://github.com/attune-io/attune/issues/1053)) ([0fc1836](https://github.com/attune-io/attune/commit/0fc18362c29c05eb2c2f4b6aaa294a4709b99b05))
+* keep prometheus samples when query infos are present ([#1043](https://github.com/attune-io/attune/issues/1043)) ([72fde3a](https://github.com/attune-io/attune/commit/72fde3ae354bc8497ed546099ee343439e62ac56))
+* recompute hpa retune after a conflict ([#1052](https://github.com/attune-io/attune/issues/1052)) ([e97d778](https://github.com/attune-io/attune/commit/e97d77856bee00434ee207b71df7a91a8828076c)), closes [#1049](https://github.com/attune-io/attune/issues/1049)
+* record the containers in an hpa resource base ([#1037](https://github.com/attune-io/attune/issues/1037)) ([cb432f7](https://github.com/attune-io/attune/commit/cb432f74cdc21f97271aa180d16651a2bf0962de))
+* store the original hpa base when the percent does not change ([#1046](https://github.com/attune-io/attune/issues/1046)) ([44fba10](https://github.com/attune-io/attune/commit/44fba10be7d65b41fcbd6330be38705527e5dfbc))
+
 ## [0.1.33](https://github.com/attune-io/attune/compare/v0.1.32...v0.1.33) (2026-10-07)
 
 
