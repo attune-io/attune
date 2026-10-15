@@ -34,6 +34,8 @@ grep -F -q 'parallel=2' "${nightly}" || fail "nightly does not default to parall
 grep -F -q 'timeout=30m' "${nightly}" || fail "nightly does not default to timeout=30m"
 grep -F -q 'parallel=1' "${nightly}" || fail "nightly v1.32 does not set parallel=1"
 grep -F -q 'timeout=45m' "${nightly}" || fail "nightly v1.32 does not set timeout=45m"
+e2e="${ROOT}/test/e2e-go/e2e_test.go"
+grep -F -q 'e2eSuiteDeadline = 50 * time.Minute' "${e2e}" || fail "Go E2E suite context is not 50m"
 echo "OK: both E2E workflows and Makefile share the gate and the cap"
 
 TMP="$(mktemp -d)"
