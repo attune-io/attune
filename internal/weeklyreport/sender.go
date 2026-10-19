@@ -119,6 +119,7 @@ func (s *Sender) tick(ctx context.Context) {
 		s.mu.Lock()
 		s.needStamp = false
 		s.mu.Unlock()
+		operatormetrics.WeeklyReportLastSuccess.Set(float64(s.now().Unix()))
 		operatormetrics.WeeklyReportTotal.WithLabelValues("sent").Inc()
 		return
 	}
