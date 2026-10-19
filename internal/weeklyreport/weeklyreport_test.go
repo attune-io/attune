@@ -280,6 +280,127 @@ func TestSenderMissingSecretDoesNotStamp(t *testing.T) {
 	}
 }
 
+type urlPoster struct {
+	codes map[string]int
+	calls map[string]int
+}
+
+func (p *urlPoster) Post(_ context.Context, rawURL string, _ []byte) (int, error) {
+	if p.calls == nil {
+		p.calls = map[string]int{}
+	}
+	p.calls[rawURL]++
+	return p.codes[rawURL], nil
+}
+
+func TestSenderOneSuccessStillStamps(t *testing.T) {
+	t.Parallel()
+	slack := slackSecret()
+	teams := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "attune-system", Name: "teams"},
+		Data:       map[string][]byte{"url": []byte("https://abc.environment.api.powerplatform.com/powerautomate/workflows/1")},
+	}
+	policy := &attunev1alpha1.AttunePolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "prod", Name: "checkout"}}
+	s, _, c := testSender(t, slack, teams, policy)
+	poster := &urlPoster{codes: map[string]int{
+		"https://hooks.slack.com/services/T/B/x":                                  500,
+		"https://abc.environment.api.powerplatform.com/powerautomate/workflows/1": 202,
+	}}
+	s.Poster = poster
+	s.Endpoints = []Endpoint{
+		{Name: "slack", SecretName: "attune-weekly-report", SecretKey: "slack-url"},
+		{Name: "teams", SecretName: "teams", SecretKey: "url"},
+	}
+	s.tick(context.Background())
+	s.tick(context.Background())
+	if poster.calls["https://hooks.slack.com/services/T/B/x"] != 1 {
+		t.Fatalf("failed endpoint retried: %v", poster.calls)
+	}
+	if poster.calls["https://abc.environment.api.powerplatform.com/powerautomate/workflows/1"] != 1 {
+		t.Fatalf("success endpoint retried: %v", poster.calls)
+	}
+	var cm corev1.ConfigMap
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "attune-system", Name: stampConfigMap}, &cm); err != nil {
+		t.Fatal(err)
+	}
+	if cm.Annotations[stampAnnotation] != "2026-W43" {
+		t.Fatalf("stamp %v", cm.Annotations)
+	}
+}
+
+type failWrite struct {
+	client.Client
+	left int
+}
+
+func (f *failWrite) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+	if f.left > 0 {
+		f.left--
+		return errors.New("injected create failure")
+	}
+	return f.Client.Create(ctx, obj, opts...)
+}
+
+func (f *failWrite) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+	if f.left > 0 {
+		f.left--
+		return errors.New("injected patch failure")
+	}
+	return f.Client.Patch(ctx, obj, patch, opts...)
+}
+
+func TestSenderRetriesStampWithoutRepost(t *testing.T) {
+	t.Parallel()
+	policy := &attunev1alpha1.AttunePolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "prod", Name: "checkout"}}
+	s, poster, c := testSender(t, slackSecret(), policy)
+	s.Client = &failWrite{Client: c, left: 1}
+	s.tick(context.Background())
+	if poster.calls != 1 {
+		t.Fatalf("first post %d", poster.calls)
+	}
+	s.tick(context.Background())
+	if poster.calls != 1 {
+		t.Fatalf("repost after stamp failure: %d", poster.calls)
+	}
+	var cm corev1.ConfigMap
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "attune-system", Name: stampConfigMap}, &cm); err != nil {
+		t.Fatal(err)
+	}
+	if cm.Annotations[stampAnnotation] != "2026-W43" {
+		t.Fatalf("stamp %v", cm.Annotations)
+	}
+}
+
+func TestSenderFutureStampSkipsAndMalformedSends(t *testing.T) {
+	t.Parallel()
+	policy := &attunev1alpha1.AttunePolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "prod", Name: "checkout"}}
+	future := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace:   "attune-system",
+			Name:        stampConfigMap,
+			Annotations: map[string]string{stampAnnotation: "2026-W44"},
+		},
+	}
+	s, poster, _ := testSender(t, slackSecret(), policy, future)
+	s.tick(context.Background())
+	if poster.calls != 0 {
+		t.Fatalf("future stamp posted %d", poster.calls)
+	}
+
+	bad := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace:   "attune-system",
+			Name:        stampConfigMap,
+			Annotations: map[string]string{stampAnnotation: "nope"},
+		},
+	}
+	s2, poster2, _ := testSender(t, slackSecret(), policy, bad)
+	s2.tick(context.Background())
+	if poster2.calls != 1 {
+		t.Fatalf("malformed stamp calls %d", poster2.calls)
+	}
+}
+
 func TestProductionClient(t *testing.T) {
 	c := NewClient()
 	hc := c.HTTPClient()
