@@ -65,6 +65,7 @@ nav:
       - OpenShift: guides/openshift.md
       - FIPS 140-3 Compliance: guides/fips-compliance.md
       - Multi-Cluster: guides/multi-cluster.md
+      - Weekly Report: guides/weekly-report.md
       - Scaling: guides/scaling.md
       - Bin Packing: guides/bin-packing.md
       - Troubleshooting: guides/troubleshooting.md

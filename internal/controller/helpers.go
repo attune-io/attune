@@ -58,7 +58,7 @@ const (
 	// maxHistoryEntries is the maximum number of resize history entries
 	// kept per policy. Must match the kubebuilder MaxItems marker on
 	// AttunePolicyStatus.ResizeHistory.
-	maxHistoryEntries = 50
+	maxHistoryEntries = attunev1alpha1.MaxResizeHistoryEntries
 )
 
 // isResizeMode returns true if the policy mode performs actual pod resizes.

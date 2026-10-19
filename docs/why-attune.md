@@ -364,7 +364,7 @@ across the capabilities that matter most.
 These projects appeared after Kubernetes 1.33 made `/resize` widely
 available. They are not in the table above.
 
-| | [k8s-sustain](https://github.com/noony/k8s-sustain) | [Kilter](https://github.com/agenticode/kilter) | [CruiseKube](https://github.com/truefoundry/CruiseKube) | [Kedify PRA](https://docs.kedify.io/features/pod-resource-autoscaler/) | Attune |
+| | [k8s-sustain](https://github.com/noony/k8s-sustain) | Kilter | [CruiseKube](https://github.com/truefoundry/CruiseKube) | [Kedify PRA](https://docs.kedify.io/features/pod-resource-autoscaler/) | Attune |
 |---|---|---|---|---|---|
 | **License** | ISC | Apache-2.0 | BUSL-1.1 | Commercial | Apache-2.0 |
 | **In-place `/resize`** | Yes (1.33+; eviction fallback) | Yes (requires 1.33+) | Yes (requires 1.33+) | Yes (seconds-scale band) | Yes (1.32+) |
@@ -407,6 +407,7 @@ production-use BUSL. Kedify PRA is a complementary time horizon
 | Canary rollout for resizes | Yes | 0/16 |
 | GitOps export + optional PR automation | Yes | Rare as open source (most SaaS use proprietary sync) |
 | Multi-cluster fleet report / federation-friendly dashboards | Yes | Common on commercial platforms; rare in OSS |
+| Weekly Slack or Teams digest (off unless enabled; not a cloud bill) | Yes | Several commercial tools; not in VPA |
 | Memory limit usage floor (client-side OOM race guard) | Yes | Varies; often platform-specific |
 | Language runtime profiles for memory defaults | Yes | Rare as first-class CRD field |
 | Reclaimed capacity + node pressure skip metrics | Yes | Often bundled into commercial “bin pack” products |

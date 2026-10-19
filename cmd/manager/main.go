@@ -53,6 +53,7 @@ import (
 	"github.com/attune-io/attune/internal/transform"
 	"github.com/attune-io/attune/internal/validation"
 	"github.com/attune-io/attune/internal/webhook"
+	"github.com/attune-io/attune/internal/weeklyreport"
 )
 
 var (
@@ -92,6 +93,8 @@ func main() {
 	var fleetReportName string
 	var fleetReportClusterID string
 	var fleetReportInterval time.Duration
+	var weeklyReportEnabled bool
+	var weeklyReportEndpoints stringList
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the health probe endpoint binds to.")
@@ -181,6 +184,10 @@ func main() {
 		"Optional cluster identifier written into the fleet report (e.g. prod-us-east-1).")
 	flag.DurationVar(&fleetReportInterval, "fleet-report-interval", 5*time.Minute,
 		"How often to refresh the fleet report ConfigMap when enabled.")
+	flag.BoolVar(&weeklyReportEnabled, "weekly-report-enabled", false,
+		"When true, post one cluster rightsizing report per ISO week. Default off.")
+	flag.Var(&weeklyReportEndpoints, "weekly-report-endpoint",
+		"Repeatable chat endpoint as name/secretName/secretKey. The URL is a key in that Secret in the operator namespace. At most two.")
 
 	opts := zap.Options{
 		Development: false,
@@ -193,8 +200,13 @@ func main() {
 	if prometheusQueryServiceAccount != "" {
 		prometheusUseServiceAccountToken = true
 	}
-	if (prometheusBearerTokenSecretName != "" || prometheusQueryServiceAccount != "" || datadogAPIKeySecretName != "") && os.Getenv("POD_NAMESPACE") == "" {
-		setupLog.Error(fmt.Errorf("POD_NAMESPACE is empty"), "POD_NAMESPACE is required when --prometheus-bearer-token-secret, --prometheus-query-service-account, or --datadog-api-key-secret is set")
+	if (prometheusBearerTokenSecretName != "" || prometheusQueryServiceAccount != "" || datadogAPIKeySecretName != "" || weeklyReportEnabled) && os.Getenv("POD_NAMESPACE") == "" {
+		setupLog.Error(fmt.Errorf("POD_NAMESPACE is empty"), "POD_NAMESPACE is required when a bearer Secret, a Datadog Secret, or the weekly report is set")
+		os.Exit(1)
+	}
+	weeklyEndpoints, weeklyErr := weeklyreport.ParseEndpoints(weeklyReportEndpoints)
+	if weeklyErr != nil {
+		setupLog.Error(weeklyErr, "invalid weekly report endpoint")
 		os.Exit(1)
 	}
 
@@ -420,6 +432,26 @@ func main() {
 		}
 		setupLog.Info("fleet report exporter enabled",
 			"namespace", ns, "configMap", fleetReportName, "interval", fleetReportInterval.String())
+	}
+
+	if weeklyReportEnabled {
+		ns := os.Getenv("POD_NAMESPACE")
+		for _, ep := range weeklyEndpoints {
+			setupLog.Info("weekly report endpoint", "name", ep.Name, "secret", ep.SecretName, "key", ep.SecretKey)
+		}
+		sender := &weeklyreport.Sender{
+			Client:    mgr.GetClient(),
+			APIReader: mgr.GetAPIReader(),
+			Log:       setupLog.WithName("weekly-report"),
+			Namespace: ns,
+			ClusterID: fleetReportClusterID,
+			Endpoints: weeklyEndpoints,
+		}
+		if err := mgr.Add(sender); err != nil {
+			setupLog.Error(err, "unable to add weekly report sender")
+			os.Exit(1)
+		}
+		setupLog.Info("weekly report enabled", "namespace", ns, "endpoints", len(weeklyEndpoints))
 	}
 
 	// Register webhooks (requires cert-manager or manual TLS cert provisioning).

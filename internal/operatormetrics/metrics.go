@@ -286,6 +286,35 @@ var (
 		[]string{"namespace", "policy", "result"},
 	)
 
+	// WeeklyReportSendTotal counts one chat endpoint attempt.
+	// result: success, failed, rejected, or secret_error.
+	WeeklyReportSendTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "attune_weekly_report_send_total",
+			Help: "Weekly report attempts for one chat endpoint (success, failed, rejected, secret_error)",
+		},
+		[]string{"endpoint", "result"},
+	)
+
+	// WeeklyReportTotal counts one scheduler tick.
+	// result: sent, skipped_no_policies, no_endpoints, failed, or stamp_failed.
+	WeeklyReportTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "attune_weekly_report_total",
+			Help: "Weekly report ticks (sent, skipped_no_policies, no_endpoints, failed, stamp_failed)",
+		},
+		[]string{"result"},
+	)
+
+	// WeeklyReportLastSuccess is the unix time of the last stamped send.
+	// It stays at zero until a report with at least one policy is posted.
+	WeeklyReportLastSuccess = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "attune_weekly_report_last_success_timestamp_seconds",
+			Help: "Unix time of the last weekly report that posted and stamped",
+		},
+	)
+
 	// FleetReportExportTotal counts fleet summary ConfigMap export attempts.
 	// result: success or failed.
 	FleetReportExportTotal = prometheus.NewCounterVec(
@@ -411,6 +440,9 @@ func init() {
 		MemoryLimitDecreaseTotal,
 		GitOpsPRTotal,
 		FleetReportExportTotal,
+		WeeklyReportSendTotal,
+		WeeklyReportTotal,
+		WeeklyReportLastSuccess,
 		CapacitySkipTotal,
 		ReclaimedRequestCPU,
 		ReclaimedRequestMemory,

@@ -145,6 +145,13 @@ metrics:
         staleDuration: 30m
         for: 5m
         severity: warning
+      weeklyReportStale:
+        # -- Fire when the weekly report gauge is older than 8 days.
+        # Leave this off unless weeklyReport.enabled is true. A disabled
+        # report never moves the gauge, so the alert would always fire.
+        enabled: false
+        for: 1h
+        severity: warning
       budgetExhausted:
         enabled: true
         # -- How long the condition must persist before firing
@@ -230,6 +237,15 @@ fleetReport:
   clusterId: ""
   # -- How often to refresh the report
   interval: 5m
+
+# -- Optional weekly rightsizing report to Slack or Teams. Off unless enabled.
+# The chart does not create the webhook Secret or the stamp ConfigMap.
+weeklyReport:
+  # -- Post one cluster message per ISO week
+  enabled: false
+  # -- At most two endpoints. Each names a Secret key in the operator namespace.
+  # The URL is not stored in values.
+  endpoints: []
 
 # -- Webhook configuration (requires cert-manager installed in the cluster)
 webhooks:

@@ -84,6 +84,18 @@ spec:
               {{ .Values.metrics.prometheusRule.rules.reconcileStale.staleDuration }}.
               The operator may be stuck, crashed, or unable to process policies.
         {{- end }}
+        {{- if and .Values.metrics.prometheusRule.rules.weeklyReportStale .Values.metrics.prometheusRule.rules.weeklyReportStale.enabled }}
+        - alert: AttuneWeeklyReportStale
+          expr: (time() - attune_weekly_report_last_success_timestamp_seconds) > 8 * 24 * 3600
+          for: {{ .Values.metrics.prometheusRule.rules.weeklyReportStale.for }}
+          labels:
+            severity: {{ .Values.metrics.prometheusRule.rules.weeklyReportStale.severity }}
+          annotations:
+            summary: attune weekly report has not succeeded in 8 days
+            description: >-
+              The weekly report gauge is older than 8 days. Enable this
+              alert only when weeklyReport.enabled is true.
+        {{- end }}
         {{- if .Values.metrics.prometheusRule.rules.budgetExhausted.enabled }}
         - alert: AttuneBudgetExhausted
           expr: sum by (namespace, policy) (increase(attune_budget_exhausted_total[1h])) > 0

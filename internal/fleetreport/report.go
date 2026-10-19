@@ -179,6 +179,10 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
+// ParseUSD parses a dollar string. Empty is a valid zero.
+// A non-empty NaN, Inf, or non-numeric value returns (0, false).
+func ParseUSD(s string) (float64, bool) { return parseUSD(s) }
+
 // parseUSD returns the dollar amount and whether the input was usable.
 // Empty strings are a valid zero (ok=true). Non-empty NaN, Inf, or
 // non-numeric values return (0, false) so callers can surface the skip.
