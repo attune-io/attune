@@ -257,8 +257,9 @@ func TestSenderPostsOncePerWeek(t *testing.T) {
 	if poster.calls != 1 {
 		t.Fatalf("calls %d", poster.calls)
 	}
-	if !strings.Contains(string(poster.body), "prod/checkout") && !strings.Contains(string(poster.body), "Policies: 1") {
-		t.Fatalf("body %s", poster.body)
+	body := string(poster.body)
+	if !strings.Contains(body, "Attune weekly report 2026-W43") || !strings.Contains(body, "Policies: 1") {
+		t.Fatalf("body %s", body)
 	}
 }
 
