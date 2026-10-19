@@ -253,6 +253,8 @@ One scheduler tick.
 ### attune_weekly_report_last_success_timestamp_seconds
 
 Unix time of the last report that posted and stamped. Stays 0 until then.
+The overview dashboard panel "Weekly report last success" shows it, and
+0 displays as never.
 A process restart clears it until the next successful post. A week with
 zero policies stamps the week and does not set this gauge. A disabled
 report never moves it.

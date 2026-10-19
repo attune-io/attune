@@ -74,3 +74,5 @@ on only when `weeklyReport.enabled` is true. The alert compares the gauge
 with 8 days only when the gauge is greater than 0. A restart, a report
 that has never posted, and a week with zero policies leave the gauge at 0
 and do not fire the alert. The next successful post sets the gauge again.
+The overview dashboard shows how many reports were sent and when the last
+one succeeded. A gauge of 0 displays as never.
