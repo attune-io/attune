@@ -495,6 +495,14 @@ func TestPostLookupFailureIsNotRejection(t *testing.T) {
 		t.Fatalf("blocked %v", err)
 	}
 
+	mixedCtx := context.WithValue(context.Background(), lookupKey{}, func(context.Context, string) ([]net.IPAddr, error) {
+		return []net.IPAddr{{IP: net.ParseIP("203.0.113.10")}, {IP: net.ParseIP("127.0.0.1")}}, nil
+	})
+	_, err = NewClient().Post(mixedCtx, "https://hooks.slack.com/services/T/B/x", []byte(`{"text":"hi"}`))
+	if !errors.Is(err, ErrRejected) {
+		t.Fatalf("mixed addresses %v", err)
+	}
+
 	c := NewClient()
 	transport, ok := c.HTTPClient().Transport.(*http.Transport)
 	if !ok {
