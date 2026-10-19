@@ -457,6 +457,27 @@ func TestProductionClient(t *testing.T) {
 	}
 }
 
+func TestDialAllowedSkipsUnreachableAddress(t *testing.T) {
+	t.Parallel()
+	var dialed []string
+	conn, err := dialAllowed(context.Background(), func(_ context.Context, _, addr string) (net.Conn, error) {
+		dialed = append(dialed, addr)
+		if len(dialed) == 1 {
+			return nil, errors.New("network is unreachable")
+		}
+		left, right := net.Pipe()
+		_ = right.Close()
+		return left, nil
+	}, "tcp", "443", []net.IP{net.ParseIP("2001:db8::1"), net.ParseIP("203.0.113.10")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.Close()
+	if len(dialed) != 2 || dialed[1] != "203.0.113.10:443" {
+		t.Fatalf("dialed %v", dialed)
+	}
+}
+
 func TestPostErrorKeepsReasonAndDropsURL(t *testing.T) {
 	t.Parallel()
 	raw := &url.Error{

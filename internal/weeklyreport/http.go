@@ -53,6 +53,8 @@ var ErrPostFailed = errors.New("chat webhook post failed")
 
 type requestHostKey struct{}
 
+type allowedIPsKey struct{}
+
 // Client is the production poster. It checks the URL, then pin-dials the
 // request host addresses it already allowed. An HTTPS_PROXY hop is dialed
 // as-is because that hop is not the webhook target.
@@ -74,11 +76,15 @@ func NewClient() *Client {
 			if reqHost != "" && !sameHost(host, reqHost) {
 				return dialer.DialContext(ctx, network, addr)
 			}
-			ips, err := allowedIPs(ctx, host)
-			if err != nil {
-				return nil, ErrRejected
+			ips, _ := ctx.Value(allowedIPsKey{}).([]net.IP)
+			if len(ips) == 0 {
+				var allowErr error
+				ips, allowErr = allowedIPs(ctx, host)
+				if allowErr != nil {
+					return nil, ErrRejected
+				}
 			}
-			return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].String(), port))
+			return dialAllowed(ctx, dialer.DialContext, network, port, ips)
 		},
 	}
 	return &Client{http: &http.Client{
@@ -104,10 +110,12 @@ func (c *Client) Post(ctx context.Context, rawURL string, body []byte) (int, err
 	if err != nil {
 		return 0, ErrRejected
 	}
-	if _, err := allowedIPs(ctx, u.Hostname()); err != nil {
+	ips, err := allowedIPs(ctx, u.Hostname())
+	if err != nil {
 		return 0, ErrRejected
 	}
 	ctx = context.WithValue(ctx, requestHostKey{}, u.Hostname())
+	ctx = context.WithValue(ctx, allowedIPsKey{}, ips)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rawURL, bytes.NewReader(body))
 	if err != nil {
 		return 0, ErrRejected
@@ -134,6 +142,21 @@ func errPostForLog(err error) error {
 		return ErrPostFailed
 	}
 	return err
+}
+
+func dialAllowed(ctx context.Context, dial func(context.Context, string, string) (net.Conn, error), network, port string, ips []net.IP) (net.Conn, error) {
+	var last error
+	for _, ip := range ips {
+		conn, err := dial(ctx, network, net.JoinHostPort(ip.String(), port))
+		if err == nil {
+			return conn, nil
+		}
+		last = err
+	}
+	if last == nil {
+		return nil, ErrPostFailed
+	}
+	return nil, last
 }
 
 func sameHost(a, b string) bool {
