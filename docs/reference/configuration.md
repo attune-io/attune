@@ -138,6 +138,9 @@ For the alert list and how to tune each rule, see the
 | `fleetReport.namespace` | string | `""` | ConfigMap namespace (empty = release namespace). |
 | `fleetReport.clusterId` | string | `""` | Optional stable cluster id written into the report. |
 | `fleetReport.interval` | string | `5m` | Refresh interval for the fleet report. |
+| `weeklyReport.enabled` | bool | `false` | Post one cluster rightsizing report per ISO week. Off unless enabled. |
+| `weeklyReport.endpoints` | list | `[]` | At most two chat endpoints. Each entry is `name`, `secretName`, and `secretKey`. The URL stays in the Secret. |
+| `metrics.prometheusRule.rules.weeklyReportStale.enabled` | bool | `false` | Alert when the weekly report gauge is older than 8 days. Enable only with `weeklyReport.enabled`. |
 
 ## Network Policy
 

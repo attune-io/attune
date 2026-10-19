@@ -1327,6 +1327,10 @@ type ResourceValues struct {
 	MemoryLimit resource.Quantity `json:"memoryLimit"`
 }
 
+// MaxResizeHistoryEntries is the cap on status.resizeHistory.
+// It matches the kubebuilder MaxItems marker on that field.
+const MaxResizeHistoryEntries = 50
+
 // ResizeHistoryEntry records a single resize operation.
 type ResizeHistoryEntry struct {
 	// Timestamp is when the resize operation occurred.

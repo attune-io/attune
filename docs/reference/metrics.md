@@ -233,6 +233,34 @@ to limits](../guides/troubleshooting.md#requests-clamped-to-limits).
 | `container` | Container name |
 | `resource` | `cpu` or `memory` |
 
+### attune_weekly_report_send_total
+
+One chat endpoint attempt for the weekly report.
+
+| Label | Description |
+|-------|-------------|
+| `endpoint` | Endpoint name from the flag or Helm value |
+| `result` | `success`, `failed`, `rejected`, or `secret_error` |
+
+### attune_weekly_report_total
+
+One scheduler tick.
+
+| Label | Description |
+|-------|-------------|
+| `result` | `sent`, `skipped_no_policies`, `no_endpoints`, `failed`, or `stamp_failed` |
+
+### attune_weekly_report_last_success_timestamp_seconds
+
+Unix time of the last report that posted and stamped. Stays 0 until then.
+A disabled report never moves it.
+
+```promql
+(time() - attune_weekly_report_last_success_timestamp_seconds) > 8 * 24 * 3600
+```
+
+See [Weekly report](../guides/weekly-report.md).
+
 ### attune_fleet_report_export_total
 
 Outcomes of optional per-cluster **fleet summary** ConfigMap export

@@ -1804,6 +1804,7 @@ control.
 |------|----------|
 | GitOps pull request automation | Off unless `export.pullRequest.enabled: true` |
 | Fleet report ConfigMap export | Off unless `fleetReport` (or Helm equivalent) is enabled |
+| Weekly Slack or Teams report | Off unless `weeklyReport.enabled` is true. An upgrade does not start sending |
 | Runtime profiles | Only apply when `runtimeProfile` is set |
 | Export schema versioning | Additive fields on recommendation ConfigMaps; consumers can ignore new keys |
 

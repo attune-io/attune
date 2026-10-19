@@ -10,7 +10,10 @@ Cluster level is the operator install and cluster `AttuneDefaults`.
 
 - Helm values and operator flags choose credentials: the Prometheus
   ServiceAccount token, the operator bearer Secret, the Datadog API key
-  Secret, and the SigV4 allowlists.
+  Secret, the weekly report webhook Secret, and the SigV4 allowlists.
+- The weekly report URL is a key in a Secret in the operator namespace.
+  It is not a field on `AttunePolicy` or namespace defaults. A namespace
+  author cannot set it.
 - Cluster `AttuneDefaults` chooses the metrics address, a SigV4 role, a
   CloudWatch role, a VPA in any namespace, and SLO guardrails.
 - Those guardrails keep the operator credentials and are not rewritten.

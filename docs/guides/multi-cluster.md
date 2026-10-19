@@ -330,6 +330,11 @@ fleetReport:
   interval: 5m
 ```
 
+The same `clusterId` is the optional name on the weekly chat report.
+The chart passes `--fleet-report-cluster-id` when either the fleet report
+or the weekly report is enabled. See [Weekly report](weekly-report.md).
+One operator posts one message for the namespaces it watches.
+
 The leader writes a ConfigMap labeled `attune.io/fleet-report=true` with:
 
 | Key | Content |

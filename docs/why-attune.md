@@ -407,6 +407,7 @@ production-use BUSL. Kedify PRA is a complementary time horizon
 | Canary rollout for resizes | Yes | 0/16 |
 | GitOps export + optional PR automation | Yes | Rare as open source (most SaaS use proprietary sync) |
 | Multi-cluster fleet report / federation-friendly dashboards | Yes | Common on commercial platforms; rare in OSS |
+| Weekly Slack or Teams digest (off unless enabled; not a cloud bill) | Yes | Several commercial tools; not in VPA |
 | Memory limit usage floor (client-side OOM race guard) | Yes | Varies; often platform-specific |
 | Language runtime profiles for memory defaults | Yes | Rare as first-class CRD field |
 | Reclaimed capacity + node pressure skip metrics | Yes | Often bundled into commercial “bin pack” products |

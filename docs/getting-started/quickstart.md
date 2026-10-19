@@ -29,6 +29,7 @@ This quick start gets you to recommendations. When you are ready to go further:
 | Area | Start here |
 |------|------------|
 | Multi-cluster fleet reports and dashboards | [Multi-cluster](../guides/multi-cluster.md#fleet-observability-with-federated-prometheus) |
+| Weekly Slack or Teams report (off unless enabled) | [Weekly report](../guides/weekly-report.md) |
 | GitOps ConfigMap export and optional PR automation | [GitOps integration](../guides/gitops-integration.md) |
 | Application SLO checks after resize (latency, errors) | [SLO guardrails](../guides/slo-guardrails.md) |
 | Memory limit decrease safety (usage floor on 1.34+) | [Resize API](../architecture/resize-api.md) and [troubleshooting OOM](../guides/troubleshooting.md#oom-after-memory-limit-decrease) |

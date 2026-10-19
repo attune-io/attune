@@ -489,3 +489,45 @@ tests:
             valueFrom:
               fieldRef:
                 fieldPath: metadata.namespace
+
+  - it: should pass weekly report flags and the shared cluster id
+    set:
+      fleetReport:
+        clusterId: prod-us
+      weeklyReport:
+        enabled: true
+        endpoints:
+          - name: slack
+            secretName: attune-weekly-report
+            secretKey: slack-url
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --weekly-report-enabled=true
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --weekly-report-endpoint=slack/attune-weekly-report/slack-url
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --fleet-report-cluster-id=prod-us
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --fleet-report-enabled=true
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: https://
+
+  - it: should reject two weekly endpoints that share a secret key
+    set:
+      weeklyReport:
+        enabled: true
+        endpoints:
+          - name: slack
+            secretName: attune-weekly-report
+            secretKey: slack-url
+          - name: teams
+            secretName: attune-weekly-report
+            secretKey: slack-url
+    asserts:
+      - failedTemplate:
+          errorMessage: weeklyReport.endpoints must not share a Secret key

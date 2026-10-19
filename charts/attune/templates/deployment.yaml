@@ -134,8 +134,33 @@ spec:
             {{- if .Values.fleetReport.namespace }}
             - --fleet-report-namespace={{ .Values.fleetReport.namespace }}
             {{- end }}
-            {{- if .Values.fleetReport.clusterId }}
+            {{- end }}
+            {{- if and .Values.fleetReport.clusterId (or .Values.fleetReport.enabled .Values.weeklyReport.enabled) }}
             - --fleet-report-cluster-id={{ .Values.fleetReport.clusterId }}
+            {{- end }}
+            {{- if .Values.weeklyReport.enabled }}
+            {{- if gt (len .Values.weeklyReport.endpoints) 2 }}
+            {{- fail "weeklyReport.endpoints accepts at most two entries" }}
+            {{- end }}
+            {{- $names := dict }}
+            {{- $secrets := dict }}
+            {{- range .Values.weeklyReport.endpoints }}
+            {{- if hasKey . "url" }}
+            {{- fail "weeklyReport.endpoints must not set url" }}
+            {{- end }}
+            {{- if hasKey $names .name }}
+            {{- fail "weeklyReport.endpoints names must be unique" }}
+            {{- end }}
+            {{- $secretID := printf "%s/%s" .secretName .secretKey }}
+            {{- if hasKey $secrets $secretID }}
+            {{- fail "weeklyReport.endpoints must not share a Secret key" }}
+            {{- end }}
+            {{- $_ := set $names .name .name }}
+            {{- $_ := set $secrets $secretID .name }}
+            {{- end }}
+            - --weekly-report-enabled=true
+            {{- range .Values.weeklyReport.endpoints }}
+            - --weekly-report-endpoint={{ .name }}/{{ .secretName }}/{{ .secretKey }}
             {{- end }}
             {{- end }}
             {{- with .Values.logging }}

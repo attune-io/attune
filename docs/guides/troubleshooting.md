@@ -1380,6 +1380,25 @@ the fleet Grafana dashboard shows no series when filtering by cluster.
 sum(rate(attune_fleet_report_export_total{result="failed"}[5m]))
 ```
 
+### Weekly report did not post
+
+**Symptom**: no chat message, or `attune_weekly_report_total{result="failed"}` increases.
+
+**Cause**:
+
+1. `weeklyReport.enabled` is false (the default), or the endpoint list is empty.
+2. The Secret is missing, the key is empty, or the URL failed the allowlist.
+3. The operator namespace is not `POD_NAMESPACE`, so the Secret lookup misses.
+4. `--watch-namespaces` is set, so the message only includes those namespaces.
+5. The stamp ConfigMap `attune-weekly-report` is missing because no endpoint returned success.
+
+**Fix**:
+
+1. Create the Secret in the operator namespace. Do not put the URL in Helm values.
+2. Check `attune_weekly_report_send_total` for `secret_error` or `rejected`.
+3. Read the stamp: `kubectl -n <operator-ns> get cm attune-weekly-report -o yaml`.
+4. Use `kubectl describe attunepolicy` for reconcile error text. The chat message does not include it.
+
 ### Resize skipped for node capacity or pressure
 
 **Symptom**: Events show `ResizeSkipped` with "exceed node allocatable",
