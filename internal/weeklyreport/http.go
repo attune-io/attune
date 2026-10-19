@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -117,7 +118,7 @@ func (c *Client) Post(ctx context.Context, rawURL string, body []byte) (int, err
 		if errors.Is(err, ErrRedirect) {
 			return 0, ErrRedirect
 		}
-		return 0, ErrPostFailed
+		return 0, errPostForLog(err)
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, drainLimit))
@@ -127,6 +128,9 @@ func (c *Client) Post(ctx context.Context, rawURL string, body []byte) (int, err
 func errPostForLog(err error) error {
 	var ue *url.Error
 	if errors.As(err, &ue) {
+		if ue.Err != nil {
+			return fmt.Errorf("%w: %w", ErrPostFailed, ue.Err)
+		}
 		return ErrPostFailed
 	}
 	return err

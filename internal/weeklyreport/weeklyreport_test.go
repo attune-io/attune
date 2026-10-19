@@ -22,6 +22,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -453,5 +454,21 @@ func TestProductionClient(t *testing.T) {
 	<-done
 	if _, err := allowedIPs(context.Background(), "127.0.0.1"); err == nil {
 		t.Fatal("loopback host was allowed")
+	}
+}
+
+func TestPostErrorKeepsReasonAndDropsURL(t *testing.T) {
+	t.Parallel()
+	raw := &url.Error{
+		Op:  "Post",
+		URL: "https://hooks.slack.com/services/T/B/secret",
+		Err: errors.New("connection refused"),
+	}
+	got := errPostForLog(raw)
+	if strings.Contains(got.Error(), "hooks.slack.com") || strings.Contains(got.Error(), "/services/") {
+		t.Fatalf("URL leaked: %s", got.Error())
+	}
+	if !strings.Contains(got.Error(), "connection refused") {
+		t.Fatalf("reason dropped: %s", got.Error())
 	}
 }
