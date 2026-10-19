@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -225,7 +226,9 @@ func slackSecret() *corev1.Secret {
 
 func TestSenderZeroPoliciesStampsWithoutPost(t *testing.T) {
 	t.Parallel()
+	var logged string
 	s, poster, c := testSender(t, slackSecret())
+	s.Log = funcr.NewJSON(func(obj string) { logged += obj + "\n" }, funcr.Options{})
 	s.tick(context.Background())
 	if poster.calls != 0 {
 		t.Fatalf("posted %d", poster.calls)
@@ -236,6 +239,12 @@ func TestSenderZeroPoliciesStampsWithoutPost(t *testing.T) {
 	}
 	if cm.Annotations[stampAnnotation] != "2026-W43" {
 		t.Fatalf("stamp %v", cm.Annotations)
+	}
+	if !strings.Contains(logged, "weekly report skipped") || !strings.Contains(logged, "no policies") || !strings.Contains(logged, "2026-W43") {
+		t.Fatalf("skip log %s", logged)
+	}
+	if strings.Contains(logged, "hooks.slack.com") {
+		t.Fatalf("url in skip log %s", logged)
 	}
 }
 
@@ -452,8 +461,78 @@ func TestProductionClient(t *testing.T) {
 	}
 	_ = conn.Close()
 	<-done
-	if _, err := allowedIPs(context.Background(), "127.0.0.1"); err == nil {
-		t.Fatal("loopback host was allowed")
+	if _, err := allowedIPs(context.Background(), "127.0.0.1"); !errors.Is(err, ErrRejected) {
+		t.Fatalf("loopback %v", err)
+	}
+}
+
+func TestPostLookupFailureIsNotRejection(t *testing.T) {
+	t.Parallel()
+	ctx := context.WithValue(context.Background(), lookupKey{}, func(context.Context, string) ([]net.IPAddr, error) {
+		return nil, errors.New("lookup hooks.slack.com: no such host")
+	})
+	_, err := NewClient().Post(ctx, "https://hooks.slack.com/services/T/B/x", []byte(`{"text":"hi"}`))
+	if !errors.Is(err, ErrLookupFailed) || errors.Is(err, ErrRejected) {
+		t.Fatalf("got %v", err)
+	}
+	if strings.Contains(err.Error(), "hooks.slack.com") || strings.Contains(err.Error(), "no such host") {
+		t.Fatalf("lookup detail leaked: %s", err.Error())
+	}
+
+	emptyCtx := context.WithValue(context.Background(), lookupKey{}, func(context.Context, string) ([]net.IPAddr, error) {
+		return nil, nil
+	})
+	_, err = NewClient().Post(emptyCtx, "https://hooks.slack.com/services/T/B/x", []byte(`{"text":"hi"}`))
+	if !errors.Is(err, ErrLookupFailed) {
+		t.Fatalf("empty lookup %v", err)
+	}
+
+	blockedCtx := context.WithValue(context.Background(), lookupKey{}, func(context.Context, string) ([]net.IPAddr, error) {
+		return []net.IPAddr{{IP: net.ParseIP("10.1.2.3")}}, nil
+	})
+	_, err = NewClient().Post(blockedCtx, "https://hooks.slack.com/services/T/B/x", []byte(`{"text":"hi"}`))
+	if !errors.Is(err, ErrRejected) || errors.Is(err, ErrLookupFailed) {
+		t.Fatalf("blocked %v", err)
+	}
+
+	c := NewClient()
+	transport, ok := c.HTTPClient().Transport.(*http.Transport)
+	if !ok {
+		t.Fatal("transport type")
+	}
+	dialCtx := context.WithValue(context.Background(), requestHostKey{}, "hooks.slack.com")
+	dialCtx = context.WithValue(dialCtx, lookupKey{}, func(context.Context, string) ([]net.IPAddr, error) {
+		return nil, errors.New("temporary failure for hooks.slack.com")
+	})
+	_, err = transport.DialContext(dialCtx, "tcp", "hooks.slack.com:443")
+	if !errors.Is(err, ErrLookupFailed) || errors.Is(err, ErrRejected) {
+		t.Fatalf("dial lookup %v", err)
+	}
+	if strings.Contains(err.Error(), "hooks.slack.com") {
+		t.Fatalf("dial leaked host: %s", err.Error())
+	}
+}
+
+func TestSenderLookupFailureIsNotRejection(t *testing.T) {
+	t.Parallel()
+	var logged string
+	policy := &attunev1alpha1.AttunePolicy{ObjectMeta: metav1.ObjectMeta{Namespace: "prod", Name: "checkout"}}
+	s, poster, c := testSender(t, slackSecret(), policy)
+	s.Log = funcr.NewJSON(func(obj string) { logged += obj + "\n" }, funcr.Options{})
+	poster.err = ErrLookupFailed
+	s.tick(context.Background())
+	if poster.calls != 1 {
+		t.Fatalf("calls %d", poster.calls)
+	}
+	if strings.Contains(logged, "URL rejected") || !strings.Contains(logged, "weekly report lookup failed") {
+		t.Fatalf("log %s", logged)
+	}
+	if strings.Contains(logged, "hooks.slack.com") {
+		t.Fatalf("url in lookup log %s", logged)
+	}
+	var cm corev1.ConfigMap
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "attune-system", Name: stampConfigMap}, &cm); err == nil {
+		t.Fatal("stamped a lookup failure")
 	}
 }
 

@@ -146,9 +146,9 @@ metrics:
         for: 5m
         severity: warning
       weeklyReportStale:
-        # -- Fire when the weekly report gauge is older than 8 days.
-        # Leave this off unless weeklyReport.enabled is true. A disabled
-        # report never moves the gauge, so the alert would always fire.
+        # -- Fire when the last successful weekly report is older than 8 days.
+        # A gauge of 0 does not fire. Leave this off unless
+        # weeklyReport.enabled is true. A disabled report never moves the gauge.
         enabled: false
         for: 1h
         severity: warning

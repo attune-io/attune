@@ -1391,13 +1391,16 @@ sum(rate(attune_fleet_report_export_total{result="failed"}[5m]))
 3. The operator namespace is not `POD_NAMESPACE`, so the Secret lookup misses.
 4. `--watch-namespaces` is set, so the message only includes those namespaces.
 5. The stamp ConfigMap `attune-weekly-report` is missing because no endpoint returned success.
+6. Zero policies, including an empty `--watch-namespaces` list, stamp the week and skip the post. The log is `weekly report skipped` with reason `no policies`. A policy created later that week waits for the next week.
+7. A DNS failure increments `result="failed"`. The log is `weekly report lookup failed` and does not include the host. `rejected` means the URL or a resolved address failed the allowlist.
 
 **Fix**:
 
 1. Create the Secret in the operator namespace. Do not put the URL in Helm values.
-2. Check `attune_weekly_report_send_total` for `secret_error` or `rejected`.
+2. Check `attune_weekly_report_send_total` for `secret_error`, `rejected`, or `failed`.
 3. Read the stamp: `kubectl -n <operator-ns> get cm attune-weekly-report -o yaml`.
 4. Use `kubectl describe attunepolicy` for reconcile error text. The chat message does not include it.
+5. A gauge of 0 on `attune_weekly_report_last_success_timestamp_seconds` means this process has not posted yet. A restart clears it. That does not fire `AttuneWeeklyReportStale`.
 
 ### Resize skipped for node capacity or pressure
 

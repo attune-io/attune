@@ -253,10 +253,12 @@ One scheduler tick.
 ### attune_weekly_report_last_success_timestamp_seconds
 
 Unix time of the last report that posted and stamped. Stays 0 until then.
-A disabled report never moves it.
+A process restart clears it until the next successful post. A week with
+zero policies stamps the week and does not set this gauge. A disabled
+report never moves it.
 
 ```promql
-(time() - attune_weekly_report_last_success_timestamp_seconds) > 8 * 24 * 3600
+attune_weekly_report_last_success_timestamp_seconds > 0 and (time() - attune_weekly_report_last_success_timestamp_seconds) > 8 * 24 * 3600
 ```
 
 See [Weekly report](../guides/weekly-report.md).

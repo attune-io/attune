@@ -89,7 +89,7 @@ helm install attune oci://ghcr.io/attune-io/charts/attune \
 | metrics.prometheusRule.rules.requestsClamped.for | string | `"1h"` | How long the condition must persist before firing |
 | metrics.prometheusRule.rules.revertFailures.for | string | `"5m"` | How long the condition must persist before firing |
 | metrics.prometheusRule.rules.staleRecommendations.for | string | `"1h"` | How long the condition must persist before firing |
-| metrics.prometheusRule.rules.weeklyReportStale.enabled | bool | `false` | Fire when the weekly report gauge is older than 8 days. Leave this off unless weeklyReport.enabled is true. A disabled report never moves the gauge, so the alert would always fire. |
+| metrics.prometheusRule.rules.weeklyReportStale.enabled | bool | `false` | Fire when the last successful weekly report is older than 8 days. A gauge of 0 does not fire. Leave this off unless weeklyReport.enabled is true. A disabled report never moves the gauge. |
 | metrics.serviceMonitor.additionalLabels | object | `{}` | Additional labels for the ServiceMonitor |
 | metrics.serviceMonitor.enabled | bool | `false` | Create a ServiceMonitor for Prometheus Operator |
 | metrics.serviceMonitor.interval | string | `"30s"` | Scrape interval |

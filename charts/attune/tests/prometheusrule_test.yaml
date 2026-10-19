@@ -239,6 +239,26 @@ tests:
           path: spec.groups[0].rules[0].labels.severity
           value: critical
 
+  - it: should ignore a zero weekly report gauge
+    set:
+      metrics:
+        enabled: true
+        prometheusRule:
+          enabled: true
+          rules:
+            weeklyReportStale:
+              enabled: true
+    asserts:
+      - lengthEqual:
+          path: spec.groups[0].rules
+          count: 16
+      - equal:
+          path: spec.groups[0].rules[5].alert
+          value: AttuneWeeklyReportStale
+      - matchRegex:
+          path: spec.groups[0].rules[5].expr
+          pattern: "attune_weekly_report_last_success_timestamp_seconds > 0 and"
+
   - it: should include fleet recording rules when enabled
     set:
       metrics:

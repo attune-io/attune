@@ -45,6 +45,10 @@ type Poster interface {
 // The error text does not include the URL or the address.
 var ErrRejected = errors.New("chat webhook rejected")
 
+// ErrLookupFailed means name resolution returned no address.
+// The error text does not include the host or the resolver's message.
+var ErrLookupFailed = errors.New("chat webhook lookup failed")
+
 // ErrRedirect means the server asked for a redirect. Redirects are not followed.
 var ErrRedirect = errors.New("chat webhook redirect")
 
@@ -54,6 +58,8 @@ var ErrPostFailed = errors.New("chat webhook post failed")
 type requestHostKey struct{}
 
 type allowedIPsKey struct{}
+
+type lookupKey struct{}
 
 // Client is the production poster. It checks the URL, then pin-dials the
 // request host addresses it already allowed. An HTTPS_PROXY hop is dialed
@@ -81,7 +87,7 @@ func NewClient() *Client {
 				var allowErr error
 				ips, allowErr = allowedIPs(ctx, host)
 				if allowErr != nil {
-					return nil, ErrRejected
+					return nil, allowErr
 				}
 			}
 			return dialAllowed(ctx, dialer.DialContext, network, port, ips)
@@ -112,7 +118,7 @@ func (c *Client) Post(ctx context.Context, rawURL string, body []byte) (int, err
 	}
 	ips, err := allowedIPs(ctx, u.Hostname())
 	if err != nil {
-		return 0, ErrRejected
+		return 0, err
 	}
 	ctx = context.WithValue(ctx, requestHostKey{}, u.Hostname())
 	ctx = context.WithValue(ctx, allowedIPsKey{}, ips)
@@ -163,6 +169,13 @@ func sameHost(a, b string) bool {
 	return strings.EqualFold(strings.TrimSuffix(a, "."), strings.TrimSuffix(b, "."))
 }
 
+func lookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error) {
+	if fn, ok := ctx.Value(lookupKey{}).(func(context.Context, string) ([]net.IPAddr, error)); ok && fn != nil {
+		return fn(ctx, host)
+	}
+	return net.DefaultResolver.LookupIPAddr(ctx, host)
+}
+
 func allowedIPs(ctx context.Context, host string) ([]net.IP, error) {
 	if ip := net.ParseIP(host); ip != nil {
 		if validation.GitOpsBlockedIP(ip) {
@@ -170,9 +183,9 @@ func allowedIPs(ctx context.Context, host string) ([]net.IP, error) {
 		}
 		return []net.IP{ip}, nil
 	}
-	found, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	found, err := lookupIPAddr(ctx, host)
 	if err != nil || len(found) == 0 {
-		return nil, ErrRejected
+		return nil, ErrLookupFailed
 	}
 	ips := make([]net.IP, 0, len(found))
 	for _, ip := range found {
