@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -44,6 +45,10 @@ type Poster interface {
 // The error text does not include the URL or the address.
 var ErrRejected = errors.New("chat webhook rejected")
 
+// ErrLookupFailed means name resolution returned no address.
+// The error text does not include the host or the resolver's message.
+var ErrLookupFailed = errors.New("chat webhook lookup failed")
+
 // ErrRedirect means the server asked for a redirect. Redirects are not followed.
 var ErrRedirect = errors.New("chat webhook redirect")
 
@@ -51,6 +56,10 @@ var ErrRedirect = errors.New("chat webhook redirect")
 var ErrPostFailed = errors.New("chat webhook post failed")
 
 type requestHostKey struct{}
+
+type allowedIPsKey struct{}
+
+type lookupKey struct{}
 
 // Client is the production poster. It checks the URL, then pin-dials the
 // request host addresses it already allowed. An HTTPS_PROXY hop is dialed
@@ -73,11 +82,15 @@ func NewClient() *Client {
 			if reqHost != "" && !sameHost(host, reqHost) {
 				return dialer.DialContext(ctx, network, addr)
 			}
-			ips, err := allowedIPs(ctx, host)
-			if err != nil {
-				return nil, ErrRejected
+			ips, _ := ctx.Value(allowedIPsKey{}).([]net.IP)
+			if len(ips) == 0 {
+				var allowErr error
+				ips, allowErr = allowedIPs(ctx, host)
+				if allowErr != nil {
+					return nil, allowErr
+				}
 			}
-			return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].String(), port))
+			return dialAllowed(ctx, dialer.DialContext, network, port, ips)
 		},
 	}
 	return &Client{http: &http.Client{
@@ -103,10 +116,12 @@ func (c *Client) Post(ctx context.Context, rawURL string, body []byte) (int, err
 	if err != nil {
 		return 0, ErrRejected
 	}
-	if _, err := allowedIPs(ctx, u.Hostname()); err != nil {
-		return 0, ErrRejected
+	ips, err := allowedIPs(ctx, u.Hostname())
+	if err != nil {
+		return 0, err
 	}
 	ctx = context.WithValue(ctx, requestHostKey{}, u.Hostname())
+	ctx = context.WithValue(ctx, allowedIPsKey{}, ips)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rawURL, bytes.NewReader(body))
 	if err != nil {
 		return 0, ErrRejected
@@ -117,7 +132,7 @@ func (c *Client) Post(ctx context.Context, rawURL string, body []byte) (int, err
 		if errors.Is(err, ErrRedirect) {
 			return 0, ErrRedirect
 		}
-		return 0, ErrPostFailed
+		return 0, errPostForLog(err)
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, drainLimit))
@@ -127,13 +142,38 @@ func (c *Client) Post(ctx context.Context, rawURL string, body []byte) (int, err
 func errPostForLog(err error) error {
 	var ue *url.Error
 	if errors.As(err, &ue) {
+		if ue.Err != nil {
+			return fmt.Errorf("%w: %w", ErrPostFailed, ue.Err)
+		}
 		return ErrPostFailed
 	}
 	return err
 }
 
+func dialAllowed(ctx context.Context, dial func(context.Context, string, string) (net.Conn, error), network, port string, ips []net.IP) (net.Conn, error) {
+	var last error
+	for _, ip := range ips {
+		conn, err := dial(ctx, network, net.JoinHostPort(ip.String(), port))
+		if err == nil {
+			return conn, nil
+		}
+		last = err
+	}
+	if last == nil {
+		return nil, ErrPostFailed
+	}
+	return nil, last
+}
+
 func sameHost(a, b string) bool {
 	return strings.EqualFold(strings.TrimSuffix(a, "."), strings.TrimSuffix(b, "."))
+}
+
+func lookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error) {
+	if fn, ok := ctx.Value(lookupKey{}).(func(context.Context, string) ([]net.IPAddr, error)); ok && fn != nil {
+		return fn(ctx, host)
+	}
+	return net.DefaultResolver.LookupIPAddr(ctx, host)
 }
 
 func allowedIPs(ctx context.Context, host string) ([]net.IP, error) {
@@ -143,9 +183,9 @@ func allowedIPs(ctx context.Context, host string) ([]net.IP, error) {
 		}
 		return []net.IP{ip}, nil
 	}
-	found, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	found, err := lookupIPAddr(ctx, host)
 	if err != nil || len(found) == 0 {
-		return nil, ErrRejected
+		return nil, ErrLookupFailed
 	}
 	ips := make([]net.IP, 0, len(found))
 	for _, ip := range found {

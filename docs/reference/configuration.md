@@ -140,7 +140,7 @@ For the alert list and how to tune each rule, see the
 | `fleetReport.interval` | string | `5m` | Refresh interval for the fleet report. |
 | `weeklyReport.enabled` | bool | `false` | Post one cluster rightsizing report per ISO week. Off unless enabled. |
 | `weeklyReport.endpoints` | list | `[]` | At most two chat endpoints. Each entry is `name`, `secretName`, and `secretKey`. The URL stays in the Secret. |
-| `metrics.prometheusRule.rules.weeklyReportStale.enabled` | bool | `false` | Alert when the weekly report gauge is older than 8 days. Enable only with `weeklyReport.enabled`. |
+| `metrics.prometheusRule.rules.weeklyReportStale.enabled` | bool | `false` | Alert when the last successful weekly report is older than 8 days. A gauge of 0 does not fire. Enable only with `weeklyReport.enabled`. |
 
 ## Network Policy
 

@@ -119,6 +119,7 @@ func (s *Sender) tick(ctx context.Context) {
 		s.mu.Lock()
 		s.needStamp = false
 		s.mu.Unlock()
+		operatormetrics.WeeklyReportLastSuccess.Set(float64(s.now().Unix()))
 		operatormetrics.WeeklyReportTotal.WithLabelValues("sent").Inc()
 		return
 	}
@@ -159,6 +160,7 @@ func (s *Sender) tick(ctx context.Context) {
 		s.sentWeek = week
 		s.needStamp = false
 		s.mu.Unlock()
+		s.Log.Info("weekly report skipped", "reason", "no policies", "week", week)
 		operatormetrics.WeeklyReportTotal.WithLabelValues("skipped_no_policies").Inc()
 		return
 	}
@@ -248,6 +250,10 @@ func (s *Sender) postOne(ctx context.Context, dest destination, body []byte) boo
 	case errors.Is(err, ErrRejected):
 		s.Log.Error(err, "weekly report URL rejected", "endpoint", dest.name)
 		operatormetrics.WeeklyReportSendTotal.WithLabelValues(dest.name, "rejected").Inc()
+		return false
+	case errors.Is(err, ErrLookupFailed):
+		s.Log.Error(err, "weekly report lookup failed", "endpoint", dest.name)
+		operatormetrics.WeeklyReportSendTotal.WithLabelValues(dest.name, "failed").Inc()
 		return false
 	case err != nil:
 		s.Log.Error(errPostForLog(err), "weekly report post failed", "endpoint", dest.name)

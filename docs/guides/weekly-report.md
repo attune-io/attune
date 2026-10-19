@@ -58,8 +58,11 @@ before the stamp is written can send that week again.
 Enable the report on one operator. With `--watch-namespaces`, the message
 includes only the namespaces that instance watches.
 
-Zero policies still write the stamp and do not post. A missing Secret does
-not stamp the week unless another endpoint already returned success.
+Zero policies still write the stamp and do not post. The operator logs
+`weekly report skipped` with reason `no policies`. A policy created later
+that same week waits until the next week. With `--watch-namespaces`, an
+empty watch list is the same skip. A missing Secret does not stamp the
+week unless another endpoint already returned success.
 
 `kubectl describe attunepolicy` shows reconcile error text. The chat message
 names the policy and the workload and leaves that text out.
@@ -67,6 +70,9 @@ names the policy and the workload and leaves that text out.
 ## Alert
 
 `metrics.prometheusRule.rules.weeklyReportStale` is off by default. Turn it
-on only when `weeklyReport.enabled` is true. A disabled report never moves
-`attune_weekly_report_last_success_timestamp_seconds`, so the alert would
-fire all the time.
+on only when `weeklyReport.enabled` is true. The alert compares the gauge
+with 8 days only when the gauge is greater than 0. A restart, a report
+that has never posted, and a week with zero policies leave the gauge at 0
+and do not fire the alert. The next successful post sets the gauge again.
+The overview dashboard shows how many reports were sent and when the last
+one succeeded. A gauge of 0 displays as never.
