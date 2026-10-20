@@ -86,17 +86,17 @@ spec:
         {{- end }}
         {{- if and .Values.metrics.prometheusRule.rules.weeklyReportStale .Values.metrics.prometheusRule.rules.weeklyReportStale.enabled }}
         - alert: AttuneWeeklyReportStale
-          expr: attune_weekly_report_last_success_timestamp_seconds > 0 and (time() - attune_weekly_report_last_success_timestamp_seconds) > 8 * 24 * 3600
+          expr: max(attune_weekly_report_last_success_timestamp_seconds) > 0 and (time() - ((((max(attune_weekly_report_last_success_timestamp_seconds) or vector(0)) > (max(attune_weekly_report_last_skip_timestamp_seconds) or vector(0))) or (max(attune_weekly_report_last_skip_timestamp_seconds) or vector(0))))) > 8 * 24 * 3600
           for: {{ .Values.metrics.prometheusRule.rules.weeklyReportStale.for }}
           labels:
             severity: {{ .Values.metrics.prometheusRule.rules.weeklyReportStale.severity }}
           annotations:
             summary: attune weekly report has not succeeded in 8 days
             description: >-
-              The last successful weekly report is older than 8 days.
-              A gauge of 0, from a restart or from no successful post yet,
-              does not fire this alert. Enable it only when
-              weeklyReport.enabled is true.
+              The newer of the last post and the last no-policy week is older
+              than 8 days. A last-success gauge of 0 does not fire. A no-policy
+              week keeps the last post time and records its own timestamp.
+              Enable it only when weeklyReport.enabled is true.
         {{- end }}
         {{- if .Values.metrics.prometheusRule.rules.budgetExhausted.enabled }}
         - alert: AttuneBudgetExhausted

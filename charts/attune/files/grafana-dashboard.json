@@ -1296,6 +1296,57 @@
           "refId": "A"
         }
       ]
+    },
+    {
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "text": "never"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "dateTimeFromNow"
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 140
+      },
+      "id": 132,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "title": "Weekly report last skip",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "max(attune_weekly_report_last_skip_timestamp_seconds) * 1000",
+          "legendFormat": "last skip",
+          "refId": "A"
+        }
+      ]
     }
   ],
   "schemaVersion": 39,

@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -49,10 +50,16 @@ type Sender struct {
 	// Now is optional. Tests set it.
 	Now func() time.Time
 
-	mu        sync.Mutex
-	sentWeek  string
-	needStamp bool
-	emptyLog  sync.Once
+	mu          sync.Mutex
+	sentWeek    string
+	needStamp   bool
+	emptyLog    sync.Once
+	posterOnce  sync.Once
+	prodPoster  Poster
+	lastSuccess float64
+	lastSkip    float64
+	// tickResults, when set by tests, records each attune_weekly_report_total label.
+	tickResults *[]string
 }
 
 // Once runs a single check. Start calls it immediately, and tests call it
@@ -95,7 +102,27 @@ func (s *Sender) poster() Poster {
 	if s.Poster != nil {
 		return s.Poster
 	}
-	return NewClient()
+	s.posterOnce.Do(func() {
+		s.prodPoster = NewClient()
+	})
+	return s.prodPoster
+}
+
+func (s *Sender) count(result string) {
+	operatormetrics.WeeklyReportTotal.WithLabelValues(result).Inc()
+	if s.tickResults != nil {
+		*s.tickResults = append(*s.tickResults, result)
+	}
+}
+
+func (s *Sender) setLastSuccess(v float64) {
+	operatormetrics.WeeklyReportLastSuccess.Set(v)
+	s.lastSuccess = v
+}
+
+func (s *Sender) setLastSkip(v float64) {
+	operatormetrics.WeeklyReportLastSkip.Set(v)
+	s.lastSkip = v
 }
 
 func (s *Sender) tick(ctx context.Context) {
@@ -103,7 +130,7 @@ func (s *Sender) tick(ctx context.Context) {
 		s.emptyLog.Do(func() {
 			s.Log.Error(errNoEndpoints, "weekly report enabled with no endpoints")
 		})
-		operatormetrics.WeeklyReportTotal.WithLabelValues("no_endpoints").Inc()
+		s.count("no_endpoints")
 		return
 	}
 	week := WeekID(s.now())
@@ -111,24 +138,26 @@ func (s *Sender) tick(ctx context.Context) {
 	sent, need := s.sentWeek, s.needStamp
 	s.mu.Unlock()
 	if sent == week && need {
-		if err := s.writeStamp(ctx, week); err != nil {
+		if err := s.writeStamp(ctx, week, 0); err != nil {
 			s.Log.Error(err, "weekly report stamp failed", "week", week)
-			operatormetrics.WeeklyReportTotal.WithLabelValues("stamp_failed").Inc()
+			s.count("stamp_failed")
 			return
 		}
 		s.mu.Lock()
 		s.needStamp = false
 		s.mu.Unlock()
-		operatormetrics.WeeklyReportLastSuccess.Set(float64(s.now().Unix()))
-		operatormetrics.WeeklyReportTotal.WithLabelValues("sent").Inc()
+		s.setLastSuccess(float64(s.now().Unix()))
+		s.setLastSkip(0)
+		s.count("sent")
 		return
 	}
 	if sent == week {
 		return
 	}
-	stamp, err := s.readStamp(ctx)
+	stamp, skipUnix, err := s.readStamp(ctx)
 	if err != nil {
 		s.Log.Error(err, "weekly report stamp read failed")
+		s.count("failed")
 		return
 	}
 	if stampAlreadySent(stamp, week) {
@@ -136,24 +165,31 @@ func (s *Sender) tick(ctx context.Context) {
 		s.sentWeek = week
 		s.needStamp = false
 		s.mu.Unlock()
+		if skipUnix > 0 {
+			// The week id does not say this was a skip. Publish the stored
+			// time again so a new leader still suppresses the stale alert.
+			s.count("skipped_no_policies")
+			s.setLastSkip(float64(skipUnix))
+		}
 		return
 	}
 
 	urls, secretOK := s.readSecrets(ctx)
 	if !secretOK {
-		operatormetrics.WeeklyReportTotal.WithLabelValues("failed").Inc()
+		s.count("failed")
 		return
 	}
 	policies, err := s.listPolicies(ctx)
 	if err != nil {
 		s.Log.Error(err, "weekly report list failed")
-		operatormetrics.WeeklyReportTotal.WithLabelValues("failed").Inc()
+		s.count("failed")
 		return
 	}
 	if len(policies) == 0 {
-		if err := s.writeStamp(ctx, week); err != nil {
+		skipAt := s.now().Unix()
+		if err := s.writeStamp(ctx, week, skipAt); err != nil {
 			s.Log.Error(err, "weekly report stamp failed", "week", week)
-			operatormetrics.WeeklyReportTotal.WithLabelValues("stamp_failed").Inc()
+			s.count("stamp_failed")
 			return
 		}
 		s.mu.Lock()
@@ -161,13 +197,15 @@ func (s *Sender) tick(ctx context.Context) {
 		s.needStamp = false
 		s.mu.Unlock()
 		s.Log.Info("weekly report skipped", "reason", "no policies", "week", week)
-		operatormetrics.WeeklyReportTotal.WithLabelValues("skipped_no_policies").Inc()
+		s.count("skipped_no_policies")
+		// Keep the last post time. The skip time is what quiets the stale alert.
+		s.setLastSkip(float64(skipAt))
 		return
 	}
 	body, err := JSONBody(MessageText(policies, s.ClusterID, week, s.now()))
 	if err != nil {
 		s.Log.Error(err, "weekly report encode failed")
-		operatormetrics.WeeklyReportTotal.WithLabelValues("failed").Inc()
+		s.count("failed")
 		return
 	}
 	anyOK := false
@@ -177,24 +215,25 @@ func (s *Sender) tick(ctx context.Context) {
 		}
 	}
 	if !anyOK {
-		operatormetrics.WeeklyReportTotal.WithLabelValues("failed").Inc()
+		s.count("failed")
 		return
 	}
-	if err := s.writeStamp(ctx, week); err != nil {
+	if err := s.writeStamp(ctx, week, 0); err != nil {
 		s.Log.Error(err, "weekly report stamp failed", "week", week)
 		s.mu.Lock()
 		s.sentWeek = week
 		s.needStamp = true
 		s.mu.Unlock()
-		operatormetrics.WeeklyReportTotal.WithLabelValues("stamp_failed").Inc()
+		s.count("stamp_failed")
 		return
 	}
 	s.mu.Lock()
 	s.sentWeek = week
 	s.needStamp = false
 	s.mu.Unlock()
-	operatormetrics.WeeklyReportLastSuccess.Set(float64(s.now().Unix()))
-	operatormetrics.WeeklyReportTotal.WithLabelValues("sent").Inc()
+	s.setLastSuccess(float64(s.now().Unix()))
+	s.setLastSkip(0)
+	s.count("sent")
 }
 
 type destination struct {
@@ -270,30 +309,42 @@ func (s *Sender) postOne(ctx context.Context, dest destination, body []byte) boo
 	}
 }
 
-func (s *Sender) readStamp(ctx context.Context) (string, error) {
+func (s *Sender) readStamp(ctx context.Context) (string, int64, error) {
 	var cm corev1.ConfigMap
 	err := s.reader().Get(ctx, types.NamespacedName{Namespace: s.Namespace, Name: stampConfigMap}, &cm)
 	if apierrors.IsNotFound(err) {
-		return "", nil
+		return "", 0, nil
 	}
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	if cm.Annotations == nil {
-		return "", nil
+		return "", 0, nil
 	}
-	return cm.Annotations[stampAnnotation], nil
+	return cm.Annotations[stampAnnotation], parseSkipUnix(cm.Annotations[stampSkippedAnnotation]), nil
 }
 
-func (s *Sender) writeStamp(ctx context.Context, week string) error {
+func parseSkipUnix(raw string) int64 {
+	v, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || v <= 0 {
+		return 0
+	}
+	return v
+}
+
+func (s *Sender) writeStamp(ctx context.Context, week string, skipUnix int64) error {
 	var current corev1.ConfigMap
 	err := s.reader().Get(ctx, types.NamespacedName{Namespace: s.Namespace, Name: stampConfigMap}, &current)
 	if apierrors.IsNotFound(err) {
+		ann := map[string]string{stampAnnotation: week}
+		if skipUnix > 0 {
+			ann[stampSkippedAnnotation] = strconv.FormatInt(skipUnix, 10)
+		}
 		fresh := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace:   s.Namespace,
 				Name:        stampConfigMap,
-				Annotations: map[string]string{stampAnnotation: week},
+				Annotations: ann,
 			},
 		}
 		createErr := s.Client.Create(ctx, fresh)
@@ -306,9 +357,16 @@ func (s *Sender) writeStamp(ctx context.Context, week string) error {
 	} else if err != nil {
 		return err
 	}
+	annotations := map[string]any{stampAnnotation: week}
+	if skipUnix > 0 {
+		annotations[stampSkippedAnnotation] = strconv.FormatInt(skipUnix, 10)
+	} else {
+		// Merge patch deletes the key. A later send must not keep a skip.
+		annotations[stampSkippedAnnotation] = nil
+	}
 	patch, err := json.Marshal(map[string]any{
 		"metadata": map[string]any{
-			"annotations": map[string]string{stampAnnotation: week},
+			"annotations": annotations,
 		},
 	})
 	if err != nil {

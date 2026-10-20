@@ -257,7 +257,7 @@ tests:
           value: AttuneWeeklyReportStale
       - matchRegex:
           path: spec.groups[0].rules[5].expr
-          pattern: "attune_weekly_report_last_success_timestamp_seconds > 0 and"
+          pattern: "max\\(attune_weekly_report_last_success_timestamp_seconds\\) > 0 and .*last_skip_timestamp_seconds"
 
   - it: should include fleet recording rules when enabled
     set:
