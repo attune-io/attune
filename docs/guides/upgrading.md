@@ -8,6 +8,56 @@ Maintainers: before publishing a release after multi-version product changes,
 run the full E2E Nightly matrix on tip of `main` (see
 [Releasing: full E2E matrix](../contributing/releasing.md#1b-full-e2e-matrix-required-before-tagging-a-product-release)).
 
+## v0.1.34 to v0.1.35
+
+No CRD change and no policy YAML change. Upgrade the chart to 0.1.35,
+or set the image tag to `0.1.35` or `v0.1.35`. The image is still built
+with Go 1.27.2.
+
+The CloudWatch client is v1.74.0. You do not change your CloudWatch
+metrics or your Prometheus server for this release.
+
+### Weekly rightsizing report
+
+Attune can send one plain-text rightsizing report per cluster each ISO
+week, to Slack, Teams, or both. `weeklyReport.enabled` stays false, so
+an upgrade does not start posting.
+
+The leader checks at start and then every 15 minutes, and posts at most
+one message for the current ISO week. The first chance to send is
+Monday 00:00 UTC. A missed week sends one report on the next start.
+
+The message includes the week, policy counts, the monthly gap between
+current requests and the current recommendation, and resize results
+from the last 7 days. Those dollars use `costPricing` or the built-in
+rates, times 730 hours. They are not a cloud bill, and they are not
+dollars saved this week.
+
+Store the webhook URL in a Secret in the operator namespace. The chart
+does not create that Secret and does not put the URL in values. Teams
+accepts a Power Platform Workflows URL only. Office 365 connector hosts
+are rejected. Set `fleetReport.clusterId` when more than one cluster
+posts to the same channel.
+
+See [Weekly report](weekly-report.md).
+
+### A week with no policies
+
+A week with no policies records a stamp and skips the chat message.
+The same week is not sent later. The chart does not create ConfigMap
+`attune-weekly-report`. The operator uses that object as the
+once-per-week stamp.
+
+The optional alert `AttuneWeeklyReportStale` stays off until you set
+`metrics.prometheusRule.rules.weeklyReportStale.enabled` and the report
+is enabled. After one successful post, it fires when the newer of the
+last post and the last no-policy week is older than 8 days. A report
+that has never posted leaves the last-success gauge at 0 and stays
+quiet. The overview dashboard shows the last post and the last
+no-policy week.
+
+See [Weekly report did not post](troubleshooting.md#weekly-report-did-not-post).
+
 ## v0.1.33 to v0.1.34
 
 No CRD change and no policy YAML change. When 0.1.34 is published,
@@ -1804,7 +1854,6 @@ control.
 |------|----------|
 | GitOps pull request automation | Off unless `export.pullRequest.enabled: true` |
 | Fleet report ConfigMap export | Off unless `fleetReport` (or Helm equivalent) is enabled |
-| Weekly Slack or Teams report | Off unless `weeklyReport.enabled` is true. An upgrade does not start sending |
 | Runtime profiles | Only apply when `runtimeProfile` is set |
 | Export schema versioning | Additive fields on recommendation ConfigMaps; consumers can ignore new keys |
 
