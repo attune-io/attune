@@ -6,6 +6,19 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.35](https://github.com/attune-io/attune/compare/v0.1.34...v0.1.35) (2026-10-20)
+
+
+### Features
+
+* send a weekly rightsizing report ([#1056](https://github.com/attune-io/attune/issues/1056)) ([76be738](https://github.com/attune-io/attune/commit/76be7387b9ed0dae7c88ba6c9e452b24ce4db152))
+
+
+### Bug Fixes
+
+* harden the weekly rightsizing report ([#1058](https://github.com/attune-io/attune/issues/1058)) ([ca620df](https://github.com/attune-io/attune/commit/ca620dfeebe408c41bbd97a439fb6a7e9e108ff2))
+* keep a no-policy week from paging the weekly report alert ([#1060](https://github.com/attune-io/attune/issues/1060)) ([14bfbe4](https://github.com/attune-io/attune/commit/14bfbe43b648d0a6f98708a8a8e1cb50feaa67d0))
+
 ## [0.1.34](https://github.com/attune-io/attune/compare/v0.1.33...v0.1.34) (2026-10-15)
 
 
