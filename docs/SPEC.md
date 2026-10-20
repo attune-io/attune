@@ -1732,7 +1732,7 @@ attune/
 - [x] Datadog/CloudWatch metrics support
 - [x] Memory decrease support (with gradual decrease)
 - [x] Multi-cluster aggregated reporting (Phase A/B: federation docs, fleet Grafana dashboard, recording rules, fleet report ConfigMap + collect script; hub control plane deferred)
-- [x] Weekly Slack or Teams report (default off; operator-namespace Secret; stamp ConfigMap `attune-weekly-report`)
+- [x] Weekly Slack or Teams report (default off; operator-namespace Secret; stamp ConfigMap `attune-weekly-report`; a no-policy week records its unix time and does not clear the last post time; the stale alert uses the newer of those times)
 - [ ] CNCF Sandbox application
 - [ ] KubeCon talk proposal
 - [ ] ADOPTERS.md with real organizations

@@ -308,10 +308,20 @@ var (
 
 	// WeeklyReportLastSuccess is the unix time of the last stamped send.
 	// It stays at zero until a report with at least one policy is posted.
+	// A week with no policies does not clear it.
 	WeeklyReportLastSuccess = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "attune_weekly_report_last_success_timestamp_seconds",
 			Help: "Unix time of the last weekly report that posted and stamped",
+		},
+	)
+
+	// WeeklyReportLastSkip is the unix time of the last no-policy week.
+	// The stale alert uses the newer of this and WeeklyReportLastSuccess.
+	WeeklyReportLastSkip = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "attune_weekly_report_last_skip_timestamp_seconds",
+			Help: "Unix time of the last weekly report week that had no policies. 0 means this process has not skipped",
 		},
 	)
 
@@ -443,6 +453,7 @@ func init() {
 		WeeklyReportSendTotal,
 		WeeklyReportTotal,
 		WeeklyReportLastSuccess,
+		WeeklyReportLastSkip,
 		CapacitySkipTotal,
 		ReclaimedRequestCPU,
 		ReclaimedRequestMemory,

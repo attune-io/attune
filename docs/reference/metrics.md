@@ -256,11 +256,31 @@ Unix time of the last report that posted and stamped. Stays 0 until then.
 The overview dashboard panel "Weekly report last success" shows it, and
 0 displays as never.
 A process restart clears it until the next successful post. A week with
-zero policies stamps the week and does not set this gauge. A disabled
-report never moves it.
+zero policies does not clear it. A disabled report never moves it.
+A failed stamp read counts as `result="failed"` on
+`attune_weekly_report_total`.
+
+### attune_weekly_report_last_skip_timestamp_seconds
+
+Unix time of the last week that had no policies. Stays 0 until then.
+A no-policy week writes that time to `attune.io/last-report-skipped` and
+to this gauge. A new leader publishes the stored time again, not the time
+it started. A later post clears the gauge on the pod that posted.
+The stale alert uses the newer of this gauge and the last-success gauge,
+across pods. A last-success value of 0 does not fire.
 
 ```promql
-attune_weekly_report_last_success_timestamp_seconds > 0 and (time() - attune_weekly_report_last_success_timestamp_seconds) > 8 * 24 * 3600
+max(attune_weekly_report_last_success_timestamp_seconds) > 0
+and (
+  time() - (
+    (
+      (max(attune_weekly_report_last_success_timestamp_seconds) or vector(0))
+      >
+      (max(attune_weekly_report_last_skip_timestamp_seconds) or vector(0))
+    )
+    or (max(attune_weekly_report_last_skip_timestamp_seconds) or vector(0))
+  )
+) > 8 * 24 * 3600
 ```
 
 See [Weekly report](../guides/weekly-report.md).

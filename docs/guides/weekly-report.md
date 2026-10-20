@@ -49,8 +49,12 @@ moment is Monday 00:00 UTC. A missed week is one report on the next start,
 not a backlog.
 
 The stamp is ConfigMap `attune-weekly-report` in the operator namespace,
-annotation `attune.io/last-report-week` (for example `2026-W43`). The chart
-does not create that ConfigMap. Helm would wipe a chart-owned stamp on upgrade.
+annotation `attune.io/last-report-week` (for example `2026-W43`). A week
+with no policies also sets `attune.io/last-report-skipped` to the unix time
+of that check. A later post removes it. A new leader that finds the
+annotation publishes that same time on its skip gauge, so replacing the pod
+does not move the window or drop the suppression. The chart does not create
+that ConfigMap. Helm would wipe a chart-owned stamp on upgrade.
 
 Delivery is at-least-once. A crash after a chat service returns success and
 before the stamp is written can send that week again.
@@ -70,9 +74,13 @@ names the policy and the workload and leaves that text out.
 ## Alert
 
 `metrics.prometheusRule.rules.weeklyReportStale` is off by default. Turn it
-on only when `weeklyReport.enabled` is true. The alert compares the gauge
-with 8 days only when the gauge is greater than 0. A restart, a report
-that has never posted, and a week with zero policies leave the gauge at 0
-and do not fire the alert. The next successful post sets the gauge again.
-The overview dashboard shows how many reports were sent and when the last
-one succeeded. A gauge of 0 displays as never.
+on only when `weeklyReport.enabled` is true. The alert fires when the newer
+of the last post and the last no-policy week is older than 8 days, and only
+when a post has succeeded at least once. A restart or a report that has
+never posted leaves the last-success gauge at 0 and does not fire the alert.
+A week with zero policies keeps the last post time. It records the skip time
+instead, including when another replica still has an older post time.
+The next successful post sets the last-success gauge again and clears the
+skip time on that pod.
+The overview dashboard shows how many reports were sent, when the last one
+succeeded, and when the last no-policy week was. A gauge of 0 displays as never.

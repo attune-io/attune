@@ -23,12 +23,13 @@ import (
 )
 
 const (
-	stampConfigMap  = "attune-weekly-report"
-	stampAnnotation = "attune.io/last-report-week"
-	reportInterval  = 15 * time.Minute
-	historyWindow   = 168 * time.Hour
-	textRuneCap     = 3000
-	maxList         = 5
+	stampConfigMap         = "attune-weekly-report"
+	stampAnnotation        = "attune.io/last-report-week"
+	stampSkippedAnnotation = "attune.io/last-report-skipped"
+	reportInterval         = 15 * time.Minute
+	historyWindow          = 168 * time.Hour
+	textRuneCap            = 3000
+	maxList                = 5
 )
 
 var weekIDPattern = regexp.MustCompile(`^[0-9]{4}-W(0[1-9]|[1-4][0-9]|5[0-3])$`)

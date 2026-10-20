@@ -23,6 +23,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -229,7 +230,15 @@ func TestSenderZeroPoliciesStampsWithoutPost(t *testing.T) {
 	var logged string
 	s, poster, c := testSender(t, slackSecret())
 	s.Log = funcr.NewJSON(func(obj string) { logged += obj + "\n" }, funcr.Options{})
+	s.setLastSuccess(50)
 	s.tick(context.Background())
+	skipAt := float64(time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC).Unix())
+	if s.lastSuccess != 50 {
+		t.Fatalf("zero-policy cleared last success %v", s.lastSuccess)
+	}
+	if s.lastSkip != skipAt {
+		t.Fatalf("skip gauge %v", s.lastSkip)
+	}
 	if poster.calls != 0 {
 		t.Fatalf("posted %d", poster.calls)
 	}
@@ -237,7 +246,7 @@ func TestSenderZeroPoliciesStampsWithoutPost(t *testing.T) {
 	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "attune-system", Name: stampConfigMap}, &cm); err != nil {
 		t.Fatal(err)
 	}
-	if cm.Annotations[stampAnnotation] != "2026-W43" {
+	if cm.Annotations[stampAnnotation] != "2026-W43" || cm.Annotations[stampSkippedAnnotation] != strconv.FormatInt(time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC).Unix(), 10) {
 		t.Fatalf("stamp %v", cm.Annotations)
 	}
 	if !strings.Contains(logged, "weekly report skipped") || !strings.Contains(logged, "no policies") || !strings.Contains(logged, "2026-W43") {
@@ -256,6 +265,10 @@ func TestSenderPostsOncePerWeek(t *testing.T) {
 	s.tick(context.Background())
 	if poster.calls != 1 {
 		t.Fatalf("calls %d", poster.calls)
+	}
+	wantUnix := float64(time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC).Unix())
+	if s.lastSuccess != wantUnix {
+		t.Fatalf("gauge %v", s.lastSuccess)
 	}
 	body := string(poster.body)
 	if !strings.Contains(body, "Attune weekly report 2026-W43") || !strings.Contains(body, "Policies: 1") {
@@ -334,7 +347,7 @@ func TestSenderOneSuccessStillStamps(t *testing.T) {
 	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "attune-system", Name: stampConfigMap}, &cm); err != nil {
 		t.Fatal(err)
 	}
-	if cm.Annotations[stampAnnotation] != "2026-W43" {
+	if cm.Annotations[stampAnnotation] != "2026-W43" || cm.Annotations[stampSkippedAnnotation] != "" {
 		t.Fatalf("stamp %v", cm.Annotations)
 	}
 }
@@ -580,4 +593,141 @@ func TestPostErrorKeepsReasonAndDropsURL(t *testing.T) {
 	if !strings.Contains(got.Error(), "connection refused") {
 		t.Fatalf("reason dropped: %s", got.Error())
 	}
+}
+
+func TestProductionPosterIsReused(t *testing.T) {
+	t.Parallel()
+	s := &Sender{}
+	first := s.poster()
+	second := s.poster()
+	if first != second {
+		t.Fatal("built a new client for the second post")
+	}
+	if _, ok := first.(*Client); !ok {
+		t.Fatalf("poster type %T", first)
+	}
+}
+
+func TestSenderObservedSkipStampRearms(t *testing.T) {
+	t.Parallel()
+	const stored int64 = 1700000000
+	stamped := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "attune-system",
+			Name:      stampConfigMap,
+			Annotations: map[string]string{
+				stampAnnotation:        "2026-W43",
+				stampSkippedAnnotation: strconv.FormatInt(stored, 10),
+			},
+		},
+	}
+	s, poster, _ := testSender(t, slackSecret(), stamped)
+	var results []string
+	s.tickResults = &results
+	s.setLastSuccess(50)
+	s.tick(context.Background())
+	s.tick(context.Background())
+	if poster.calls != 0 {
+		t.Fatalf("posted %d", poster.calls)
+	}
+	if s.lastSuccess != 50 {
+		t.Fatalf("cleared last success %v", s.lastSuccess)
+	}
+	if s.lastSkip != float64(stored) {
+		t.Fatalf("skip gauge %v", s.lastSkip)
+	}
+	if len(results) != 1 || results[0] != "skipped_no_policies" {
+		t.Fatalf("results %v", results)
+	}
+}
+
+func TestSenderObservedSendStampKeepsGauge(t *testing.T) {
+	t.Parallel()
+	stamped := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace:   "attune-system",
+			Name:        stampConfigMap,
+			Annotations: map[string]string{stampAnnotation: "2026-W43"},
+		},
+	}
+	s, poster, _ := testSender(t, slackSecret(), stamped)
+	var results []string
+	s.tickResults = &results
+	s.setLastSuccess(50)
+	s.tick(context.Background())
+	if poster.calls != 0 {
+		t.Fatalf("posted %d", poster.calls)
+	}
+	if s.lastSuccess != 50 {
+		t.Fatalf("gauge %v", s.lastSuccess)
+	}
+	if len(results) != 0 {
+		t.Fatalf("results %v", results)
+	}
+}
+
+func TestSenderSkipThenSendRemovesSkipAnnotation(t *testing.T) {
+	t.Parallel()
+	s, poster, c := testSender(t, slackSecret())
+	s.tick(context.Background())
+	if err := c.Create(context.Background(), &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "prod", Name: "checkout"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.Now = func() time.Time { return time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC) }
+	s.tick(context.Background())
+	if poster.calls != 1 {
+		t.Fatalf("calls %d", poster.calls)
+	}
+	var cm corev1.ConfigMap
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "attune-system", Name: stampConfigMap}, &cm); err != nil {
+		t.Fatal(err)
+	}
+	if cm.Annotations[stampAnnotation] != "2026-W44" || cm.Annotations[stampSkippedAnnotation] != "" {
+		t.Fatalf("stamp %v", cm.Annotations)
+	}
+	if s.lastSkip != 0 {
+		t.Fatalf("skip gauge %v", s.lastSkip)
+	}
+	wantSuccess := float64(time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC).Unix())
+	if s.lastSuccess != wantSuccess {
+		t.Fatalf("success gauge %v", s.lastSuccess)
+	}
+}
+
+func TestSenderStampReadFailureCountsFailed(t *testing.T) {
+	t.Parallel()
+	var logged string
+	s, poster, _ := testSender(t, slackSecret())
+	s.Log = funcr.NewJSON(func(obj string) { logged += obj + "\n" }, funcr.Options{})
+	s.Client = &failGet{Client: s.Client}
+	s.APIReader = s.Client
+	var results []string
+	s.tickResults = &results
+	s.setLastSuccess(50)
+	s.tick(context.Background())
+	if poster.calls != 0 {
+		t.Fatalf("posted %d", poster.calls)
+	}
+	if len(results) != 1 || results[0] != "failed" {
+		t.Fatalf("results %v", results)
+	}
+	if s.lastSuccess != 50 {
+		t.Fatalf("gauge changed to %v", s.lastSuccess)
+	}
+	if !strings.Contains(logged, "weekly report stamp read failed") {
+		t.Fatalf("log %s", logged)
+	}
+}
+
+type failGet struct {
+	client.Client
+}
+
+func (f *failGet) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if _, ok := obj.(*corev1.ConfigMap); ok && key.Name == stampConfigMap {
+		return errors.New("injected get failure")
+	}
+	return f.Client.Get(ctx, key, obj, opts...)
 }
