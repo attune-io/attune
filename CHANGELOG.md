@@ -6,6 +6,13 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.36](https://github.com/attune-io/attune/compare/v0.1.35...v0.1.36) (2026-10-26)
+
+
+### Bug Fixes
+
+* build with go 1.27.3 for cve-2026-111943 ([#1067](https://github.com/attune-io/attune/issues/1067)) ([b680b0b](https://github.com/attune-io/attune/commit/b680b0b244210dd68dce588d388acd225145cba2))
+
 ## [0.1.35](https://github.com/attune-io/attune/compare/v0.1.34...v0.1.35) (2026-10-20)
 
 
