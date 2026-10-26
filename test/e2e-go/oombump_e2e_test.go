@@ -20,14 +20,14 @@ package e2e_go
 
 import (
 	"context"
-	"io"
-	"strings"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -41,6 +41,7 @@ import (
 // TestE2E_OOMBump_RaisesMemoryWithoutPriorResize is the remaining #878
 // case. TestE2E_OOMKill_TriggersRevert resizes CPU first and pins memory
 // at 64Mi, so it cannot show a bump of the original request.
+// Phase 1 waits until the stressed pod is OOMKilled. Phase 2 waits for the bump.
 func TestE2E_OOMBump_RaisesMemoryWithoutPriorResize(t *testing.T) {
 	t.Parallel()
 	ns := uniqueNS("oombump")
@@ -147,9 +148,10 @@ func TestE2E_OOMBump_RaisesMemoryWithoutPriorResize(t *testing.T) {
 
 	oomPod := runningPodName(t, ns, appName)
 	t.Logf("exec OOM stressor into %s", oomPod)
-	go execOOM(t, ns, oomPod)
+	execCh := startOOMStressor(t.Context(), ns, oomPod)
+	phase1At := waitForStressorOOM(t, ns, oomPod, execCh)
 
-	err := wait.PollUntilContextTimeout(ctx, 5*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
+	err := wait.PollUntilContextTimeout(t.Context(), 5*time.Second, oomPhase2Limit, true, func(ctx context.Context) (bool, error) {
 		pods, listErr := clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
 			LabelSelector: "app=" + appName,
 		})
@@ -164,27 +166,7 @@ func TestE2E_OOMBump_RaisesMemoryWithoutPriorResize(t *testing.T) {
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: policyName, Namespace: ns}, &pol); err != nil {
 			return false, nil
 		}
-		if dep.Status.UpdatedReplicas != replicas || dep.Status.ReadyReplicas < replicas-1 {
-			return false, nil
-		}
-		oomRaised := false
-		siblingRaised := false
-		for i := range pods.Items {
-			pod := &pods.Items[i]
-			mem := containerMemoryRequest(pod, "app")
-			if mem == nil || mem.Cmp(startMem) <= 0 {
-				continue
-			}
-			if podOOMKilled(pod, "app") {
-				raw := pod.Annotations["attune.io/oom-bump.app"]
-				if strings.HasPrefix(raw, "count=1,") {
-					oomRaised = true
-				}
-				continue
-			}
-			siblingRaised = true
-		}
-		if !oomRaised || !siblingRaised || !recommendationIsOOMBump(&pol, appName, startMem) {
+		if !oomBumpReady(pods.Items, dep.Status, &pol, startMem, replicas) {
 			return false, nil
 		}
 		t.Logf("oom bump applied: updated=%d ready=%d", dep.Status.UpdatedReplicas, dep.Status.ReadyReplicas)
@@ -192,8 +174,9 @@ func TestE2E_OOMBump_RaisesMemoryWithoutPriorResize(t *testing.T) {
 	})
 	if err != nil {
 		logOOMBumpState(t, policyName, ns, appName)
+		require.NoError(t, err, "pod %s was OOMKilled at %s; timed out waiting for an OOM bump of the original memory request",
+			oomPod, phase1At.Format(time.RFC3339Nano))
 	}
-	require.NoError(t, err, "timed out waiting for an OOM bump of the original memory request")
 }
 
 func requireFullyUpdated(t *testing.T, name, namespace string, replicas int32) {
@@ -238,73 +221,121 @@ func runningPodName(t *testing.T, namespace, app string) string {
 	return ""
 }
 
-func execOOM(t *testing.T, namespace, podName string) {
+var (
+	errPhase1GiveUp   = errors.New("phase 1 give up")
+	errOOMPodNotFound = errors.New("oom pod not found")
+)
+
+// startOOMStressor runs the stressor once. The goroutine must not call t:
+// the test can return while the stream is still running, and a late t.Log
+// panics the package. The tail is copied into the result after the stream
+// returns, because stdout and stderr write that buffer concurrently.
+func startOOMStressor(parent context.Context, namespace, podName string) <-chan oomExecResult {
+	ch := make(chan oomExecResult, 1)
+	go func() {
+		started := time.Now()
+		send := func(err error, tail string) {
+			ch <- oomExecResult{
+				err:      err,
+				elapsed:  time.Since(started),
+				tail:     tail,
+				finished: time.Now(),
+			}
+		}
+		req := clientset.CoreV1().RESTClient().Post().
+			Resource("pods").
+			Namespace(namespace).
+			Name(podName).
+			SubResource("exec").
+			VersionedParams(&corev1.PodExecOptions{
+				Container: oomBumpContainer,
+				Command:   []string{"/stress-ng", "--vm", "1", "--vm-bytes", "1G", "--timeout", "120"},
+				Stdout:    true,
+				Stderr:    true,
+			}, scheme.ParameterCodec)
+		exec, err := remotecommand.NewSPDYExecutor(restConfig, "POST", req.URL())
+		if err != nil {
+			send(err, "")
+			return
+		}
+		tail := newOOMExecTail()
+		streamErr := exec.StreamWithContext(parent, remotecommand.StreamOptions{
+			Stdout: tail,
+			Stderr: tail,
+		})
+		send(streamErr, tail.snapshot())
+	}()
+	return ch
+}
+
+func waitForStressorOOM(t *testing.T, namespace, podName string, execCh <-chan oomExecResult) time.Time {
 	t.Helper()
-	req := clientset.CoreV1().RESTClient().Post().
-		Resource("pods").
-		Namespace(namespace).
-		Name(podName).
-		SubResource("exec").
-		VersionedParams(&corev1.PodExecOptions{
-			Container: "app",
-			Command:   []string{"/stress-ng", "--vm", "1", "--vm-bytes", "1G", "--timeout", "120"},
-			Stdout:    true,
-			Stderr:    true,
-		}, scheme.ParameterCodec)
-	exec, err := remotecommand.NewSPDYExecutor(restConfig, "POST", req.URL())
+	started := time.Now()
+	var execResult *oomExecResult
+	var lastPod *corev1.Pod
+	err := wait.PollUntilContextTimeout(t.Context(), oomPhase1Poll, oomPhase1Limit, true, func(ctx context.Context) (bool, error) {
+		select {
+		case res := <-execCh:
+			execResult = new(oomExecResult)
+			*execResult = res
+			t.Logf("stressor diag: exec finished: %s", formatOOMExecStatus(execResult, 0))
+		default:
+		}
+		pod, getErr := clientset.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
+		if apierrors.IsNotFound(getErr) {
+			return false, errOOMPodNotFound
+		}
+		if getErr != nil {
+			return false, nil
+		}
+		lastPod = pod
+		if podOOMKilled(pod, oomBumpContainer) {
+			return true, nil
+		}
+		if phase1GiveUp(execResult != nil, time.Since(started), sinceExecFinish(execResult, time.Now())) {
+			return false, errPhase1GiveUp
+		}
+		return false, nil
+	})
 	if err != nil {
-		t.Logf("exec setup error (expected if the container dies): %v", err)
-		return
-	}
-	_ = exec.StreamWithContext(ctx, remotecommand.StreamOptions{Stdout: io.Discard, Stderr: io.Discard})
-}
-
-func containerMemoryRequest(pod *corev1.Pod, name string) *resource.Quantity {
-	for i := range pod.Spec.Containers {
-		if pod.Spec.Containers[i].Name != name {
-			continue
-		}
-		q := pod.Spec.Containers[i].Resources.Requests.Memory()
-		if q == nil {
-			return nil
-		}
-		out := q.DeepCopy()
-		return &out
-	}
-	return nil
-}
-
-func podOOMKilled(pod *corev1.Pod, name string) bool {
-	for _, cs := range pod.Status.ContainerStatuses {
-		if cs.Name != name {
-			continue
-		}
-		if cs.LastTerminationState.Terminated != nil && cs.LastTerminationState.Terminated.Reason == "OOMKilled" {
-			return true
-		}
-		if cs.State.Terminated != nil && cs.State.Terminated.Reason == "OOMKilled" {
-			return true
-		}
-	}
-	return false
-}
-
-func recommendationIsOOMBump(policy *attunev1alpha1.AttunePolicy, workload string, start resource.Quantity) bool {
-	for _, rec := range policy.Status.Recommendations {
-		if rec.Workload != workload {
-			continue
-		}
-		for _, c := range rec.Containers {
-			if c.Name != "app" || c.Recommended.MemoryRequest.Cmp(start) <= 0 {
-				continue
-			}
-			if c.Explanation != nil && c.Explanation.Memory != nil &&
-				strings.Contains(c.Explanation.Memory.FinalAdjustment, "oomBump") {
-				return true
+		if execResult == nil {
+			select {
+			case res := <-execCh:
+				execResult = new(oomExecResult)
+				*execResult = res
+			default:
 			}
 		}
+		notFound := errors.Is(err, errOOMPodNotFound)
+		podPtr := lastPod
+		live, getErr := clientset.CoreV1().Pods(namespace).Get(t.Context(), podName, metav1.GetOptions{})
+		switch {
+		case apierrors.IsNotFound(getErr):
+			notFound = true
+			podPtr = nil
+		case getErr == nil:
+			notFound = false
+			podPtr = live
+		}
+		runningFor := time.Since(started)
+		logStressorDiag(t, podName, podPtr, execResult, runningFor, notFound)
+		require.FailNow(t, stressorMissMessage(podName, podPtr, execResult, runningFor, notFound))
+		return time.Time{}
 	}
-	return false
+	t.Logf("stressor diag: pod %s OOMKilled after %s", podName, time.Since(started).Round(time.Millisecond))
+	return time.Now()
+}
+
+func logStressorDiag(t *testing.T, podName string, pod *corev1.Pod, exec *oomExecResult, runningFor time.Duration, notFound bool) {
+	t.Helper()
+	t.Logf("stressor diag: pod %s %s", podName, stressorPodDetail(pod))
+	t.Logf("stressor diag: exec=%s", formatOOMExecStatus(exec, runningFor))
+	if notFound {
+		t.Logf("stressor diag: pod %s NotFound", podName)
+	}
+	if exec != nil {
+		t.Logf("stressor diag: output tail:\n%s", exec.tail)
+	}
 }
 
 func logOOMBumpState(t *testing.T, policyName, namespace, app string) {
