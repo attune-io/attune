@@ -83,9 +83,9 @@ in-place resize. It exists to make VPA obsolete by delivering:
 |-----------|---------|---------|
 | Kubebuilder | v4.14.0 | Project scaffolding, Makefile, CRD generation |
 | controller-runtime | v0.25.2 | Controller lifecycle, reconciliation, caching, webhooks |
-| client-go | v0.37.1 | K8s API access, `/resize` subresource calls |
-| k8s.io/api | v0.37.1 | K8s type definitions |
-| k8s.io/apimachinery | v0.37.1 | Resource quantities, conditions, meta types |
+| client-go | v0.37.2 | K8s API access, `/resize` subresource calls |
+| k8s.io/api | v0.37.2 | K8s type definitions |
+| k8s.io/apimachinery | v0.37.2 | Resource quantities, conditions, meta types |
 
 **Why Kubebuilder over Operator SDK**: For a new operator without OLM/OperatorHub requirements,
 Kubebuilder provides the cleanest scaffolding. Operator SDK adds OLM bundle generation on top
@@ -114,9 +114,9 @@ go 1.27.3
 
 # Core
 sigs.k8s.io/controller-runtime          v0.25.2
-k8s.io/client-go                        v0.37.1
-k8s.io/api                              v0.37.1
-k8s.io/apimachinery                     v0.37.1
+k8s.io/client-go                        v0.37.2
+k8s.io/api                              v0.37.2
+k8s.io/apimachinery                     v0.37.2
 
 # Prometheus querying
 github.com/prometheus/client_golang     v1.24.1
