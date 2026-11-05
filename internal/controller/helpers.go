@@ -388,6 +388,9 @@ func (r *AttunePolicyReconciler) warnConfigClamping(policy *attunev1alpha1.Attun
 			r.emitEventOnce(policy, corev1.EventTypeWarning, "ConfigClamped", "config",
 				"rateWindow %s clamped to 30s (minimum)", rw.Duration)
 		}
+	} else if qs := r.getQueryStep(policy); qs < 30*time.Second {
+		r.emitEventOnce(policy, corev1.EventTypeWarning, "ConfigClamped", "config",
+			"queryStep %s used as rateWindow clamped to 30s (minimum)", qs)
 	}
 	if policy.Spec.UpdateStrategy != nil && policy.Spec.UpdateStrategy.Cooldown != nil {
 		cd := policy.Spec.UpdateStrategy.Cooldown
