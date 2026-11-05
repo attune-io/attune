@@ -45,40 +45,89 @@ type savingsAccumulator struct {
 	totalMemIncrease int64
 }
 
-// accumulateSavings iterates over recommendations and accumulates resource diffs.
-func accumulateSavings(recommendations []attunev1alpha1.WorkloadRecommendation) savingsAccumulator {
+// accumulateSavings sums resource diffs. A nil pod map keeps the historical
+// one-diff-per-container behavior for callers that only have the recommendation.
+// A non-nil map sums (live request - recommended) for every pod of that
+// workload. A pod already at the recommendation adds nothing. Missing pods
+// add nothing: do not multiply the largest request by spec.replicas.
+func accumulateSavings(recommendations []attunev1alpha1.WorkloadRecommendation, podsByWorkload map[string][]corev1.Pod) savingsAccumulator {
 	var acc savingsAccumulator
 	for _, rec := range recommendations {
 		if rec.Stale {
 			continue
 		}
-		for _, c := range rec.Containers {
-			acc.totalCPU += c.Current.CPURequest.MilliValue()
-			acc.totalMem += c.Current.MemoryRequest.Value()
-
-			cpuDiff := c.Current.CPURequest.MilliValue() - c.Recommended.CPURequest.MilliValue()
-			if cpuDiff > 0 {
-				acc.totalCPUSaved += cpuDiff
-			} else if cpuDiff < 0 {
-				acc.totalCPUIncrease += -cpuDiff
+		if podsByWorkload == nil {
+			for _, c := range rec.Containers {
+				addSavingsDiff(&acc, c.Current.CPURequest, c.Recommended.CPURequest, true)
+				addSavingsDiff(&acc, c.Current.MemoryRequest, c.Recommended.MemoryRequest, false)
 			}
-
-			memDiff := c.Current.MemoryRequest.Value() - c.Recommended.MemoryRequest.Value()
-			if memDiff > 0 {
-				acc.totalMemSaved += memDiff
-			} else if memDiff < 0 {
-				acc.totalMemIncrease += -memDiff
+			continue
+		}
+		pods := podsByWorkload[rec.Workload]
+		for _, c := range rec.Containers {
+			for i := range pods {
+				pod := &pods[i]
+				if !savingsPodCounts(pod) {
+					continue
+				}
+				ctr := findContainerByName(pod, c.Name)
+				if ctr == nil {
+					continue
+				}
+				// A missing request is zero. Skipping the key hid an increase
+				// when the recommendation is non-zero.
+				addSavingsDiff(&acc, ctr.Resources.Requests[corev1.ResourceCPU], c.Recommended.CPURequest, true)
+				addSavingsDiff(&acc, ctr.Resources.Requests[corev1.ResourceMemory], c.Recommended.MemoryRequest, false)
 			}
 		}
 	}
 	return acc
 }
 
+// savingsPodCounts reports whether the pod still holds a request the policy
+// can resize. Finished and deleting pods do not. A startup-boost pod is
+// holding a temporary request, so it is not part of the steady sum.
+func savingsPodCounts(pod *corev1.Pod) bool {
+	if pod == nil || pod.DeletionTimestamp != nil {
+		return false
+	}
+	if pod.Annotations != nil && pod.Annotations[annotationStartupBoostAt] != "" {
+		return false
+	}
+	switch pod.Status.Phase {
+	case corev1.PodSucceeded, corev1.PodFailed:
+		return false
+	default:
+		return true
+	}
+}
+
+func addSavingsDiff(acc *savingsAccumulator, live, recommended resource.Quantity, cpu bool) {
+	if cpu {
+		acc.totalCPU += live.MilliValue()
+		diff := live.MilliValue() - recommended.MilliValue()
+		if diff > 0 {
+			acc.totalCPUSaved += diff
+		} else if diff < 0 {
+			acc.totalCPUIncrease += -diff
+		}
+		return
+	}
+	acc.totalMem += live.Value()
+	diff := live.Value() - recommended.Value()
+	if diff > 0 {
+		acc.totalMemSaved += diff
+	} else if diff < 0 {
+		acc.totalMemIncrease += -diff
+	}
+}
+
 // computeSavings calculates the aggregate resource savings across all recommendations.
 // It also returns the accumulator so callers can pass it to updateSavingsGauges
-// without re-iterating the recommendations.
-func (r *AttunePolicyReconciler) computeSavings(recommendations []attunev1alpha1.WorkloadRecommendation, defaults *attunev1alpha1.AttuneDefaults) (attunev1alpha1.SavingsStatus, savingsAccumulator) {
-	acc := accumulateSavings(recommendations)
+// without re-iterating the recommendations. podsByWorkload nil keeps one diff
+// per container. A non-nil map sums each live pod.
+func (r *AttunePolicyReconciler) computeSavings(recommendations []attunev1alpha1.WorkloadRecommendation, defaults *attunev1alpha1.AttuneDefaults, podsByWorkload map[string][]corev1.Pod) (attunev1alpha1.SavingsStatus, savingsAccumulator) {
+	acc := accumulateSavings(recommendations, podsByWorkload)
 
 	savings := attunev1alpha1.SavingsStatus{}
 	if acc.totalCPU > 0 {

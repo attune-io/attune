@@ -125,7 +125,7 @@ func run(args []string, buildClient dynamicClientFactory) int {
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Commands:")
 		fmt.Fprintln(os.Stderr, "  status            Show policy status, workload counts, and conditions")
-		fmt.Fprintln(os.Stderr, "  savings           Show estimated CPU/memory savings per policy (not multiplied by replicas)")
+		fmt.Fprintln(os.Stderr, "  savings           Show estimated CPU/memory savings per policy (sum across live pods)")
 		fmt.Fprintln(os.Stderr, "  recommendations   Show per-container sizing recommendations")
 		fmt.Fprintln(os.Stderr, "  export            List exported recommendations from ConfigMaps (GitOps)")
 		fmt.Fprintln(os.Stderr, "  explain           Show recommendation reasoning for one policy")
