@@ -464,20 +464,23 @@ func (r *AttunePolicyReconciler) getQueryStep(policy *attunev1alpha1.AttunePolic
 	return qs
 }
 
-// getRateWindow returns the rate window from the policy or falls back to queryStep.
+// getRateWindow returns the rate window from the policy, or queryStep when
+// unset. The 30s floor and the history-window ceiling apply to both. A 10s
+// queryStep must not become the PromQL rate() range: that window can contain
+// no CPU samples. Admission already rejects an explicit rateWindow under 30s.
 func (r *AttunePolicyReconciler) getRateWindow(policy *attunev1alpha1.AttunePolicy) time.Duration {
+	rw := r.getQueryStep(policy)
 	if policy.Spec.MetricsSource.RateWindow != nil {
-		rw := policy.Spec.MetricsSource.RateWindow.Duration
-		if rw < 30*time.Second {
-			rw = 30 * time.Second
-		}
-		hw := r.parseHistoryWindow(policy)
-		if rw > hw {
-			rw = hw
-		}
-		return rw
+		rw = policy.Spec.MetricsSource.RateWindow.Duration
 	}
-	return r.getQueryStep(policy)
+	if rw < 30*time.Second {
+		rw = 30 * time.Second
+	}
+	hw := r.parseHistoryWindow(policy)
+	if rw > hw {
+		rw = hw
+	}
+	return rw
 }
 
 // parseCooldown returns the cooldown duration from the policy's update strategy.
