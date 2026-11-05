@@ -106,9 +106,9 @@ spec:
     maxAllowed: "4000m"          # example explicit cap, not the omitted default. Omitted means no maximum. Admission rejects above 256 cores. "0" is a real cap.
     controlledValues: RequestsAndLimits  # default is RequestsOnly. A set limitMultiplier on this policy requires RequestsAndLimits here at admission.
     # limitMultiplier: "2"     # off until set. Omitted keeps the live request-to-limit ratio. "1" forces the limit equal to the request and still needs RequestsAndLimits. Omitted mode is rejected. Defaults may omit the mode. A stored policy is not rewritten. A container with no current limit keeps that limit omitted. Maximum 100. maxAllowed caps the request, not the limit.
-    maxChangePercent: 50       # max CPU change per cycle (default: 50)
-    maxIncreasePercent: 50     # max increase per cycle (default: 50)
-    maxDecreasePercent: 30     # max decrease per cycle (default: 30)
+    maxChangePercent: 50       # omitted default 50. Symmetric cap per cycle.
+    # maxIncreasePercent: 50   # optional. Unset uses maxChangePercent (50 for CPU).
+    # maxDecreasePercent: 50   # optional. Unset uses maxChangePercent, not a separate 30.
 
   # Memory recommendation parameters.
   memory:
@@ -121,9 +121,9 @@ spec:
     # limitMultiplier: "2"     # off until set. Same rules as cpu.limitMultiplier. Policy-wide.
     allowDecrease: false       # prevent memory decreases (default: false)
     decreaseUsageMarginPercent: 10  # default 10. Headroom above usage when decreasing a memory limit. 0 requires the limit strictly above usage. Ignored for CPU. Policy-wide.
-    maxChangePercent: 30       # max memory change per cycle (default: 30)
-    maxIncreasePercent: 50     # max increase per cycle (default: 50)
-    maxDecreasePercent: 30     # max decrease per cycle (default: 30)
+    maxChangePercent: 30       # omitted default 30. Symmetric cap per cycle.
+    # maxIncreasePercent: 30   # optional. Unset uses maxChangePercent (30 for memory).
+    # maxDecreasePercent: 30   # optional. Unset uses maxChangePercent (30 for memory).
     memoryFromCpuRatio: "2.0"  # off until set. GiB of memory per CPU core. Policy-wide. Does not fall back to the memory signal.
     # oomBump is off until set. {} turns it on and fills ratio 1.2, minBump
     # 100Mi, maxBumps 3, and hold 24h. When maxAllowed is omitted, maxBumps
