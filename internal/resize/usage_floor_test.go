@@ -76,7 +76,7 @@ func TestFloorMemoryLimitForUsage(t *testing.T) {
 			usage:        "500Mi",
 			margin:       0,
 			wantFloored:  true,
-			wantLimit:    "500Mi", // margin 0: usage+1 byte, but BinarySI may show 500Mi+1
+			// Margin 0 is usage plus one byte. That is not the string "500Mi".
 		},
 		{
 			name:         "increase not floored",
@@ -131,18 +131,15 @@ func TestFloorMemoryLimitForUsage(t *testing.T) {
 			t.Parallel()
 			got, floored := FloorMemoryLimitForUsage(tt.target, must(tt.currentLimit), must(tt.usage), tt.margin)
 			assert.Equal(t, tt.wantFloored, floored)
-			if tt.wantLimit != "" {
+			if tt.name == "at or below usage floored" {
 				require.Contains(t, got.Limits, corev1.ResourceMemory)
-				// Compare byte values to avoid BinarySI formatting quirks for +1 byte cases.
-				if tt.name == "at or below usage floored" {
-					u := must(tt.usage)
-					cur := must(tt.currentLimit)
-					assert.Greater(t, got.Limits.Memory().Value(), u.Value())
-					assert.LessOrEqual(t, got.Limits.Memory().Value(), cur.Value())
-				} else {
-					assert.True(t, got.Limits.Memory().Equal(must(tt.wantLimit)),
-						"got limit %s want %s", got.Limits.Memory().String(), tt.wantLimit)
-				}
+				usage := must(tt.usage)
+				assert.Equal(t, usage.Value()+1, got.Limits.Memory().Value(),
+					"margin 0 floors the limit to usage plus one byte")
+			} else if tt.wantLimit != "" {
+				require.Contains(t, got.Limits, corev1.ResourceMemory)
+				assert.True(t, got.Limits.Memory().Equal(must(tt.wantLimit)),
+					"got limit %s want %s", got.Limits.Memory().String(), tt.wantLimit)
 			}
 			if tt.wantRequest != "" {
 				assert.True(t, got.Requests.Memory().Equal(must(tt.wantRequest)),
