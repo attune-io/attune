@@ -173,6 +173,27 @@ check_default "cpuBoundsMin (configuration.md)" \
 check_default "memBoundsMin (configuration.md)" \
   'memory.minAllowed.*4Mi' \
   "docs/reference/configuration.md"
+# Directional caps are not their own defaults. An omitted value uses
+# maxChangePercent: 50 for CPU and 30 for memory. The API sample used
+# to label CPU decrease as 30 and memory increase as 50.
+check_default "cpu directional cap inherits maxChangePercent" \
+  'Unset uses maxChangePercent (50 for CPU)' \
+  "docs/reference/api.md"
+check_default "cpu decrease is not a separate 30" \
+  'Unset uses maxChangePercent, not a separate 30' \
+  "docs/reference/api.md"
+check_default "memory directional cap inherits maxChangePercent" \
+  'Unset uses maxChangePercent (30 for memory)' \
+  "docs/reference/api.md"
+check_absent "api sample sets directional caps as defaults" \
+  'maxIncreasePercent: 50     # max increase per cycle (default: 50)' \
+  "docs/reference/api.md"
+check_default "quickstart minimumDataPoints is under metricsSource" \
+  '^    # minimumDataPoints: 12$' \
+  "docs/getting-started/quickstart.md"
+check_absent "quickstart minimumDataPoints at spec level" \
+  '^  # minimumDataPoints: 12$' \
+  "docs/getting-started/quickstart.md"
 check_default "cpuBounds (README)" \
   'min.*1m' \
   "README.md"
