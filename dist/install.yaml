@@ -861,8 +861,9 @@ spec:
                       consumption (e.g. GitOps workflows with ArgoCD or Flux).
                     properties:
                       configMap:
-                        description: ConfigMap enables exporting recommendations to
-                          ConfigMaps.
+                        description: |-
+                          ConfigMap enables exporting recommendations to ConfigMaps.
+                          Omitted inherits AttuneDefaults. Explicit false turns ConfigMaps off.
                         type: boolean
                       pullRequest:
                         description: |-
@@ -2112,8 +2113,9 @@ spec:
                       consumption (e.g. GitOps workflows with ArgoCD or Flux).
                     properties:
                       configMap:
-                        description: ConfigMap enables exporting recommendations to
-                          ConfigMaps.
+                        description: |-
+                          ConfigMap enables exporting recommendations to ConfigMaps.
+                          Omitted inherits AttuneDefaults. Explicit false turns ConfigMaps off.
                         type: boolean
                       pullRequest:
                         description: |-
@@ -4003,8 +4005,9 @@ spec:
                       consumption (e.g. GitOps workflows with ArgoCD or Flux).
                     properties:
                       configMap:
-                        description: ConfigMap enables exporting recommendations to
-                          ConfigMaps.
+                        description: |-
+                          ConfigMap enables exporting recommendations to ConfigMaps.
+                          Omitted inherits AttuneDefaults. Explicit false turns ConfigMaps off.
                         type: boolean
                       pullRequest:
                         description: |-

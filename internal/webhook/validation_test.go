@@ -2245,7 +2245,8 @@ func TestWarn_ExportInObserveMode(t *testing.T) {
 	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeObserve
-	policy.Spec.UpdateStrategy.Export = &attunev1alpha1.ExportConfig{ConfigMap: true}
+	on := true
+	policy.Spec.UpdateStrategy.Export = &attunev1alpha1.ExportConfig{ConfigMap: &on}
 
 	w, err := validator.ValidateCreate(context.Background(), policy)
 	assert.NoError(t, err)

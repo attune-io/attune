@@ -553,7 +553,7 @@ A RollingUpdate StatefulSet resizes a pod whose `controller-revision-hash` match
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `runtimeProfile` | string | (none) | Optional language/runtime profile (`generic`, `java`, `python`, `golang`, `nodejs`). Applies safe memory defaults and admission warnings. See [runtime profiles](../guides/runtime-profiles.md). |
+| `runtimeProfile` | string | (none) | Optional language/runtime profile (`generic`, `java`, `python`, `golang`, `nodejs`). Fills unset memory fields before AttuneDefaults, then admission warnings. See [runtime profiles](../guides/runtime-profiles.md). |
 | `weight` | int32 | `100` | Priority when two policies match the same workload. Range 1 to 1000. The higher value applies. Equal weights: the lexicographically smaller policy name wins, and the other defers. This field is on `AttunePolicy` only. |
 | `paused` | bool | `false` | Halts all reconciliation for this policy: no metrics collection, no recommendations, no resizes. Existing resizes are not reverted. The operator sets `Ready=False` with `reason=Paused`. |
 
@@ -675,7 +675,7 @@ provider PRs when templates drift. Full cookbook:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `updateStrategy.export.configMap` | bool | `false` | When true, write versioned recommendation ConfigMaps named `<policy>-<workload>-recommendations` (schema key `schema-version: v1`). |
+| `updateStrategy.export.configMap` | bool | `false` | Omitted inherits AttuneDefaults. Explicit true writes versioned recommendation ConfigMaps named `<policy>-<workload>-recommendations` (schema key `schema-version: v1`). Explicit false turns them off. |
 | `updateStrategy.export.pullRequest.enabled` | bool | `false` | Opt-in PR automation (GitHub or GitLab). Requires `repository` and `tokenSecretRef` when enabled. |
 | `updateStrategy.export.pullRequest.provider` | string | `github` | `github` or `gitlab`. |
 | `updateStrategy.export.pullRequest.repository` | string | (required when enabled) | `owner/repo` (GitHub) or project path/id (GitLab). |

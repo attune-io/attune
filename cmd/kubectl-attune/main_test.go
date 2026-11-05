@@ -4080,7 +4080,7 @@ func TestPrintEffectivePolicySummary_GitOpsPR(t *testing.T) {
 			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type: attunev1alpha1.UpdateTypeRecommend,
 				Export: &attunev1alpha1.ExportConfig{
-					ConfigMap: true,
+					ConfigMap: ptrBool(true),
 					PullRequest: &attunev1alpha1.GitOpsPullRequestConfig{
 						Enabled:    &en,
 						DryRun:     &dry,
@@ -4165,7 +4165,7 @@ func TestMergeDefaultsIntoPolicy_AllFieldsInherited(t *testing.T) {
 				SafetyObservationPeriod: &metav1.Duration{Duration: 10 * time.Minute},
 				MaxConcurrentResizes:    5,
 				Schedule:                &attunev1alpha1.ResizeSchedule{Timezone: "UTC"},
-				Export:                  &attunev1alpha1.ExportConfig{ConfigMap: true},
+				Export:                  &attunev1alpha1.ExportConfig{ConfigMap: ptrBool(true)},
 				Canary:                  &attunev1alpha1.CanaryConfig{Percentage: 10, ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute}},
 			},
 		},
@@ -4219,7 +4219,7 @@ func TestMergeDefaultsIntoPolicy_AllFieldsInherited(t *testing.T) {
 	require.NotNil(t, policy.Spec.UpdateStrategy.Schedule)
 	assert.Equal(t, "UTC", policy.Spec.UpdateStrategy.Schedule.Timezone)
 	require.NotNil(t, policy.Spec.UpdateStrategy.Export)
-	assert.True(t, policy.Spec.UpdateStrategy.Export.ConfigMap)
+	assert.True(t, policy.Spec.UpdateStrategy.Export.ConfigMapEnabled())
 	require.NotNil(t, policy.Spec.UpdateStrategy.Canary)
 	assert.Equal(t, int32(10), policy.Spec.UpdateStrategy.Canary.Percentage)
 }
