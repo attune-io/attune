@@ -1254,6 +1254,12 @@ func TestRun_SortByFlagRejectedForHistory(t *testing.T) {
 	assert.Equal(t, 1, code)
 }
 
+func TestRun_SavingsHelpSaysNotMultipliedByReplicas(t *testing.T) {
+	exitCode, _, stderr := captureRun(t, nil, failingDynamicClientFactory(fmt.Errorf("should not be called")))
+	assert.Equal(t, 1, exitCode)
+	assert.Contains(t, stderr, "not multiplied by replicas")
+}
+
 func TestRun_SortByUnknownValue(t *testing.T) {
 	exitCode, _, stderr := captureRun(t, []string{"status", "--sort-by", "bogus"},
 		failingDynamicClientFactory(fmt.Errorf("should not be called")))
