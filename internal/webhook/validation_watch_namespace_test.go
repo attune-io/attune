@@ -92,9 +92,7 @@ func TestValidate_UnwatchedNamespaceUsesAPIReader(t *testing.T) {
 		}
 		_, err := unwatchedNamespaceValidator(t, ns).ValidateCreate(ctx, policy)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "4")
-		assert.Contains(t, err.Error(), "2")
-		assert.Contains(t, err.Error(), "AttuneNamespaceDefaults team-b/team")
+		assert.Contains(t, err.Error(), "cpu minAllowed (4) from AttuneNamespaceDefaults team-b/team is above maxAllowed (2) on the policy")
 		assert.NotContains(t, err.Error(), "unknown namespace")
 	})
 
