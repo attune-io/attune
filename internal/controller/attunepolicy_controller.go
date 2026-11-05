@@ -662,14 +662,14 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		logger.V(1).Info("Observe mode: recommendations computed but not surfaced in status",
 			"workloadsWithRecs", len(recommendations))
 		// Reset savings gauges in Observe mode so they don't show stale values.
-		updateSavingsGauges(policy.Namespace, savingsAccumulator{}, nil)
+		updateSavingsGauges(policy.Namespace, policy.Name, savingsAccumulator{}, nil)
 		updateReclaimedCapacityGauges(policy.Namespace, policy.Name, savingsAccumulator{})
 	} else {
 		policy.Status.Recommendations = r.applyStatusBudget(recommendations, &policy)
 		var acc savingsAccumulator
 		// Savings use the full recommendation set, not the status-truncated copy.
 		policy.Status.Savings, acc = r.computeSavings(recommendations, defaults, podsByWorkload)
-		updateSavingsGauges(policy.Namespace, acc, defaults)
+		updateSavingsGauges(policy.Namespace, policy.Name, acc, defaults)
 		updateReclaimedCapacityGauges(policy.Namespace, policy.Name, acc)
 	}
 
@@ -1529,22 +1529,11 @@ func (r *AttunePolicyReconciler) handleDeletion(ctx context.Context, policy *att
 
 	r.forgetPolicyRuntimeState(policy.Namespace, policy.Name)
 
-	// Clean namespace-level savings gauges if this is the last policy in the namespace.
-	var policyList attunev1alpha1.AttunePolicyList
-	if listErr := r.List(ctx, &policyList, client.InNamespace(policy.Namespace)); listErr == nil {
-		// Count remaining policies (exclude the one being deleted).
-		remaining := 0
-		for i := range policyList.Items {
-			if policyList.Items[i].Name != policy.Name {
-				remaining++
-			}
-		}
-		if remaining == 0 {
-			operatormetrics.SavingsCPU.DeleteLabelValues(policy.Namespace)
-			operatormetrics.SavingsMemory.DeleteLabelValues(policy.Namespace)
-			operatormetrics.SavingsEstimatedMonthly.DeleteLabelValues(policy.Namespace)
-		}
-	}
+	// Each policy has its own savings series. Deleting one must not clear
+	// the others in the namespace.
+	operatormetrics.SavingsCPU.DeleteLabelValues(policy.Namespace, policy.Name)
+	operatormetrics.SavingsMemory.DeleteLabelValues(policy.Namespace, policy.Name)
+	operatormetrics.SavingsEstimatedMonthly.DeleteLabelValues(policy.Namespace, policy.Name)
 	operatormetrics.ReclaimedRequestCPU.DeleteLabelValues(policy.Namespace, policy.Name)
 	operatormetrics.ReclaimedRequestMemory.DeleteLabelValues(policy.Namespace, policy.Name)
 

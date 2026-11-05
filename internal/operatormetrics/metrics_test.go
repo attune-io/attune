@@ -35,8 +35,8 @@ func TestMetricsRegistered(t *testing.T) {
 		RevertsTotal.WithLabelValues("default", "api-server", "oomkill").Inc()
 		RecommendationCPU.WithLabelValues("default", "api-server", "api").Set(0.15)
 		RecommendationMemory.WithLabelValues("default", "api-server", "api").Set(268435456)
-		SavingsCPU.WithLabelValues("default").Set(0.35)
-		SavingsMemory.WithLabelValues("default").Set(536870912)
+		SavingsCPU.WithLabelValues("default", "api").Set(0.35)
+		SavingsMemory.WithLabelValues("default", "api").Set(536870912)
 		Confidence.WithLabelValues("default", "api-server", "api").Set(0.92)
 		ReconcileDuration.WithLabelValues("attunepolicy", "default", "test-policy").Observe(1.5)
 		PrometheusQueryDuration.WithLabelValues("cpu_grouped").Observe(0.05)
@@ -56,7 +56,7 @@ func TestMetricLabels(t *testing.T) {
 func TestMetricsRegistered_AllMetrics(t *testing.T) {
 	// Exercise every metric variable that the init() registers.
 	assert.NotPanics(t, func() {
-		SavingsEstimatedMonthly.WithLabelValues("default").Set(42.50)
+		SavingsEstimatedMonthly.WithLabelValues("default", "api").Set(42.50)
 		ResizeDuration.WithLabelValues("default", "api-server").Observe(0.3)
 		ReconcileErrorsTotal.WithLabelValues("metrics_unavailable").Inc()
 		WebhookValidationTotal.WithLabelValues("CREATE", "allowed").Inc()

@@ -175,15 +175,17 @@ func (r *AttunePolicyReconciler) computeSavings(recommendations []attunev1alpha1
 // Called from Reconcile after computeSavings. Separated so computeSavings
 // remains a pure function that tests can call without registering collectors.
 // Accepts a pre-computed accumulator to avoid re-iterating recommendations.
-func updateSavingsGauges(namespace string, acc savingsAccumulator, defaults *attunev1alpha1.AttuneDefaults) {
+func updateSavingsGauges(namespace, policy string, acc savingsAccumulator, defaults *attunev1alpha1.AttuneDefaults) {
 	cpuCoresSaved := float64(acc.totalCPUSaved) / 1000.0
 	memGiBSaved := float64(acc.totalMemSaved) / (1024 * 1024 * 1024)
-	operatormetrics.SavingsCPU.WithLabelValues(namespace).Set(cpuCoresSaved)
-	operatormetrics.SavingsMemory.WithLabelValues(namespace).Set(float64(acc.totalMemSaved))
+	// One series per policy. A namespace-only label made the next policy's
+	// reconcile replace the previous policy's savings.
+	operatormetrics.SavingsCPU.WithLabelValues(namespace, policy).Set(cpuCoresSaved)
+	operatormetrics.SavingsMemory.WithLabelValues(namespace, policy).Set(float64(acc.totalMemSaved))
 
 	cpuPrice, memPrice := getCostPricing(defaults)
 	monthlySavings := (cpuCoresSaved*cpuPrice + memGiBSaved*memPrice) * hoursPerMonth
-	operatormetrics.SavingsEstimatedMonthly.WithLabelValues(namespace).Set(monthlySavings)
+	operatormetrics.SavingsEstimatedMonthly.WithLabelValues(namespace, policy).Set(monthlySavings)
 }
 
 // updateReclaimedCapacityGauges publishes freeable request capacity for

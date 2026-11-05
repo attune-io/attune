@@ -292,15 +292,29 @@ func TestComputeSavings_SumsEachLivePod(t *testing.T) {
 	assert.Equal(t, int64(1200), acc.totalCPUSaved)
 
 	t.Cleanup(func() {
-		operatormetrics.SavingsCPU.DeleteLabelValues("savings-pod-sum")
-		operatormetrics.SavingsMemory.DeleteLabelValues("savings-pod-sum")
-		operatormetrics.SavingsEstimatedMonthly.DeleteLabelValues("savings-pod-sum")
+		operatormetrics.SavingsCPU.DeleteLabelValues("savings-pod-sum", "api")
+		operatormetrics.SavingsMemory.DeleteLabelValues("savings-pod-sum", "api")
+		operatormetrics.SavingsEstimatedMonthly.DeleteLabelValues("savings-pod-sum", "api")
 	})
-	updateSavingsGauges("savings-pod-sum", acc, nil)
-	got := promtestutil.ToFloat64(operatormetrics.SavingsCPU.WithLabelValues("savings-pod-sum"))
+	updateSavingsGauges("savings-pod-sum", "api", acc, nil)
+	got := promtestutil.ToFloat64(operatormetrics.SavingsCPU.WithLabelValues("savings-pod-sum", "api"))
 	assert.InDelta(t, 1.2, got, 0.0001)
-	monthly := promtestutil.ToFloat64(operatormetrics.SavingsEstimatedMonthly.WithLabelValues("savings-pod-sum"))
+	monthly := promtestutil.ToFloat64(operatormetrics.SavingsEstimatedMonthly.WithLabelValues("savings-pod-sum", "api"))
 	assert.InDelta(t, 1.2*0.031*730, monthly, 0.001)
+}
+
+func TestUpdateSavingsGauges_TwoPoliciesKeepSeparateSeries(t *testing.T) {
+	t.Cleanup(func() {
+		for _, policy := range []string{"a", "b"} {
+			operatormetrics.SavingsCPU.DeleteLabelValues("ns", policy)
+			operatormetrics.SavingsMemory.DeleteLabelValues("ns", policy)
+			operatormetrics.SavingsEstimatedMonthly.DeleteLabelValues("ns", policy)
+		}
+	})
+	updateSavingsGauges("ns", "a", savingsAccumulator{totalCPUSaved: 1000}, nil)
+	updateSavingsGauges("ns", "b", savingsAccumulator{totalCPUSaved: 2000}, nil)
+	assert.InDelta(t, 1.0, promtestutil.ToFloat64(operatormetrics.SavingsCPU.WithLabelValues("ns", "a")), 0.001)
+	assert.InDelta(t, 2.0, promtestutil.ToFloat64(operatormetrics.SavingsCPU.WithLabelValues("ns", "b")), 0.001)
 }
 
 func TestComputeSavings_PodAlreadyAtRecommendationAddsNothing(t *testing.T) {

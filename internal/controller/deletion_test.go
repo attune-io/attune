@@ -161,31 +161,34 @@ func TestHandleDeletion_CleansNamespaceSavingsGauges(t *testing.T) {
 		{Namespace: "default", Workload: "app", Container: "main"},
 	})
 
-	// Seed namespace-level savings gauges.
-	operatormetrics.SavingsCPU.WithLabelValues("default").Set(1.0)
-	operatormetrics.SavingsMemory.WithLabelValues("default").Set(1024)
-	operatormetrics.SavingsEstimatedMonthly.WithLabelValues("default").Set(42.5)
+	// Seed this policy and a sibling. Deletion must remove only this policy.
+	operatormetrics.SavingsCPU.WithLabelValues("default", "only-policy").Set(1.0)
+	operatormetrics.SavingsMemory.WithLabelValues("default", "only-policy").Set(1024)
+	operatormetrics.SavingsEstimatedMonthly.WithLabelValues("default", "only-policy").Set(42.5)
+	operatormetrics.SavingsCPU.WithLabelValues("default", "other-policy").Set(2.0)
+	operatormetrics.SavingsMemory.WithLabelValues("default", "other-policy").Set(2048)
+	operatormetrics.SavingsEstimatedMonthly.WithLabelValues("default", "other-policy").Set(7.5)
+	t.Cleanup(func() {
+		operatormetrics.SavingsCPU.DeleteLabelValues("default", "other-policy")
+		operatormetrics.SavingsMemory.DeleteLabelValues("default", "other-policy")
+		operatormetrics.SavingsEstimatedMonthly.DeleteLabelValues("default", "other-policy")
+	})
 
-	// Verify gauges are populated before deletion.
-	require.Equal(t, 1, promtestutil.CollectAndCount(operatormetrics.SavingsCPU),
-		"savings CPU gauge should exist before deletion")
-	require.Equal(t, 1, promtestutil.CollectAndCount(operatormetrics.SavingsMemory),
-		"savings memory gauge should exist before deletion")
-	require.Equal(t, 1, promtestutil.CollectAndCount(operatormetrics.SavingsEstimatedMonthly),
-		"savings estimated monthly gauge should exist before deletion")
+	require.Equal(t, 2, promtestutil.CollectAndCount(operatormetrics.SavingsCPU))
+	require.Equal(t, 2, promtestutil.CollectAndCount(operatormetrics.SavingsMemory))
+	require.Equal(t, 2, promtestutil.CollectAndCount(operatormetrics.SavingsEstimatedMonthly))
 
 	result, err := reconciler.handleDeletion(context.Background(), policy)
 	require.NoError(t, err)
 	assert.Equal(t, ctrl.Result{}, result)
 
-	// Namespace-level savings gauges should be deleted (not just zeroed)
-	// because this was the last policy in the namespace.
-	assert.Equal(t, 0, promtestutil.CollectAndCount(operatormetrics.SavingsCPU),
-		"savings CPU gauge should be deleted after last policy removal")
-	assert.Equal(t, 0, promtestutil.CollectAndCount(operatormetrics.SavingsMemory),
-		"savings memory gauge should be deleted after last policy removal")
-	assert.Equal(t, 0, promtestutil.CollectAndCount(operatormetrics.SavingsEstimatedMonthly),
-		"savings estimated monthly gauge should be deleted after last policy removal")
+	// This policy's series is gone. The sibling policy in the namespace stays.
+	assert.Equal(t, 1, promtestutil.CollectAndCount(operatormetrics.SavingsCPU))
+	assert.Equal(t, 1, promtestutil.CollectAndCount(operatormetrics.SavingsMemory))
+	assert.Equal(t, 1, promtestutil.CollectAndCount(operatormetrics.SavingsEstimatedMonthly))
+	assert.InDelta(t, 2.0, promtestutil.ToFloat64(operatormetrics.SavingsCPU.WithLabelValues("default", "other-policy")), 0.001)
+	assert.InDelta(t, 2048, promtestutil.ToFloat64(operatormetrics.SavingsMemory.WithLabelValues("default", "other-policy")), 0.001)
+	assert.InDelta(t, 7.5, promtestutil.ToFloat64(operatormetrics.SavingsEstimatedMonthly.WithLabelValues("default", "other-policy")), 0.001)
 
 	// Finalizer should be removed.
 	assert.NotContains(t, policy.Finalizers, finalizerName,
