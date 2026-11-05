@@ -326,7 +326,7 @@ status:
 
   # Savings estimate
   savings:
-    cpuRequestReduction: "1050m"    # total across all pods
+    cpuRequestReduction: "1050m"    # sketch only; computeSavings sums one diff per container and does not multiply by replicas (#1077)
     memoryRequestReduction: "696Mi"
     estimatedMonthlySavings: "$142.50"  # if costModel is configured
 

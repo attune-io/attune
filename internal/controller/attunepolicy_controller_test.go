@@ -2898,6 +2898,15 @@ func TestWarnConfigClamping(t *testing.T) {
 			wantEvent: "rateWindow 10s clamped to 30s",
 		},
 		{
+			name: "short queryStep warns that the unset rate window is 30s",
+			policy: func() *attunev1alpha1.AttunePolicy {
+				p := newTestPolicy("test", "default")
+				p.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: 10 * time.Second}
+				return p
+			}(),
+			wantEvent: "queryStep 10s used as rateWindow clamped to 30s",
+		},
+		{
 			name: "cooldown below operator minimum emits event",
 			policy: func() *attunev1alpha1.AttunePolicy {
 				p := newTestPolicy("test", "default")

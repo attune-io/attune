@@ -1376,6 +1376,19 @@ func TestGetRateWindow_ClampedMin(t *testing.T) {
 	assert.Equal(t, 30*time.Second, got, "should clamp to 30s minimum")
 }
 
+func TestGetRateWindow_QueryStepFallbackKeeps30sFloor(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			MetricsSource: attunev1alpha1.MetricsSource{
+				QueryStep: &metav1.Duration{Duration: 10 * time.Second},
+			},
+		},
+	}
+	got := r.getRateWindow(policy)
+	assert.Equal(t, 30*time.Second, got, "unset rateWindow must not inherit a 10s queryStep")
+}
+
 // ---------- emitEventOnce suppression ----------
 
 func TestEmitEventOnce_Suppressed(t *testing.T) {
