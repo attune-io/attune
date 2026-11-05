@@ -667,6 +667,7 @@ func printSavingsItems(items []unstructured.Unstructured, sortByFlag string) {
 	var totalCPUMillis, totalCPUTotalMillis, totalMemBytes int64
 	var totalMonthlyCents int64
 	hasTotals := false
+	hasMemTotals := false
 
 	for _, item := range items {
 		ns := item.GetNamespace()
@@ -686,6 +687,7 @@ func printSavingsItems(items []unstructured.Unstructured, sortByFlag string) {
 		}
 		if q, err := resource.ParseQuantity(memSaved); err == nil {
 			totalMemBytes += q.Value()
+			hasMemTotals = true
 		}
 		totalMonthlyCents += parseDollarCents(estMonthly)
 
@@ -713,9 +715,12 @@ func printSavingsItems(items []unstructured.Unstructured, sortByFlag string) {
 	// Print totals row when at least one policy has savings data.
 	if hasTotals {
 		totalCPU := resource.NewMilliQuantity(totalCPUMillis, resource.DecimalSI).String()
-		totalMem := formatMemory(fmt.Sprintf("%d", totalMemBytes))
-		if totalMem == "" {
-			totalMem = "-"
+		totalMem := "-"
+		if hasMemTotals {
+			totalMem = formatMemory(fmt.Sprintf("%d", totalMemBytes))
+			if totalMem == "" {
+				totalMem = "-"
+			}
 		}
 		totalPct := "-"
 		if totalCPUTotalMillis > 0 {

@@ -1488,6 +1488,56 @@ func TestPrintSavings_MultiplePoliciesShowTotals(t *testing.T) {
 	assert.Contains(t, output, "$18.00") // $12.78 + $5.22
 }
 
+func TestPrintSavings_CPUOnlyTotalLeavesMemoryBlank(t *testing.T) {
+	policy := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "attune.io/v1alpha1",
+		"kind":       "AttunePolicy",
+		"metadata":   map[string]interface{}{"name": "api-svc", "namespace": "production"},
+		"status": map[string]interface{}{
+			"savings": map[string]interface{}{
+				"cpuRequestReduction":     "600m",
+				"cpuRequestTotal":         "1",
+				"estimatedMonthlySavings": "$13.58",
+			},
+		},
+	}}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printSavings(context.Background(), dynClient, "production", "")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "600m")
+	assert.Contains(t, output, "TOTAL")
+	assert.NotContains(t, output, "0B")
+	total := savingsTotalLine(output)
+	require.NotEmpty(t, total)
+	assert.Contains(t, total, "-")
+}
+
+func savingsTotalLine(output string) string {
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, "TOTAL") {
+			return line
+		}
+	}
+	return ""
+}
+
 func TestParseDollarCents(t *testing.T) {
 	tests := []struct {
 		input string
