@@ -267,11 +267,11 @@ spec:
 | `recommendations[].stale` | `bool` | `true` when the newest finite sample is older than `3 * queryStep` (default 15m), or when the last rec was reused after an empty query. Resize, boost, initial sizing webhook, template persistence, ConfigMap rewrite, kubectl preview/diff/wizard, and GitOps drift are skipped until fresh data arrives. Stale recs do not count toward Ready or savings. Reuse expires after the same freshness bound |
 | `recommendations[].lastDataTime` | `Time` | Timestamp of the most recent Prometheus data point |
 
-| `savings.cpuRequestReduction` | `string` | Total CPU request reduction (e.g. "1200m") |
-| `savings.cpuRequestTotal` | `string` | Total current CPU requests across all workloads (e.g. "2000m") |
-| `savings.memoryRequestReduction` | `string` | Total memory request reduction (e.g. "2Gi") |
-| `savings.memoryRequestTotal` | `string` | Total current memory requests across all workloads (e.g. "2Gi") |
-| `savings.estimatedMonthlySavings` | `string` | Estimated monthly cost savings |
+| `savings.cpuRequestReduction` | `string` | Sum of (current - recommended) CPU once per container. Current is the largest live request, not a sum across replicas (e.g. "1200m"). |
+| `savings.cpuRequestTotal` | `string` | Sum of those current CPU requests, same per-container scope (e.g. "2000m") |
+| `savings.memoryRequestReduction` | `string` | Sum of (current - recommended) memory once per container, not multiplied by replicas (e.g. "2Gi") |
+| `savings.memoryRequestTotal` | `string` | Sum of those current memory requests, same per-container scope (e.g. "2Gi") |
+| `savings.estimatedMonthlySavings` | `string` | Monthly cost of that per-container sum at default or configured prices |
 | `savings.cpuRequestIncrease` | `string` | Total CPU increase for under-provisioned workloads (e.g. "500m") |
 | `savings.memoryRequestIncrease` | `string` | Total memory increase for under-provisioned workloads (e.g. "512Mi") |
 | `savings.estimatedMonthlyCostIncrease` | `string` | Estimated monthly cost increase for under-provisioned workloads |
