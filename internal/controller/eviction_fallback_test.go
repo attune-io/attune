@@ -160,10 +160,9 @@ func TestTryEvictionFallback_ConcurrentTwoReplicasEvictsAtMostOne(t *testing.T) 
 			}
 		}
 	}
-	assert.LessOrEqual(t, evictions, 1, "at most one eviction create")
-	assert.LessOrEqual(t, evictedCount, 1, "at most one successful eviction")
-	assert.True(t, lastReplicaHits >= 1 || evictedCount == 1,
-		"at least one call must return last_replica or the second must see running<=1 after the first evicts")
+	assert.Equal(t, 1, evictions, "exactly one eviction create")
+	assert.Equal(t, 1, evictedCount, "exactly one successful eviction")
+	assert.Equal(t, 1, lastReplicaHits, "the other call must refuse the last replica")
 }
 
 func TestTryEvictionFallback_SkipsLastReplica(t *testing.T) {
