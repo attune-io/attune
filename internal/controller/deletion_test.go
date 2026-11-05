@@ -22,7 +22,9 @@ import (
 	"testing"
 	"time"
 
+	prom "github.com/prometheus/client_golang/prometheus"
 	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -174,18 +176,30 @@ func TestHandleDeletion_CleansNamespaceSavingsGauges(t *testing.T) {
 		operatormetrics.SavingsEstimatedMonthly.DeleteLabelValues("default", "other-policy")
 	})
 
-	require.Equal(t, 2, promtestutil.CollectAndCount(operatormetrics.SavingsCPU))
-	require.Equal(t, 2, promtestutil.CollectAndCount(operatormetrics.SavingsMemory))
-	require.Equal(t, 2, promtestutil.CollectAndCount(operatormetrics.SavingsEstimatedMonthly))
+	for _, vec := range []*prom.GaugeVec{
+		operatormetrics.SavingsCPU,
+		operatormetrics.SavingsMemory,
+		operatormetrics.SavingsEstimatedMonthly,
+	} {
+		require.True(t, savingsSeriesPresent(vec, "default", "only-policy"))
+		require.True(t, savingsSeriesPresent(vec, "default", "other-policy"))
+	}
 
 	result, err := reconciler.handleDeletion(context.Background(), policy)
 	require.NoError(t, err)
 	assert.Equal(t, ctrl.Result{}, result)
 
 	// This policy's series is gone. The sibling policy in the namespace stays.
-	assert.Equal(t, 1, promtestutil.CollectAndCount(operatormetrics.SavingsCPU))
-	assert.Equal(t, 1, promtestutil.CollectAndCount(operatormetrics.SavingsMemory))
-	assert.Equal(t, 1, promtestutil.CollectAndCount(operatormetrics.SavingsEstimatedMonthly))
+	// Do not count the whole vector: other tests in this package publish
+	// their own savings series on the process-wide registry.
+	for _, vec := range []*prom.GaugeVec{
+		operatormetrics.SavingsCPU,
+		operatormetrics.SavingsMemory,
+		operatormetrics.SavingsEstimatedMonthly,
+	} {
+		assert.False(t, savingsSeriesPresent(vec, "default", "only-policy"))
+		assert.True(t, savingsSeriesPresent(vec, "default", "other-policy"))
+	}
 	assert.InDelta(t, 2.0, promtestutil.ToFloat64(operatormetrics.SavingsCPU.WithLabelValues("default", "other-policy")), 0.001)
 	assert.InDelta(t, 2048, promtestutil.ToFloat64(operatormetrics.SavingsMemory.WithLabelValues("default", "other-policy")), 0.001)
 	assert.InDelta(t, 7.5, promtestutil.ToFloat64(operatormetrics.SavingsEstimatedMonthly.WithLabelValues("default", "other-policy")), 0.001)
@@ -193,6 +207,34 @@ func TestHandleDeletion_CleansNamespaceSavingsGauges(t *testing.T) {
 	// Finalizer should be removed.
 	assert.NotContains(t, policy.Finalizers, finalizerName,
 		"finalizer should be removed after cleanup")
+}
+
+func savingsSeriesPresent(vec *prom.GaugeVec, namespace, policy string) bool {
+	ch := make(chan prom.Metric)
+	go func() {
+		vec.Collect(ch)
+		close(ch)
+	}()
+	found := false
+	for metric := range ch {
+		var m dto.Metric
+		if err := metric.Write(&m); err != nil {
+			continue
+		}
+		var ns, pol string
+		for _, lp := range m.GetLabel() {
+			switch lp.GetName() {
+			case "namespace":
+				ns = lp.GetValue()
+			case "policy":
+				pol = lp.GetValue()
+			}
+		}
+		if ns == namespace && pol == policy {
+			found = true
+		}
+	}
+	return found
 }
 
 func TestHandleDeletion_SkipsPodsFromOtherPolicy(t *testing.T) {
