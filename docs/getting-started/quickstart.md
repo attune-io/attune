@@ -63,10 +63,10 @@ spec:
   metricsSource:
     prometheus:
       address: http://prometheus-server.monitoring:80
+    # Optional: faster first look (~1h instead of ~4h at default queryStep: 5m)
+    # minimumDataPoints: 12
   updateStrategy:
     type: Recommend
-  # Optional: faster first look (~1h instead of ~4h at default queryStep: 5m)
-  # minimumDataPoints: 12
 ```
 
 To give one container its own CPU ceiling, add `containerPolicies`. An omitted list keeps the shared `cpu` and `memory` blocks. Known sidecars such as `istio-proxy` stay excluded until `excludeKnownSidecars` is false.
