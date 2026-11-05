@@ -89,8 +89,15 @@ func savingsLines(r fleetreport.Report, policies []attunev1alpha1.AttunePolicy) 
 	if increase != 0 {
 		out = append(out, "Monthly cost increase: "+formatDollars(increase))
 	}
-	if r.ReclaimedCPURequestMilli != 0 || r.ReclaimedMemoryRequestBytes != 0 {
-		out = append(out, sprintf("Reclaimable: %s CPU, %s memory", formatCPU(r.ReclaimedCPURequestMilli), formatMemory(r.ReclaimedMemoryRequestBytes)))
+	var reclaimed []string
+	if r.ReclaimedCPURequestMilli != 0 {
+		reclaimed = append(reclaimed, formatCPU(r.ReclaimedCPURequestMilli)+" CPU")
+	}
+	if r.ReclaimedMemoryRequestBytes != 0 {
+		reclaimed = append(reclaimed, formatMemory(r.ReclaimedMemoryRequestBytes)+" memory")
+	}
+	if len(reclaimed) > 0 {
+		out = append(out, "Reclaimable: "+strings.Join(reclaimed, ", "))
 	}
 	if len(out) > 0 {
 		out = append(out, dollarSentence)

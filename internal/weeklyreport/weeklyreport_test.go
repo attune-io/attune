@@ -39,6 +39,43 @@ import (
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
 
+func TestMessageText_ReclaimableOmitsZeroSide(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)
+	cpuOnly := []attunev1alpha1.AttunePolicy{{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "prod", Name: "api"},
+		Status: attunev1alpha1.AttunePolicyStatus{
+			Savings: attunev1alpha1.SavingsStatus{
+				EstimatedMonthlySavings: "$13.58",
+				ReclaimedCPURequest:     "600m",
+			},
+		},
+	}}
+	text := MessageText(cpuOnly, "prod-us", "2026-W43", now)
+	if !strings.Contains(text, "Reclaimable: 600m CPU") {
+		t.Fatalf("cpu line missing in\n%s", text)
+	}
+	if strings.Contains(text, "memory") {
+		t.Fatalf("zero memory side leaked in\n%s", text)
+	}
+
+	memOnly := []attunev1alpha1.AttunePolicy{{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "prod", Name: "api"},
+		Status: attunev1alpha1.AttunePolicyStatus{
+			Savings: attunev1alpha1.SavingsStatus{
+				ReclaimedMemoryRequest: "512Mi",
+			},
+		},
+	}}
+	text = MessageText(memOnly, "prod-us", "2026-W43", now)
+	if !strings.Contains(text, "Reclaimable: 512Mi memory") {
+		t.Fatalf("memory line missing in\n%s", text)
+	}
+	if strings.Contains(text, "CPU") {
+		t.Fatalf("zero CPU side leaked in\n%s", text)
+	}
+}
+
 func TestWeekIDBoundaries(t *testing.T) {
 	t.Parallel()
 	sunday := time.Date(2026, 10, 18, 23, 59, 0, 0, time.UTC)
