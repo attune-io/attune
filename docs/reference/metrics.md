@@ -482,28 +482,31 @@ See [Bin packing](../guides/bin-packing.md#reclaimed-capacity-signals).
 
 ### attune_savings_cpu_cores_total
 
-Total CPU cores saved per namespace.
+CPU cores saved by one policy. `sum by (namespace)` is the namespace total.
 
 | Label | Description |
 |-------|-------------|
 | `namespace` | Namespace |
+| `policy` | AttunePolicy name |
 
 ### attune_savings_memory_bytes_total
 
-Total memory bytes saved per namespace.
+Memory bytes saved by one policy. `sum by (namespace)` is the namespace total.
 
 | Label | Description |
 |-------|-------------|
 | `namespace` | Namespace |
+| `policy` | AttunePolicy name |
 
 ### attune_savings_estimated_monthly_dollars
 
-Estimated monthly cost savings in USD per namespace, computed from configured
-or default pricing ($0.031/vCPU-hour, $0.004/GiB-hour).
+Estimated monthly cost savings in USD for one policy, computed from configured
+or default pricing ($0.031/vCPU-hour, $0.004/GiB-hour). `sum by (namespace)` is the namespace total.
 
 | Label | Description |
 |-------|-------------|
 | `namespace` | Namespace |
+| `policy` | AttunePolicy name |
 
 ### attune_confidence
 

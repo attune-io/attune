@@ -56,7 +56,7 @@ capacity if recommended decreases were applied:
 | Status (legacy names) | `cpuRequestReduction`, `memoryRequestReduction` |
 | Prometheus | `attune_reclaimed_request_cpu_cores{namespace,policy}` |
 | Prometheus | `attune_reclaimed_request_memory_bytes{namespace,policy}` |
-| Prometheus (namespace totals) | `attune_savings_cpu_cores_total`, `attune_savings_memory_bytes_total` |
+| Prometheus (one series per policy) | `attune_savings_cpu_cores_total{namespace,policy}`, `attune_savings_memory_bytes_total{namespace,policy}`. Namespace total is `sum by (namespace)`. |
 
 ### Using with cluster autoscalers
 

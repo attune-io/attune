@@ -69,25 +69,25 @@ var (
 	SavingsCPU = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "attune_savings_cpu_cores_total",
-			Help: "Total CPU cores saved per namespace",
+			Help: "CPU cores saved by one policy. Sum by namespace for the namespace total.",
 		},
-		[]string{"namespace"},
+		[]string{"namespace", "policy"},
 	)
 
 	SavingsMemory = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "attune_savings_memory_bytes_total",
-			Help: "Total memory bytes saved per namespace",
+			Help: "Memory bytes saved by one policy. Sum by namespace for the namespace total.",
 		},
-		[]string{"namespace"},
+		[]string{"namespace", "policy"},
 	)
 
 	SavingsEstimatedMonthly = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "attune_savings_estimated_monthly_dollars",
-			Help: "Estimated monthly cost savings in USD per namespace",
+			Help: "Estimated monthly savings in USD for one policy. Sum by namespace for the namespace total.",
 		},
-		[]string{"namespace"},
+		[]string{"namespace", "policy"},
 	)
 
 	Confidence = prometheus.NewGaugeVec(

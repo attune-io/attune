@@ -459,10 +459,7 @@ func TestValidateCreate_EffectiveContainerBoundsAndCaps(t *testing.T) {
 		}}
 		_, err := validator.ValidateCreate(ctx, policy)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "*")
-		assert.Contains(t, err.Error(), "500m")
-		assert.Contains(t, err.Error(), "200m")
-		assert.Contains(t, err.Error(), "must be <=")
+		assert.Contains(t, err.Error(), `containerPolicies "*" cpu minAllowed (500m) must be <= maxAllowed (200m)`)
 	})
 
 	t.Run("container cpu max above 256 cores", func(t *testing.T) {
