@@ -20,13 +20,16 @@ import (
 	"math"
 	"testing"
 
+	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/operatormetrics"
 )
 
 func newSavingsReconciler() *AttunePolicyReconciler {
@@ -40,7 +43,7 @@ func newSavingsReconciler() *AttunePolicyReconciler {
 
 func TestComputeSavings_Empty(t *testing.T) {
 	r := newSavingsReconciler()
-	savings, _ := r.computeSavings(nil, nil)
+	savings, _ := r.computeSavings(nil, nil, nil)
 	assert.Empty(t, savings.CPURequestReduction)
 	assert.Empty(t, savings.MemoryRequestReduction)
 }
@@ -67,7 +70,7 @@ func TestComputeSavings_CPUReduction(t *testing.T) {
 		},
 	}
 
-	savings, _ := r.computeSavings(recommendations, nil)
+	savings, _ := r.computeSavings(recommendations, nil, nil)
 	// 500m - 150m = 350m saved.
 	assert.Equal(t, "350m", savings.CPURequestReduction)
 	// Memory unchanged.
@@ -98,7 +101,7 @@ func TestComputeSavings_MemoryReduction(t *testing.T) {
 		},
 	}
 
-	savings, _ := r.computeSavings(recommendations, nil)
+	savings, _ := r.computeSavings(recommendations, nil, nil)
 	// CPU unchanged.
 	assert.Empty(t, savings.CPURequestReduction)
 	// 512Mi - 280Mi = 232Mi saved.
@@ -144,7 +147,7 @@ func TestComputeSavings_MultipleWorkloads(t *testing.T) {
 		},
 	}
 
-	savings, _ := r.computeSavings(recommendations, nil)
+	savings, _ := r.computeSavings(recommendations, nil, nil)
 	// CPU: (500-300) + (1000-900) = 200 + 100 = 300m.
 	assert.Equal(t, "300m", savings.CPURequestReduction)
 	// Memory: (512-384)Mi + (1024-768)Mi = 128Mi + 256Mi = 384Mi.
@@ -173,7 +176,7 @@ func TestComputeSavings_NoReduction(t *testing.T) {
 		},
 	}
 
-	savings, _ := r.computeSavings(recommendations, nil)
+	savings, _ := r.computeSavings(recommendations, nil, nil)
 	// Recommended >= current for both resources: no savings.
 	assert.Empty(t, savings.CPURequestReduction)
 	assert.Empty(t, savings.MemoryRequestReduction)
@@ -217,7 +220,7 @@ func TestComputeSavings_Mixed(t *testing.T) {
 		},
 	}
 
-	savings, _ := r.computeSavings(recommendations, nil)
+	savings, _ := r.computeSavings(recommendations, nil, nil)
 	// Only the first container saves CPU: 500m - 150m = 350m.
 	// The second container increases CPU, which is not counted as savings.
 	assert.Equal(t, "350m", savings.CPURequestReduction)
@@ -268,10 +271,118 @@ func TestComputeSavings_SkipsStale(t *testing.T) {
 		},
 	}
 
-	savings, acc := r.computeSavings(recommendations, nil)
+	savings, acc := r.computeSavings(recommendations, nil, nil)
 	assert.Equal(t, "400m", savings.CPURequestReduction, "stale rec must not add 1900m")
 	assert.Equal(t, int64(400), acc.totalCPUSaved)
 	assert.Equal(t, int64(500), acc.totalCPU)
+}
+
+func TestComputeSavings_SumsEachLivePod(t *testing.T) {
+	r := newSavingsReconciler()
+	recs := []attunev1alpha1.WorkloadRecommendation{savingsRec("api", "1", "400m")}
+	pods := map[string][]corev1.Pod{
+		"api": {savingsCPUPod("a", "1"), savingsCPUPod("b", "1")},
+	}
+
+	savings, acc := r.computeSavings(recs, nil, pods)
+	assert.Equal(t, "1200m", savings.CPURequestReduction)
+	assert.Equal(t, "2", savings.CPURequestTotal)
+	assert.Equal(t, "1200m", savings.ReclaimedCPURequest)
+	assert.Equal(t, "$27.16", savings.EstimatedMonthlySavings)
+	assert.Equal(t, int64(1200), acc.totalCPUSaved)
+
+	t.Cleanup(func() {
+		operatormetrics.SavingsCPU.DeleteLabelValues("savings-pod-sum")
+		operatormetrics.SavingsMemory.DeleteLabelValues("savings-pod-sum")
+		operatormetrics.SavingsEstimatedMonthly.DeleteLabelValues("savings-pod-sum")
+	})
+	updateSavingsGauges("savings-pod-sum", acc, nil)
+	got := promtestutil.ToFloat64(operatormetrics.SavingsCPU.WithLabelValues("savings-pod-sum"))
+	assert.InDelta(t, 1.2, got, 0.0001)
+	monthly := promtestutil.ToFloat64(operatormetrics.SavingsEstimatedMonthly.WithLabelValues("savings-pod-sum"))
+	assert.InDelta(t, 1.2*0.031*730, monthly, 0.001)
+}
+
+func TestComputeSavings_PodAlreadyAtRecommendationAddsNothing(t *testing.T) {
+	r := newSavingsReconciler()
+	recs := []attunev1alpha1.WorkloadRecommendation{savingsRec("api", "1", "400m")}
+	pods := map[string][]corev1.Pod{
+		"api": {savingsCPUPod("done", "400m"), savingsCPUPod("left", "1")},
+	}
+
+	savings, acc := r.computeSavings(recs, nil, pods)
+	assert.Equal(t, "600m", savings.CPURequestReduction)
+	assert.Equal(t, "1400m", savings.CPURequestTotal)
+	assert.Equal(t, "$13.58", savings.EstimatedMonthlySavings)
+	assert.Equal(t, int64(600), acc.totalCPUSaved)
+}
+
+func TestComputeSavings_OmittedRequestIsZero(t *testing.T) {
+	r := newSavingsReconciler()
+	recs := []attunev1alpha1.WorkloadRecommendation{savingsRec("api", "0", "400m")}
+	noReq := func(name string) corev1.Pod {
+		return corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: name},
+			Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+			Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "app"}}},
+		}
+	}
+	pods := map[string][]corev1.Pod{
+		"api": {noReq("a"), noReq("b")},
+	}
+	savings, acc := r.computeSavings(recs, nil, pods)
+	assert.Equal(t, "800m", savings.CPURequestIncrease)
+	assert.Equal(t, "$18.10", savings.EstimatedMonthlyCostIncrease)
+	assert.Equal(t, int64(800), acc.totalCPUIncrease)
+	assert.Empty(t, savings.CPURequestReduction)
+}
+
+func TestComputeSavings_SkipsFinishedBoostedAndDeletingPods(t *testing.T) {
+	r := newSavingsReconciler()
+	recs := []attunev1alpha1.WorkloadRecommendation{savingsRec("api", "1", "400m")}
+	done := savingsCPUPod("done", "1")
+	done.Status.Phase = corev1.PodSucceeded
+	boost := savingsCPUPod("boost", "1")
+	boost.Annotations = map[string]string{annotationStartupBoostAt: "2026-11-05T00:00:00Z"}
+	dying := savingsCPUPod("dying", "1")
+	now := metav1.Now()
+	dying.DeletionTimestamp = &now
+	dying.Finalizers = []string{"test.attune.io/hold"}
+
+	pods := map[string][]corev1.Pod{
+		"api": {done, boost, dying, savingsCPUPod("live", "1")},
+	}
+	savings, _ := r.computeSavings(recs, nil, pods)
+	assert.Equal(t, "600m", savings.CPURequestReduction)
+}
+
+func savingsRec(workload, current, recommended string) attunev1alpha1.WorkloadRecommendation {
+	return attunev1alpha1.WorkloadRecommendation{
+		Workload: workload,
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "app",
+			Current: attunev1alpha1.ResourceValues{
+				CPURequest: resource.MustParse(current),
+			},
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest: resource.MustParse(recommended),
+			},
+		}},
+	}
+}
+
+func savingsCPUPod(name, cpu string) corev1.Pod {
+	return corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{
+			Name: "app",
+			Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse(cpu),
+			}},
+		}}},
+	}
 }
 
 // --- Defense-in-depth parsing helpers ---

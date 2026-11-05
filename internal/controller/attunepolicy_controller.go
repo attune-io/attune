@@ -668,7 +668,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		policy.Status.Recommendations = r.applyStatusBudget(recommendations, &policy)
 		var acc savingsAccumulator
 		// Savings use the full recommendation set, not the status-truncated copy.
-		policy.Status.Savings, acc = r.computeSavings(recommendations, defaults)
+		policy.Status.Savings, acc = r.computeSavings(recommendations, defaults, podsByWorkload)
 		updateSavingsGauges(policy.Namespace, acc, defaults)
 		updateReclaimedCapacityGauges(policy.Namespace, policy.Name, acc)
 	}
