@@ -426,7 +426,7 @@ func warnIneffectiveSettings(policy *attunev1alpha1.AttunePolicy) admission.Warn
 
 	// Export in Observe mode produces nothing (no recommendations surfaced).
 	if mode == attunev1alpha1.UpdateTypeObserve {
-		if policy.Spec.UpdateStrategy.Export != nil && policy.Spec.UpdateStrategy.Export.ConfigMap {
+		if policy.Spec.UpdateStrategy.Export.ConfigMapEnabled() {
 			w = append(w, "export.configMap has no effect in Observe mode; recommendations are not surfaced")
 		}
 		if policy.Spec.UpdateStrategy.Export != nil && policy.Spec.UpdateStrategy.Export.PullRequest != nil &&

@@ -674,7 +674,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	// Export recommendations to ConfigMaps for GitOps workflows if configured.
-	if policy.Spec.UpdateStrategy.Export != nil && policy.Spec.UpdateStrategy.Export.ConfigMap && len(recommendations) > 0 {
+	if policy.Spec.UpdateStrategy.Export.ConfigMapEnabled() && len(recommendations) > 0 {
 		r.exportRecommendationConfigMaps(ctx, &policy, recommendations)
 	}
 

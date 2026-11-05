@@ -267,7 +267,7 @@ func TestMergeUpdateStrategy_AllFields(t *testing.T) {
 		MaxTotalCPUIncrease:     &maxTotalCPU,
 		MaxTotalMemoryIncrease:  &maxTotalMem,
 		Schedule:                &attunev1alpha1.ResizeSchedule{Timezone: "UTC"},
-		Export:                  &attunev1alpha1.ExportConfig{ConfigMap: true},
+		Export:                  &attunev1alpha1.ExportConfig{ConfigMap: ptrBool(true)},
 		Canary:                  &attunev1alpha1.CanaryConfig{Percentage: 10, ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute}},
 		SafetyObservationPeriod: &metav1.Duration{Duration: 10 * time.Minute},
 		SLOGuardrails: []attunev1alpha1.SLOGuardrail{
@@ -294,7 +294,7 @@ func TestMergeUpdateStrategy_AllFields(t *testing.T) {
 	require.NotNil(t, policy.Schedule)
 	assert.Equal(t, "UTC", policy.Schedule.Timezone)
 	require.NotNil(t, policy.Export)
-	assert.True(t, policy.Export.ConfigMap)
+	assert.True(t, policy.Export.ConfigMapEnabled())
 	require.NotNil(t, policy.Canary)
 	assert.Equal(t, int32(10), policy.Canary.Percentage)
 	assert.Equal(t, 5*time.Minute, policy.Canary.ObservationPeriod.Duration)
@@ -730,7 +730,7 @@ func TestMergeUpdateStrategy_PolicyFieldsTakePrecedence(t *testing.T) {
 		MaxConcurrentResizes:    5,
 		SafetyObservationPeriod: &metav1.Duration{Duration: 10 * time.Minute},
 		Schedule:                &attunev1alpha1.ResizeSchedule{Timezone: "UTC"},
-		Export:                  &attunev1alpha1.ExportConfig{ConfigMap: true},
+		Export:                  &attunev1alpha1.ExportConfig{ConfigMap: ptrBool(true)},
 		Canary:                  &attunev1alpha1.CanaryConfig{Percentage: 10},
 	}
 	policy := &attunev1alpha1.UpdateStrategy{
@@ -741,7 +741,7 @@ func TestMergeUpdateStrategy_PolicyFieldsTakePrecedence(t *testing.T) {
 		MaxConcurrentResizes:    3,
 		SafetyObservationPeriod: &metav1.Duration{Duration: 5 * time.Minute},
 		Schedule:                &attunev1alpha1.ResizeSchedule{Timezone: "America/New_York"},
-		Export:                  &attunev1alpha1.ExportConfig{ConfigMap: false},
+		Export:                  &attunev1alpha1.ExportConfig{ConfigMap: ptrBool(false)},
 		Canary:                  &attunev1alpha1.CanaryConfig{Percentage: 20},
 	}
 
@@ -755,8 +755,46 @@ func TestMergeUpdateStrategy_PolicyFieldsTakePrecedence(t *testing.T) {
 	assert.Equal(t, int32(3), policy.MaxConcurrentResizes)
 	assert.Equal(t, 5*time.Minute, policy.SafetyObservationPeriod.Duration)
 	assert.Equal(t, "America/New_York", policy.Schedule.Timezone)
-	assert.False(t, policy.Export.ConfigMap)
+	assert.False(t, policy.Export.ConfigMapEnabled())
 	assert.Equal(t, int32(20), policy.Canary.Percentage)
+}
+
+func TestMergeUpdateStrategy_ExportSidesMergeIndependently(t *testing.T) {
+	pr := &attunev1alpha1.GitOpsPullRequestConfig{Enabled: ptrBool(true), Provider: "github"}
+	defaultsPR := &attunev1alpha1.UpdateStrategy{
+		Export: &attunev1alpha1.ExportConfig{PullRequest: pr},
+	}
+	onlyMap := &attunev1alpha1.UpdateStrategy{
+		Export: &attunev1alpha1.ExportConfig{ConfigMap: ptrBool(true)},
+	}
+	notes := MergeUpdateStrategy(onlyMap, defaultsPR)
+	assert.Contains(t, notes, "export.pullRequest")
+	assert.True(t, onlyMap.Export.ConfigMapEnabled())
+	require.NotNil(t, onlyMap.Export.PullRequest)
+	assert.Equal(t, "github", onlyMap.Export.PullRequest.Provider)
+
+	defaultsMap := &attunev1alpha1.UpdateStrategy{
+		Export: &attunev1alpha1.ExportConfig{ConfigMap: ptrBool(true)},
+	}
+	onlyPR := &attunev1alpha1.UpdateStrategy{
+		Export: &attunev1alpha1.ExportConfig{PullRequest: &attunev1alpha1.GitOpsPullRequestConfig{Provider: "gitlab"}},
+	}
+	notes = MergeUpdateStrategy(onlyPR, defaultsMap)
+	assert.Contains(t, notes, "export.configMap")
+	assert.True(t, onlyPR.Export.ConfigMapEnabled())
+	assert.Equal(t, "gitlab", onlyPR.Export.PullRequest.Provider)
+
+	off := &attunev1alpha1.UpdateStrategy{
+		Export: &attunev1alpha1.ExportConfig{ConfigMap: ptrBool(false)},
+	}
+	notes = MergeUpdateStrategy(off, defaultsMap)
+	assert.NotContains(t, notes, "export.configMap")
+	assert.False(t, off.Export.ConfigMapEnabled())
+
+	omitted := &attunev1alpha1.UpdateStrategy{}
+	notes = MergeUpdateStrategy(omitted, defaultsMap)
+	assert.Contains(t, notes, "export")
+	assert.True(t, omitted.Export.ConfigMapEnabled())
 }
 
 func TestMergeUpdateStrategy_PartialInheritance(t *testing.T) {
@@ -1116,6 +1154,53 @@ func TestApplyRuntimeProfileDefaults_ExplicitWins(t *testing.T) {
 		},
 	}
 	ApplyBuiltInDefaults(policy)
+	assert.True(t, *policy.Spec.Memory.AllowDecrease)
+	assert.Equal(t, "15", policy.Spec.Memory.Overhead)
+}
+
+func TestMergeDefaults_RuntimeProfileBeatsInheritedMemory(t *testing.T) {
+	allow := true
+	defaults := &attunev1alpha1.AttuneDefaults{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			Memory: &attunev1alpha1.ResourceConfig{
+				AllowDecrease: &allow,
+				Overhead:      "10",
+			},
+		},
+	}
+	tests := []struct {
+		profile      string
+		wantDecrease *bool
+		wantOverhead string
+	}{
+		{profile: "java", wantDecrease: ptrBool(false), wantOverhead: "40"},
+		{profile: "python", wantDecrease: ptrBool(false), wantOverhead: "10"},
+		{profile: "nodejs", wantDecrease: ptrBool(false), wantOverhead: "10"},
+		{profile: "golang", wantDecrease: ptrBool(true), wantOverhead: "10"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.profile, func(t *testing.T) {
+			policy := &attunev1alpha1.AttunePolicy{
+				Spec: attunev1alpha1.AttunePolicySpec{RuntimeProfile: tt.profile},
+			}
+			MergeDefaults(policy, defaults)
+			require.NotNil(t, policy.Spec.Memory.AllowDecrease)
+			assert.Equal(t, *tt.wantDecrease, *policy.Spec.Memory.AllowDecrease)
+			assert.Equal(t, tt.wantOverhead, policy.Spec.Memory.Overhead)
+		})
+	}
+
+	explicit := true
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			RuntimeProfile: "java",
+			Memory: attunev1alpha1.ResourceConfig{
+				AllowDecrease: &explicit,
+				Overhead:      "15",
+			},
+		},
+	}
+	MergeDefaults(policy, defaults)
 	assert.True(t, *policy.Spec.Memory.AllowDecrease)
 	assert.Equal(t, "15", policy.Spec.Memory.Overhead)
 }

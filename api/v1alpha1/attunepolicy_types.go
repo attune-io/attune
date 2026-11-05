@@ -884,13 +884,20 @@ type SLOGuardrail struct {
 // GitLab PR when recommendations drift from workload templates.
 type ExportConfig struct {
 	// ConfigMap enables exporting recommendations to ConfigMaps.
+	// Omitted inherits AttuneDefaults. Explicit false turns ConfigMaps off.
 	// +optional
-	ConfigMap bool `json:"configMap,omitempty"`
+	ConfigMap *bool `json:"configMap,omitempty"`
 
 	// PullRequest enables opt-in GitOps PR automation (default off).
 	// Requires a token Secret and repository identity. Never logs the token.
 	// +optional
 	PullRequest *GitOpsPullRequestConfig `json:"pullRequest,omitempty"`
+}
+
+// ConfigMapEnabled reports whether recommendation ConfigMaps are on.
+// A nil receiver or an omitted ConfigMap is off.
+func (e *ExportConfig) ConfigMapEnabled() bool {
+	return e != nil && e.ConfigMap != nil && *e.ConfigMap
 }
 
 // GitOpsPullRequestConfig configures opt-in PR creation for recommendation drift.

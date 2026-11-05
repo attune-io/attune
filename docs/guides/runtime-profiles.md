@@ -18,7 +18,10 @@ for those workloads. It does **not** rewrite pod specs or inject JVM flags.
 | `nodejs` | `memory.allowDecrease=false` if unset | Same caution for V8 heap |
 | `golang` | No extra defaults | Typically adapts to cgroup limits |
 
-Explicit policy values always win over profile defaults.
+Explicit policy values always win over profile defaults. The profile
+fills unset fields before AttuneDefaults, so a cluster
+`memory.allowDecrease: true` does not replace java, python, or nodejs.
+golang leaves `allowDecrease` unset and still inherits the cluster value.
 
 ## Example
 

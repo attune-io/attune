@@ -1447,10 +1447,10 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 		exportConfigured = "true"
 	}
 	exportEffective := ""
-	if effective.Spec.UpdateStrategy.Export != nil && effective.Spec.UpdateStrategy.Export.ConfigMap {
+	if effective.Spec.UpdateStrategy.Export.ConfigMapEnabled() {
 		exportEffective = "ConfigMap"
 	}
-	printEffectiveField("Export", exportConfigured, exportEffective, selected, updateDefaults != nil && updateDefaults.Export != nil && updateDefaults.Export.ConfigMap)
+	printEffectiveField("Export", exportConfigured, exportEffective, selected, updateDefaults != nil && updateDefaults.Export.ConfigMapEnabled())
 
 	// GitOps pull request automation (opt-in Phase B)
 	prConfigured := ""
@@ -1629,7 +1629,7 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 	fmt.Println("  Pending safety revert still runs.")
 
 	// Pure export / GitOps mode note (makes the recommended workflow first-class in CLI)
-	if effective.Spec.UpdateStrategy.Export != nil && effective.Spec.UpdateStrategy.Export.ConfigMap {
+	if effective.Spec.UpdateStrategy.Export.ConfigMapEnabled() {
 		mode := effective.Spec.UpdateStrategy.Type
 		fmt.Println()
 		if mode == attunev1alpha1.UpdateTypeRecommend || mode == attunev1alpha1.UpdateTypeObserve {

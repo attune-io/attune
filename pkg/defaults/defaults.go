@@ -279,6 +279,11 @@ func pickCostPricing(namespace, cluster *attunev1alpha1.CostPricing) *attunev1al
 // policy where the policy has not specified its own values. Returns the
 // list of field names that were inherited (for debug logging by callers).
 func MergeDefaults(policy *attunev1alpha1.AttunePolicy, defaults *attunev1alpha1.AttuneDefaults) []string {
+	// The profile is a choice on the policy. Fill it before AttuneDefaults
+	// so a cluster allowDecrease does not replace java, python, or nodejs.
+	if policy != nil {
+		applyRuntimeProfileDefaults(policy)
+	}
 	return mergeDefaults(policy, defaults, true)
 }
 
@@ -623,6 +628,16 @@ func MergeUpdateStrategy(policy *attunev1alpha1.UpdateStrategy, defaults *attune
 	if policy.Export == nil && defaults.Export != nil {
 		policy.Export = defaults.Export
 		inherited = append(inherited, "export")
+	} else if policy.Export != nil && defaults.Export != nil {
+		if policy.Export.ConfigMap == nil && defaults.Export.ConfigMap != nil {
+			v := *defaults.Export.ConfigMap
+			policy.Export.ConfigMap = &v
+			inherited = append(inherited, "export.configMap")
+		}
+		if policy.Export.PullRequest == nil && defaults.Export.PullRequest != nil {
+			policy.Export.PullRequest = defaults.Export.PullRequest.DeepCopy()
+			inherited = append(inherited, "export.pullRequest")
+		}
 	}
 	if policy.Canary == nil && defaults.Canary != nil {
 		policy.Canary = defaults.Canary
