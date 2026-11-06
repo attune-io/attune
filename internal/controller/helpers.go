@@ -899,9 +899,9 @@ func (r *AttunePolicyReconciler) setScheduleBlockedCondition(policy *attunev1alp
 	}
 
 	if !withinWindow {
-		message := "Resizes deferred: current time is outside the configured schedule window"
+		message := "Workload changes are deferred: current time is outside the configured schedule window"
 		if scheduleWindowsNeverOpen(policy.Spec.UpdateStrategy.Schedule) {
-			message = "Resizes deferred: schedule window start and end are the same, so the window never opens"
+			message = "Workload changes are deferred: schedule window start and end are the same, so the window never opens"
 		}
 		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
 			Type:               attunev1alpha1.ConditionScheduleBlocked,
