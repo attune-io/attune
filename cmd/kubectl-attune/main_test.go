@@ -4874,6 +4874,7 @@ func TestPrintExportList_NoConfigMaps(t *testing.T) {
 	output := buf.String()
 
 	assert.Contains(t, output, "No exported recommendation ConfigMaps found")
+	assert.Contains(t, output, "including a value inherited from AttuneDefaults")
 }
 
 func TestPrintExportList_DerivationWarning(t *testing.T) {

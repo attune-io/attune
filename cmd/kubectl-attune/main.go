@@ -1051,7 +1051,7 @@ func printExportList(ctx context.Context, dynClient dynamic.Interface, namespace
 
 	if len(cms.Items) == 0 {
 		fmt.Println("No exported recommendation ConfigMaps found.")
-		fmt.Println("Tip: Policies with updateStrategy.export.configMap: true will create them once they have recommendations.")
+		fmt.Println("Tip: Policies with export.configMap enabled, including a value inherited from AttuneDefaults, create them once they have recommendations.")
 		return nil
 	}
 
