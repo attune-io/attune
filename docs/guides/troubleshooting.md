@@ -1679,15 +1679,16 @@ sum by (namespace, workload) (rate(attune_revert_failures_total[5m])) > 0
 
 **Symptom**: The live pod is back at the original resources after a
 safety revert, but the workload template still has the persisted
-post-resize requests. `.status.resizeHistory` still shows
-`result: Success` for that resize. There is no `TemplatePatchFailed`
-event. `attune_revert_failures_total` stays 0.
+post-resize requests. `.status.resizeHistory` shows `result: Reverted`
+for that resize. There is no `TemplatePatchFailed` event.
+`attune_revert_failures_total` stays 0 and `attune_reverts_total`
+increased.
 
 **Cause**: The in-place `/resize` revert succeeded, then restoring the
-`AfterSuccessfulResize` template failed. The helper logs
-`Failed to restore template after safety revert` and returns before
-`attune_reverts_total` and the `Reverted` event. Tracking annotations
-stay on the pod so the next reconcile retries.
+`AfterSuccessfulResize` template failed. The helper marks the cycle
+`Reverted`, increments `attune_reverts_total`, then logs
+`Failed to restore template after safety revert`. Tracking annotations
+stay on the pod so the next reconcile retries the template restore.
 
 **Fix**: Grep operator logs for the restore-fail line (not
 `Failed to revert`):
@@ -1705,6 +1706,20 @@ list, confirm, cleanup, or template restore also failed. Tracking
 stays; the next reconcile retries the restore even when the pod is
 Ready again, as long as live resources still match the applied
 revert target (clamped original, not always the raw snapshot).
+
+### Safety rollback did not land
+
+**Symptom**: A safety check decided to undo a resize, the pod is still
+at the new requests, and `.status.resizeHistory` shows `result: Failed`
+for that container. `attune_revert_failures_total` increased.
+
+**Cause**: The observation-window `/resize` revert was rejected. The
+cycle is no longer recorded as Success. Tracking annotations stay so
+the next reconcile tries again. A later successful revert marks that
+same cycle `Reverted`.
+
+**Fix**: Grep operator logs for `Failed to revert pod during safety
+observation` or `Failed to revert pod during early critical check`.
 
 ### Safety observation stuck
 

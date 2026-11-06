@@ -1290,7 +1290,8 @@ func markLatestCycleReverted(history []attunev1alpha1.ResizeHistoryEntry, worklo
 	var matchTS time.Time
 	for i := len(history) - 1; i >= 0; i-- {
 		h := &history[i]
-		if h.Workload == workload && h.Container == container && h.Result == attunev1alpha1.ResizeResultSuccess {
+		if h.Workload == workload && h.Container == container &&
+			(h.Result == attunev1alpha1.ResizeResultSuccess || h.Result == attunev1alpha1.ResizeResultFailed) {
 			if !matched {
 				matchTS = h.Timestamp.Time
 				matched = true
@@ -1300,6 +1301,45 @@ func markLatestCycleReverted(history []attunev1alpha1.ResizeHistoryEntry, worklo
 				h.Reason = reason
 			} else {
 				break // older cycle
+			}
+		} else if matched {
+			break
+		}
+	}
+}
+
+// markLatestCycleFailed marks the newest Success cycle for this container
+// as Failed. A later successful revert can still flip that cycle to
+// Reverted. An already-Failed newest row is left as-is so an older
+// Success cycle is not rewritten.
+func markLatestCycleFailed(history []attunev1alpha1.ResizeHistoryEntry, workload, container, reason string) {
+	for i := len(history) - 1; i >= 0; i-- {
+		h := history[i]
+		if h.Workload != workload || h.Container != container {
+			continue
+		}
+		if h.Resource == "template" || h.Method == "TemplatePersistence" {
+			continue
+		}
+		if h.Result == attunev1alpha1.ResizeResultFailed {
+			return
+		}
+		break
+	}
+	var matched bool
+	var matchTS time.Time
+	for i := len(history) - 1; i >= 0; i-- {
+		h := &history[i]
+		if h.Workload == workload && h.Container == container && h.Result == attunev1alpha1.ResizeResultSuccess {
+			if !matched {
+				matchTS = h.Timestamp.Time
+				matched = true
+			}
+			if h.Timestamp.Time.Equal(matchTS) {
+				h.Result = attunev1alpha1.ResizeResultFailed
+				h.Reason = reason
+			} else {
+				break
 			}
 		} else if matched {
 			break
