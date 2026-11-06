@@ -892,8 +892,19 @@ func (r *AttunePolicyReconciler) setResizingCondition(policy *attunev1alpha1.Att
 // setScheduleBlockedCondition sets or removes the ScheduleBlocked condition
 // based on whether a resize schedule is configured and whether the current
 // time falls within the allowed window.
+func scheduleRestrictsTime(schedule *attunev1alpha1.ResizeSchedule) bool {
+	if schedule == nil {
+		return false
+	}
+	return len(schedule.Windows) > 0 || len(schedule.DaysOfWeek) > 0
+}
+
 func (r *AttunePolicyReconciler) setScheduleBlockedCondition(policy *attunev1alpha1.AttunePolicy, withinWindow bool) {
-	if policy.Spec.UpdateStrategy == nil || policy.Spec.UpdateStrategy.Schedule == nil || len(policy.Spec.UpdateStrategy.Schedule.Windows) == 0 {
+	var schedule *attunev1alpha1.ResizeSchedule
+	if policy.Spec.UpdateStrategy != nil {
+		schedule = policy.Spec.UpdateStrategy.Schedule
+	}
+	if !scheduleRestrictsTime(schedule) {
 		meta.RemoveStatusCondition(&policy.Status.Conditions, attunev1alpha1.ConditionScheduleBlocked)
 		return
 	}

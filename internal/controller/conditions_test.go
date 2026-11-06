@@ -1290,6 +1290,30 @@ func TestSetScheduleBlockedCondition_NoSchedule(t *testing.T) {
 	assert.Nil(t, cond, "should not set condition when no schedule")
 }
 
+func TestSetScheduleBlockedCondition_DaysOfWeekWithoutWindows(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Schedule: &attunev1alpha1.ResizeSchedule{
+					DaysOfWeek: []string{"Monday"},
+				},
+			},
+		},
+	}
+	r.setScheduleBlockedCondition(policy, false)
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionScheduleBlocked)
+	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionTrue, cond.Status)
+	assert.Equal(t, attunev1alpha1.ReasonOutsideWindow, cond.Reason)
+
+	r.setScheduleBlockedCondition(policy, true)
+	cond = meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionScheduleBlocked)
+	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, attunev1alpha1.ReasonInsideWindow, cond.Reason)
+}
+
 func TestSetScheduleBlockedCondition_OutsideWindow(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{
