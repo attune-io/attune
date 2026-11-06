@@ -849,9 +849,9 @@ The same merge patch works on `attunedefaults` and
 ### Schedule window never opens
 
 **Symptom:** ScheduleBlocked is True with reason `OutsideWindow` at
-every hour, including the minute you set. The message says the window
-never opens. `attune_schedule_skipped_total` increases on each resize
-reconcile.
+every hour, including the minute you set. The message says workload
+changes are deferred because the window never opens.
+`attune_schedule_skipped_total` increases on each resize reconcile.
 
 **Cause:** The window start and end are the same minute, such as
 `02:00` to `02:00`. The end minute is exclusive, so that pair matches

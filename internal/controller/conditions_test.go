@@ -1307,6 +1307,7 @@ func TestSetScheduleBlockedCondition_OutsideWindow(t *testing.T) {
 	assert.Equal(t, metav1.ConditionTrue, cond.Status)
 	assert.Equal(t, attunev1alpha1.ReasonOutsideWindow, cond.Reason)
 	assert.Contains(t, cond.Message, "outside the configured schedule window")
+	assert.NotContains(t, cond.Message, "Resizes deferred")
 }
 
 func TestSetScheduleBlockedCondition_EqualWindowExplainsWhy(t *testing.T) {
