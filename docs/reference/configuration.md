@@ -366,7 +366,7 @@ that do not set them explicitly. Policy-level values always take precedence.
 | `maxTotalMemoryIncrease` | quantity | (none) | Deprecated. Max aggregate memory increase per cycle. Prefer `maxMemoryIncreasePerMinute`. |
 | `maxCpuIncreasePerMinute` | quantity | (none) | Max aggregate CPU increase per wall-clock minute (token bucket) |
 | `maxMemoryIncreasePerMinute` | quantity | (none) | Max aggregate memory increase per wall-clock minute (token bucket) |
-| `schedule` | object | (none) | Time windows, days of week, timezone. The window end minute is exclusive. Start and end must differ. An equal pair never opens and admission rejects it. |
+| `schedule` | object | (none) | Time windows, days of week, timezone. The window end minute is exclusive. Start and end must differ. An equal pair never opens and admission rejects it. Days of week with no windows allow every time on those days. Other days set `ScheduleBlocked`. |
 | `export` | object | (none) | Metrics export configuration |
 | `safetyObservationPeriod` | duration | `5m` | Post-resize observation window. Omit the field for 5m. Zero is invalid on create, and changing a positive duration to `0s` is rejected. The shortest accepted value is 1m. A stored `0s` on `AttunePolicy`, `AttuneDefaults`, or `AttuneNamespaceDefaults` can stay through an unrelated update and is treated as unset (5m, or a positive canary period). The window does not finish while the kubelet still reports the resize in progress or deferred. It starts again when that condition clears. Infeasible does not extend it. An in-progress condition that has been true for an hour does not start a new window. |
 | `sloGuardrails` | list | `[]` | Application-level SLO PromQL checks after resize |
