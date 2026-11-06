@@ -44,7 +44,7 @@ kubectl attune savings --sort-by savings -A
 | RESIZING | `InProgress`, `Idle`, `CooldownActive`, `NamespaceFrozen`, `HPAListUnavailable`, `VPAListUnavailable`, or `-` (non-resize modes). Those last three reasons are copied from `ResizeBlocked`; `READY` can stay `Monitoring`. |
 | DEGRADED | `HighRevertRate` or `-` |
 | CANARY | Canary phase. With per-app rows: `CanaryInProgress (1/2 apps)`. Legacy: `CanaryInProgress (2 pods)`. `-` when mode is not Canary |
-| EXPORT | `CM` when `export.configMap: true` (recommendations written to ConfigMaps for GitOps), `-` otherwise |
+| EXPORT | `CM` when recommendation ConfigMaps are on after AttuneDefaults merge, `-` when they are off. An omitted `configMap` that inherits true shows `CM`. Explicit `false` stays off. |
 
 When any policy has per-workload errors, they are printed below the table
 with the workload name and error message.
@@ -129,8 +129,8 @@ kubectl attune recommendations -n production
 
 ### export
 
-Lists recommendation exports written to ConfigMaps when a policy has `updateStrategy.export.configMap: true`
-(the primary GitOps integration pattern with ArgoCD, Flux, etc.).
+Lists recommendation ConfigMaps the operator wrote. It writes them when the effective `updateStrategy.export.configMap` is true, including a value inherited from AttuneDefaults
+(the primary GitOps integration pattern with ArgoCD, Flux, etc.). Explicit `false` stays off.
 
 ```bash
 kubectl attune export
