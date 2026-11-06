@@ -80,7 +80,8 @@ func TestListPodsForWorkloads_SingleNSList(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	r.Client = c
 
-	out := r.listPodsForWorkloads(context.Background(), []client.Object{d1, d2})
+	out, failed := r.listPodsForWorkloads(context.Background(), []client.Object{d1, d2})
+	assert.Empty(t, failed)
 	require.Len(t, out["app1"], 2)
 	require.Len(t, out["app2"], 1)
 	assert.Equal(t, "p2", out["app2"][0].Name)
@@ -106,10 +107,12 @@ func TestMetricsPodRegex_SamplesWhenLarge(t *testing.T) {
 func TestListPodsForWorkloads_Empty(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	r.Client = fake.NewClientBuilder().WithScheme(testScheme()).Build()
-	out := r.listPodsForWorkloads(context.Background(), nil)
+	out, failed := r.listPodsForWorkloads(context.Background(), nil)
 	assert.Empty(t, out)
-	out = r.listPodsForWorkloads(context.Background(), []client.Object{})
+	assert.Empty(t, failed)
+	out, failed = r.listPodsForWorkloads(context.Background(), []client.Object{})
 	assert.Empty(t, out)
+	assert.Empty(t, failed)
 }
 
 func TestListPodsForWorkloads_SkipsEmptySelector(t *testing.T) {
@@ -123,7 +126,8 @@ func TestListPodsForWorkloads_SkipsEmptySelector(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(d, p).Build()
 	r := NewAttunePolicyReconciler()
 	r.Client = c
-	out := r.listPodsForWorkloads(context.Background(), []client.Object{d})
+	out, failed := r.listPodsForWorkloads(context.Background(), []client.Object{d})
+	assert.Empty(t, failed)
 	_, ok := out["nosel"]
 	assert.False(t, ok, "workload without selector labels must be skipped")
 }
@@ -169,9 +173,40 @@ func TestListPodsForWorkloads_NSListErrorFallsBackPerWorkload(t *testing.T) {
 
 	r := NewAttunePolicyReconciler()
 	r.Client = c
-	out := r.listPodsForWorkloads(context.Background(), []client.Object{d})
+	out, failed := r.listPodsForWorkloads(context.Background(), []client.Object{d})
+	assert.Empty(t, failed)
 	require.Len(t, out["app"], 1)
 	assert.Equal(t, "p1", out["app"][0].Name)
+}
+
+func TestListPodsForWorkloads_BothListsFailMarksUnlisted(t *testing.T) {
+	scheme := testScheme()
+	d := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "ns"},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "app"}},
+		},
+	}
+	base := fake.NewClientBuilder().WithScheme(scheme).WithObjects(d).Build()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(d).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, cl client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				if _, ok := list.(*corev1.PodList); ok {
+					return fmt.Errorf("simulated pod list failure")
+				}
+				return base.List(ctx, list, opts...)
+			},
+		}).
+		Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+
+	out, failed := r.listPodsForWorkloads(context.Background(), []client.Object{d})
+	_, ok := out["app"]
+	assert.False(t, ok, "a failed list must not look like zero pods")
+	_, marked := failed["app"]
+	assert.True(t, marked)
+	assert.Equal(t, []string{"app"}, unlistedWorkloadNames(failed))
 }
 
 func TestMaxWorkloadWorkers(t *testing.T) {

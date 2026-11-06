@@ -56,6 +56,7 @@ const (
 	// exist and were combined (3-tier merge); individual fields may come from either layer.
 	sourceMergedDefaults = "merged defaults (namespace+cluster)"
 	sourceBuiltIn        = "built-in default"
+	sourceRuntimeProfile = "runtime profile"
 	// Container rows use the shorter built-in word. Other explain lines
 	// keep sourceBuiltIn.
 	sourceBuiltInContainer  = "built-in"
@@ -712,9 +713,13 @@ func printSavingsItems(items []unstructured.Unstructured, sortByFlag string) {
 		}
 	}
 
-	// Print totals row when at least one policy has savings data.
-	if hasTotals {
-		totalCPU := resource.NewMilliQuantity(totalCPUMillis, resource.DecimalSI).String()
+	// Print totals when any policy has CPU savings, memory savings, or both.
+	// Gating on CPU alone hid a memory-only total.
+	if hasTotals || hasMemTotals {
+		totalCPU := "-"
+		if hasTotals {
+			totalCPU = resource.NewMilliQuantity(totalCPUMillis, resource.DecimalSI).String()
+		}
 		totalMem := "-"
 		if hasMemTotals {
 			totalMem = formatMemory(fmt.Sprintf("%d", totalMemBytes))
@@ -1571,12 +1576,22 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 
 	fmt.Println("  Memory:")
 	printEffectiveField("  Percentile", formatInt64Field(item, "spec", "memory", "percentile"), formatInt32Val(effective.Spec.Memory.Percentile), selected, memDefaults != nil && memDefaults.Percentile != 0)
-	printEffectiveField("  Overhead", getNestedString(item, "spec", "memory", "overhead"), effective.Spec.Memory.Overhead, selected, memDefaults != nil && memDefaults.Overhead != "")
+	overheadConfigured := getNestedString(item, "spec", "memory", "overhead")
+	if overheadConfigured == "" && pkgdefaults.RuntimeProfileFillsOverhead(effective.Spec.RuntimeProfile) {
+		printRuntimeProfileField("  Overhead", effective.Spec.Memory.Overhead, effective.Spec.RuntimeProfile)
+	} else {
+		printEffectiveField("  Overhead", overheadConfigured, effective.Spec.Memory.Overhead, selected, memDefaults != nil && memDefaults.Overhead != "")
+	}
 	printEffectiveField("  Min allowed", getNestedString(item, "spec", "memory", "minAllowed"), formatQuantityPtr(effective.Spec.Memory.MinAllowed), selected, memDefaults != nil && memDefaults.MinAllowed != nil)
 	printEffectiveField("  Max allowed", getNestedString(item, "spec", "memory", "maxAllowed"), formatQuantityPtr(effective.Spec.Memory.MaxAllowed), selected, memDefaults != nil && memDefaults.MaxAllowed != nil)
 	printEffectiveField("  Controlled values", getNestedString(item, "spec", "memory", "controlledValues"), formatStringPtr(effective.Spec.Memory.ControlledValues), selected, memDefaults != nil && memDefaults.ControlledValues != nil)
 	printEffectiveField("  Limit multiplier", getNestedString(item, "spec", "memory", "limitMultiplier"), formatStringPtr(effective.Spec.Memory.LimitMultiplier), selected, memDefaults != nil && memDefaults.LimitMultiplier != nil && *memDefaults.LimitMultiplier != "")
-	printEffectiveField("  Allow decrease", formatBoolField(item, "spec", "memory", "allowDecrease"), formatBoolPtr(effective.Spec.Memory.AllowDecrease), selected, memDefaults != nil && memDefaults.AllowDecrease != nil)
+	allowConfigured := formatBoolField(item, "spec", "memory", "allowDecrease")
+	if allowConfigured == "" && pkgdefaults.RuntimeProfileFillsAllowDecrease(effective.Spec.RuntimeProfile) {
+		printRuntimeProfileField("  Allow decrease", formatBoolPtr(effective.Spec.Memory.AllowDecrease), effective.Spec.RuntimeProfile)
+	} else {
+		printEffectiveField("  Allow decrease", allowConfigured, formatBoolPtr(effective.Spec.Memory.AllowDecrease), selected, memDefaults != nil && memDefaults.AllowDecrease != nil)
+	}
 	printEffectiveField("  Burst sensitivity", getNestedString(item, "spec", "memory", "burstSensitivity"), formatStringPtr(effective.Spec.Memory.BurstSensitivity), selected, memDefaults != nil && memDefaults.BurstSensitivity != nil)
 	printEffectiveField("  Max change", formatPercentInt64Ptr(rawInt64Field(item, "spec", "memory", "maxChangePercent")), formatPercentPtr(effective.Spec.Memory.MaxChangePercent), selected, memDefaults != nil && memDefaults.MaxChangePercent != nil)
 	printEffectiveField("  Max increase", formatPercentInt64Ptr(rawInt64Field(item, "spec", "memory", "maxIncreasePercent")), formatPercentPtr(effective.Spec.Memory.MaxIncreasePercent), selected, memDefaults != nil && memDefaults.MaxIncreasePercent != nil)
@@ -1722,6 +1737,14 @@ func printSurgeFields(item unstructured.Unstructured, resourceName string, block
 	printEffectiveField("  Surge trigger ratio", getNestedString(item, "spec", resourceName, "surge", "triggerRatio"), ratio, selected, fromDefaults && defaultsBlock.TriggerRatio != "")
 	printEffectiveField("  Surge percentile", formatInt64Field(item, "spec", resourceName, "surge", "percentile"), pct, selected, fromDefaults && defaultsBlock.Percentile != nil)
 	printEffectiveField("  Surge window", getNestedString(item, "spec", resourceName, "surge", "window"), window, selected, fromDefaults && defaultsBlock.Window != nil)
+}
+
+func printRuntimeProfileField(label, effective, profile string) {
+	if effective == "" || profile == "" {
+		return
+	}
+	fmt.Printf("  %s: %s (source: %s %s, configured: %s)\n",
+		label, effective, sourceRuntimeProfile, profile, unsetValue)
 }
 
 func printEffectiveField(label, configured, effective string, selected selectedDefaults, inherited bool) {

@@ -175,7 +175,7 @@ func (r *AttunePolicyReconciler) unwindRejectedTenantMetrics(ctx context.Context
 		policy.Spec.CPU.StartupBoost == nil || len(policy.Status.Recommendations) == 0 {
 		return
 	}
-	podsByWorkload := r.listPodsForWorkloads(ctx, workloads)
+	podsByWorkload, _ := r.listPodsForWorkloads(ctx, workloads)
 	resizer := resize.NewPodResizer(r.Clientset, logger)
 	resizer.AllowInPlaceMemoryLimitDecrease = r.AllowInPlaceMemoryLimitDecrease
 	resizer.InPlacePodLevelResources = r.inPlacePodLevelResources()

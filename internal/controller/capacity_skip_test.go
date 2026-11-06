@@ -890,7 +890,7 @@ func TestComputeSavings_ReclaimedAliases(t *testing.T) {
 			},
 		},
 	}
-	savings, acc := r.computeSavings(recs, nil, nil)
+	savings, acc := r.computeSavings(recs, nil, nil, nil)
 	assert.Equal(t, savings.CPURequestReduction, savings.ReclaimedCPURequest)
 	assert.Equal(t, savings.MemoryRequestReduction, savings.ReclaimedMemoryRequest)
 	assert.NotEmpty(t, savings.ReclaimedCPURequest)

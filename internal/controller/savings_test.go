@@ -43,7 +43,7 @@ func newSavingsReconciler() *AttunePolicyReconciler {
 
 func TestComputeSavings_Empty(t *testing.T) {
 	r := newSavingsReconciler()
-	savings, _ := r.computeSavings(nil, nil, nil)
+	savings, _ := r.computeSavings(nil, nil, nil, nil)
 	assert.Empty(t, savings.CPURequestReduction)
 	assert.Empty(t, savings.MemoryRequestReduction)
 }
@@ -70,7 +70,7 @@ func TestComputeSavings_CPUReduction(t *testing.T) {
 		},
 	}
 
-	savings, _ := r.computeSavings(recommendations, nil, nil)
+	savings, _ := r.computeSavings(recommendations, nil, nil, nil)
 	// 500m - 150m = 350m saved.
 	assert.Equal(t, "350m", savings.CPURequestReduction)
 	// Memory unchanged.
@@ -101,7 +101,7 @@ func TestComputeSavings_MemoryReduction(t *testing.T) {
 		},
 	}
 
-	savings, _ := r.computeSavings(recommendations, nil, nil)
+	savings, _ := r.computeSavings(recommendations, nil, nil, nil)
 	// CPU unchanged.
 	assert.Empty(t, savings.CPURequestReduction)
 	// 512Mi - 280Mi = 232Mi saved.
@@ -147,7 +147,7 @@ func TestComputeSavings_MultipleWorkloads(t *testing.T) {
 		},
 	}
 
-	savings, _ := r.computeSavings(recommendations, nil, nil)
+	savings, _ := r.computeSavings(recommendations, nil, nil, nil)
 	// CPU: (500-300) + (1000-900) = 200 + 100 = 300m.
 	assert.Equal(t, "300m", savings.CPURequestReduction)
 	// Memory: (512-384)Mi + (1024-768)Mi = 128Mi + 256Mi = 384Mi.
@@ -176,7 +176,7 @@ func TestComputeSavings_NoReduction(t *testing.T) {
 		},
 	}
 
-	savings, _ := r.computeSavings(recommendations, nil, nil)
+	savings, _ := r.computeSavings(recommendations, nil, nil, nil)
 	// Recommended >= current for both resources: no savings.
 	assert.Empty(t, savings.CPURequestReduction)
 	assert.Empty(t, savings.MemoryRequestReduction)
@@ -220,7 +220,7 @@ func TestComputeSavings_Mixed(t *testing.T) {
 		},
 	}
 
-	savings, _ := r.computeSavings(recommendations, nil, nil)
+	savings, _ := r.computeSavings(recommendations, nil, nil, nil)
 	// Only the first container saves CPU: 500m - 150m = 350m.
 	// The second container increases CPU, which is not counted as savings.
 	assert.Equal(t, "350m", savings.CPURequestReduction)
@@ -271,7 +271,7 @@ func TestComputeSavings_SkipsStale(t *testing.T) {
 		},
 	}
 
-	savings, acc := r.computeSavings(recommendations, nil, nil)
+	savings, acc := r.computeSavings(recommendations, nil, nil, nil)
 	assert.Equal(t, "400m", savings.CPURequestReduction, "stale rec must not add 1900m")
 	assert.Equal(t, int64(400), acc.totalCPUSaved)
 	assert.Equal(t, int64(500), acc.totalCPU)
@@ -284,7 +284,7 @@ func TestComputeSavings_SumsEachLivePod(t *testing.T) {
 		"api": {savingsCPUPod("a", "1"), savingsCPUPod("b", "1")},
 	}
 
-	savings, acc := r.computeSavings(recs, nil, pods)
+	savings, acc := r.computeSavings(recs, nil, pods, nil)
 	assert.Equal(t, "1200m", savings.CPURequestReduction)
 	assert.Equal(t, "2", savings.CPURequestTotal)
 	assert.Equal(t, "1200m", savings.ReclaimedCPURequest)
@@ -324,7 +324,7 @@ func TestComputeSavings_PodAlreadyAtRecommendationAddsNothing(t *testing.T) {
 		"api": {savingsCPUPod("done", "400m"), savingsCPUPod("left", "1")},
 	}
 
-	savings, acc := r.computeSavings(recs, nil, pods)
+	savings, acc := r.computeSavings(recs, nil, pods, nil)
 	assert.Equal(t, "600m", savings.CPURequestReduction)
 	assert.Equal(t, "1400m", savings.CPURequestTotal)
 	assert.Equal(t, "$13.58", savings.EstimatedMonthlySavings)
@@ -344,7 +344,7 @@ func TestComputeSavings_OmittedRequestIsZero(t *testing.T) {
 	pods := map[string][]corev1.Pod{
 		"api": {noReq("a"), noReq("b")},
 	}
-	savings, acc := r.computeSavings(recs, nil, pods)
+	savings, acc := r.computeSavings(recs, nil, pods, nil)
 	assert.Equal(t, "800m", savings.CPURequestIncrease)
 	assert.Equal(t, "$18.10", savings.EstimatedMonthlyCostIncrease)
 	assert.Equal(t, int64(800), acc.totalCPUIncrease)
@@ -366,8 +366,20 @@ func TestComputeSavings_SkipsFinishedBoostedAndDeletingPods(t *testing.T) {
 	pods := map[string][]corev1.Pod{
 		"api": {done, boost, dying, savingsCPUPod("live", "1")},
 	}
-	savings, _ := r.computeSavings(recs, nil, pods)
+	savings, _ := r.computeSavings(recs, nil, pods, nil)
 	assert.Equal(t, "600m", savings.CPURequestReduction)
+}
+
+func TestComputeSavings_UnlistedWorkloadKeepsOneDiff(t *testing.T) {
+	r := newSavingsReconciler()
+	recs := []attunev1alpha1.WorkloadRecommendation{savingsRec("api", "1", "400m")}
+	pods := map[string][]corev1.Pod{}
+
+	missing, _ := r.computeSavings(recs, nil, pods, nil)
+	assert.Empty(t, missing.CPURequestReduction, "a successful list with no pods adds nothing")
+
+	failed, _ := r.computeSavings(recs, nil, pods, map[string]struct{}{"api": {}})
+	assert.Equal(t, "600m", failed.CPURequestReduction, "a failed list keeps one diff per container")
 }
 
 func savingsRec(workload, current, recommended string) attunev1alpha1.WorkloadRecommendation {

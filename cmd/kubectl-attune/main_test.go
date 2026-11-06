@@ -38,6 +38,7 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	pkgdefaults "github.com/attune-io/attune/pkg/defaults"
 )
 
 func TestFormatAge(t *testing.T) {
@@ -1532,6 +1533,39 @@ func TestPrintSavings_CPUOnlyTotalLeavesMemoryBlank(t *testing.T) {
 	assert.NotContains(t, output, "0B")
 	total := savingsTotalLine(output)
 	require.NotEmpty(t, total)
+	assert.Contains(t, total, "-")
+}
+
+func TestPrintSavings_MemoryOnlyShowsTotal(t *testing.T) {
+	items := []unstructured.Unstructured{{
+		Object: map[string]interface{}{
+			"metadata": map[string]interface{}{"name": "mem", "namespace": "ns"},
+			"status": map[string]interface{}{
+				"savings": map[string]interface{}{
+					"memoryRequestReduction":  "134217728",
+					"estimatedMonthlySavings": "$2.00",
+				},
+			},
+		},
+	}}
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	printSavingsItems(items, "")
+	require.NoError(t, w.Close())
+	os.Stdout = old
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	output := string(out)
+
+	assert.Contains(t, output, "128Mi")
+	assert.Contains(t, output, "$2.00")
+	total := savingsTotalLine(output)
+	require.NotEmpty(t, total, "memory-only savings still need a TOTAL row")
+	assert.Contains(t, total, "128Mi")
+	assert.Contains(t, total, "$2.00")
 	assert.Contains(t, total, "-")
 }
 
@@ -3267,6 +3301,84 @@ func TestPolicyReadyReason_InsufficientDataNoMessage(t *testing.T) {
 }
 
 // ---------- printEffectivePolicySummary smoke test ----------
+
+func TestPrintEffectivePolicySummary_RuntimeProfileSource(t *testing.T) {
+	allow := true
+	defaults := &attunev1alpha1.AttuneDefaults{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			Memory: &attunev1alpha1.ResourceConfig{
+				AllowDecrease: &allow,
+				Overhead:      "10",
+			},
+		},
+	}
+	selected := selectedDefaults{defaults: defaults, source: sourceCluster}
+
+	javaItem := unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"runtimeProfile": "java"},
+	}}
+	javaPolicy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{RuntimeProfile: "java"},
+	}
+	pkgdefaults.MergeDefaults(javaPolicy, defaults)
+	javaOut := captureSummary(javaItem, javaPolicy, selected)
+	assert.Contains(t, javaOut, "Allow decrease: false (source: runtime profile java, configured: <unset>)")
+	assert.Contains(t, javaOut, "Overhead: 40 (source: runtime profile java, configured: <unset>)")
+	assert.NotContains(t, javaOut, "Allow decrease: false (source: cluster default")
+	assert.NotContains(t, javaOut, "Overhead: 40 (source: cluster default")
+
+	pythonItem := unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"runtimeProfile": "python"},
+	}}
+	pythonPolicy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{RuntimeProfile: "python"},
+	}
+	pkgdefaults.MergeDefaults(pythonPolicy, defaults)
+	pythonOut := captureSummary(pythonItem, pythonPolicy, selected)
+	assert.Contains(t, pythonOut, "Allow decrease: false (source: runtime profile python, configured: <unset>)")
+	assert.Contains(t, pythonOut, "Overhead: 10 (source: cluster default, configured: <unset>)")
+
+	explicitItem := unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{
+			"runtimeProfile": "java",
+			"memory": map[string]interface{}{
+				"allowDecrease": true,
+				"overhead":      "15",
+			},
+		},
+	}}
+	explicitAllow := true
+	explicitPolicy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			RuntimeProfile: "java",
+			Memory: attunev1alpha1.ResourceConfig{
+				AllowDecrease: &explicitAllow,
+				Overhead:      "15",
+			},
+		},
+	}
+	pkgdefaults.MergeDefaults(explicitPolicy, defaults)
+	explicitOut := captureSummary(explicitItem, explicitPolicy, selected)
+	assert.Contains(t, explicitOut, "Allow decrease: true (source: policy, configured: true)")
+	assert.Contains(t, explicitOut, "Overhead: 15 (source: policy, configured: 15)")
+}
+
+func captureSummary(item unstructured.Unstructured, policy *attunev1alpha1.AttunePolicy, selected selectedDefaults) string {
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		return err.Error()
+	}
+	os.Stdout = w
+	printEffectivePolicySummary(item, policy, selected)
+	_ = w.Close()
+	os.Stdout = old
+	out, err := io.ReadAll(r)
+	if err != nil {
+		return err.Error()
+	}
+	return string(out)
+}
 
 func TestPrintEffectivePolicySummary_DoesNotPanic(t *testing.T) {
 	cv := "RequestsOnly"

@@ -139,7 +139,7 @@ func TestGetPodsForWorkload_MatchExpressionsExcludeCanary(t *testing.T) {
 	require.Len(t, pods, 1)
 	assert.Equal(t, "expr-api", pods[0].Name)
 
-	listed := reconciler.listPodsForWorkloads(context.Background(), []client.Object{deploy})
+	listed, _ := reconciler.listPodsForWorkloads(context.Background(), []client.Object{deploy})
 	require.Len(t, listed["web"], 1)
 	assert.Equal(t, "web-stable", listed["web"][0].Name)
 }

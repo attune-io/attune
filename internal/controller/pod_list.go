@@ -40,11 +40,18 @@ const defaultMaxPodsInMetricsQuery = 100
 // listPodsForWorkloads lists pods once per namespace and matches each workload's
 // selector in memory. This avoids N List calls when many workloads share a
 // namespace (common for large policies).
-func (r *AttunePolicyReconciler) listPodsForWorkloads(ctx context.Context, workloads []client.Object) map[string][]corev1.Pod {
+func (r *AttunePolicyReconciler) listPodsForWorkloads(ctx context.Context, workloads []client.Object) (map[string][]corev1.Pod, map[string]struct{}) {
 	logger := log.FromContext(ctx)
 	out := make(map[string][]corev1.Pod, len(workloads))
 	if len(workloads) == 0 {
-		return out
+		return out, nil
+	}
+	var unlisted map[string]struct{}
+	noteUnlisted := func(name string) {
+		if unlisted == nil {
+			unlisted = map[string]struct{}{}
+		}
+		unlisted[name] = struct{}{}
 	}
 
 	// Group workloads by namespace.
@@ -64,6 +71,7 @@ func (r *AttunePolicyReconciler) listPodsForWorkloads(ctx context.Context, workl
 				pods, err := r.getPodsForWorkload(ctx, w)
 				if err != nil {
 					logger.Error(err, "Failed to get pods for workload", "workload", w.GetName())
+					noteUnlisted(w.GetName())
 					continue
 				}
 				out[w.GetName()] = pods
@@ -96,7 +104,20 @@ func (r *AttunePolicyReconciler) listPodsForWorkloads(ctx context.Context, workl
 			}
 		}
 	}
-	return out
+	return out, unlisted
+}
+
+// unlistedWorkloadNames returns failed pod-list workload names in stable order.
+func unlistedWorkloadNames(unlisted map[string]struct{}) []string {
+	if len(unlisted) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(unlisted))
+	for name := range unlisted {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // labelsMatch reports whether podLabels contain every key/value in selector.

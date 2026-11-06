@@ -146,30 +146,37 @@ func applyOOMBumpDefaults(block *attunev1alpha1.OOMBump) {
 	}
 }
 
+// RuntimeProfileFillsAllowDecrease reports whether the profile sets
+// memory.allowDecrease to false when the policy left it unset.
+// java, python, and nodejs do. golang and generic do not.
+func RuntimeProfileFillsAllowDecrease(profile string) bool {
+	switch profile {
+	case "java", "python", "nodejs":
+		return true
+	default:
+		return false
+	}
+}
+
+// RuntimeProfileFillsOverhead reports whether the profile sets
+// memory.overhead to 40 when the policy left it empty. Only java does.
+func RuntimeProfileFillsOverhead(profile string) bool {
+	return profile == "java"
+}
+
 // applyRuntimeProfileDefaults fills unset resource fields from the optional
-// runtimeProfile. Explicit policy fields always win.
+// runtimeProfile. Explicit policy fields always win. Go runtimes adapt, so
+// golang leaves allowDecrease unset.
 func applyRuntimeProfileDefaults(policy *attunev1alpha1.AttunePolicy) {
-	switch policy.Spec.RuntimeProfile {
-	case "", "generic":
+	if policy == nil {
 		return
-	case "java":
-		// JVM heaps often ignore live cgroup memory decreases; prefer no
-		// memory decrease and slightly higher memory overhead when unset.
-		if policy.Spec.Memory.AllowDecrease == nil {
-			v := false
-			policy.Spec.Memory.AllowDecrease = &v
-		}
-		if policy.Spec.Memory.Overhead == "" {
-			policy.Spec.Memory.Overhead = "40"
-		}
-	case "python", "nodejs":
-		if policy.Spec.Memory.AllowDecrease == nil {
-			v := false
-			policy.Spec.Memory.AllowDecrease = &v
-		}
-	case "golang":
-		// Go runtimes generally adapt; leave allowDecrease unset (platform default).
-		return
+	}
+	if RuntimeProfileFillsAllowDecrease(policy.Spec.RuntimeProfile) && policy.Spec.Memory.AllowDecrease == nil {
+		v := false
+		policy.Spec.Memory.AllowDecrease = &v
+	}
+	if RuntimeProfileFillsOverhead(policy.Spec.RuntimeProfile) && policy.Spec.Memory.Overhead == "" {
+		policy.Spec.Memory.Overhead = "40"
 	}
 }
 

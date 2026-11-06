@@ -48,15 +48,17 @@ type savingsAccumulator struct {
 // accumulateSavings sums resource diffs. A nil pod map keeps the historical
 // one-diff-per-container behavior for callers that only have the recommendation.
 // A non-nil map sums (live request - recommended) for every pod of that
-// workload. A pod already at the recommendation adds nothing. Missing pods
-// add nothing: do not multiply the largest request by spec.replicas.
-func accumulateSavings(recommendations []attunev1alpha1.WorkloadRecommendation, podsByWorkload map[string][]corev1.Pod) savingsAccumulator {
+// workload. A pod already at the recommendation adds nothing. A successful
+// list with no pods adds nothing: do not multiply the largest request by
+// spec.replicas. unlisted names a workload whose pod list failed. That
+// workload keeps the one-diff path so a list error does not publish zero.
+func accumulateSavings(recommendations []attunev1alpha1.WorkloadRecommendation, podsByWorkload map[string][]corev1.Pod, unlisted map[string]struct{}) savingsAccumulator {
 	var acc savingsAccumulator
 	for _, rec := range recommendations {
 		if rec.Stale {
 			continue
 		}
-		if podsByWorkload == nil {
+		if podsByWorkload == nil || unlistedWorkload(unlisted, rec.Workload) {
 			for _, c := range rec.Containers {
 				addSavingsDiff(&acc, c.Current.CPURequest, c.Recommended.CPURequest, true)
 				addSavingsDiff(&acc, c.Current.MemoryRequest, c.Recommended.MemoryRequest, false)
@@ -82,6 +84,14 @@ func accumulateSavings(recommendations []attunev1alpha1.WorkloadRecommendation, 
 		}
 	}
 	return acc
+}
+
+func unlistedWorkload(unlisted map[string]struct{}, name string) bool {
+	if len(unlisted) == 0 {
+		return false
+	}
+	_, ok := unlisted[name]
+	return ok
 }
 
 // savingsPodCounts reports whether the pod still holds a request the policy
@@ -126,8 +136,8 @@ func addSavingsDiff(acc *savingsAccumulator, live, recommended resource.Quantity
 // It also returns the accumulator so callers can pass it to updateSavingsGauges
 // without re-iterating the recommendations. podsByWorkload nil keeps one diff
 // per container. A non-nil map sums each live pod.
-func (r *AttunePolicyReconciler) computeSavings(recommendations []attunev1alpha1.WorkloadRecommendation, defaults *attunev1alpha1.AttuneDefaults, podsByWorkload map[string][]corev1.Pod) (attunev1alpha1.SavingsStatus, savingsAccumulator) {
-	acc := accumulateSavings(recommendations, podsByWorkload)
+func (r *AttunePolicyReconciler) computeSavings(recommendations []attunev1alpha1.WorkloadRecommendation, defaults *attunev1alpha1.AttuneDefaults, podsByWorkload map[string][]corev1.Pod, unlisted map[string]struct{}) (attunev1alpha1.SavingsStatus, savingsAccumulator) {
+	acc := accumulateSavings(recommendations, podsByWorkload, unlisted)
 
 	savings := attunev1alpha1.SavingsStatus{}
 	if acc.totalCPU > 0 {
