@@ -1547,6 +1547,25 @@ scales out.
    percent should stay under a ceiling. This does not turn auto-tune on.
    50 and 90 are a common choice, not a default.
 
+### Memory limit did not decrease
+
+**Symptom**: The recommendation is a lower memory limit, the live limit
+stays at the old value, and Events show Warning `MemoryLimitClamped`.
+Metrics show `attune_memory_limit_decrease_total{result="clamped_platform"}`.
+
+**Cause**: The cluster is Kubernetes 1.33 or earlier. Those versions
+reject an in-place memory limit decrease when the container resize
+policy for memory is `NotRequired` or absent. Attune keeps the current
+limit so the `/resize` call is not rejected.
+
+**Fix**:
+
+1. Set that container's memory `resizePolicy` to `RestartContainer`.
+   The kubelet restarts the container to apply the lower limit.
+2. Or upgrade the cluster to 1.34 or newer. Attune then sends the
+   decrease without that restart, subject to `memory.allowDecrease`
+   and the usage floor.
+
 ### OOM after memory limit decrease
 
 **Symptom**: After enabling memory decreases (`memory.allowDecrease: true`
