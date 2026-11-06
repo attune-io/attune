@@ -41,7 +41,7 @@ This works for one flag. It will not work for pod-level envelopes, HPA `ScaledTo
 
 ### Pain points
 
-1. **1.36 default-on Beta can break existing policies.** Pod-level `spec.resources` (KEP-2837) exists from 1.34. In-place resize of that envelope (`InPlacePodLevelResourcesVerticalScaling`) is Beta and **default on** in 1.36. Attune never reads `pod.Spec.Resources`. `ResizePod` only mutates `spec.containers[*].resources`. If container request sum exceeds the envelope, the API rejects the resize. If the resize is accepted at container scope only, the live envelope becomes stale (scheduler and pod cgroup still advertise the old budget).
+1. **1.36 default-on Beta can break existing policies.** Pod-level `spec.resources` (KEP-2837) exists from 1.34. In-place resize of that envelope (`InPlacePodLevelResourcesVerticalScaling`) is Beta and **default on** in 1.36. When `InPlacePodLevelResources` is on and the live pod already has `spec.resources`, `ResizePod` raises that envelope in the same `UpdateResize` as the container change. When the field exists but in-place resize of it is off, an increase that would exceed the envelope is skipped. Attune does not invent an envelope on a pod that does not have one.
 2. **HPA `minReplicas: 0` is default on in 1.37.** `replicas: 0` used to mean "human turned this off." After KEP-2021, HPA records `status.conditions[type=ScaledToZero]=True` when **it** drove the workload to zero. Last-replica eviction, conflict, and CREATE must treat those as different states. Today `CheckHPAConflict` matches any HPA on the same `scaleTargetRef` and says nothing about metrics class or replica count. `StripHPAFields` **deletes `status.conditions`**, so the informer cache cannot see `ScaledToZero` even if we start reading it.
 3. **cgroup v1 is a hard stop for in-place resize**, and on 1.37+ kubelet will not join a cgroup v1 node unless `failCgroupV1=false`. Doctor runs on the kubectl workstation. It cannot `stat /sys/fs/cgroup`. There is no cgroup field on `Node.Status.NodeInfo`.
 4. **Product code still has one version flag.** The CI matrix is already current (PR #751, helper `hack/e2e-nightly-matrix.sh`): required 1.32–1.36 plus experimental 1.37. PR E2E, Makefile, and `hack/demo.sh` pin `rancher/k3s:v1.36.4-k3s1`. The remaining work is capabilities, doctor, HPA idle, and envelope apply, not another matrix PR.
@@ -284,7 +284,7 @@ Doctor reuses `cluster.Discover` (same Discovery + node list) for version, `pods
 
 ### What the code does today
 
-- `PodResizer.ResizePod` (`internal/resize/engine.go`) deep-copies the live pod, writes **one container's** `Resources`, calls `UpdateResize`. It never touches `pod.Spec.Resources`.
+- `PodResizer.ResizePod` (`internal/resize/engine.go`) deep-copies the live pod, writes **one container's** `Resources`, and calls `UpdateResize`. When `InPlacePodLevelResources` is on and `spec.resources` is already set, that same call raises the envelope through `RaiseToCover`. It does not invent an envelope.
 - `applyLiveResizeTarget` / `buildResizeTarget` / `materializeContainerResources` are container-scoped.
 - CREATE (`internal/webhook/pod_mutating.go` `mutateContainer`) writes container requests/limits only.
 - Persist (`applyResourcesToPodSpec`) writes container + native-sidecar resources on Deployment/StatefulSet templates. It does not write `spec.resources`. DaemonSet persist is already unsupported.
@@ -292,7 +292,7 @@ Doctor reuses `cluster.Discover` (same Discovery + node list) for version, `pods
 - `PreservesQoS` compares the spec `UpdateResize` would send, including init containers, with `pod.Status.QOSClass`. An empty status is inferred from the live spec. The pod-level envelope defines QoS only when in-place pod-level resize is on.
 - `excludeKnownSidecars` skips sidecar **recommendations**. Sidecar containers still consume the envelope.
 
-`pod.Spec.Resources` is `*corev1.ResourceRequirements` on `PodSpec` in `k8s.io/api v0.37.0` (protobuf tag 40, feature gate `PodLevelResources`). Attune's go.mod already has this field. Zero code reads it today (the only "pod-level" hits are PromQL aggregation comments).
+`pod.Spec.Resources` is `*corev1.ResourceRequirements` on `PodSpec` in `k8s.io/api v0.37.0` (protobuf tag 40, feature gate `PodLevelResources`). Attune's go.mod already has this field. `ResizePod` reads it when in-place pod-level resize is on and the pod already has an envelope. It does not add `spec.resources` to a pod that has none.
 
 ### Kubernetes semantics we will implement
 
