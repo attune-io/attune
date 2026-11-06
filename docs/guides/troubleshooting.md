@@ -1568,7 +1568,8 @@ margin or overhead is too low, or usage is spikier than the percentile window.
 3. Keep `memory.maxDecreasePercent` modest so large drops step down over
    multiple cycles.
 4. Confirm cluster version is 1.34 or newer; on 1.33 and earlier, limit
-   decreases are platform-clamped (`result="clamped_platform"`).
+   decreases are platform-clamped (`result="clamped_platform"`). The
+   Warning event reason is `MemoryLimitClamped`.
 
 ```promql
 # Floored or blocked memory limit decreases
