@@ -1125,6 +1125,25 @@ func (r *AttunePolicyReconciler) resizeContainer(
 			containerRec.Name, pod.Name, restartResources)
 	}
 
+	// Snapshot before ResizePod. A successful persist replaces *pod with
+	// the resized spec, which would make a later delta look like zero.
+	quotaCurrent := resourceRequirementsFromValues(liveContainerCurrent(pod, containerRec))
+	if err := tryReserveQuota(p.Checks, quotaCurrent, target); err != nil {
+		reason := "quota/limitrange violation: " + err.Error()
+		logger.Info("Skipping resize: "+reason,
+			"pod", pod.Name, "container", containerRec.Name)
+		r.emitEventOnce(policy, corev1.EventTypeWarning, "ResizeSkipped", "resize",
+			"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, reason)
+		recordCapacitySkip(policy, reason)
+		return nil, resizeOutcomeNone
+	}
+	keepQuota := false
+	defer func() {
+		if !keepQuota {
+			refundQuota(p.Checks, quotaCurrent, target)
+		}
+	}()
+
 	resizeStart := r.now()
 	results, err := resizer.ResizePod(ctx, pod, containerRec.Name, target)
 	if err != nil {
@@ -1290,6 +1309,7 @@ func (r *AttunePolicyReconciler) resizeContainer(
 				logger.Error(trackErr, "Failed to write resize tracking after revert failed",
 					"pod", pod.Name, "reason", reason)
 			}
+			keepQuota = true
 			return history, resizeOutcomeInPlace
 		}
 		return history, resizeOutcomeNone
@@ -1315,16 +1335,19 @@ func (r *AttunePolicyReconciler) resizeContainer(
 	}
 	if reason, err := r.runImmediateSafetyCheck(ctx, policy, record); err != nil {
 		stuck()
+		keepQuota = true
 		return history, resizeOutcomeInPlace
 	} else if reason != "" {
 		if revert(reason) {
 			stuck()
+			keepQuota = true
 			return history, resizeOutcomeInPlace
 		}
 		return history, resizeOutcomeNone
 	}
 	stuck()
 
+	keepQuota = true
 	return history, resizeOutcomeInPlace
 }
 
@@ -1988,10 +2011,12 @@ type nodeNeighborCache struct {
 }
 
 type resizePreChecks struct {
-	nodeCache         sync.Map // string -> *corev1.Node
-	nodePods          sync.Map // string -> nodeNeighborCache
-	limitRanges       []corev1.LimitRange
-	quotas            []corev1.ResourceQuota
+	nodeCache   sync.Map // string -> *corev1.Node
+	nodePods    sync.Map // string -> nodeNeighborCache
+	limitRanges []corev1.LimitRange
+	quotas      []corev1.ResourceQuota
+	// quotaMu guards quotas. Pod goroutines share this snapshot.
+	quotaMu           sync.Mutex
 	limitRangeListErr error
 	quotaListErr      error
 	hpas              []autoscalingv2.HorizontalPodAutoscaler
@@ -2135,12 +2160,19 @@ func (r *AttunePolicyReconciler) shouldSkipResize(
 	// the template (rec.Current) is stale after an in-place resize.
 	currentRes := resourceRequirementsFromValues(liveContainerCurrent(pod, containerRec))
 	if checks != nil {
-		if targetIncreasesRequests(pod, containerRec.Name, target) &&
-			(checks.quotaListErr != nil || checks.limitRangeListErr != nil) {
+		checks.quotaMu.Lock()
+		listUnavailable := targetIncreasesRequests(pod, containerRec.Name, target) &&
+			(checks.quotaListErr != nil || checks.limitRangeListErr != nil)
+		var quotaErr error
+		if !listUnavailable {
+			quotaErr = checkQuotaCompatibilityFromLists(checks.limitRanges, checks.quotas, currentRes, target)
+		}
+		checks.quotaMu.Unlock()
+		if listUnavailable {
 			return true, "quota list unavailable; skipping request increase; check RBAC list/watch on resourcequotas and limitranges"
 		}
-		if err := checkQuotaCompatibilityFromLists(checks.limitRanges, checks.quotas, currentRes, target); err != nil {
-			return true, "quota/limitrange violation: " + err.Error()
+		if quotaErr != nil {
+			return true, "quota/limitrange violation: " + quotaErr.Error()
 		}
 	} else {
 		if err := r.checkQuotaCompatibility(ctx, pod.Namespace, currentRes, target); err != nil {

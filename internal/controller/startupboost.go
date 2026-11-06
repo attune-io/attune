@@ -339,8 +339,20 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 							"boostedCPU", boostedCPU.String())
 						continue
 					}
+					quotaCurrent := resourceRequirementsFromValues(liveContainerCurrent(pod, boostRec))
+					if err := tryReserveQuota(checks, quotaCurrent, boostTarget); err != nil {
+						logger.Info("Skipping startup boost: quota/limitrange violation: "+err.Error(),
+							"pod", pod.Name, "container", c.Name,
+							"boostedCPU", boostedCPU.String())
+						continue
+					}
 					refreshed, err := r.boostResizeAndRefetch(ctx, resizer, pod, c.Name, boostTarget)
 					if err != nil {
+						// A non-nil pod means ResizePod rejected the write.
+						// A nil pod means the write landed and the re-fetch failed.
+						if refreshed != nil {
+							refundQuota(checks, quotaCurrent, boostTarget)
+						}
 						operatormetrics.StartupBoostTotal.WithLabelValues(pod.Namespace, rec.Workload, "failed").Inc()
 						logger.Error(err, "Failed to apply startup CPU boost",
 							"pod", pod.Name, "container", c.Name,
@@ -455,8 +467,19 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 						}
 						continue
 					}
+					quotaCurrent := resourceRequirementsFromValues(liveContainerCurrent(pod, expireRec))
+					if err := tryReserveQuota(checks, quotaCurrent, expireTarget); err != nil {
+						logger.Info("Skipping boost expiry reduction: quota/limitrange violation: "+err.Error(),
+							"pod", pod.Name, "container", c.Name,
+							"targetCPU", recCPU.request.String())
+						boostReduceFailed = true
+						continue
+					}
 					refreshed, err := r.boostResizeAndRefetch(ctx, resizer, pod, c.Name, expireTarget)
 					if err != nil {
+						if refreshed != nil {
+							refundQuota(checks, quotaCurrent, expireTarget)
+						}
 						operatormetrics.StartupBoostTotal.WithLabelValues(pod.Namespace, rec.Workload, "failed").Inc()
 						logger.Error(err, "Failed to reduce startup boost",
 							"pod", pod.Name, "container", c.Name,
