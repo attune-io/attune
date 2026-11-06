@@ -1252,6 +1252,101 @@ func quotaHardUsed(quota corev1.ResourceQuota, preferred, alias corev1.ResourceN
 	return hard, used, hasHard && hasUsed
 }
 
+// positiveQuotaDeltas is the CPU and memory increase checkQuotaHeadroom
+// compares against quota headroom. Decreases are zero: they do not
+// consume headroom, and reserving them would free quota the apiserver
+// has not released yet.
+func positiveQuotaDeltas(current, target corev1.ResourceRequirements) (cpuMilli, memBytes, cpuLimMilli, memLimBytes int64) {
+	if d := target.Requests.Cpu().MilliValue() - current.Requests.Cpu().MilliValue(); d > 0 {
+		cpuMilli = d
+	}
+	if d := target.Requests.Memory().Value() - current.Requests.Memory().Value(); d > 0 {
+		memBytes = d
+	}
+	if target.Limits != nil {
+		if d := target.Limits.Cpu().MilliValue() - current.Limits.Cpu().MilliValue(); d > 0 {
+			cpuLimMilli = d
+		}
+		if d := target.Limits.Memory().Value() - current.Limits.Memory().Value(); d > 0 {
+			memLimBytes = d
+		}
+	}
+	return cpuMilli, memBytes, cpuLimMilli, memLimBytes
+}
+
+// applyQuotaUsedDelta adds delta to each quota's Used entry. CPU deltas
+// are millicores. Memory deltas are bytes. The key matches quotaHardUsed:
+// requests.* when that Used entry exists, otherwise the cpu/memory alias.
+// Limit quotas use limits.cpu and limits.memory only.
+func applyQuotaUsedDelta(quotas []corev1.ResourceQuota, cpuMilli, memBytes, cpuLimMilli, memLimBytes int64) {
+	for i := range quotas {
+		used := quotas[i].Status.Used
+		addQuotaUsed(used, corev1.ResourceRequestsCPU, corev1.ResourceCPU, cpuMilli, true)
+		addQuotaUsed(used, corev1.ResourceRequestsMemory, corev1.ResourceMemory, memBytes, false)
+		addQuotaUsed(used, corev1.ResourceLimitsCPU, "", cpuLimMilli, true)
+		addQuotaUsed(used, corev1.ResourceLimitsMemory, "", memLimBytes, false)
+	}
+}
+
+func addQuotaUsed(used corev1.ResourceList, preferred, alias corev1.ResourceName, delta int64, milli bool) {
+	if len(used) == 0 || delta == 0 {
+		return
+	}
+	key := preferred
+	qty, ok := used[preferred]
+	if !ok && alias != "" {
+		qty, ok = used[alias]
+		key = alias
+	}
+	if !ok {
+		return
+	}
+	if milli {
+		next := qty.MilliValue() + delta
+		if next < 0 {
+			next = 0
+		}
+		used[key] = *resource.NewMilliQuantity(next, resource.DecimalSI)
+		return
+	}
+	next := qty.Value() + delta
+	if next < 0 {
+		next = 0
+	}
+	used[key] = *resource.NewQuantity(next, resource.BinarySI)
+}
+
+// tryReserveQuota checks LimitRange and ResourceQuota headroom and, when
+// the increase fits, adds it to the in-memory quota snapshot. That
+// snapshot is shared by every pod resized in the cycle. Reserving before
+// UpdateResize keeps a later container from being sent after an earlier
+// apply in this cycle already consumed the headroom. Call refundQuota
+// with the same resources when that resize does not stay applied.
+func tryReserveQuota(checks *resizePreChecks, current, target corev1.ResourceRequirements) error {
+	if checks == nil {
+		return nil
+	}
+	checks.quotaMu.Lock()
+	defer checks.quotaMu.Unlock()
+	if err := checkQuotaCompatibilityFromLists(checks.limitRanges, checks.quotas, current, target); err != nil {
+		return err
+	}
+	cpu, mem, cpuLim, memLim := positiveQuotaDeltas(current, target)
+	applyQuotaUsedDelta(checks.quotas, cpu, mem, cpuLim, memLim)
+	return nil
+}
+
+// refundQuota removes a reservation made by tryReserveQuota.
+func refundQuota(checks *resizePreChecks, current, target corev1.ResourceRequirements) {
+	if checks == nil {
+		return
+	}
+	checks.quotaMu.Lock()
+	defer checks.quotaMu.Unlock()
+	cpu, mem, cpuLim, memLim := positiveQuotaDeltas(current, target)
+	applyQuotaUsedDelta(checks.quotas, -cpu, -mem, -cpuLim, -memLim)
+}
+
 // resourcesIncreaseRequests reports whether target raises CPU or memory
 // requests relative to current.
 func resourcesIncreaseRequests(current, target corev1.ResourceRequirements) bool {

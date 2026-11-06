@@ -849,7 +849,7 @@ func (r *ResizeEngine) WaitForResize(ctx context.Context, ns, podName,
 | Guaranteed memory limitMultiplier | The request is raised to the multiplied limit and can exceed `memory.maxAllowed`. The pod stays Guaranteed. A CPU multiplier that would leave Guaranteed is skipped and is not evicted. `RequestsOnly` does not apply the multiplier |
 | StatefulSet partition holds the old revision | Pods whose `controller-revision-hash` is not `status.updateRevision` stay skipped while `currentRevision` and `updateRevision` differ. A stale generation skips every pod. OnDelete pods are resized |
 | LimitRange violation | API server rejects; log and skip |
-| ResourceQuota exceeded | API server rejects; log and skip |
+| ResourceQuota exceeded | Pre-check skips the resize and logs it. Headroom includes increases already reserved earlier in the same cycle. The API server remains the backstop |
 | Static CPU/Memory Manager | Infeasible for Guaranteed QoS pods; skip with warning |
 | Multiple containers in pod | Resize each independently; any failure skips remaining |
 | VPA also targeting workload | Detect via VPA informer; log conflict warning, defer to VPA |

@@ -1271,7 +1271,9 @@ with a message mentioning `exceed ResourceQuota`.
 **Cause**: The resize would increase CPU or memory requests beyond the
 remaining headroom in the namespace's ResourceQuota. Attune uses
 `requests.cpu` / `requests.memory` when those names are present, or the
-`cpu` / `memory` aliases when a quota uses the short names.
+`cpu` / `memory` aliases when a quota uses the short names. Headroom
+includes increases already applied earlier in the same cycle, so a
+later container is skipped instead of being sent and rejected.
 
 **Fix**:
 
