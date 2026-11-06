@@ -148,10 +148,11 @@ The operator tracks startup boost activity through the metric:
 attune_startup_boost_total
 ```
 
-This counter increments each time a startup boost is applied. Use it to
-track how often boosts fire and whether `duration` covers the startup
-window (expiry is `attune.io/startup-boost-at` plus `duration`, not
-container Ready).
+This counter increments when a startup boost is applied, when it
+expires, and when a boost resize fails. The `action` label is
+`applied`, `expired`, or `failed`. Use `action="expired"` to see that
+a boost ended. Expiry is `attune.io/startup-boost-at` plus `duration`,
+not container Ready.
 
 The pre-built [Grafana dashboard](https://github.com/attune-io/attune/blob/main/deploy/grafana/dashboard.json)
 includes a Startup Boost panel that visualizes this metric.
