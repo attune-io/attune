@@ -26,6 +26,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/tools/clientcmd"
+
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
 
 const clusterAnnotation = "kubectl-attune/cluster"
@@ -74,9 +76,10 @@ func listKubeContexts(kubeconfigPath string) ([]string, error) {
 }
 
 type clusterFetchResult struct {
-	cluster string
-	items   []unstructured.Unstructured
-	err     error
+	cluster  string
+	items    []unstructured.Unstructured
+	defaults map[string]*attunev1alpha1.AttuneDefaults
+	err      error
 }
 
 // fetchMultiCluster fetches policies from multiple clusters in parallel.
@@ -89,7 +92,7 @@ func fetchMultiCluster(
 	namespace string,
 	allNamespaces bool,
 	buildClient dynamicClientFactory,
-) ([]unstructured.Unstructured, []string) {
+) ([]unstructured.Unstructured, []string, map[string]*attunev1alpha1.AttuneDefaults) {
 	results := make([]clusterFetchResult, len(contexts))
 	var wg sync.WaitGroup
 
@@ -112,21 +115,32 @@ func fetchMultiCluster(
 				return
 			}
 			tagItems(list.Items, name)
-			results[idx] = clusterFetchResult{cluster: name, items: list.Items}
+			results[idx] = clusterFetchResult{
+				cluster:  name,
+				items:    list.Items,
+				defaults: defaultsForPolicies(ctx, dynClient, list.Items),
+			}
 		}(i, ctxName)
 	}
 	wg.Wait()
 
 	var items []unstructured.Unstructured
 	var warnings []string
+	var defaults map[string]*attunev1alpha1.AttuneDefaults
 	for _, r := range results {
 		if r.err != nil {
 			warnings = append(warnings, fmt.Sprintf("context %q: %v", r.cluster, r.err))
 			continue
 		}
 		items = append(items, r.items...)
+		for key, def := range r.defaults {
+			if defaults == nil {
+				defaults = map[string]*attunev1alpha1.AttuneDefaults{}
+			}
+			defaults[key] = def
+		}
 	}
-	return items, warnings
+	return items, warnings, defaults
 }
 
 // multiClusterFailed is true when every requested context errored and

@@ -27,7 +27,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 )
@@ -95,7 +94,7 @@ func fakeMultiContextFactory(t *testing.T, clusters map[string][]runtime.Object)
 		}
 		scheme := runtime.NewScheme()
 		client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-			map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"},
+			policyAndDefaultsListKinds(),
 			objects...)
 		return client, "default", nil
 	}
@@ -118,7 +117,7 @@ func TestFetchMultiCluster_MergesItems(t *testing.T) {
 		"prod-west": {p2},
 	})
 
-	items, warnings := fetchMultiCluster(context.Background(), "", []string{"prod-east", "prod-west"}, "default", false, factory)
+	items, warnings, _ := fetchMultiCluster(context.Background(), "", []string{"prod-east", "prod-west"}, "default", false, factory)
 	assert.Empty(t, warnings)
 	assert.Len(t, items, 2)
 
@@ -142,7 +141,7 @@ func TestFetchMultiCluster_ReportsWarningsForFailedContexts(t *testing.T) {
 		// "broken" is not in the map, so factory returns an error.
 	})
 
-	items, warnings := fetchMultiCluster(context.Background(), "", []string{"prod-east", "broken"}, "default", false, factory)
+	items, warnings, _ := fetchMultiCluster(context.Background(), "", []string{"prod-east", "broken"}, "default", false, factory)
 	assert.Len(t, items, 1)
 	require.Len(t, warnings, 1)
 	assert.Contains(t, warnings[0], "broken")
@@ -152,7 +151,7 @@ func TestFetchMultiCluster_ReportsWarningsForFailedContexts(t *testing.T) {
 func TestFetchMultiCluster_AllContextsFail(t *testing.T) {
 	factory := fakeMultiContextFactory(t, map[string][]runtime.Object{})
 
-	items, warnings := fetchMultiCluster(context.Background(), "", []string{"a", "b"}, "default", false, factory)
+	items, warnings, _ := fetchMultiCluster(context.Background(), "", []string{"a", "b"}, "default", false, factory)
 	assert.Empty(t, items)
 	assert.Len(t, warnings, 2)
 }
@@ -204,7 +203,7 @@ func TestPrintStatusItems_ShowsClusterColumn(t *testing.T) {
 	require.NoError(t, err)
 	os.Stdout = w
 
-	printStatusItems(items, "", "")
+	printStatusItems(items, "", "", nil)
 
 	w.Close()
 	os.Stdout = old
@@ -238,7 +237,7 @@ func TestPrintStatusItems_NoClusterColumnForSingleCluster(t *testing.T) {
 	require.NoError(t, err)
 	os.Stdout = w
 
-	printStatusItems(items, "", "")
+	printStatusItems(items, "", "", nil)
 
 	w.Close()
 	os.Stdout = old
@@ -380,7 +379,7 @@ func TestPrintRecommendationsItems_ShowsClusterColumn(t *testing.T) {
 	require.NoError(t, err)
 	os.Stdout = w
 
-	printRecommendationsItems(items)
+	printRecommendationsItems(items, nil)
 
 	w.Close()
 	os.Stdout = old

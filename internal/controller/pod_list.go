@@ -37,21 +37,36 @@ import (
 // pod=~ regex when representative sampling is enabled (0 = unlimited regex).
 const defaultMaxPodsInMetricsQuery = 100
 
+const (
+	// errCouldNotListPods is the status text when both the namespace
+	// pod list and the per-workload list fail.
+	errCouldNotListPods = "could not list pods"
+	// errNoPodSelector is the status text when a workload has nothing
+	// to match. Savings keeps one recommendation diff for that name.
+	errNoPodSelector = "no pod selector"
+)
+
 // listPodsForWorkloads lists pods once per namespace and matches each workload's
 // selector in memory. This avoids N List calls when many workloads share a
 // namespace (common for large policies).
-func (r *AttunePolicyReconciler) listPodsForWorkloads(ctx context.Context, workloads []client.Object) (map[string][]corev1.Pod, map[string]struct{}) {
+func (r *AttunePolicyReconciler) listPodsForWorkloads(ctx context.Context, workloads []client.Object) (map[string][]corev1.Pod, map[string]string) {
 	logger := log.FromContext(ctx)
 	out := make(map[string][]corev1.Pod, len(workloads))
 	if len(workloads) == 0 {
 		return out, nil
 	}
-	var unlisted map[string]struct{}
-	noteUnlisted := func(name string) {
+	var unlisted map[string]string
+	noteUnlisted := func(name, msg string) {
 		if unlisted == nil {
-			unlisted = map[string]struct{}{}
+			unlisted = map[string]string{}
 		}
-		unlisted[name] = struct{}{}
+		if _, exists := unlisted[name]; exists {
+			return
+		}
+		if msg == "" {
+			msg = errCouldNotListPods
+		}
+		unlisted[name] = msg
 	}
 
 	// Group workloads by namespace.
@@ -71,7 +86,7 @@ func (r *AttunePolicyReconciler) listPodsForWorkloads(ctx context.Context, workl
 				pods, err := r.getPodsForWorkload(ctx, w)
 				if err != nil {
 					logger.Error(err, "Failed to get pods for workload", "workload", w.GetName())
-					noteUnlisted(w.GetName())
+					noteUnlisted(w.GetName(), listOrSelectorMessage(err))
 					continue
 				}
 				out[w.GetName()] = pods
@@ -88,8 +103,16 @@ func (r *AttunePolicyReconciler) listPodsForWorkloads(ctx context.Context, workl
 		for _, w := range ws {
 			sel, err := r.podSelector(w)
 			if err != nil || sel == nil {
-				logger.Error(fmt.Errorf("no pod selector"), "Skipping workload pod match",
-					"workload", w.GetName(), "namespace", ns, "error", err)
+				msg := errNoPodSelector
+				logErr := err
+				if err != nil {
+					msg = trimStatusError("pod selector: " + err.Error())
+				} else {
+					logErr = fmt.Errorf("%s", errNoPodSelector)
+				}
+				logger.Error(logErr, "Skipping workload pod match",
+					"workload", w.GetName(), "namespace", ns)
+				noteUnlisted(w.GetName(), msg)
 				continue
 			}
 			specs = append(specs, matchSpec{name: w.GetName(), sel: sel})
@@ -107,8 +130,9 @@ func (r *AttunePolicyReconciler) listPodsForWorkloads(ctx context.Context, workl
 	return out, unlisted
 }
 
-// unlistedWorkloadNames returns failed pod-list workload names in stable order.
-func unlistedWorkloadNames(unlisted map[string]struct{}) []string {
+// unlistedWorkloadNames returns workloads whose pods could not be matched,
+// in stable name order. The map value is the status error text.
+func unlistedWorkloadNames(unlisted map[string]string) []string {
 	if len(unlisted) == 0 {
 		return nil
 	}
@@ -118,6 +142,31 @@ func unlistedWorkloadNames(unlisted map[string]struct{}) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// listOrSelectorMessage maps a per-workload pod lookup error to a short
+// status string. A selector problem stays distinct from a list failure
+// so savings can keep one recommendation diff either way.
+func listOrSelectorMessage(err error) string {
+	if err == nil {
+		return errCouldNotListPods
+	}
+	text := err.Error()
+	if strings.Contains(text, "no pod selector") {
+		return errNoPodSelector
+	}
+	if strings.Contains(text, "parsing pod selector") {
+		return trimStatusError("pod selector: " + text)
+	}
+	return errCouldNotListPods
+}
+
+func trimStatusError(msg string) string {
+	const max = 160
+	if len(msg) <= max {
+		return msg
+	}
+	return msg[:max]
 }
 
 // labelsMatch reports whether podLabels contain every key/value in selector.

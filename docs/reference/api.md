@@ -287,8 +287,8 @@ spec:
 | `resizeHistory[].method` | `string` | `InPlace`, `Eviction`, or `TemplatePersistence` |
 | `resizeHistory[].result` | `string` | `Success`, `Failed`, `Reverted`, `Evicted`, or `TemplatePatched` |
 | `resizeHistory[].reason` | `string` | Free-form string (not an enum) for why a resize was reverted or failed (e.g. `oomkill`, `restart`, `notready`, `slo:<name>`, `infeasible`, `eviction_last_replica`, `eviction_denied`, `eviction_list_failed`, `eviction_no_selector`, `envelope_constraint`). Empty for successful resizes. |
-| `workloadErrors[].workload` | `string` | Workload name that encountered an error during reconciliation |
-| `workloadErrors[].error` | `string` | Human-readable error description |
+| `workloadErrors[].workload` | `string` | Workload name that encountered an error during reconciliation. The list is capped at 10. |
+| `workloadErrors[].error` | `string` | Human-readable error. A failed pod list is `could not list pods`. A workload with nothing to match is `no pod selector`. A selector that does not parse starts with `pod selector:`. Savings still counts one recommendation diff for that workload when the row does not fit. |
 | `canary.phase` | `string` | `CanaryInProgress` or `FullRollout`. FullRollout only when every listed app is promoted |
 | `canary.startTime` | `Time` | Earliest live per-app watch start (or first canary resize) |
 | `canary.observedGeneration` | `int64` | Policy generation when this canary cycle started |

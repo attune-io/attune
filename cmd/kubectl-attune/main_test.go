@@ -332,7 +332,7 @@ func TestPrintPreview(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+		policyAndDefaultsListKinds(), policy)
 
 	old := os.Stdout
 	r, w, err := os.Pipe()
@@ -389,7 +389,7 @@ func TestPrintPreview_StaleSkipped(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+		policyAndDefaultsListKinds(), policy)
 
 	oldOut, oldErr := os.Stdout, os.Stderr
 	outR, outW, err := os.Pipe()
@@ -628,7 +628,7 @@ func TestPrintStatus(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+		policyAndDefaultsListKinds(), policy)
 
 	old := os.Stdout
 	r, w, err := os.Pipe()
@@ -695,7 +695,7 @@ func TestPrintStatus_NamespaceFrozen(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+		policyAndDefaultsListKinds(), policy)
 
 	old := os.Stdout
 	r, w, err := os.Pipe()
@@ -755,7 +755,7 @@ func TestPrintStatus_VPAListUnavailable(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+		policyAndDefaultsListKinds(), policy)
 
 	old := os.Stdout
 	r, w, err := os.Pipe()
@@ -869,7 +869,7 @@ func TestPrintStatus_ReadyContract(t *testing.T) {
 
 			scheme := runtime.NewScheme()
 			dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-				map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+				policyAndDefaultsListKinds(), policy)
 
 			old := os.Stdout
 			r, w, err := os.Pipe()
@@ -894,7 +894,7 @@ func TestPrintStatus_ReadyContract(t *testing.T) {
 func TestPrintStatus_NoPolicies(t *testing.T) {
 	scheme := runtime.NewScheme()
 	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"})
+		policyAndDefaultsListKinds())
 
 	old := os.Stdout
 	r, w, err := os.Pipe()
@@ -943,7 +943,7 @@ func TestPrintStatus_FilterDegraded(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, degraded, healthy)
+		policyAndDefaultsListKinds(), degraded, healthy)
 
 	old := os.Stdout
 	r, w, err := os.Pipe()
@@ -1158,9 +1158,141 @@ func TestFormatExportMode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			item := unstructured.Unstructured{Object: tt.obj}
-			assert.Equal(t, tt.expected, formatExportMode(item))
+			assert.Equal(t, tt.expected, formatExportMode(item, nil))
 		})
 	}
+}
+
+func TestFormatExportMode_InheritsConfigMap(t *testing.T) {
+	omitted := unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "attune.io/v1alpha1",
+		"kind":       "AttunePolicy",
+		"metadata":   map[string]interface{}{"name": "web", "namespace": "prod"},
+		"spec": map[string]interface{}{
+			"updateStrategy": map[string]interface{}{"type": "Recommend"},
+		},
+	}}
+	explicitOff := unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "attune.io/v1alpha1",
+		"kind":       "AttunePolicy",
+		"metadata":   map[string]interface{}{"name": "web", "namespace": "prod"},
+		"spec": map[string]interface{}{
+			"updateStrategy": map[string]interface{}{
+				"type":   "Recommend",
+				"export": map[string]interface{}{"configMap": false},
+			},
+		},
+	}}
+	inheritOn := &attunev1alpha1.AttuneDefaults{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Export: &attunev1alpha1.ExportConfig{ConfigMap: ptrBool(true)},
+			},
+		},
+	}
+	assert.Equal(t, "CM", formatExportMode(omitted, inheritOn))
+	assert.Equal(t, "-", formatExportMode(explicitOff, inheritOn))
+	assert.Equal(t, "-", formatExportMode(omitted, nil))
+}
+
+func TestPrintStatusAndRecommendations_InheritedExport(t *testing.T) {
+	policy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "attune.io/v1alpha1",
+			"kind":       "AttunePolicy",
+			"metadata": map[string]interface{}{
+				"name":              "web",
+				"namespace":         "prod",
+				"creationTimestamp": "2026-01-01T00:00:00Z",
+			},
+			"spec": map[string]interface{}{
+				"updateStrategy": map[string]interface{}{"type": "Recommend"},
+			},
+			"status": map[string]interface{}{
+				"recommendations": []interface{}{
+					map[string]interface{}{
+						"workload": "api",
+						"containers": []interface{}{
+							map[string]interface{}{
+								"name":       "app",
+								"confidence": 0.9,
+								"current": map[string]interface{}{
+									"cpuRequest": "500m", "memoryRequest": "256Mi",
+								},
+								"recommended": map[string]interface{}{
+									"cpuRequest": "250m", "memoryRequest": "256Mi",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	defaultsObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&attunev1alpha1.AttuneDefaults{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "attune.io/v1alpha1", Kind: "AttuneDefaults"},
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Export: &attunev1alpha1.ExportConfig{ConfigMap: ptrBool(true)},
+			},
+		},
+	})
+	require.NoError(t, err)
+	defaults := &unstructured.Unstructured{Object: defaultsObj}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:                  "AttunePolicyList",
+			namespaceDefaultsGVR: "AttuneNamespaceDefaultsList",
+			defaultsGVR:          "AttuneDefaultsList",
+		},
+		policy)
+	_, err = dynClient.Resource(defaultsGVR).Create(context.Background(), defaults, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	stdout, stderr := captureStdoutStderr(t, func() {
+		printStatus(context.Background(), dynClient, "prod", "", "")
+	})
+	assert.Regexp(t, `(?m)prod\s+web\s+.*\sCM\s`, stdout)
+	assert.NotContains(t, stderr, "export mode")
+
+	stdout, stderr = captureStdoutStderr(t, func() {
+		printRecommendations(context.Background(), dynClient, "prod")
+	})
+	assert.Contains(t, stdout, "api")
+	assert.Contains(t, stderr, "export mode (ConfigMap)")
+
+	offObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&attunev1alpha1.AttunePolicy{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "attune.io/v1alpha1", Kind: "AttunePolicy"},
+		ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "prod"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Type: attunev1alpha1.UpdateTypeRecommend,
+				Export: &attunev1alpha1.ExportConfig{
+					ConfigMap: ptrBool(false),
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	off := &unstructured.Unstructured{Object: offObj}
+	offClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:                  "AttunePolicyList",
+			namespaceDefaultsGVR: "AttuneNamespaceDefaultsList",
+			defaultsGVR:          "AttuneDefaultsList",
+		},
+		off)
+	_, err = offClient.Resource(defaultsGVR).Create(context.Background(), defaults, metav1.CreateOptions{})
+	require.NoError(t, err)
+	stdout, stderr = captureStdoutStderr(t, func() {
+		printStatus(context.Background(), offClient, "prod", "", "")
+		printRecommendations(context.Background(), offClient, "prod")
+	})
+	assert.NotRegexp(t, `(?m)prod\s+web\s+.*\sCM\s`, stdout)
+	assert.NotContains(t, stderr, "export mode (ConfigMap)")
 }
 
 func TestFilterPolicies_EmptyFilterReturnsAll(t *testing.T) {
@@ -1295,7 +1427,7 @@ func TestPrintStructured_JSON(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+		policyAndDefaultsListKinds(), policy)
 
 	old := os.Stdout
 	r, w, err := os.Pipe()
@@ -1344,7 +1476,7 @@ func TestPrintStructured_YAML(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+		policyAndDefaultsListKinds(), policy)
 
 	old := os.Stdout
 	r, w, err := os.Pipe()
@@ -1371,7 +1503,7 @@ func TestPrintStructured_YAML(t *testing.T) {
 func TestPrintStructured_NoPolicies(t *testing.T) {
 	scheme := runtime.NewScheme()
 	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"})
+		policyAndDefaultsListKinds())
 
 	old := os.Stdout
 	r, w, err := os.Pipe()
@@ -1417,7 +1549,7 @@ func TestPrintSavings(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+		policyAndDefaultsListKinds(), policy)
 
 	old := os.Stdout
 	r, w, err := os.Pipe()
@@ -1472,7 +1604,7 @@ func TestPrintSavings_MultiplePoliciesShowTotals(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, p1, p2)
+		policyAndDefaultsListKinds(), p1, p2)
 
 	old := os.Stdout
 	r, w, err := os.Pipe()
@@ -1511,7 +1643,7 @@ func TestPrintSavings_CPUOnlyTotalLeavesMemoryBlank(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+		policyAndDefaultsListKinds(), policy)
 
 	old := os.Stdout
 	r, w, err := os.Pipe()
@@ -1616,7 +1748,7 @@ func TestPrintSavings_NoSavings(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+		policyAndDefaultsListKinds(), policy)
 
 	old := os.Stdout
 	r, w, err := os.Pipe()
@@ -1726,7 +1858,7 @@ func TestPrintRecommendations(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+		policyAndDefaultsListKinds(), policy)
 
 	old := os.Stdout
 	r, w, err := os.Pipe()
@@ -1788,7 +1920,7 @@ func TestPrintRecommendations_UnderProvisionedGradeU(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+		policyAndDefaultsListKinds(), policy)
 
 	old := os.Stdout
 	r, w, err := os.Pipe()
@@ -1847,7 +1979,7 @@ func TestPrintRecommendations_StaleGradeDash(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+		policyAndDefaultsListKinds(), policy)
 
 	old := os.Stdout
 	r, w, err := os.Pipe()
@@ -1894,7 +2026,7 @@ func TestPrintRecommendations_CollectingData(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+		policyAndDefaultsListKinds(), policy)
 
 	old := os.Stdout
 	r, w, err := os.Pipe()
@@ -1971,7 +2103,7 @@ func TestPrintRecommendations_ConflictCheckFailedEmptyRecs(t *testing.T) {
 	policy := conflictCheckFailedPolicy("web", "default", nil, nil)
 	scheme := runtime.NewScheme()
 	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+		policyAndDefaultsListKinds(), policy)
 
 	stdout, stderr := captureStdoutStderr(t, func() {
 		printRecommendations(context.Background(), dynClient, "default")
@@ -2007,7 +2139,7 @@ func TestPrintRecommendations_ConflictCheckFailedWithRecs(t *testing.T) {
 	policy := conflictCheckFailedPolicy("web", "default", recs, nil)
 	scheme := runtime.NewScheme()
 	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+		policyAndDefaultsListKinds(), policy)
 
 	stdout, stderr := captureStdoutStderr(t, func() {
 		printRecommendations(context.Background(), dynClient, "default")
@@ -4919,6 +5051,16 @@ func TestPolicyGetErrorMessage(t *testing.T) {
 
 func ptrInt32(v int32) *int32 { return &v }
 func ptrBool(v bool) *bool    { return &v }
+
+// policyAndDefaultsListKinds registers the lists status and
+// recommendations read. The dynamic fake panics on an unregistered list.
+func policyAndDefaultsListKinds() map[schema.GroupVersionResource]string {
+	return map[schema.GroupVersionResource]string{
+		gvr:                  "AttunePolicyList",
+		defaultsGVR:          "AttuneDefaultsList",
+		namespaceDefaultsGVR: "AttuneNamespaceDefaultsList",
+	}
+}
 
 func TestPrintEffectivePolicySummary_HPATargetBounds(t *testing.T) {
 	// Not parallel: capture swaps os.Stdout.

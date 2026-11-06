@@ -656,12 +656,18 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Surface per-workload errors so users can diagnose without operator logs.
 	policy.Status.WorkloadErrors = workloadErrors
 	noteWorkloadRefReadErrors(&policy, workloadErrors)
+	var unlistedErrs []attunev1alpha1.WorkloadError
 	for _, name := range unlistedWorkloadNames(podsUnlisted) {
-		policy.Status.WorkloadErrors = append(policy.Status.WorkloadErrors, attunev1alpha1.WorkloadError{
+		msg := podsUnlisted[name]
+		if msg == "" {
+			msg = errCouldNotListPods
+		}
+		unlistedErrs = append(unlistedErrs, attunev1alpha1.WorkloadError{
 			Workload: name,
-			Error:    "could not list pods",
+			Error:    msg,
 		})
 	}
+	policy.Status.WorkloadErrors = capWorkloadErrors(policy.Status.WorkloadErrors, unlistedErrs, attunev1alpha1.MaxWorkloadErrors)
 	// Observe mode: collect data and track progress but don't surface
 	// recommendations. This gives a zero-footprint data-collection phase.
 	if policy.Spec.UpdateStrategy.Type == attunev1alpha1.UpdateTypeObserve {
@@ -1289,7 +1295,7 @@ func (r *AttunePolicyReconciler) processWorkloads(
 			logger.Error(vpaErr, "Failed to read VPA recommendations", "vpa", vpaCfg.Name, "namespace", vpaNS)
 			result.totalQueryErrors++
 			result.queryErrorTypes["VPA"] = struct{}{}
-			if len(result.workloadErrors) < 10 {
+			if len(result.workloadErrors) < attunev1alpha1.MaxWorkloadErrors {
 				result.workloadErrors = append(result.workloadErrors, attunev1alpha1.WorkloadError{
 					Workload: "*",
 					Error:    fmt.Sprintf("VPA read error: %v", vpaErr),
@@ -1377,7 +1383,7 @@ func (r *AttunePolicyReconciler) processWorkloads(
 			if dataPoints > result.maxDataPoints {
 				result.maxDataPoints = dataPoints
 			}
-			if err != nil && len(result.workloadErrors) < 10 {
+			if err != nil && len(result.workloadErrors) < attunev1alpha1.MaxWorkloadErrors {
 				result.workloadErrors = append(result.workloadErrors, attunev1alpha1.WorkloadError{
 					Workload: workloadName,
 					Error:    err.Error(),

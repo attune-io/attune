@@ -19,9 +19,11 @@ for those workloads. It does **not** rewrite pod specs or inject JVM flags.
 | `golang` | No extra defaults | Typically adapts to cgroup limits |
 
 Explicit policy values always win over profile defaults. The profile
-fills unset fields before AttuneDefaults, so a cluster
-`memory.allowDecrease: true` does not replace java, python, or nodejs.
-golang leaves `allowDecrease` unset and still inherits the cluster value.
+fills unset fields before AttuneDefaults. For java, python, and nodejs
+that includes `memory.allowDecrease`. For java it also includes
+`memory.overhead` (`40`). A cluster `memory.allowDecrease: true` or
+`memory.overhead: "60"` does not replace those profile values.
+golang leaves both unset and still inherits the cluster value.
 
 ## Example
 

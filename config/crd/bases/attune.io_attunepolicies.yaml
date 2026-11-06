@@ -2607,7 +2607,9 @@ spec:
               workloadErrors:
                 description: |-
                   WorkloadErrors records per-workload errors from the most recent
-                  reconcile cycle. Capped at 10 entries to limit status size.
+                  reconcile cycle. Capped at 10. A pod list failure or a missing
+                  selector is included when it fits. Savings still uses one
+                  recommendation diff for that workload when the row is dropped.
                 items:
                   description: WorkloadError records an error encountered while processing
                     a specific workload.

@@ -1066,7 +1066,9 @@ type AttunePolicyStatus struct {
 	ResizeHistory []ResizeHistoryEntry `json:"resizeHistory,omitempty"`
 
 	// WorkloadErrors records per-workload errors from the most recent
-	// reconcile cycle. Capped at 10 entries to limit status size.
+	// reconcile cycle. Capped at 10. A pod list failure or a missing
+	// selector is included when it fits. Savings still uses one
+	// recommendation diff for that workload when the row is dropped.
 	// +kubebuilder:validation:MaxItems=10
 	// +optional
 	WorkloadErrors []WorkloadError `json:"workloadErrors,omitempty"`
@@ -1337,6 +1339,10 @@ type ResourceValues struct {
 // MaxResizeHistoryEntries is the cap on status.resizeHistory.
 // It matches the kubebuilder MaxItems marker on that field.
 const MaxResizeHistoryEntries = 50
+
+// MaxWorkloadErrors is the cap on status.workloadErrors.
+// It matches the kubebuilder MaxItems marker on that field.
+const MaxWorkloadErrors = 10
 
 // ResizeHistoryEntry records a single resize operation.
 type ResizeHistoryEntry struct {
