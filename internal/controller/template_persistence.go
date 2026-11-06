@@ -101,6 +101,25 @@ func overlayAppliedResizeOnWant(
 	}
 }
 
+// latestContainerPersistResult is the newest resize row for one container.
+// TemplatePatched rows are not resize outcomes.
+func latestContainerPersistResult(history []attunev1alpha1.ResizeHistoryEntry, workload, container string) (attunev1alpha1.ResizeResult, bool) {
+	if workload == "" || container == "" || container == "*" {
+		return "", false
+	}
+	for i := len(history) - 1; i >= 0; i-- {
+		h := history[i]
+		if h.Resource == "template" || h.Method == "TemplatePersistence" {
+			continue
+		}
+		if h.Workload != workload || h.Container != container {
+			continue
+		}
+		return h.Result, true
+	}
+	return "", false
+}
+
 // materializeContainerResources builds ResourceRequirements from a recommendation,
 // honoring controlledValues and allowDecrease.
 func materializeContainerResources(
@@ -424,6 +443,13 @@ func (r *AttunePolicyReconciler) applyTemplatePersistence(
 			want := materializeContainerResources(policy, c)
 			if mode == attunev1alpha1.TemplatePersistenceAfterSuccessfulResize {
 				overlayAppliedResizeOnWant(&want, policy.Status.ResizeHistory, rec.Workload, c.Name)
+				// A newer failed attempt must not publish that rec's limits.
+				// Requests stay pinned to the last applied To. Limits stay
+				// on the template until an attempt succeeds.
+				if result, ok := latestContainerPersistResult(policy.Status.ResizeHistory, rec.Workload, c.Name); ok &&
+					result == attunev1alpha1.ResizeResultFailed {
+					want.Limits = nil
+				}
 			}
 			if recLim, ok := want.Limits[corev1.ResourceMemory]; ok &&
 				!c.Recommended.MemoryLimit.IsZero() && recLim.Cmp(c.Recommended.MemoryLimit) > 0 {
