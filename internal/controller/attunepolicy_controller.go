@@ -604,7 +604,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// maxPodsInMetricsQuery()>0: unlimited sampling (flag < 0) returns 0
 	// from that helper, which used to skip the list and hold template
 	// resources instead of live leftovers.
-	podsByWorkload := r.listPodsForWorkloads(ctx, workloads)
+	podsByWorkload, podsUnlisted := r.listPodsForWorkloads(ctx, workloads)
 	// Best-effort refresh of dynamic pod cache filter from active policies.
 	r.refreshPodCacheFilter(ctx)
 	wpResult := r.processWorkloads(workloadCtx, &policy, workloads, collector, queryBuilder, podsByWorkload)
@@ -656,6 +656,12 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Surface per-workload errors so users can diagnose without operator logs.
 	policy.Status.WorkloadErrors = workloadErrors
 	noteWorkloadRefReadErrors(&policy, workloadErrors)
+	for _, name := range unlistedWorkloadNames(podsUnlisted) {
+		policy.Status.WorkloadErrors = append(policy.Status.WorkloadErrors, attunev1alpha1.WorkloadError{
+			Workload: name,
+			Error:    "could not list pods",
+		})
+	}
 	// Observe mode: collect data and track progress but don't surface
 	// recommendations. This gives a zero-footprint data-collection phase.
 	if policy.Spec.UpdateStrategy.Type == attunev1alpha1.UpdateTypeObserve {
@@ -668,7 +674,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		policy.Status.Recommendations = r.applyStatusBudget(recommendations, &policy)
 		var acc savingsAccumulator
 		// Savings use the full recommendation set, not the status-truncated copy.
-		policy.Status.Savings, acc = r.computeSavings(recommendations, defaults, podsByWorkload)
+		policy.Status.Savings, acc = r.computeSavings(recommendations, defaults, podsByWorkload, podsUnlisted)
 		updateSavingsGauges(policy.Namespace, policy.Name, acc, defaults)
 		updateReclaimedCapacityGauges(policy.Namespace, policy.Name, acc)
 	}
@@ -722,7 +728,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	listPods := needPods || (refreshBlockers && (isResizeMode(mode) || mode == attunev1alpha1.UpdateTypeRecommend))
 	if listPods && podsByWorkload == nil {
 		// Reuse early list from metrics sampling when present.
-		podsByWorkload = r.listPodsForWorkloads(ctx, workloads)
+		podsByWorkload, _ = r.listPodsForWorkloads(ctx, workloads)
 	}
 	if podsByWorkload == nil {
 		podsByWorkload = map[string][]corev1.Pod{}
