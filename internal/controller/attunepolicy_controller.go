@@ -697,6 +697,12 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		r.reconcileGitOpsPullRequest(ctx, &policy, workloads, recommendations)
 	}
 
+	// The schedule gates live changes. Compute it before OnRecommendation
+	// persistence so a template write cannot roll the workload outside
+	// the window. AfterSuccessfulResize catch-up stays below: that patch
+	// follows a resize that already succeeded inside the window.
+	withinWindow := isWithinResizeWindow(policy.Spec.UpdateStrategy.Schedule, r.now())
+
 	// Template persistence (OnRecommendation): write accepted recs into templates.
 	// Observe mode is gated inside applyTemplatePersistence; Canary InProgress too.
 	// Re-check freeze immediately before persist (PromQL may have taken minutes).
@@ -704,6 +710,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		templatePersistenceWhen(policy.Spec.UpdateStrategy) == attunev1alpha1.TemplatePersistenceOnRecommendation &&
 		policy.Spec.UpdateStrategy.Type != attunev1alpha1.UpdateTypeObserve &&
 		len(recommendations) > 0 &&
+		withinWindow &&
 		r.applyNotFrozen(ctx, policy.Namespace, &applyFrozen, &freezeErr) &&
 		wpResult.applyListsOK() {
 		tplHistory := r.applyTemplatePersistence(ctx, &policy, workloads, recommendations,
@@ -721,7 +728,6 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		recWorkloads = append(recWorkloads, rec.Workload)
 	}
 	allCooling := r.allWorkloadsCooling(&policy, recWorkloads)
-	withinWindow := isWithinResizeWindow(policy.Spec.UpdateStrategy.Schedule, r.now())
 	var newResizedCount int
 
 	// List pods when needed for resize/boost, or for Deferred/Infeasible UX in

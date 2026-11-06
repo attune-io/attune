@@ -26,6 +26,7 @@ import (
 	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -1184,6 +1185,77 @@ func TestReconcile_NowFuncControlsScheduleGate(t *testing.T) {
 	r.SetNowFunc(func() time.Time { return insideWindow })
 	assert.True(t, isWithinResizeWindow(policy.Spec.UpdateStrategy.Schedule, r.now()),
 		"03:00 should be inside 02:00-06:00 window")
+}
+
+func TestReconcile_Schedule_SkipsOnRecommendationPersist(t *testing.T) {
+	outside := time.Date(2026, 1, 7, 10, 0, 0, 0, time.UTC)
+	inside := time.Date(2026, 1, 7, 3, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name      string
+		now       time.Time
+		wantPatch bool
+	}{
+		{name: "outside window keeps template", now: outside, wantPatch: false},
+		{name: "inside window persists template", now: inside, wantPatch: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			policy := newTestPolicy("test-policy", "default")
+			policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeRecommend
+			policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+				Enabled: boolPtr(true),
+				When:    attunev1alpha1.TemplatePersistenceOnRecommendation,
+			}
+			policy.Spec.UpdateStrategy.Schedule = &attunev1alpha1.ResizeSchedule{
+				Windows:    []attunev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
+				DaysOfWeek: []string{"Wednesday"},
+			}
+			deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+			pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
+			ns := newTestNamespace("default", nil)
+			mc := &mockCollector{
+				queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+					return generateSamples(200, 0.1), nil
+				},
+			}
+			scheme := testScheme()
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(policy, deploy, pod, ns).
+				WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
+				Build()
+			reconciler := newReconcilerForReconcileWithClient(mc, fakeClient, scheme)
+			reconciler.SetNowFunc(func() time.Time { return tt.now })
+
+			_, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+				NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+			})
+			require.NoError(t, err)
+
+			var gotDeploy appsv1.Deployment
+			require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+				Name: "api-server", Namespace: "default",
+			}, &gotDeploy))
+			cpuMilli := gotDeploy.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue()
+			if tt.wantPatch {
+				assert.NotEqual(t, int64(500), cpuMilli, "open window should persist the recommendation")
+			} else {
+				assert.Equal(t, int64(500), cpuMilli, "closed window must not roll the template")
+			}
+
+			var updated attunev1alpha1.AttunePolicy
+			require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+				Name: "test-policy", Namespace: "default",
+			}, &updated))
+			cond := meta.FindStatusCondition(updated.Status.Conditions, attunev1alpha1.ConditionScheduleBlocked)
+			require.NotNil(t, cond)
+			if tt.wantPatch {
+				assert.Equal(t, attunev1alpha1.ReasonInsideWindow, cond.Reason)
+			} else {
+				assert.Equal(t, attunev1alpha1.ReasonOutsideWindow, cond.Reason)
+			}
+		})
+	}
 }
 
 func TestReconcile_InsufficientDataRequeuesAtQueryStep(t *testing.T) {
