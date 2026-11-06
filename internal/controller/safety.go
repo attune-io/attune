@@ -641,6 +641,7 @@ func (r *AttunePolicyReconciler) revertAndRestoreAfterSafety(
 	if err := revertFn(record); err != nil {
 		logger.Error(err, revertFailMsg, "pod", pod.Name)
 		operatormetrics.RevertFailuresTotal.WithLabelValues(pod.Namespace, trackedWorkload, reason).Inc()
+		markLatestCycleFailed(policy.Status.ResizeHistory, trackedWorkload, record.Container, reason)
 		return err
 	}
 	operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, trackedWorkload, reason).Inc()

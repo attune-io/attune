@@ -385,6 +385,37 @@ func TestRevertAndRestoreAfterSafety_RecordsRevertWhenRestoreFails(t *testing.T)
 		"RevertsTotal must increment after a successful live revert")
 }
 
+func TestRevertAndRestoreAfterSafety_RevertFailureMarksHistoryFailed(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+	policy := newTestPolicy("p", "default")
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{{
+		Timestamp: metav1.NewTime(time.Now()),
+		Workload:  "api",
+		Container: "app",
+		Resource:  "memory",
+		Result:    attunev1alpha1.ResizeResultSuccess,
+	}}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "api-abc", Namespace: "default"}}
+	beforeReverts := promtestutil.ToFloat64(operatormetrics.RevertsTotal.WithLabelValues("default", "api", "oomkill"))
+	beforeFailures := promtestutil.ToFloat64(operatormetrics.RevertFailuresTotal.WithLabelValues("default", "api", "oomkill"))
+
+	err := r.revertAndRestoreAfterSafety(
+		log.IntoContext(context.Background(), logr.Discard()),
+		func(safety.ResizeRecord) error {
+			return fmt.Errorf("resize subresource rejected")
+		},
+		policy, nil, original256MiRecord(), pod,
+		"api", "oomkill", "OOMKilled",
+		"Failed to revert pod during safety observation",
+		"Safety observation reverted resize on pod %s/%s: %s",
+	)
+	require.Error(t, err)
+	assert.Equal(t, attunev1alpha1.ResizeResultFailed, policy.Status.ResizeHistory[0].Result)
+	assert.Equal(t, "oomkill", policy.Status.ResizeHistory[0].Reason)
+	assert.Equal(t, beforeReverts, promtestutil.ToFloat64(operatormetrics.RevertsTotal.WithLabelValues("default", "api", "oomkill")))
+	assert.Equal(t, beforeFailures+1, promtestutil.ToFloat64(operatormetrics.RevertFailuresTotal.WithLabelValues("default", "api", "oomkill")))
+}
+
 func TestRevertAndRestoreAfterSafety_StampsLastResizeTime(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
