@@ -69,7 +69,7 @@ var (
 	SavingsCPU = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "attune_savings_cpu_cores_total",
-			Help: "CPU cores saved by one policy. Sum by namespace for the namespace total.",
+			Help: "Current CPU request gap in cores for one policy (live request minus recommended). Zero when pods already match. Sum by namespace for the namespace total.",
 		},
 		[]string{"namespace", "policy"},
 	)
@@ -77,7 +77,7 @@ var (
 	SavingsMemory = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "attune_savings_memory_bytes_total",
-			Help: "Memory bytes saved by one policy. Sum by namespace for the namespace total.",
+			Help: "Current memory request gap in bytes for one policy (live request minus recommended). Zero when pods already match. Sum by namespace for the namespace total.",
 		},
 		[]string{"namespace", "policy"},
 	)
@@ -85,7 +85,7 @@ var (
 	SavingsEstimatedMonthly = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "attune_savings_estimated_monthly_dollars",
-			Help: "Estimated monthly savings in USD for one policy. Sum by namespace for the namespace total.",
+			Help: "Estimated monthly USD cost of the current request gap for one policy. Zero when pods already match. Sum by namespace for the namespace total.",
 		},
 		[]string{"namespace", "policy"},
 	)

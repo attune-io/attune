@@ -482,7 +482,7 @@ See [Bin packing](../guides/bin-packing.md#reclaimed-capacity-signals).
 
 ### attune_savings_cpu_cores_total
 
-CPU cores saved by one policy. `sum by (namespace)` is the namespace total.
+Current CPU request gap for one policy: the sum of (live request minus recommended) across pods that still count. A pod already at the recommendation adds nothing, so the gauge is 0 after a successful in-place resize. `sum by (namespace)` is the namespace total.
 
 | Label | Description |
 |-------|-------------|
@@ -491,7 +491,7 @@ CPU cores saved by one policy. `sum by (namespace)` is the namespace total.
 
 ### attune_savings_memory_bytes_total
 
-Memory bytes saved by one policy. `sum by (namespace)` is the namespace total.
+Current memory request gap in bytes for one policy: the sum of (live request minus recommended) across pods that still count. A pod already at the recommendation adds nothing, so the gauge is 0 after a successful in-place resize. `sum by (namespace)` is the namespace total.
 
 | Label | Description |
 |-------|-------------|
@@ -500,8 +500,8 @@ Memory bytes saved by one policy. `sum by (namespace)` is the namespace total.
 
 ### attune_savings_estimated_monthly_dollars
 
-Estimated monthly cost savings in USD for one policy, computed from configured
-or default pricing ($0.031/vCPU-hour, $0.004/GiB-hour). `sum by (namespace)` is the namespace total.
+Estimated monthly USD cost of that current request gap for one policy, computed from configured
+or default pricing ($0.031/vCPU-hour, $0.004/GiB-hour). The value is 0 when pods already match the recommendation. `sum by (namespace)` is the namespace total.
 
 | Label | Description |
 |-------|-------------|

@@ -378,7 +378,7 @@ func TestComputeSavings_UnlistedWorkloadKeepsOneDiff(t *testing.T) {
 	missing, _ := r.computeSavings(recs, nil, pods, nil)
 	assert.Empty(t, missing.CPURequestReduction, "a successful list with no pods adds nothing")
 
-	failed, _ := r.computeSavings(recs, nil, pods, map[string]struct{}{"api": {}})
+	failed, _ := r.computeSavings(recs, nil, pods, map[string]string{"api": errCouldNotListPods})
 	assert.Equal(t, "600m", failed.CPURequestReduction, "a failed list keeps one diff per container")
 }
 

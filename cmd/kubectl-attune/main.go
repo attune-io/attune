@@ -236,13 +236,13 @@ func run(args []string, buildClient dynamicClientFactory) int {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			return 1
 		}
-		items, warnings := fetchMultiCluster(ctx, *kubeconfig, ctxList, *namespace, *allNamespaces, buildClient)
+		items, warnings, exportDefaults := fetchMultiCluster(ctx, *kubeconfig, ctxList, *namespace, *allNamespaces, buildClient)
 		for _, w := range warnings {
 			fmt.Fprintf(os.Stderr, "WARNING: %s\n", w)
 		}
 		switch cmd {
 		case "status":
-			printStatusItems(items, *sortBy, *filter)
+			printStatusItems(items, *sortBy, *filter, exportDefaults)
 		case "savings":
 			if *output == "csv" {
 				printSavingsCSV(items, *sortBy)
@@ -253,7 +253,7 @@ func run(args []string, buildClient dynamicClientFactory) int {
 			if *output == "csv" {
 				printRecommendationsCSV(items)
 			} else {
-				printRecommendationsItems(items)
+				printRecommendationsItems(items, exportDefaults)
 			}
 		case "history":
 			printHistoryItems(items)
@@ -548,10 +548,10 @@ func exitPolicyGet(namespace, policyName string, err error) {
 
 func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace, sortByFlag, filterFlag string) {
 	list := fetchPolicies(ctx, dynClient, namespace)
-	printStatusItems(list.Items, sortByFlag, filterFlag)
+	printStatusItems(list.Items, sortByFlag, filterFlag, defaultsForPolicies(ctx, dynClient, list.Items))
 }
 
-func printStatusItems(allItems []unstructured.Unstructured, sortByFlag, filterFlag string) {
+func printStatusItems(allItems []unstructured.Unstructured, sortByFlag, filterFlag string, defaultsByNS map[string]*attunev1alpha1.AttuneDefaults) {
 	if len(allItems) == 0 {
 		fmt.Println("No AttunePolicies found.")
 		return
@@ -587,7 +587,7 @@ func printStatusItems(allItems []unstructured.Unstructured, sortByFlag, filterFl
 		degraded := getConditionReason(item, "Degraded")
 		schedule := getConditionReason(item, "ScheduleBlocked")
 		canary := formatCanaryStatus(item)
-		exportMode := formatExportMode(item)
+		exportMode := formatExportMode(item, defaultsForItem(defaultsByNS, item))
 		age := formatAge(item.GetCreationTimestamp().Time)
 
 		if showCluster {
@@ -843,10 +843,10 @@ func resizeBlockedCLIReason(item unstructured.Unstructured) string {
 
 func printRecommendations(ctx context.Context, dynClient dynamic.Interface, namespace string) {
 	list := fetchPolicies(ctx, dynClient, namespace)
-	printRecommendationsItems(list.Items)
+	printRecommendationsItems(list.Items, defaultsForPolicies(ctx, dynClient, list.Items))
 }
 
-func printRecommendationsItems(items []unstructured.Unstructured) {
+func printRecommendationsItems(items []unstructured.Unstructured, defaultsByNS map[string]*attunev1alpha1.AttuneDefaults) {
 	if len(items) == 0 {
 		fmt.Println("No AttunePolicies found.")
 		return
@@ -936,7 +936,7 @@ func printRecommendationsItems(items []unstructured.Unstructured) {
 	// recommendations to ConfigMaps instead of (or in addition to) direct resizes.
 	hasExport := false
 	for _, item := range items {
-		if getNestedBool(item, "spec", "updateStrategy", "export", "configMap") {
+		if effectiveConfigMapEnabled(item, defaultsForItem(defaultsByNS, item)) {
 			hasExport = true
 			break
 		}
@@ -2581,14 +2581,68 @@ func formatCanaryStatus(item unstructured.Unstructured) string {
 	return phase
 }
 
-// formatExportMode returns "CM" when the policy has export.configMap enabled
-// (recommendations are written to <policy>-<workload>-recommendations ConfigMaps),
-// or "-" otherwise. Used in status table for GitOps visibility.
-func formatExportMode(item unstructured.Unstructured) string {
-	if getNestedBool(item, "spec", "updateStrategy", "export", "configMap") {
+// formatExportMode returns "CM" when recommendation ConfigMaps are on
+// after AttuneDefaults merge, or "-" otherwise. An omitted configMap
+// inherits. Explicit false stays off.
+func formatExportMode(item unstructured.Unstructured, defaults *attunev1alpha1.AttuneDefaults) string {
+	if effectiveConfigMapEnabled(item, defaults) {
 		return "CM"
 	}
 	return "-"
+}
+
+// effectiveConfigMapEnabled reports the merged export.configMap value.
+// A conversion failure falls back to the raw spec bool.
+func effectiveConfigMapEnabled(item unstructured.Unstructured, defaults *attunev1alpha1.AttuneDefaults) bool {
+	policy := &attunev1alpha1.AttunePolicy{}
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(item.Object, policy); err != nil {
+		return getNestedBool(item, "spec", "updateStrategy", "export", "configMap")
+	}
+	mergeDefaultsIntoPolicy(policy, defaults)
+	if policy.Spec.UpdateStrategy == nil {
+		return false
+	}
+	return policy.Spec.UpdateStrategy.Export.ConfigMapEnabled()
+}
+
+// defaultsLookupKey separates AttuneDefaults by cluster context and
+// namespace. A single-cluster item has an empty cluster name.
+func defaultsLookupKey(cluster, namespace string) string {
+	return cluster + "/" + namespace
+}
+
+func defaultsForItem(defaultsByKey map[string]*attunev1alpha1.AttuneDefaults, item unstructured.Unstructured) *attunev1alpha1.AttuneDefaults {
+	if len(defaultsByKey) == 0 {
+		return nil
+	}
+	return defaultsByKey[defaultsLookupKey(itemCluster(item), item.GetNamespace())]
+}
+
+// defaultsForPolicies loads effective AttuneDefaults per policy namespace
+// on one cluster. A list error leaves that namespace unset. The caller
+// then uses the policy spec alone.
+func defaultsForPolicies(ctx context.Context, dynClient dynamic.Interface, items []unstructured.Unstructured) map[string]*attunev1alpha1.AttuneDefaults {
+	if len(items) == 0 || dynClient == nil {
+		return nil
+	}
+	out := make(map[string]*attunev1alpha1.AttuneDefaults)
+	seen := map[string]struct{}{}
+	for _, item := range items {
+		key := defaultsLookupKey(itemCluster(item), item.GetNamespace())
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		selected, err := fetchSelectedDefaults(ctx, dynClient, item.GetNamespace())
+		if err != nil || selected.defaults == nil {
+			continue
+		}
+		out[key] = selected.defaults
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func formatAge(created time.Time) string {

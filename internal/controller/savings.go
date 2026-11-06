@@ -50,9 +50,10 @@ type savingsAccumulator struct {
 // A non-nil map sums (live request - recommended) for every pod of that
 // workload. A pod already at the recommendation adds nothing. A successful
 // list with no pods adds nothing: do not multiply the largest request by
-// spec.replicas. unlisted names a workload whose pod list failed. That
-// workload keeps the one-diff path so a list error does not publish zero.
-func accumulateSavings(recommendations []attunev1alpha1.WorkloadRecommendation, podsByWorkload map[string][]corev1.Pod, unlisted map[string]struct{}) savingsAccumulator {
+// spec.replicas. unlisted names a workload whose pod list or selector
+// failed. That workload keeps the one-diff path so the failure does
+// not publish zero. The map value is the status text.
+func accumulateSavings(recommendations []attunev1alpha1.WorkloadRecommendation, podsByWorkload map[string][]corev1.Pod, unlisted map[string]string) savingsAccumulator {
 	var acc savingsAccumulator
 	for _, rec := range recommendations {
 		if rec.Stale {
@@ -86,7 +87,7 @@ func accumulateSavings(recommendations []attunev1alpha1.WorkloadRecommendation, 
 	return acc
 }
 
-func unlistedWorkload(unlisted map[string]struct{}, name string) bool {
+func unlistedWorkload(unlisted map[string]string, name string) bool {
 	if len(unlisted) == 0 {
 		return false
 	}
@@ -136,7 +137,7 @@ func addSavingsDiff(acc *savingsAccumulator, live, recommended resource.Quantity
 // It also returns the accumulator so callers can pass it to updateSavingsGauges
 // without re-iterating the recommendations. podsByWorkload nil keeps one diff
 // per container. A non-nil map sums each live pod.
-func (r *AttunePolicyReconciler) computeSavings(recommendations []attunev1alpha1.WorkloadRecommendation, defaults *attunev1alpha1.AttuneDefaults, podsByWorkload map[string][]corev1.Pod, unlisted map[string]struct{}) (attunev1alpha1.SavingsStatus, savingsAccumulator) {
+func (r *AttunePolicyReconciler) computeSavings(recommendations []attunev1alpha1.WorkloadRecommendation, defaults *attunev1alpha1.AttuneDefaults, podsByWorkload map[string][]corev1.Pod, unlisted map[string]string) (attunev1alpha1.SavingsStatus, savingsAccumulator) {
 	acc := accumulateSavings(recommendations, podsByWorkload, unlisted)
 
 	savings := attunev1alpha1.SavingsStatus{}

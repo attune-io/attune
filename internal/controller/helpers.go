@@ -61,6 +61,53 @@ const (
 	maxHistoryEntries = attunev1alpha1.MaxResizeHistoryEntries
 )
 
+// capWorkloadErrors keeps at most max status rows. The API server
+// rejects a status update above MaxItems. Pod-list and selector rows
+// come first. workloadRef rows stay ahead of ordinary errors so the
+// TemplatePersistence reason still has a matching status line.
+func capWorkloadErrors(existing, extra []attunev1alpha1.WorkloadError, max int) []attunev1alpha1.WorkloadError {
+	if max <= 0 {
+		return nil
+	}
+	var pinned, rest []attunev1alpha1.WorkloadError
+	for _, e := range existing {
+		if strings.HasPrefix(e.Error, "workloadRef ") {
+			pinned = append(pinned, e)
+			continue
+		}
+		rest = append(rest, e)
+	}
+	combined := make([]attunev1alpha1.WorkloadError, 0, len(extra)+len(existing))
+	seen := make(map[string]struct{}, len(extra)+len(existing))
+	add := func(e attunev1alpha1.WorkloadError) {
+		if e.Workload != "" {
+			if _, ok := seen[e.Workload]; ok {
+				return
+			}
+			seen[e.Workload] = struct{}{}
+		}
+		combined = append(combined, e)
+	}
+	for _, e := range extra {
+		add(e)
+	}
+	for _, e := range pinned {
+		add(e)
+	}
+	for _, e := range rest {
+		add(e)
+	}
+	if len(combined) == 0 {
+		return nil
+	}
+	if len(combined) > max {
+		combined = combined[:max]
+	}
+	out := make([]attunev1alpha1.WorkloadError, len(combined))
+	copy(out, combined)
+	return out
+}
+
 // isResizeMode returns true if the policy mode performs actual pod resizes.
 func isResizeMode(mode attunev1alpha1.UpdateType) bool {
 	return mode == attunev1alpha1.UpdateTypeOneShot || mode == attunev1alpha1.UpdateTypeCanary || mode == attunev1alpha1.UpdateTypeAuto

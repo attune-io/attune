@@ -18,6 +18,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
 
 func TestLabelsMatch(t *testing.T) {
@@ -115,7 +117,7 @@ func TestListPodsForWorkloads_Empty(t *testing.T) {
 	assert.Empty(t, failed)
 }
 
-func TestListPodsForWorkloads_SkipsEmptySelector(t *testing.T) {
+func TestListPodsForWorkloads_EmptySelectorMarksUnlisted(t *testing.T) {
 	scheme := testScheme()
 	// Deployment without MatchLabels has empty pod selector.
 	d := &appsv1.Deployment{
@@ -127,9 +129,89 @@ func TestListPodsForWorkloads_SkipsEmptySelector(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	r.Client = c
 	out, failed := r.listPodsForWorkloads(context.Background(), []client.Object{d})
-	assert.Empty(t, failed)
+	assert.Equal(t, errNoPodSelector, failed["nosel"])
 	_, ok := out["nosel"]
-	assert.False(t, ok, "workload without selector labels must be skipped")
+	assert.False(t, ok, "workload without selector labels must not match every pod")
+
+	savings, _ := r.computeSavings([]attunev1alpha1.WorkloadRecommendation{savingsRec("nosel", "1", "400m")}, nil, out, failed)
+	assert.Equal(t, "600m", savings.CPURequestReduction)
+}
+
+func TestListPodsForWorkloads_BadSelectorMarksUnlisted(t *testing.T) {
+	scheme := testScheme()
+	d := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "bad", Namespace: "ns"},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{{
+					Key:      "app",
+					Operator: "NotAnOperator",
+					Values:   []string{"x"},
+				}},
+			},
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(d).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+	out, failed := r.listPodsForWorkloads(context.Background(), []client.Object{d})
+	_, ok := out["bad"]
+	assert.False(t, ok)
+	assert.Contains(t, failed["bad"], "pod selector:")
+
+	savings, _ := r.computeSavings([]attunev1alpha1.WorkloadRecommendation{savingsRec("bad", "1", "400m")}, nil, out, failed)
+	assert.Equal(t, "600m", savings.CPURequestReduction)
+}
+
+func TestListOrSelectorMessage(t *testing.T) {
+	assert.Equal(t, errCouldNotListPods, listOrSelectorMessage(nil))
+	assert.Equal(t, errCouldNotListPods, listOrSelectorMessage(fmt.Errorf("listing pods for workload app: boom")))
+	assert.Equal(t, errNoPodSelector, listOrSelectorMessage(fmt.Errorf("workload ns/app has no pod selector labels")))
+	assert.Contains(t, listOrSelectorMessage(fmt.Errorf("parsing pod selector for workload app: bad op")), "pod selector:")
+}
+
+func TestCapWorkloadErrors_PrefersUnlistedWithinMax(t *testing.T) {
+	existing := make([]attunev1alpha1.WorkloadError, attunev1alpha1.MaxWorkloadErrors)
+	for i := range existing {
+		existing[i] = attunev1alpha1.WorkloadError{Workload: fmt.Sprintf("w%d", i), Error: "query"}
+	}
+	extra := []attunev1alpha1.WorkloadError{{Workload: "nosel", Error: errNoPodSelector}}
+	existing[9] = attunev1alpha1.WorkloadError{Workload: "rollout", Error: "workloadRef Deployment ns/missing: not found"}
+	got := capWorkloadErrors(existing, extra, attunev1alpha1.MaxWorkloadErrors)
+	require.Len(t, got, attunev1alpha1.MaxWorkloadErrors)
+	assert.Equal(t, "nosel", got[0].Workload)
+	assert.Equal(t, errNoPodSelector, got[0].Error)
+	assert.Equal(t, "rollout", got[1].Workload)
+	assert.Equal(t, "w0", got[2].Workload)
+	assert.NotContains(t, workloadNames(got), "w8")
+
+	dup := capWorkloadErrors(
+		[]attunev1alpha1.WorkloadError{{Workload: "nosel", Error: "query failed"}},
+		extra,
+		attunev1alpha1.MaxWorkloadErrors,
+	)
+	require.Len(t, dup, 1)
+	assert.Equal(t, errNoPodSelector, dup[0].Error)
+
+	onlyExtra := make([]attunev1alpha1.WorkloadError, 12)
+	for i := range onlyExtra {
+		onlyExtra[i] = attunev1alpha1.WorkloadError{Workload: fmt.Sprintf("u%d", i), Error: errCouldNotListPods}
+	}
+	capped := capWorkloadErrors(existing, onlyExtra, attunev1alpha1.MaxWorkloadErrors)
+	require.Len(t, capped, attunev1alpha1.MaxWorkloadErrors)
+	assert.Equal(t, "u0", capped[0].Workload)
+	assert.Equal(t, "u9", capped[9].Workload)
+
+	assert.Nil(t, capWorkloadErrors(nil, nil, attunev1alpha1.MaxWorkloadErrors))
+	assert.Nil(t, capWorkloadErrors(existing, extra, 0))
+}
+
+func workloadNames(errs []attunev1alpha1.WorkloadError) []string {
+	names := make([]string, len(errs))
+	for i := range errs {
+		names[i] = errs[i].Workload
+	}
+	return names
 }
 
 func TestListPodsForWorkloads_NSListErrorFallsBackPerWorkload(t *testing.T) {
@@ -204,8 +286,7 @@ func TestListPodsForWorkloads_BothListsFailMarksUnlisted(t *testing.T) {
 	out, failed := r.listPodsForWorkloads(context.Background(), []client.Object{d})
 	_, ok := out["app"]
 	assert.False(t, ok, "a failed list must not look like zero pods")
-	_, marked := failed["app"]
-	assert.True(t, marked)
+	assert.Equal(t, errCouldNotListPods, failed["app"])
 	assert.Equal(t, []string{"app"}, unlistedWorkloadNames(failed))
 }
 
