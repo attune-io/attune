@@ -339,7 +339,7 @@ decrease path and platform clamps on older clusters).
 | `result` | Meaning |
 |----------|---------|
 | `applied` | In-place resize applied a lower memory limit |
-| `clamped_platform` | Limit decrease blocked because cluster rejects NotRequired decreases (Kubernetes 1.33 and earlier) |
+| `clamped_platform` | Limit decrease blocked because cluster rejects NotRequired decreases (Kubernetes 1.33 and earlier). The Warning event reason is `MemoryLimitClamped`. |
 | `clamped_usage` | Target limit raised above recent usage + `decreaseUsageMarginPercent` |
 | `skipped_unsafe` | Usage floor equaled the current limit (no safe decrease) |
 
