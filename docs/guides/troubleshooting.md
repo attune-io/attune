@@ -2057,12 +2057,20 @@ Job my-ns/my-job is owned by a CronJob; target the CronJob instead
 Selector discovery drops those Jobs. To right-size the workload, target the
 parent CronJob instead.
 
+A Job created with `kubectl create job --from` has the same CronJob owner
+and the annotation `cronjob.kubernetes.io/instantiate: manual`. That Job
+stays a target. A scheduled Job does not set the annotation, so it is
+skipped.
+
 ## Overlapping pod selectors
 
 If two workloads in one policy match the same pod, Attune keeps that pod
-on the workload whose name comes first in alphabetical order. Savings
-count the pod once, and the resize loop sees it once. Give each workload
-a selector that does not overlap when the pods should be separate targets.
+on the workload that owns it. A Deployment or Rollout owns the pod when
+its ReplicaSet is the pod's controller. A StatefulSet, DaemonSet, or Job
+owns the pod when it is the controller. Savings count the pod once, and
+the resize loop sees it once. If neither workload owns the pod, the name
+that sorts first keeps it. Give each workload a selector that does not
+overlap when the pods should be separate targets.
 
 ## Known limitations
 

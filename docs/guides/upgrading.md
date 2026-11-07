@@ -21,16 +21,20 @@ skipped. Selector discovery drops it. A policy that names that Job
 becomes Ready False with reason `WorkloadDiscoveryFailed` and the
 message `Job <namespace>/<name> is owned by a CronJob; target the CronJob instead`.
 
-Target the CronJob. A standalone Job, including one created with
-`kubectl create job --from`, is unchanged. This matches Deployment-owned
-ReplicaSets: the child is not a second target, so the same pods are
-not counted twice.
+Target the CronJob. A standalone Job is unchanged. A Job created with
+`kubectl create job --from` stays a Job target: kubectl sets the
+annotation `cronjob.kubernetes.io/instantiate: manual` on that Job.
+A scheduled Job does not, so it is still skipped. This matches
+Deployment-owned ReplicaSets: the child is not a second target, so
+the same pods are not counted twice.
 
 ### Overlapping selectors count a pod once
 
 If two workloads in one policy match the same pod, savings and the
-resize loop use that pod once. The workload whose name comes first
-alphabetically keeps it. Selectors that do not overlap are unchanged.
+resize loop use that pod once. The workload that owns the pod keeps
+it. For a Deployment or Rollout, ownership is the ReplicaSet that
+controls the pod. When neither workload owns the pod, the name that
+sorts first keeps it. Selectors that do not overlap are unchanged.
 
 ## v0.1.35 to v0.1.36
 

@@ -348,6 +348,23 @@ func TestGetWorkloadByName_CronJobOwnedJob(t *testing.T) {
 
 	_, err = r.getWorkloadByName(context.Background(), "default", "Job", "data-migration")
 	require.NoError(t, err)
+
+	manual := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "manual-run",
+			Namespace: "default",
+			Annotations: map[string]string{
+				cronJobManualInstantiateAnnotation: "manual",
+			},
+			OwnerReferences: []metav1.OwnerReference{
+				{APIVersion: "batch/v1", Kind: "CronJob", Name: "nightly", Controller: boolPtr(true)},
+			},
+		},
+	}
+	r = newReconcilerWithClient(manual)
+	got, err := r.getWorkloadByName(context.Background(), "default", "Job", "manual-run")
+	require.NoError(t, err)
+	assert.Equal(t, "manual-run", got.GetName())
 }
 
 func TestGetPodSelectorLabels_CronJob(t *testing.T) {
@@ -411,13 +428,27 @@ func TestListWorkloadsBySelector_SkipsCronJobOwnedJob(t *testing.T) {
 			},
 		},
 	}
-	r := newReconcilerWithClient(standalone, owned)
+	manual := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "manual-run",
+			Namespace: "default",
+			Labels:    map[string]string{"tier": "batch"},
+			Annotations: map[string]string{
+				cronJobManualInstantiateAnnotation: "manual",
+			},
+			OwnerReferences: []metav1.OwnerReference{
+				{APIVersion: "batch/v1", Kind: "CronJob", Name: "nightly"},
+			},
+		},
+	}
+	r := newReconcilerWithClient(standalone, owned, manual)
 
 	selector := &metav1.LabelSelector{MatchLabels: map[string]string{"tier": "batch"}}
 	result, err := r.listWorkloadsBySelector(context.Background(), "default", "Job", selector)
 	assert.NoError(t, err)
-	require.Len(t, result, 1)
-	assert.Equal(t, "standalone-job", result[0].GetName())
+	require.Len(t, result, 2)
+	names := []string{result[0].GetName(), result[1].GetName()}
+	assert.ElementsMatch(t, []string{"standalone-job", "manual-run"}, names)
 }
 
 func TestDiscoverWorkloads_UnsupportedKind(t *testing.T) {

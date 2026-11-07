@@ -76,7 +76,7 @@ jobs:
             dst="ghcr.io/${OWNER}/mirrors/cert-manager-${component}:${CM_VERSION}"
             echo "::group::${component}"
             bash hack/bounded-run.sh 180 -- docker pull --platform linux/amd64 "$src"
-            docker tag "$src" "$dst"
+            bash hack/bounded-run.sh 60 -- docker tag "$src" "$dst"
             bash hack/bounded-run.sh 180 -- docker push "$dst"
             echo "::endgroup::"
           done
@@ -91,5 +91,5 @@ jobs:
           PROM_TAG="${PROM_IMAGE##*:}"
           dst="ghcr.io/${OWNER}/mirrors/prometheus:${PROM_TAG}"
           bash hack/bounded-run.sh 180 -- docker pull --platform linux/amd64 "$PROM_IMAGE"
-          docker tag "$PROM_IMAGE" "$dst"
+          bash hack/bounded-run.sh 60 -- docker tag "$PROM_IMAGE" "$dst"
           bash hack/bounded-run.sh 180 -- docker push "$dst"

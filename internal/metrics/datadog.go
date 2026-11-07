@@ -27,10 +27,10 @@ import (
 	"net/url"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/go-logr/logr"
 
+	"github.com/attune-io/attune/internal/textutil"
 	"github.com/attune-io/attune/internal/validation"
 )
 
@@ -289,32 +289,11 @@ func truncate(s string, n int) string {
 	if n < 0 {
 		n = 0
 	}
-	if len(s) <= n {
-		return s
+	cut := textutil.CutUTF8Bytes(s, n)
+	if len(s) > n {
+		return cut + "..."
 	}
-	return cutUTF8Bytes(s, n) + "..."
-}
-
-// cutUTF8Bytes keeps at most n bytes and does not end inside a multi-byte
-// character. A string that is already within n is returned unchanged.
-func cutUTF8Bytes(s string, n int) string {
-	if n <= 0 {
-		return ""
-	}
-	if len(s) <= n {
-		return s
-	}
-	i := n
-	for i > 0 && !utf8.RuneStart(s[i]) {
-		i--
-	}
-	if i < n {
-		_, size := utf8.DecodeRuneInString(s[i:])
-		if i+size > n {
-			return s[:i]
-		}
-	}
-	return s[:i]
+	return cut
 }
 
 func countSamples(grouped map[string][]Sample) int {

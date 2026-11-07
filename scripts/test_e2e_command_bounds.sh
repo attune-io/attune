@@ -21,10 +21,10 @@ python3 - "${ROOT}" <<'PY'
 import pathlib, re, sys
 root = pathlib.Path(sys.argv[1])
 e2e = re.compile(
-    r"\b(?:docker\s+(?:pull|save|load|exec|builder\s+prune|system\s+prune)"
+    r"\b(?:docker\s+(?:pull|save|load|exec|tag|builder\s+prune|system\s+prune)"
     r"|k3d\s+cluster\s+create)\b"
 )
-mirror = re.compile(r"\bdocker\s+(?:pull|push)\b")
+mirror = re.compile(r"\bdocker\s+(?:pull|push|tag)\b")
 security = re.compile(r"\bdocker\s+(?:buildx\s+build|build|save)\b")
 local = re.compile(
     r"\b(?:k3d\s+image\s+import|k3d\s+cluster\s+delete|kind\s+load\s+image-archive)\b"
@@ -72,10 +72,68 @@ for rel in (".github/workflows/mirror-e2e-images.yaml",):
             block.append(nxt)
         if calls_helper and not any("hack/bounded-run.sh" in item for item in block):
             bad.append(f"{rel}: sparse-checkout does not include hack/bounded-run.sh")
+nightly = (root / ".github/workflows/e2e-nightly.yaml").read_text()
+if re.search(r"bounded-run\.sh[^\n]*\\(?:\n[^\n]*)*\|[^\n]*\bjq\b", nightly):
+    bad.append("e2e-nightly.yaml pipes bounded-run.sh output to jq")
 if bad:
     print("\n".join(bad))
     sys.exit(1)
 print("OK: watched commands are bounded")
+PY
+
+echo "PLAN: duration forms"
+# shellcheck disable=SC1091
+source "${ROOT}/hack/bounded-run.sh"
+check_dur() {
+  local got
+  got="$(bounded_duration_secs "$1")"
+  if [[ "${got}" != "$2" ]]; then
+    fail "duration $1 want $2 got ${got}"
+  fi
+}
+check_dur 1h 3600
+check_dur 2.5m 150
+check_dur 1.08m 64
+check_dur 1.010m 60
+check_dur 0.9s 1
+check_dur 08 8
+check_dur 5m 300
+check_dur 30s 30
+check_dur 90 90
+if bounded_duration_secs 1d >/dev/null 2>"${TMPDIR:-/tmp}/bounded-bad-duration"; then
+  fail "1d should be rejected"
+fi
+if ! grep -q "bad duration" "${TMPDIR:-/tmp}/bounded-bad-duration"; then
+  fail "1d did not print bad duration"
+fi
+
+echo "PLAN: SIGINT and SIGTERM stop the child"
+python3 - "${ROOT}" <<'PY'
+import os, signal, subprocess, sys, time
+root = sys.argv[1]
+script = os.path.join(root, "hack", "bounded-run.sh")
+
+def run(sig, want):
+    proc = subprocess.Popen(
+        ["bash", script, "30", "--", "sleep", "30"],
+        start_new_session=True,
+    )
+    time.sleep(0.3)
+    os.kill(proc.pid, sig)
+    try:
+        code = proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        os.kill(proc.pid, signal.SIGKILL)
+        proc.wait(timeout=5)
+        raise SystemExit(f"FAIL: signal {sig} did not stop bounded-run")
+    if code != want:
+        raise SystemExit(f"FAIL: signal {sig} exit want {want} got {code}")
+    # The sleep must not outlive the wrapper.
+    time.sleep(0.2)
+
+run(signal.SIGINT, 130)
+run(signal.SIGTERM, 143)
+print("OK: signals stop the child")
 PY
 
 echo "DONE: ok=true"

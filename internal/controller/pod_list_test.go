@@ -156,6 +156,119 @@ func TestListPodsForWorkloads_OverlappingSelectorsCountPodOnce(t *testing.T) {
 	assert.Equal(t, "1", savings.CPURequestReduction)
 }
 
+func TestListPodsForWorkloads_OverlappingSelectorsPreferOwner(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	yes := true
+	b := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "b", Namespace: "ns", UID: "uid-b"},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "web"}},
+		},
+	}
+	a := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "ns", UID: "uid-a"},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "web"}},
+		},
+	}
+	rs := &appsv1.ReplicaSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "b-rs",
+			Namespace: "ns",
+			UID:       "uid-rs",
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: "apps/v1",
+				Kind:       "Deployment",
+				Name:       "b",
+				UID:        "uid-b",
+				Controller: &yes,
+			}},
+		},
+	}
+	shared := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "shared",
+			Namespace: "ns",
+			UID:       "uid-shared",
+			Labels:    map[string]string{"app": "web"},
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: "apps/v1",
+				Kind:       "ReplicaSet",
+				Name:       "b-rs",
+				UID:        "uid-rs",
+				Controller: &yes,
+			}},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(b, a, rs, shared).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+	out, failed := r.listPodsForWorkloads(context.Background(), []client.Object{a, b})
+	assert.Empty(t, failed)
+	assert.Empty(t, out["a"])
+	require.Len(t, out["b"], 1)
+	assert.Equal(t, "shared", out["b"][0].Name)
+}
+
+func TestListPodsForWorkloads_RolloutReplicaSetDoesNotClaimDeployment(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	yes := true
+	// Same name as the Rollout that owns the ReplicaSet. Kind must not match.
+	b := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "b", Namespace: "ns"},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "web"}},
+		},
+	}
+	a := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "ns"},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "web"}},
+		},
+	}
+	rs := &appsv1.ReplicaSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "rollout-rs",
+			Namespace: "ns",
+			UID:       "uid-rollout-rs",
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: "argoproj.io/v1alpha1",
+				Kind:       "Rollout",
+				Name:       "b",
+				Controller: &yes,
+			}},
+		},
+	}
+	shared := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "shared",
+			Namespace: "ns",
+			UID:       "uid-shared",
+			Labels:    map[string]string{"app": "web"},
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: "apps/v1",
+				Kind:       "ReplicaSet",
+				Name:       "rollout-rs",
+				UID:        "uid-rollout-rs",
+				Controller: &yes,
+			}},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(a, b, rs, shared).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+	out, failed := r.listPodsForWorkloads(context.Background(), []client.Object{a, b})
+	assert.Empty(t, failed)
+	require.Len(t, out["a"], 1, "a Rollout ReplicaSet must not assign the pod to Deployment b")
+	assert.Empty(t, out["b"])
+}
+
 func TestMetricsPodRegex_SamplesWhenLarge(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	r.MaxPodsInMetricsQuery = 3
@@ -257,6 +370,12 @@ func TestTrimStatusError_RuneBoundary(t *testing.T) {
 	require.True(t, utf8.ValidString(msg))
 	assert.LessOrEqual(t, len(msg), 160)
 	assert.True(t, strings.HasPrefix(msg, lead))
+
+	invalid := "pod selector: bad\xffvalue"
+	got = trimStatusError(invalid)
+	require.True(t, utf8.ValidString(got))
+	assert.NotContains(t, got, "\xff")
+	assert.Equal(t, "pod selector: badvalue", got)
 }
 
 func TestListOrSelectorMessage(t *testing.T) {

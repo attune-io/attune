@@ -189,7 +189,7 @@ jobs:
               echo "::warning::Primary registry failed for $image, trying fallback: $fallback"
               for attempt in 1 2 3; do
                 if bash hack/bounded-run.sh 300 -- docker pull --platform linux/amd64 "$fallback"; then
-                  docker tag "$fallback" "$image"
+                  bash hack/bounded-run.sh 60 -- docker tag "$fallback" "$image"
                   bash hack/bounded-run.sh 180 -- docker save "$image" -o "$tarball"
                   return 0
                 fi
@@ -399,12 +399,15 @@ jobs:
           # import fails silently (known issue). Verify the image is
           # actually available inside the node and retry if not.
           for attempt in 1 2 3; do
+            images_json="$(mktemp)"
             if bash hack/bounded-run.sh 60 -- docker exec "k3d-${CLUSTER_NAME}-server-0" \
-              crictl images --output json 2>/dev/null \
-              | jq -e '.images[].repoTags[] | select(test("attune.*e2e"))' >/dev/null 2>&1; then
+              crictl images --output json >"${images_json}" \
+              && jq -e '.images[].repoTags[] | select(test("attune.*e2e"))' "${images_json}" >/dev/null 2>&1; then
+              rm -f "${images_json}"
               echo "Image attune:e2e verified inside cluster"
               break
             fi
+            rm -f "${images_json}"
             echo "::warning::attune:e2e not found inside cluster (attempt $attempt), re-importing..."
             sleep 5
             bash hack/k3d-image-import.sh "$CLUSTER_NAME" /tmp/attune-e2e.tar
