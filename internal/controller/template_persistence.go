@@ -69,7 +69,23 @@ func overlayAppliedResizeOnWant(
 	if want == nil {
 		return
 	}
-	var cpuTo, memTo *resource.Quantity
+	applied := successfulAppliedRequests(history, workload, container)
+	if len(applied) == 0 {
+		return
+	}
+	if want.Requests == nil {
+		want.Requests = corev1.ResourceList{}
+	}
+	for k, v := range applied {
+		want.Requests[k] = v
+	}
+}
+
+// successfulAppliedRequests is the latest successful in-place To for each
+// resource. Resources with no successful row are absent.
+func successfulAppliedRequests(history []attunev1alpha1.ResizeHistoryEntry, workload, container string) corev1.ResourceList {
+	var cpuTo, memTo resource.Quantity
+	var hasCPU, hasMem bool
 	for i := range history {
 		h := history[i]
 		if h.Workload != workload || h.Container != container || !isSuccessfulInPlaceHistory(h) {
@@ -79,26 +95,51 @@ func overlayAppliedResizeOnWant(
 		if err != nil || q.IsZero() {
 			continue
 		}
-		qq := q
 		switch h.Resource {
 		case "cpu":
-			cpuTo = &qq
+			cpuTo = q
+			hasCPU = true
 		case "memory":
-			memTo = &qq
+			memTo = q
+			hasMem = true
 		}
 	}
-	if cpuTo == nil && memTo == nil {
-		return
+	if !hasCPU && !hasMem {
+		return nil
 	}
-	if want.Requests == nil {
-		want.Requests = corev1.ResourceList{}
+	out := corev1.ResourceList{}
+	if hasCPU {
+		out[corev1.ResourceCPU] = cpuTo.DeepCopy()
 	}
-	if cpuTo != nil {
-		want.Requests[corev1.ResourceCPU] = *cpuTo
+	if hasMem {
+		out[corev1.ResourceMemory] = memTo.DeepCopy()
 	}
-	if memTo != nil {
-		want.Requests[corev1.ResourceMemory] = *memTo
+	return out
+}
+
+// limitsRaisedToAppliedRequests returns limits that must be raised so a
+// pinned request is not dest-clamped below the last applied size. A
+// template with no limit for that resource is left alone.
+func limitsRaisedToAppliedRequests(currentLimits, requests corev1.ResourceList) corev1.ResourceList {
+	if len(currentLimits) == 0 || len(requests) == 0 {
+		return nil
 	}
+	var out corev1.ResourceList
+	for _, res := range []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory} {
+		req, ok := requests[res]
+		if !ok {
+			continue
+		}
+		lim, has := currentLimits[res]
+		if !has || req.Cmp(lim) <= 0 {
+			continue
+		}
+		if out == nil {
+			out = corev1.ResourceList{}
+		}
+		out[res] = req.DeepCopy()
+	}
+	return out
 }
 
 // latestContainerPersistResult is the newest resize row for one container.
@@ -444,11 +485,21 @@ func (r *AttunePolicyReconciler) applyTemplatePersistence(
 			if mode == attunev1alpha1.TemplatePersistenceAfterSuccessfulResize {
 				overlayAppliedResizeOnWant(&want, policy.Status.ResizeHistory, rec.Workload, c.Name)
 				// A newer failed attempt must not publish that rec's limits.
-				// Requests stay pinned to the last applied To. Limits stay
-				// on the template until an attempt succeeds.
+				// Requests stay pinned to the last applied To. A template
+				// limit below that request is raised to the request so the
+				// catch-up does not shrink the applied size.
 				if result, ok := latestContainerPersistResult(policy.Status.ResizeHistory, rec.Workload, c.Name); ok &&
 					result == attunev1alpha1.ResizeResultFailed {
 					want.Limits = nil
+					if cachedSpec != nil {
+						if cur, ok := templateContainerResources(cachedSpec, c.Name); ok {
+							// Do not copy the failed attempt's limits. If the
+							// last applied request is above the template limit,
+							// raise that limit to the request so dest clamp
+							// cannot shrink the applied size.
+							want.Limits = limitsRaisedToAppliedRequests(cur.Limits, successfulAppliedRequests(policy.Status.ResizeHistory, rec.Workload, c.Name))
+						}
+					}
 				}
 			}
 			if recLim, ok := want.Limits[corev1.ResourceMemory]; ok &&

@@ -656,7 +656,7 @@ sum(rate(attune_resize_total{result="success"}[1h]))
 * 100
 ```
 
-Total CPU cores saved cluster-wide:
+Total CPU request gap cluster-wide. This is remaining reclaimable request, so it is 0 after every counted pod is already at its recommendation:
 
 ```promql
 sum(attune_savings_cpu_cores_total)

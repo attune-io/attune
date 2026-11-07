@@ -78,13 +78,20 @@ func capWorkloadErrors(existing, extra []attunev1alpha1.WorkloadError, max int) 
 		rest = append(rest, e)
 	}
 	combined := make([]attunev1alpha1.WorkloadError, 0, len(extra)+len(existing))
-	seen := make(map[string]struct{}, len(extra)+len(existing))
+	seen := make(map[string]int, len(extra)+len(existing))
 	add := func(e attunev1alpha1.WorkloadError) {
 		if e.Workload != "" {
-			if _, ok := seen[e.Workload]; ok {
+			if idx, ok := seen[e.Workload]; ok {
+				// A selector or list error can be recorded first. The
+				// workloadRef row for that same name must still be the
+				// one status keeps, or TemplatePersistence loses its line.
+				if strings.HasPrefix(e.Error, "workloadRef ") &&
+					!strings.HasPrefix(combined[idx].Error, "workloadRef ") {
+					combined[idx] = e
+				}
 				return
 			}
-			seen[e.Workload] = struct{}{}
+			seen[e.Workload] = len(combined)
 		}
 		combined = append(combined, e)
 	}
@@ -1416,7 +1423,7 @@ func markLatestCycleReverted(history []attunev1alpha1.ResizeHistoryEntry, worklo
 
 // markLatestCycleFailed marks the newest Success cycle for this container
 // as Failed. A later successful revert can still flip that cycle to
-// Reverted. An already-Failed newest row is left as-is so an older
+// Reverted. A newest Failed or Reverted row is left as-is so an older
 // Success cycle is not rewritten.
 func markLatestCycleFailed(history []attunev1alpha1.ResizeHistoryEntry, workload, container, reason string) {
 	for i := len(history) - 1; i >= 0; i-- {
@@ -1427,7 +1434,7 @@ func markLatestCycleFailed(history []attunev1alpha1.ResizeHistoryEntry, workload
 		if h.Resource == "template" || h.Method == "TemplatePersistence" {
 			continue
 		}
-		if h.Result == attunev1alpha1.ResizeResultFailed {
+		if h.Result == attunev1alpha1.ResizeResultFailed || h.Result == attunev1alpha1.ResizeResultReverted {
 			return
 		}
 		break

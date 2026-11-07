@@ -448,6 +448,36 @@ func TestMarkLatestCycleReverted(t *testing.T) {
 	}
 }
 
+func TestMarkLatestCycleFailed_NewestTerminalDoesNotRewriteOlderSuccess(t *testing.T) {
+	now := time.Now()
+	earlier := now.Add(-time.Hour)
+	history := []attunev1alpha1.ResizeHistoryEntry{
+		{Workload: "w", Container: "c", Resource: "cpu", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(earlier)},
+		{Workload: "w", Container: "c", Resource: "cpu", Result: attunev1alpha1.ResizeResultReverted, Timestamp: metav1.NewTime(now)},
+	}
+	markLatestCycleFailed(history, "w", "c", "revert failed")
+	assert.Equal(t, attunev1alpha1.ResizeResultSuccess, history[0].Result)
+	assert.Equal(t, attunev1alpha1.ResizeResultReverted, history[1].Result)
+
+	failedNewest := []attunev1alpha1.ResizeHistoryEntry{
+		{Workload: "w", Container: "c", Resource: "cpu", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(earlier)},
+		{Workload: "w", Container: "c", Resource: "cpu", Result: attunev1alpha1.ResizeResultFailed, Timestamp: metav1.NewTime(now)},
+	}
+	markLatestCycleFailed(failedNewest, "w", "c", "revert failed")
+	assert.Equal(t, attunev1alpha1.ResizeResultSuccess, failedNewest[0].Result)
+	assert.Equal(t, attunev1alpha1.ResizeResultFailed, failedNewest[1].Result)
+
+	successNewest := []attunev1alpha1.ResizeHistoryEntry{
+		{Workload: "w", Container: "c", Resource: "cpu", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(earlier)},
+		{Workload: "w", Container: "c", Resource: "cpu", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(now)},
+		{Workload: "w", Container: "c", Resource: "memory", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(now)},
+	}
+	markLatestCycleFailed(successNewest, "w", "c", "revert failed")
+	assert.Equal(t, attunev1alpha1.ResizeResultSuccess, successNewest[0].Result)
+	assert.Equal(t, attunev1alpha1.ResizeResultFailed, successNewest[1].Result)
+	assert.Equal(t, attunev1alpha1.ResizeResultFailed, successNewest[2].Result)
+}
+
 // ---------- Exponential backoff ----------
 
 func TestGetEffectiveCooldown_NoReverts(t *testing.T) {
