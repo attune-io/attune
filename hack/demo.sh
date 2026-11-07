@@ -79,7 +79,7 @@ cleanup() {
   fi
   banner "Cleanup"
   info "Deleting cluster '$CLUSTER_NAME'..."
-  k3d cluster delete "$CLUSTER_NAME" 2>/dev/null || true
+  bash "$SCRIPT_DIR/k3d-delete.sh" "$CLUSTER_NAME" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -90,7 +90,7 @@ if [ "$SKIP_CLUSTER" = "true" ]; then
   info "Reusing existing cluster (--skip-cluster)"
 else
   info "Creating k3d cluster '$CLUSTER_NAME' with K3s $K3S_VERSION..."
-  k3d cluster delete "$CLUSTER_NAME" 2>/dev/null || true
+  bash "$SCRIPT_DIR/k3d-delete.sh" "$CLUSTER_NAME" 2>/dev/null || true
   run k3d cluster create "$CLUSTER_NAME" \
     --image "rancher/k3s:$K3S_VERSION" \
     --k3s-arg "--disable=traefik,servicelb@server:*" \
@@ -130,7 +130,7 @@ info "Building operator image..."
 run make docker-build IMG="$IMG"
 
 info "Loading image into cluster..."
-k3d image import "$IMG" -c "$CLUSTER_NAME"
+bash "$SCRIPT_DIR/k3d-image-import.sh" "$CLUSTER_NAME" "$IMG"
 
 info "Installing via Helm..."
 helm install attune ./charts/attune \

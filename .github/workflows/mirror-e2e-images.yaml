@@ -73,9 +73,9 @@ jobs:
             src="quay.io/jetstack/cert-manager-${component}:${CM_VERSION}"
             dst="ghcr.io/${OWNER}/mirrors/cert-manager-${component}:${CM_VERSION}"
             echo "::group::${component}"
-            docker pull --platform linux/amd64 "$src"
+            bash hack/bounded-run.sh 180 -- docker pull --platform linux/amd64 "$src"
             docker tag "$src" "$dst"
-            docker push "$dst"
+            bash hack/bounded-run.sh 180 -- docker push "$dst"
             echo "::endgroup::"
           done
 
@@ -88,6 +88,6 @@ jobs:
           # Extract tag from full image ref (quay.io/prometheus/prometheus:v3.4.1 -> v3.4.1)
           PROM_TAG="${PROM_IMAGE##*:}"
           dst="ghcr.io/${OWNER}/mirrors/prometheus:${PROM_TAG}"
-          docker pull --platform linux/amd64 "$PROM_IMAGE"
+          bash hack/bounded-run.sh 180 -- docker pull --platform linux/amd64 "$PROM_IMAGE"
           docker tag "$PROM_IMAGE" "$dst"
-          docker push "$dst"
+          bash hack/bounded-run.sh 180 -- docker push "$dst"

@@ -275,6 +275,7 @@ python-test: ## Run helper script tests (fossa-filter, run-fuzz classifier, go-v
 	bash scripts/test_e2e_nightly_matrix.sh
 	bash scripts/test_k3d_delete.sh
 	bash scripts/test_k3d_image_import.sh
+	bash scripts/test_e2e_command_bounds.sh
 	bash scripts/test_collect_fleet_reports.sh
 	bash scripts/test_nightly_failure_issue_body.sh
 	python3 scripts/test_nightly_failure_issue.py
@@ -290,14 +291,14 @@ test-bench: ## Run benchmark tests
 .PHONY: test-local
 test-local: test test-integration ## Run unit + integration + Chainsaw E2E + Go E2E with an auto-provisioned k3d cluster
 	@cluster_name=attune-test; \
-	trap 'k3d cluster delete "$$cluster_name" 2>/dev/null || true' EXIT; \
-	k3d cluster delete "$$cluster_name" 2>/dev/null || true; \
+	trap 'bash hack/k3d-delete.sh "$$cluster_name" 2>/dev/null || true' EXIT; \
+	bash hack/k3d-delete.sh "$$cluster_name" 2>/dev/null || true; \
 	k3d cluster create "$$cluster_name" \
 		--image rancher/k3s:$(K3S_VERSION) \
 		--k3s-arg "--disable=traefik,servicelb@server:*" \
 		--wait --timeout 120s; \
 	$(MAKE) ko-build-local IMG=attune:test; \
-	k3d image import /tmp/attune.tar -c "$$cluster_name"; \
+	bash hack/k3d-image-import.sh "$$cluster_name" /tmp/attune.tar; \
 	$(MAKE) _deploy-stack IMG=attune:test; \
 	$(MAKE) test-e2e; \
 	$(MAKE) test-e2e-go
@@ -305,14 +306,14 @@ test-local: test test-integration ## Run unit + integration + Chainsaw E2E + Go 
 .PHONY: test-local-smoke
 test-local-smoke: ## Provision k3d, deploy the operator stack, run the minimal E2E smoke suite, and clean up
 	@cluster_name=krsmoke; \
-	trap 'k3d cluster delete "$$cluster_name" 2>/dev/null || true' EXIT; \
-	k3d cluster delete "$$cluster_name" 2>/dev/null || true; \
+	trap 'bash hack/k3d-delete.sh "$$cluster_name" 2>/dev/null || true' EXIT; \
+	bash hack/k3d-delete.sh "$$cluster_name" 2>/dev/null || true; \
 	k3d cluster create "$$cluster_name" \
 		--image rancher/k3s:$(K3S_VERSION) \
 		--k3s-arg "--disable=traefik,servicelb@server:*" \
 		--wait --timeout 120s; \
 	$(MAKE) ko-build-local IMG=attune:test; \
-	k3d image import /tmp/attune.tar -c "$$cluster_name"; \
+	bash hack/k3d-image-import.sh "$$cluster_name" /tmp/attune.tar; \
 	$(MAKE) _deploy-stack IMG=attune:test; \
 	$(MAKE) test-e2e-smoke
 
@@ -404,7 +405,7 @@ k3d-create: ## Create a k3d cluster for local dev (fast, uses k3s)
 
 .PHONY: k3d-delete
 k3d-delete: ## Delete the k3d cluster
-	k3d cluster delete $(K3D_CLUSTER_NAME)
+	bash hack/k3d-delete.sh $(K3D_CLUSTER_NAME)
 
 # Internal: install cert-manager, Prometheus, and operator (called after image load)
 .PHONY: _deploy-stack
@@ -448,7 +449,7 @@ _deploy-stack:
 
 .PHONY: k3d-deploy
 k3d-deploy: ko-build-local ## Build via ko, load, and deploy to k3d (with Prometheus + cert-manager)
-	k3d image import /tmp/attune.tar -c $(K3D_CLUSTER_NAME)
+	bash hack/k3d-image-import.sh $(K3D_CLUSTER_NAME) /tmp/attune.tar
 	@$(MAKE) _deploy-stack
 
 .PHONY: kind-create
@@ -461,7 +462,7 @@ kind-delete: ## Delete the Kind cluster
 
 .PHONY: kind-deploy
 kind-deploy: ko-build-local ## Build via ko, load, and deploy to Kind (with Prometheus + cert-manager)
-	kind load image-archive /tmp/attune.tar --name $(KIND_CLUSTER_NAME)
+	bash hack/bounded-run.sh 300 -- kind load image-archive /tmp/attune.tar --name $(KIND_CLUSTER_NAME)
 	@$(MAKE) _deploy-stack
 
 ##@ Release

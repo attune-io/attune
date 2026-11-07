@@ -7,7 +7,9 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -161,6 +163,35 @@ func TestListPodsForWorkloads_BadSelectorMarksUnlisted(t *testing.T) {
 
 	savings, _ := r.computeSavings([]attunev1alpha1.WorkloadRecommendation{savingsRec("bad", "1", "400m")}, nil, out, failed)
 	assert.Equal(t, "600m", savings.CPURequestReduction)
+}
+
+func TestTrimStatusError_RuneBoundary(t *testing.T) {
+	short := "pod selector: bad op"
+	assert.Equal(t, short, trimStatusError(short))
+
+	// 158 ASCII bytes plus a two-byte character is exactly 160 bytes.
+	exact := strings.Repeat("a", 158) + "é" + "MORE"
+	got := trimStatusError(exact)
+	require.True(t, utf8.ValidString(got))
+	assert.Equal(t, strings.Repeat("a", 158)+"é", got)
+	assert.LessOrEqual(t, len(got), 160)
+
+	split := strings.Repeat("a", 159) + "éMORE"
+	got = trimStatusError(split)
+	require.True(t, utf8.ValidString(got))
+	assert.Equal(t, strings.Repeat("a", 159), got)
+	assert.LessOrEqual(t, len(got), 160)
+
+	const lead = "pod selector: "
+	errText := "parsing pod selector: "
+	pad := 160 - len(lead) - len(errText) - 1
+	require.Positive(t, pad)
+	errText += strings.Repeat("b", pad) + "éTAIL"
+	require.False(t, utf8.ValidString((lead + errText)[:160]))
+	msg := listOrSelectorMessage(fmt.Errorf("%s", errText))
+	require.True(t, utf8.ValidString(msg))
+	assert.LessOrEqual(t, len(msg), 160)
+	assert.True(t, strings.HasPrefix(msg, lead))
 }
 
 func TestListOrSelectorMessage(t *testing.T) {

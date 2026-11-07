@@ -97,8 +97,8 @@ runs:
             bash hack/k3d-delete.sh "$cluster"
           fi
         done
-        docker builder prune -f || true
-        docker system prune -f || true
+        bash hack/bounded-run.sh 120 -- docker builder prune -f || true
+        bash hack/bounded-run.sh 120 -- docker system prune -f || true
 
     - name: Pre-pull container images
       shell: bash -Eeuo pipefail -x {0}
@@ -113,8 +113,8 @@ runs:
           local image="$1" tarball="$2" fallback="${3:-}"
           [[ -f "$tarball" ]] && { echo "Cached: $tarball"; return 0; }
           for attempt in 1 2 3; do
-            if docker pull --platform linux/amd64 "$image"; then
-              docker save "$image" -o "$tarball"
+            if bash hack/bounded-run.sh 300 -- docker pull --platform linux/amd64 "$image"; then
+              bash hack/bounded-run.sh 180 -- docker save "$image" -o "$tarball"
               return 0
             fi
             echo "::warning::docker pull attempt $attempt for $image failed, retrying in 10s..."
@@ -123,9 +123,9 @@ runs:
           if [[ -n "$fallback" ]]; then
             echo "::warning::Primary registry failed for $image, trying fallback: $fallback"
             for attempt in 1 2 3; do
-              if docker pull --platform linux/amd64 "$fallback"; then
+              if bash hack/bounded-run.sh 300 -- docker pull --platform linux/amd64 "$fallback"; then
                 docker tag "$fallback" "$image"
-                docker save "$image" -o "$tarball"
+                bash hack/bounded-run.sh 180 -- docker save "$image" -o "$tarball"
                 return 0
               fi
               echo "::warning::fallback pull attempt $attempt for $fallback failed, retrying in 10s..."
@@ -152,9 +152,9 @@ runs:
       run: | # zizmor: ignore[template-injection]
         # Load the pre-pulled k3s image into Docker so k3d uses it
         # without pulling from Docker Hub (avoids rate-limit/timeout failures).
-        docker load -i /tmp/k3s.tar
+        bash hack/bounded-run.sh 180 -- docker load -i /tmp/k3s.tar
         for attempt in 1 2 3; do
-          if k3d cluster create "${{ inputs.cluster-name }}" \
+          if bash hack/bounded-run.sh 240 -- k3d cluster create "${{ inputs.cluster-name }}" \
             --image ${{ inputs.k3s-image }} \
             --kubeconfig-update-default=false \
             --kubeconfig-switch-context=false \
