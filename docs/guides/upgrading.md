@@ -26,6 +26,12 @@ Target the CronJob. A standalone Job, including one created with
 ReplicaSets: the child is not a second target, so the same pods are
 not counted twice.
 
+### Overlapping selectors count a pod once
+
+If two workloads in one policy match the same pod, savings and the
+resize loop use that pod once. The workload whose name comes first
+alphabetically keeps it. Selectors that do not overlap are unchanged.
+
 ## v0.1.35 to v0.1.36
 
 Existing policy YAML still applies. When 0.1.36 is published, upgrade the
