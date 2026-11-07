@@ -22,17 +22,21 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/go-logr/logr"
+	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/argorollout"
 	rsmetrics "github.com/attune-io/attune/internal/metrics"
+	"github.com/attune-io/attune/internal/textutil"
 )
 
 // defaultMaxPodsInMetricsQuery caps how many pods are named in a metrics
@@ -129,40 +133,172 @@ func (r *AttunePolicyReconciler) listPodsForWorkloads(ctx context.Context, workl
 			}
 		}
 	}
-	claimPodsOnce(logger, out)
+	r.claimPodsOnce(ctx, logger, workloads, out)
 	return out, unlisted
 }
 
 // claimPodsOnce keeps each pod on one workload. Overlapping selectors
 // otherwise add the same request gap twice and can resize the pod twice
-// in one reconcile. The workload whose name sorts first keeps the pod.
-func claimPodsOnce(logger logr.Logger, out map[string][]corev1.Pod) {
+// in one reconcile. The workload that owns the pod keeps it. When none
+// of the matches own it, the name that sorts first does.
+func (r *AttunePolicyReconciler) claimPodsOnce(ctx context.Context, logger logr.Logger, workloads []client.Object, out map[string][]corev1.Pod) {
 	if len(out) < 2 {
 		return
 	}
+	byName := make(map[string]client.Object, len(workloads))
+	for _, w := range workloads {
+		byName[w.GetName()] = w
+	}
+	rsOwner := r.replicaSetOwners(ctx, logger, workloads)
 	names := make([]string, 0, len(out))
 	for name := range out {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	seen := make(map[string]string, len(names))
+	grouped := make(map[string][]podCand)
+	var keys []string
 	for _, name := range names {
-		pods := out[name]
-		kept := make([]corev1.Pod, 0, len(pods))
-		for i := range pods {
-			key := podClaimKey(&pods[i])
-			if keptBy, ok := seen[key]; ok {
-				logger.V(1).Info("pod matches more than one workload; counting it once",
-					"pod", pods[i].Namespace+"/"+pods[i].Name,
-					"workload", keptBy,
-					"skipped", name)
+		for i := range out[name] {
+			pod := out[name][i]
+			key := podClaimKey(&pod)
+			if _, ok := grouped[key]; !ok {
+				keys = append(keys, key)
+			}
+			grouped[key] = append(grouped[key], podCand{name: name, pod: pod})
+		}
+		out[name] = []corev1.Pod{}
+	}
+	for _, key := range keys {
+		cands := grouped[key]
+		winner := cands[0].name
+		pod := cands[0].pod
+		if ref, ok := controllerOwner(&pod); ok {
+			if ref.Kind == "ReplicaSet" {
+				if name := rsOwner[ref.UID]; name != "" && candHas(cands, name) {
+					winner = name
+				}
+			} else {
+				for _, c := range cands {
+					w := byName[c.name]
+					if w != nil && objectKind(w) == ref.Kind && ref.Name == c.name {
+						winner = c.name
+						break
+					}
+				}
+			}
+		}
+		for _, c := range cands {
+			if c.name == winner {
+				pod = c.pod
+				break
+			}
+		}
+		out[winner] = append(out[winner], pod)
+		for _, c := range cands {
+			if c.name == winner {
 				continue
 			}
-			seen[key] = name
-			kept = append(kept, pods[i])
+			logger.V(1).Info("pod matches more than one workload; counting it once",
+				"pod", pod.Namespace+"/"+pod.Name,
+				"workload", winner,
+				"skipped", c.name)
 		}
-		out[name] = kept
 	}
+}
+
+type podCand struct {
+	name string
+	pod  corev1.Pod
+}
+
+func candHas(cands []podCand, name string) bool {
+	for _, c := range cands {
+		if c.name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func controllerOwner(pod *corev1.Pod) (metav1.OwnerReference, bool) {
+	for _, ref := range pod.OwnerReferences {
+		if ref.Controller != nil && *ref.Controller && ref.Name != "" {
+			return ref, true
+		}
+	}
+	return metav1.OwnerReference{}, false
+}
+
+func objectKind(obj client.Object) string {
+	switch obj.(type) {
+	case *appsv1.Deployment:
+		return "Deployment"
+	case *appsv1.StatefulSet:
+		return "StatefulSet"
+	case *appsv1.DaemonSet:
+		return "DaemonSet"
+	case *appsv1.ReplicaSet:
+		return "ReplicaSet"
+	case *batchv1.Job:
+		return "Job"
+	case *batchv1.CronJob:
+		return "CronJob"
+	case *argorollout.Rollout:
+		return "Rollout"
+	default:
+		return ""
+	}
+}
+
+// replicaSetOwners maps a ReplicaSet UID to the Deployment or Rollout
+// name in this policy that controls it. A list error leaves the map
+// empty and claimPodsOnce falls back to alphabetical names.
+func (r *AttunePolicyReconciler) replicaSetOwners(ctx context.Context, logger logr.Logger, workloads []client.Object) map[types.UID]string {
+	out := map[types.UID]string{}
+	if r == nil || r.Client == nil {
+		return out
+	}
+	// Key is namespace, controller kind, and name. A Deployment and a
+	// Rollout can share a name. Matching the name alone would credit
+	// the other kind's pods to this policy.
+	type ownerKey struct {
+		kind string
+		name string
+	}
+	byNS := map[string]map[ownerKey]struct{}{}
+	for _, w := range workloads {
+		kind := objectKind(w)
+		if kind != "Deployment" && kind != "Rollout" {
+			continue
+		}
+		ns := w.GetNamespace()
+		if byNS[ns] == nil {
+			byNS[ns] = map[ownerKey]struct{}{}
+		}
+		byNS[ns][ownerKey{kind: kind, name: w.GetName()}] = struct{}{}
+	}
+	for ns, owners := range byNS {
+		var list appsv1.ReplicaSetList
+		if err := r.List(ctx, &list, client.InNamespace(ns)); err != nil {
+			logger.Error(err, "Failed to list ReplicaSets for pod ownership", "namespace", ns)
+			continue
+		}
+		for i := range list.Items {
+			rs := &list.Items[i]
+			for _, ref := range rs.OwnerReferences {
+				if ref.Controller == nil || !*ref.Controller || ref.Name == "" {
+					continue
+				}
+				if _, ok := owners[ownerKey{kind: ref.Kind, name: ref.Name}]; !ok {
+					continue
+				}
+				if rs.UID != "" {
+					out[rs.UID] = ref.Name
+				}
+			}
+		}
+	}
+	return out
 }
 
 func podClaimKey(pod *corev1.Pod) string {
@@ -204,33 +340,7 @@ func listOrSelectorMessage(err error) string {
 }
 
 func trimStatusError(msg string) string {
-	const max = 160
-	if len(msg) <= max {
-		return msg
-	}
-	return cutUTF8Bytes(msg, max)
-}
-
-// cutUTF8Bytes keeps at most n bytes and does not end inside a multi-byte
-// character. A string that is already within n is returned unchanged.
-func cutUTF8Bytes(msg string, n int) string {
-	if n <= 0 {
-		return ""
-	}
-	if len(msg) <= n {
-		return msg
-	}
-	i := n
-	for i > 0 && !utf8.RuneStart(msg[i]) {
-		i--
-	}
-	if i < n {
-		_, size := utf8.DecodeRuneInString(msg[i:])
-		if i+size > n {
-			return msg[:i]
-		}
-	}
-	return msg[:i]
+	return textutil.CutUTF8Bytes(msg, 160)
 }
 
 // labelsMatch reports whether podLabels contain every key/value in selector.

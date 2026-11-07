@@ -46,8 +46,9 @@ Modes are graduated from safe observation to full automation:
     Observe still skips. Use the recommendations to update your
     Job/CronJob template, or enable `updateStrategy.initialSizing` with
     the namespace label `attune.io/initial-sizing=enabled`. A Job owned
-    by a CronJob is skipped. Target the CronJob. A standalone Job is
-    unchanged.
+    by a CronJob is skipped, except a Job marked
+    `cronjob.kubernetes.io/instantiate: manual` (`kubectl create job --from`).
+    Target the CronJob for scheduled runs. A standalone Job is unchanged.
 
 !!! warning
     Start with **Recommend** in production. Promote to **Canary** only after

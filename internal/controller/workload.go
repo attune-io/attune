@@ -89,7 +89,7 @@ func (r *AttunePolicyReconciler) getWorkloadByName(ctx context.Context, namespac
 	if kind == "ReplicaSet" && isRolloutOwned(obj) {
 		return nil, fmt.Errorf("ReplicaSet %s/%s is owned by a Rollout; target the Rollout instead", namespace, name)
 	}
-	if kind == "Job" && isCronJobOwned(obj) {
+	if kind == "Job" && isScheduledCronJobJob(obj) {
 		return nil, fmt.Errorf("%s %s/%s is owned by a CronJob; target the CronJob instead", kind, namespace, name)
 	}
 	return obj, nil
@@ -741,6 +741,10 @@ func filterStandaloneReplicaSets(objects []client.Object) []client.Object {
 	return result
 }
 
+// cronJobManualInstantiateAnnotation is set by kubectl create job --from.
+// The CronJob controller does not set it on scheduled Jobs.
+const cronJobManualInstantiateAnnotation = "cronjob.kubernetes.io/instantiate"
+
 // isCronJobOwned returns true if any ownerReference has kind CronJob,
 // a non-empty name, and API version batch/v1 or batch/v1beta1.
 // Controller is not required.
@@ -756,12 +760,21 @@ func isCronJobOwned(obj client.Object) bool {
 	return false
 }
 
-// filterStandaloneJobs removes Jobs owned by a CronJob.
-// A standalone Job is kept.
+// isScheduledCronJobJob is a CronJob child the controller created.
+// kubectl create job --from sets the same owner and marks the Job manual.
+func isScheduledCronJobJob(obj client.Object) bool {
+	if !isCronJobOwned(obj) {
+		return false
+	}
+	return obj.GetAnnotations()[cronJobManualInstantiateAnnotation] != "manual"
+}
+
+// filterStandaloneJobs removes Jobs a CronJob controller created.
+// A standalone Job, and a Job from kubectl create job --from, are kept.
 func filterStandaloneJobs(objects []client.Object) []client.Object {
 	result := make([]client.Object, 0, len(objects))
 	for _, obj := range objects {
-		if isCronJobOwned(obj) {
+		if isScheduledCronJobJob(obj) {
 			continue
 		}
 		result = append(result, obj)

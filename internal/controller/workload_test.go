@@ -1034,9 +1034,24 @@ func TestWorkload_FilterStandaloneJobs(t *testing.T) {
 		},
 	}
 
-	result := filterStandaloneJobs([]client.Object{standalone, owned})
-	require.Len(t, result, 1)
+	manual := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "manual-job",
+			Annotations: map[string]string{
+				cronJobManualInstantiateAnnotation: "manual",
+			},
+			OwnerReferences: []metav1.OwnerReference{
+				{APIVersion: "batch/v1", Kind: "CronJob", Name: "nightly"},
+			},
+		},
+	}
+
+	result := filterStandaloneJobs([]client.Object{standalone, owned, manual})
+	require.Len(t, result, 2)
 	assert.Equal(t, "standalone-job", result[0].GetName())
+	assert.Equal(t, "manual-job", result[1].GetName())
+	assert.False(t, isScheduledCronJobJob(manual))
+	assert.True(t, isScheduledCronJobJob(owned))
 }
 
 // ---------- buildPrometheusQuery ----------

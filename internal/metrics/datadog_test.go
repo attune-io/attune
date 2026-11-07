@@ -253,6 +253,11 @@ func TestTruncate_RuneBoundary(t *testing.T) {
 	require.True(t, utf8.ValidString(got))
 	assert.Equal(t, strings.Repeat("a", 197)+"...", got)
 	assert.NotContains(t, got, "😀")
+
+	bad := "err\xffbody"
+	got = truncate(bad, 200)
+	require.True(t, utf8.ValidString(got))
+	assert.Equal(t, "errbody", got)
 }
 
 func TestDatadogCollector_APIError(t *testing.T) {
