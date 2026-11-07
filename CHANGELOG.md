@@ -6,6 +6,29 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.36](https://github.com/attune-io/attune/compare/v0.1.35...v0.1.36) (2026-11-07)
+
+
+### Bug Fixes
+
+* build with go 1.27.3 for cve-2026-111943 ([#1067](https://github.com/attune-io/attune/issues/1067)) ([b680b0b](https://github.com/attune-io/attune/commit/b680b0b244210dd68dce588d388acd225145cba2))
+* bump golang.org/x/net to 0.62.0 ([#1076](https://github.com/attune-io/attune/issues/1076)) ([c4c30b3](https://github.com/attune-io/attune/commit/c4c30b38dd5da4e0f32f1f53cd6fca40e6f78e2c))
+* bump k8s client libraries to v0.37.2 ([#1082](https://github.com/attune-io/attune/issues/1082)) ([d4830ae](https://github.com/attune-io/attune/commit/d4830ae99458ca6be29b046c666970d1ff2d5df3)), closes [#1079](https://github.com/attune-io/attune/issues/1079)
+* cap workload errors and show inherited export ([#1091](https://github.com/attune-io/attune/issues/1091)) ([8c71737](https://github.com/attune-io/attune/commit/8c71737da0eeff0a9ba52b26c7a087837d35aac2))
+* correct savings scope and the rate window floor ([#1078](https://github.com/attune-io/attune/issues/1078)) ([2695cf0](https://github.com/attune-io/attune/commit/2695cf0a77e94d6a62142b0ca77f784611fcb29a))
+* describe inherited ConfigMap export in the CLI ([#1092](https://github.com/attune-io/attune/issues/1092)) ([8515c95](https://github.com/attune-io/attune/commit/8515c95630346fb0838b008337aaee2089595130))
+* hold template writes until the schedule window ([#1097](https://github.com/attune-io/attune/issues/1097)) ([785ad73](https://github.com/attune-io/attune/commit/785ad733473878860ac26d6a6cf84d6628d673d2))
+* keep applied sizes and status rows across upgrade edges ([#1103](https://github.com/attune-io/attune/issues/1103)) ([4eca6f3](https://github.com/attune-io/attune/commit/4eca6f3bdcdd948e23fd3fc49700f4631473501b))
+* keep each policy's savings gauges ([#1083](https://github.com/attune-io/attune/issues/1083)) ([a380bfa](https://github.com/attune-io/attune/commit/a380bfa5c1db72b6f38ffb4ec44e73026bb338b2))
+* keep runtime profiles ahead of inherited defaults ([#1084](https://github.com/attune-io/attune/issues/1084)) ([f7eda35](https://github.com/attune-io/attune/commit/f7eda35f81b83205ebb46ef6caaa83787b51cb96))
+* keep savings and explain honest for list failures and profiles ([#1090](https://github.com/attune-io/attune/issues/1090)) ([b7d0ee7](https://github.com/attune-io/attune/commit/b7d0ee727d40d63d2ed6ff00071ab16565a2690c))
+* keep template limits when a later resize fails ([#1101](https://github.com/attune-io/attune/issues/1101)) ([1a6b631](https://github.com/attune-io/attune/commit/1a6b6311874a997134bf4a7f74ca266076263cc8))
+* mark a failed safety rollback as Failed ([#1093](https://github.com/attune-io/attune/issues/1093)) ([f158764](https://github.com/attune-io/attune/commit/f15876429d1e696bf7807c82d305cc218d84e34c))
+* reserve quota headroom before the next resize ([#1100](https://github.com/attune-io/attune/issues/1100)) ([c8c46ba](https://github.com/attune-io/attune/commit/c8c46baaa686b9b8f77af377167f0cb36e6807de))
+* say workload changes are deferred outside the schedule ([#1098](https://github.com/attune-io/attune/issues/1098)) ([419e499](https://github.com/attune-io/attune/commit/419e49978dfdc25c15e18d27dbea7c4b70724d68))
+* show ScheduleBlocked for days of week without windows ([#1099](https://github.com/attune-io/attune/issues/1099)) ([26aeaa6](https://github.com/attune-io/attune/commit/26aeaa681a38fb46a724593dacdd07516cfd32cb))
+* sum savings across live pods and bump direct modules ([#1081](https://github.com/attune-io/attune/issues/1081)) ([e788e1a](https://github.com/attune-io/attune/commit/e788e1a4ca00a9dacade485ad9f6bab60dc2b13d))
+
 ## [0.1.35](https://github.com/attune-io/attune/compare/v0.1.34...v0.1.35) (2026-10-20)
 
 
