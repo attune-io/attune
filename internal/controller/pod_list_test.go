@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -89,6 +90,70 @@ func TestListPodsForWorkloads_SingleNSList(t *testing.T) {
 	require.Len(t, out["app1"], 2)
 	require.Len(t, out["app2"], 1)
 	assert.Equal(t, "p2", out["app2"][0].Name)
+}
+
+func TestListPodsForWorkloads_OverlappingSelectorsCountPodOnce(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, appsv1.AddToScheme(scheme))
+
+	// b is first in the slice. The claim is still the earlier name, a.
+	b := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "b", Namespace: "ns"},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "web"}},
+		},
+	}
+	a := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "ns"},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "web"}},
+		},
+	}
+	onlyB := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "only-b", Namespace: "ns"},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "other"}},
+		},
+	}
+	shared := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "ns", UID: "uid-shared", Labels: map[string]string{"app": "web"}},
+		Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{
+			Name: "app",
+			Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("1"),
+			}},
+		}}},
+	}
+	other := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "other", Namespace: "ns", UID: "uid-other", Labels: map[string]string{"app": "other"}},
+		Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{
+			Name: "app",
+			Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("1"),
+			}},
+		}}},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(b, a, onlyB, shared, other).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+
+	out, failed := r.listPodsForWorkloads(context.Background(), []client.Object{b, a, onlyB})
+	assert.Empty(t, failed)
+	require.Len(t, out["a"], 1)
+	assert.Equal(t, "shared", out["a"][0].Name)
+	assert.Empty(t, out["b"])
+	require.Len(t, out["only-b"], 1)
+	assert.Equal(t, "other", out["only-b"][0].Name)
+
+	savings, _ := r.computeSavings([]attunev1alpha1.WorkloadRecommendation{
+		savingsRec("a", "1", "500m"),
+		savingsRec("b", "1", "500m"),
+		savingsRec("only-b", "1", "500m"),
+	}, nil, out, failed)
+	assert.Equal(t, "1", savings.CPURequestReduction)
 }
 
 func TestMetricsPodRegex_SamplesWhenLarge(t *testing.T) {

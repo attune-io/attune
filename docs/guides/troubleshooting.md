@@ -2057,6 +2057,13 @@ Job my-ns/my-job is owned by a CronJob; target the CronJob instead
 Selector discovery drops those Jobs. To right-size the workload, target the
 parent CronJob instead.
 
+## Overlapping pod selectors
+
+If two workloads in one policy match the same pod, Attune keeps that pod
+on the workload whose name comes first in alphabetical order. Savings
+count the pod once, and the resize loop sees it once. Give each workload
+a selector that does not overlap when the pods should be separate targets.
+
 ## Known limitations
 
 ### Maximum Prometheus addresses
