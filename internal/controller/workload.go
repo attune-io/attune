@@ -90,7 +90,7 @@ func (r *AttunePolicyReconciler) getWorkloadByName(ctx context.Context, namespac
 		return nil, fmt.Errorf("ReplicaSet %s/%s is owned by a Rollout; target the Rollout instead", namespace, name)
 	}
 	if kind == "Job" && isCronJobOwned(obj) {
-		return nil, fmt.Errorf("Job %s/%s is owned by a CronJob; target the CronJob instead", namespace, name)
+		return nil, fmt.Errorf("%s %s/%s is owned by a CronJob; target the CronJob instead", kind, namespace, name)
 	}
 	return obj, nil
 }
