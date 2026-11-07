@@ -24,6 +24,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -128,7 +129,47 @@ func (r *AttunePolicyReconciler) listPodsForWorkloads(ctx context.Context, workl
 			}
 		}
 	}
+	claimPodsOnce(logger, out)
 	return out, unlisted
+}
+
+// claimPodsOnce keeps each pod on one workload. Overlapping selectors
+// otherwise add the same request gap twice and can resize the pod twice
+// in one reconcile. The workload whose name sorts first keeps the pod.
+func claimPodsOnce(logger logr.Logger, out map[string][]corev1.Pod) {
+	if len(out) < 2 {
+		return
+	}
+	names := make([]string, 0, len(out))
+	for name := range out {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	seen := make(map[string]string, len(names))
+	for _, name := range names {
+		pods := out[name]
+		kept := make([]corev1.Pod, 0, len(pods))
+		for i := range pods {
+			key := podClaimKey(&pods[i])
+			if keptBy, ok := seen[key]; ok {
+				logger.V(1).Info("pod matches more than one workload; counting it once",
+					"pod", pods[i].Namespace+"/"+pods[i].Name,
+					"workload", keptBy,
+					"skipped", name)
+				continue
+			}
+			seen[key] = name
+			kept = append(kept, pods[i])
+		}
+		out[name] = kept
+	}
+}
+
+func podClaimKey(pod *corev1.Pod) string {
+	if pod.UID != "" {
+		return string(pod.UID)
+	}
+	return pod.Namespace + "/" + pod.Name
 }
 
 // unlistedWorkloadNames returns workloads whose pods could not be matched,

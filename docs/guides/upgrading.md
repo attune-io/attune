@@ -8,6 +8,30 @@ Maintainers: before publishing a release after multi-version product changes,
 run the full E2E Nightly matrix on tip of `main` (see
 [Releasing: full E2E matrix](../contributing/releasing.md#1b-full-e2e-matrix-required-before-tagging-a-product-release)).
 
+## v0.1.36 to v0.1.37
+
+No CRD change. Existing policy YAML still applies. A Job policy that
+names a CronJob's child Job, or whose selector matches those Jobs,
+changes behavior.
+
+### CronJob-owned Jobs are not Job targets
+
+A Job whose owner is a CronJob (`batch/v1` or `batch/v1beta1`) is
+skipped. Selector discovery drops it. A policy that names that Job
+becomes Ready False with reason `WorkloadDiscoveryFailed` and the
+message `Job <namespace>/<name> is owned by a CronJob; target the CronJob instead`.
+
+Target the CronJob. A standalone Job, including one created with
+`kubectl create job --from`, is unchanged. This matches Deployment-owned
+ReplicaSets: the child is not a second target, so the same pods are
+not counted twice.
+
+### Overlapping selectors count a pod once
+
+If two workloads in one policy match the same pod, savings and the
+resize loop use that pod once. The workload whose name comes first
+alphabetically keeps it. Selectors that do not overlap are unchanged.
+
 ## v0.1.35 to v0.1.36
 
 Existing policy YAML still applies. When 0.1.36 is published, upgrade the

@@ -83,6 +83,9 @@ ReplicaSet policies must ignore ReplicaSets owned by a Rollout
 the same way they ignore ReplicaSets owned by a Deployment. Do not
 require `controller: true` on the existing Deployment owner check.
 
+Job policies ignore Jobs owned by a CronJob (batch/v1 or batch/v1beta1).
+controller is not required.
+
 ### 3. Do not watch an optional CRD
 
 `SetupWithManager` only watches `AttunePolicy`. A watch, `Owns`, or a
