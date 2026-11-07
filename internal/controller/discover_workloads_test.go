@@ -328,6 +328,28 @@ func TestDiscoverWorkloads_FindsJobByName(t *testing.T) {
 	assert.Equal(t, name, workloads[0].GetName())
 }
 
+func TestGetWorkloadByName_CronJobOwnedJob(t *testing.T) {
+	owned := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "owned-job",
+			Namespace: "default",
+			OwnerReferences: []metav1.OwnerReference{
+				{APIVersion: "batch/v1", Kind: "CronJob", Name: "nightly"},
+			},
+		},
+	}
+	standalone := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{Name: "data-migration", Namespace: "default"},
+	}
+	r := newReconcilerWithClient(owned, standalone)
+
+	_, err := r.getWorkloadByName(context.Background(), "default", "Job", "owned-job")
+	require.EqualError(t, err, "Job default/owned-job is owned by a CronJob; target the CronJob instead")
+
+	_, err = r.getWorkloadByName(context.Background(), "default", "Job", "data-migration")
+	require.NoError(t, err)
+}
+
 func TestGetPodSelectorLabels_CronJob(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	cj := &batchv1.CronJob{
@@ -369,6 +391,33 @@ func TestListWorkloadsBySelector_Jobs(t *testing.T) {
 	assert.NoError(t, err)
 	require.Len(t, result, 1)
 	assert.Equal(t, "migrate", result[0].GetName())
+}
+
+func TestListWorkloadsBySelector_SkipsCronJobOwnedJob(t *testing.T) {
+	standalone := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "standalone-job",
+			Namespace: "default",
+			Labels:    map[string]string{"tier": "batch"},
+		},
+	}
+	owned := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "owned-job",
+			Namespace: "default",
+			Labels:    map[string]string{"tier": "batch"},
+			OwnerReferences: []metav1.OwnerReference{
+				{APIVersion: "batch/v1", Kind: "CronJob", Name: "nightly"},
+			},
+		},
+	}
+	r := newReconcilerWithClient(standalone, owned)
+
+	selector := &metav1.LabelSelector{MatchLabels: map[string]string{"tier": "batch"}}
+	result, err := r.listWorkloadsBySelector(context.Background(), "default", "Job", selector)
+	assert.NoError(t, err)
+	require.Len(t, result, 1)
+	assert.Equal(t, "standalone-job", result[0].GetName())
 }
 
 func TestDiscoverWorkloads_UnsupportedKind(t *testing.T) {

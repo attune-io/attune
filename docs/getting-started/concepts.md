@@ -45,7 +45,9 @@ Modes are graduated from safe observation to full automation:
     sizing is the apply path for future Job runs: Recommend is allowed,
     Observe still skips. Use the recommendations to update your
     Job/CronJob template, or enable `updateStrategy.initialSizing` with
-    the namespace label `attune.io/initial-sizing=enabled`.
+    the namespace label `attune.io/initial-sizing=enabled`. A Job owned
+    by a CronJob is skipped. Target the CronJob. A standalone Job is
+    unchanged.
 
 !!! warning
     Start with **Recommend** in production. Promote to **Canary** only after

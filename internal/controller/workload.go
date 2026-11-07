@@ -89,6 +89,9 @@ func (r *AttunePolicyReconciler) getWorkloadByName(ctx context.Context, namespac
 	if kind == "ReplicaSet" && isRolloutOwned(obj) {
 		return nil, fmt.Errorf("ReplicaSet %s/%s is owned by a Rollout; target the Rollout instead", namespace, name)
 	}
+	if kind == "Job" && isCronJobOwned(obj) {
+		return nil, fmt.Errorf("Job %s/%s is owned by a CronJob; target the CronJob instead", namespace, name)
+	}
 	return obj, nil
 }
 
@@ -117,6 +120,9 @@ func (r *AttunePolicyReconciler) listWorkloadsBySelector(ctx context.Context, na
 	// Filter out ReplicaSets owned by a Deployment or a Rollout.
 	if kind == "ReplicaSet" {
 		extracted = filterStandaloneReplicaSets(extracted)
+	}
+	if kind == "Job" {
+		extracted = filterStandaloneJobs(extracted)
 	}
 	return extracted, nil
 }
@@ -728,6 +734,34 @@ func filterStandaloneReplicaSets(objects []client.Object) []client.Object {
 	result := make([]client.Object, 0, len(objects))
 	for _, obj := range objects {
 		if isDeploymentOwned(obj) || isRolloutOwned(obj) {
+			continue
+		}
+		result = append(result, obj)
+	}
+	return result
+}
+
+// isCronJobOwned returns true if any ownerReference has kind CronJob,
+// a non-empty name, and API version batch/v1 or batch/v1beta1.
+// Controller is not required.
+func isCronJobOwned(obj client.Object) bool {
+	for _, ref := range obj.GetOwnerReferences() {
+		if ref.Kind != "CronJob" || ref.Name == "" {
+			continue
+		}
+		if ref.APIVersion == "batch/v1" || ref.APIVersion == "batch/v1beta1" {
+			return true
+		}
+	}
+	return false
+}
+
+// filterStandaloneJobs removes Jobs owned by a CronJob.
+// A standalone Job is kept.
+func filterStandaloneJobs(objects []client.Object) []client.Object {
+	result := make([]client.Object, 0, len(objects))
+	for _, obj := range objects {
+		if isCronJobOwned(obj) {
 			continue
 		}
 		result = append(result, obj)

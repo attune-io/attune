@@ -946,6 +946,99 @@ func TestWorkload_FilterStandaloneReplicaSets(t *testing.T) {
 	assert.Equal(t, "standalone-rs", result[0].GetName())
 }
 
+func TestWorkload_IsCronJobOwned(t *testing.T) {
+	tests := []struct {
+		name string
+		obj  client.Object
+		want bool
+	}{
+		{
+			name: "standalone Job",
+			obj:  &batchv1.Job{},
+			want: false,
+		},
+		{
+			name: "batch/v1 CronJob owner",
+			obj: &batchv1.Job{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{
+						{APIVersion: "batch/v1", Kind: "CronJob", Name: "nightly"},
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "batch/v1beta1 CronJob owner",
+			obj: &batchv1.Job{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{
+						{APIVersion: "batch/v1beta1", Kind: "CronJob", Name: "nightly"},
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "Controller unset still true",
+			obj: &batchv1.Job{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{
+						{APIVersion: "batch/v1", Kind: "CronJob", Name: "nightly"},
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "APIVersion apps/v1 Kind CronJob",
+			obj: &batchv1.Job{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{
+						{APIVersion: "apps/v1", Kind: "CronJob", Name: "nightly"},
+					},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "empty Name",
+			obj: &batchv1.Job{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{
+						{APIVersion: "batch/v1", Kind: "CronJob", Name: ""},
+					},
+				},
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isCronJobOwned(tt.obj))
+		})
+	}
+}
+
+func TestWorkload_FilterStandaloneJobs(t *testing.T) {
+	standalone := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{Name: "standalone-job"},
+	}
+	owned := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "owned-job",
+			OwnerReferences: []metav1.OwnerReference{
+				{APIVersion: "batch/v1", Kind: "CronJob", Name: "nightly"},
+			},
+		},
+	}
+
+	result := filterStandaloneJobs([]client.Object{standalone, owned})
+	require.Len(t, result, 1)
+	assert.Equal(t, "standalone-job", result[0].GetName())
+}
+
 // ---------- buildPrometheusQuery ----------
 
 func TestWorkload_BuildPrometheusQuery(t *testing.T) {

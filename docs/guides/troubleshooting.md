@@ -2045,6 +2045,18 @@ selector-based discovery to prevent double-resizing (the Deployment and its
 child ReplicaSet would both match). To right-size the workload, target the
 parent Deployment instead.
 
+## CronJob-owned Job targeting
+
+If a `AttunePolicy` targets a Job that is owned by a CronJob,
+the operator rejects it with an error:
+
+```
+Job my-ns/my-job is owned by a CronJob; target the CronJob instead
+```
+
+Selector discovery drops those Jobs. To right-size the workload, target the
+parent CronJob instead.
+
 ## Known limitations
 
 ### Maximum Prometheus addresses
