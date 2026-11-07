@@ -176,8 +176,8 @@ jobs:
             # Use --load (loads into local daemon) then docker save,
             # because --output type=docker is not supported by the
             # default docker driver on GitHub-hosted runners.
-            docker buildx build --load -t attune:scan .
-            docker save attune:scan -o "$scan_tar"
+            bash hack/bounded-run.sh 720 -- docker buildx build --load -t attune:scan .
+            bash hack/bounded-run.sh 180 -- docker save attune:scan -o "$scan_tar"
           else
             # Strip BuildKit-only features for a legacy-builder native build:
             # --platform=$VAR from FROM, --mount=type=cache,... from RUN,
@@ -185,8 +185,8 @@ jobs:
             sed -e 's/--platform=[^[:space:]]*//' -e '/^# syntax=/d' Dockerfile \
               | awk '/^RUN --mount/ { printf "RUN "; next } /^[[:space:]]+--mount/ { next } { print }' \
               > "${RUNNER_TEMP}/Dockerfile.scan"
-            docker build -f "${RUNNER_TEMP}/Dockerfile.scan" -t attune:scan .
-            docker save attune:scan -o "$scan_tar"
+            bash hack/bounded-run.sh 720 -- docker build -f "${RUNNER_TEMP}/Dockerfile.scan" -t attune:scan .
+            bash hack/bounded-run.sh 180 -- docker save attune:scan -o "$scan_tar"
           fi
 
       - name: Trivy image scan

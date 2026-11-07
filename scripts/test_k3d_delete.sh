@@ -58,47 +58,8 @@ exit 0
 EOF
 chmod +x "${TMP}/k3d"
 
-cat >"${TMP}/timeout" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-# usage: timeout [-k KILL_AFTER] SEC CMD...
-kill_after=""
-if [[ "${1:-}" == "-k" ]]; then
-  kill_after="$2"
-  shift 2
-fi
-secs="$1"
-shift
-"$@" &
-pid=$!
-(
-  sleep "${secs}"
-  kill -TERM "${pid}" 2>/dev/null || true
-  if [[ -n "${kill_after}" ]]; then
-    sleep "${kill_after}"
-    kill -KILL "${pid}" 2>/dev/null || true
-  fi
-) &
-waiter=$!
-if wait "${pid}"; then
-  kill "${waiter}" 2>/dev/null || true
-  wait "${waiter}" 2>/dev/null || true
-  exit 0
-fi
-status=$?
-kill "${waiter}" 2>/dev/null || true
-wait "${waiter}" 2>/dev/null || true
-# GNU timeout exits 124 when it kills the child (TERM=143, KILL=137).
-if [[ "${status}" -eq 137 || "${status}" -eq 143 ]]; then
-  exit 124
-fi
-exit "${status}"
-EOF
-chmod +x "${TMP}/timeout"
-
 export PATH="${TMP}:${PATH}"
 export K3D="${TMP}/k3d"
-export TIMEOUT_BIN="${TMP}/timeout"
 export K3D_DELETE_TIMEOUT_SEC=1
 export K3D_LOG="${TMP}/k3d.log"
 
@@ -134,12 +95,39 @@ fi
 [[ ! -s "${K3D_LOG}" ]] || fail "empty name still invoked k3d"
 echo "OK: empty name rejected"
 
-echo "DO: missing TIMEOUT_BIN still calls k3d"
-: >"${K3D_LOG}"
-TIMEOUT_BIN=/nonexistent/timeout K3D_HANG=0 K3D_FAIL=0 bash "${SCRIPT}" fallback-cluster
-grep -Fq 'cluster delete fallback-cluster' "${K3D_LOG}" \
-  || fail "fallback path did not call k3d"
-echo "OK: missing timeout falls back"
+echo "DO: delete does not shell out to timeout or delete without a bound"
+grep -F -q 'bounded-run.sh' "${SCRIPT}" || fail "delete does not use bounded-run.sh"
+if grep -n 'TIMEOUT_BIN' "${SCRIPT}"; then
+  fail "delete still depends on TIMEOUT_BIN"
+fi
+echo "OK: delete is always bounded"
+
+echo "DO: a child that ignores TERM and KILL still returns inside the bound"
+# shellcheck disable=SC2317
+kill() {
+  printf '%s\n' "$*" >>"${TMP}/kill.log"
+  return 0
+}
+# shellcheck source=../hack/bounded-run.sh
+source "${ROOT}/hack/bounded-run.sh"
+: >"${TMP}/kill.log"
+export BOUNDED_KILL_AFTER_SEC=1
+export BOUNDED_ABANDON_SEC=1
+start=$(date +%s)
+set +e
+bounded_run 1 -- sleep 30
+ignore_status=$?
+set -e
+elapsed=$(( $(date +%s) - start ))
+builtin kill -KILL "$(jobs -p)" 2>/dev/null || true
+wait 2>/dev/null || true
+[[ "${ignore_status}" -eq 124 ]] || fail "ignore-KILL status ${ignore_status}, want 124"
+if (( elapsed > 8 )); then
+  fail "ignore-KILL took ${elapsed}s; the helper waited for the child"
+fi
+grep -F -q -- '-KILL' "${TMP}/kill.log" || fail "ignore-KILL path did not send KILL"
+echo "OK: ignore-KILL returned 124 in ${elapsed}s"
+unset BOUNDED_KILL_AFTER_SEC BOUNDED_ABANDON_SEC
 
 echo "DO: kubeconfig path is removed"
 kc="${TMP}/kubeconfig"

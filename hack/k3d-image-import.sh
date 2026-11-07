@@ -9,8 +9,10 @@
 # can block with no further log until the job timeout (nightly #907).
 # --keep-tools leaves that container running. Cluster delete removes it.
 #
-# k3d does not time out ContainerStart. Bound each attempt to 5 minutes.
-# On failure, remove the tools container and try once more.
+# k3d does not time out ContainerStart. Bound each attempt to 5 minutes
+# with hack/bounded-run.sh, which returns even when the child ignores
+# SIGKILL. On failure, remove the tools container under the same kind of
+# bound and try once more.
 
 set -euo pipefail
 
@@ -34,9 +36,10 @@ fi
 
 TOOLS="k3d-${CLUSTER}-tools"
 IMPORT_TIMEOUT="${IMPORT_TIMEOUT:-5m}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 import_once() {
-  timeout --signal=TERM --kill-after=15s "${IMPORT_TIMEOUT}" \
+  bash "${SCRIPT_DIR}/bounded-run.sh" "${IMPORT_TIMEOUT}" -- \
     k3d image import --keep-tools "$@" -c "${CLUSTER}"
 }
 
@@ -46,7 +49,8 @@ if [[ "${status}" -eq 0 ]]; then
   exit 0
 fi
 echo "::warning::k3d image import for ${CLUSTER} failed (status ${status}); removing ${TOOLS} and retrying once"
-docker rm -f "${TOOLS}" >/dev/null 2>&1 || true
+BOUNDED_KILL_AFTER_SEC=5 bash "${SCRIPT_DIR}/bounded-run.sh" 30s -- \
+  docker rm -f "${TOOLS}" >/dev/null 2>&1 || true
 status=0
 import_once "$@" || status=$?
 if [[ "${status}" -eq 0 ]]; then

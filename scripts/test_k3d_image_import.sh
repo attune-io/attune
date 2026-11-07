@@ -36,42 +36,40 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "${TMP}"' EXIT
 BIN="${TMP}/bin"
 mkdir -p "${BIN}"
-LOG="${TMP}/timeout.log"
+LOG="${TMP}/k3d.log"
 DOCKER_LOG="${TMP}/docker.log"
 : >"${LOG}"
 : >"${DOCKER_LOG}"
 
-cat >"${BIN}/timeout" <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
-while [[ \$# -gt 0 && "\$1" != "k3d" ]]; do
-  shift
-done
-printf '%s\n' "\$*" >> "${LOG}"
-mode=\$(cat "${TMP}/mode")
-count=\$(wc -l < "${LOG}" | tr -d ' ')
-if [[ "\${mode}" == "hang-once" && "\${count}" == "1" ]]; then
-  exit 124
-fi
-if [[ "\${mode}" == "always-fail" ]]; then
-  exit 124
-fi
-exit 0
-EOF
 cat >"${BIN}/docker" <<EOF
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "${DOCKER_LOG}"
 exit 0
 EOF
-cat >"${BIN}/k3d" <<'EOF'
+cat >"${BIN}/k3d" <<EOF
 #!/usr/bin/env bash
-echo "k3d should be invoked by the timeout stub" >&2
-exit 99
+set -euo pipefail
+printf '%s\n' "\$*" >> "${LOG}"
+mode=\$(cat "${TMP}/mode")
+count=\$(wc -l < "${LOG}" | tr -d ' ')
+if [[ "\${mode}" == "hang-once" && "\${count}" == "1" ]]; then
+  trap '' TERM
+  while true; do sleep 1; done
+fi
+if [[ "\${mode}" == "always-fail" ]]; then
+  trap '' TERM
+  while true; do sleep 1; done
+fi
+exit 0
 EOF
-chmod +x "${BIN}/timeout" "${BIN}/docker" "${BIN}/k3d"
+chmod +x "${BIN}/docker" "${BIN}/k3d"
 
 run_import() {
-  PATH="${BIN}:${PATH}" "$SCRIPT" "$@"
+  PATH="${BIN}:${PATH}" \
+    IMPORT_TIMEOUT=1 \
+    BOUNDED_KILL_AFTER_SEC=1 \
+    BOUNDED_ABANDON_SEC=1 \
+    "$SCRIPT" "$@"
 }
 
 echo "DO: a successful import keeps the tools node and does not remove it"
@@ -79,8 +77,8 @@ echo success >"${TMP}/mode"
 : >"${LOG}"
 : >"${DOCKER_LOG}"
 run_import e2e /tmp/prometheus.tar /tmp/busybox.tar
-grep -F -q 'k3d image import --keep-tools /tmp/prometheus.tar /tmp/busybox.tar -c e2e' "${LOG}" \
-  || fail "successful import did not pass --keep-tools"
+grep -F -q 'image import --keep-tools /tmp/prometheus.tar /tmp/busybox.tar -c e2e' "${LOG}" \
+  || fail "successful import did not pass --keep-tools: $(cat "${LOG}")"
 [[ ! -s "${DOCKER_LOG}" ]] || fail "successful import removed the tools container"
 echo "OK: success path keeps the tools node"
 

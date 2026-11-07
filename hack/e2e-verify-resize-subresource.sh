@@ -91,7 +91,7 @@ recreate_cluster() {
   # "mount .../config.yaml, flags: 0x5000: not a directory" (attune #743).
   RECREATE_CFG="$(mktemp)"
   write_k3s_config "${RECREATE_CFG}"
-  if ! "${K3D}" cluster create "${CLUSTER_NAME}" \
+  if ! bash "${SCRIPT_DIR}/bounded-run.sh" 240 -- "${K3D}" cluster create "${CLUSTER_NAME}" \
     --image "${K3S_IMAGE}" \
     --k3s-arg "--disable=traefik,servicelb@server:*" \
     --volume "${RECREATE_CFG}:/etc/rancher/k3s/config.yaml@server:*" \
