@@ -27,6 +27,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-logr/logr"
 
@@ -285,10 +286,35 @@ func latestSampleValue(samples []Sample, backend string) (float64, error) {
 }
 
 func truncate(s string, n int) string {
+	if n < 0 {
+		n = 0
+	}
 	if len(s) <= n {
 		return s
 	}
-	return s[:n] + "..."
+	return cutUTF8Bytes(s, n) + "..."
+}
+
+// cutUTF8Bytes keeps at most n bytes and does not end inside a multi-byte
+// character. A string that is already within n is returned unchanged.
+func cutUTF8Bytes(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if len(s) <= n {
+		return s
+	}
+	i := n
+	for i > 0 && !utf8.RuneStart(s[i]) {
+		i--
+	}
+	if i < n {
+		_, size := utf8.DecodeRuneInString(s[i:])
+		if i+size > n {
+			return s[:i]
+		}
+	}
+	return s[:i]
 }
 
 func countSamples(grouped map[string][]Sample) int {

@@ -22,9 +22,11 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-logr/logr"
 	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
@@ -225,6 +227,32 @@ func TestDatadogCollector_MemoryNoConversion(t *testing.T) {
 
 	// Memory should NOT be converted (no nanocores conversion).
 	assert.InDelta(t, 536870912, grouped["web"][0].Value, 1)
+}
+
+func TestTruncate_RuneBoundary(t *testing.T) {
+	short := "already short"
+	assert.Equal(t, short, truncate(short, 200))
+
+	// 198 ASCII bytes plus a two-byte character lands exactly on the limit.
+	exact := strings.Repeat("a", 198) + "é" + "MORE"
+	got := truncate(exact, 200)
+	require.True(t, utf8.ValidString(got))
+	assert.Equal(t, strings.Repeat("a", 198)+"é...", got)
+	assert.LessOrEqual(t, len(strings.TrimSuffix(got, "...")), 200)
+
+	// Byte 200 is the first byte of "é", so the cut must drop that character.
+	split := strings.Repeat("a", 199) + "éMORE"
+	got = truncate(split, 200)
+	require.True(t, utf8.ValidString(got))
+	assert.Equal(t, strings.Repeat("a", 199)+"...", got)
+	assert.LessOrEqual(t, len(strings.TrimSuffix(got, "...")), 200)
+
+	// A four-byte character that starts before the limit and ends after it.
+	emoji := strings.Repeat("a", 197) + "😀" + "TAIL"
+	got = truncate(emoji, 200)
+	require.True(t, utf8.ValidString(got))
+	assert.Equal(t, strings.Repeat("a", 197)+"...", got)
+	assert.NotContains(t, got, "😀")
 }
 
 func TestDatadogCollector_APIError(t *testing.T) {

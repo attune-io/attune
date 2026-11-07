@@ -22,6 +22,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -166,7 +167,29 @@ func trimStatusError(msg string) string {
 	if len(msg) <= max {
 		return msg
 	}
-	return msg[:max]
+	return cutUTF8Bytes(msg, max)
+}
+
+// cutUTF8Bytes keeps at most n bytes and does not end inside a multi-byte
+// character. A string that is already within n is returned unchanged.
+func cutUTF8Bytes(msg string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if len(msg) <= n {
+		return msg
+	}
+	i := n
+	for i > 0 && !utf8.RuneStart(msg[i]) {
+		i--
+	}
+	if i < n {
+		_, size := utf8.DecodeRuneInString(msg[i:])
+		if i+size > n {
+			return msg[:i]
+		}
+	}
+	return msg[:i]
 }
 
 // labelsMatch reports whether podLabels contain every key/value in selector.
