@@ -124,7 +124,7 @@ runs:
             echo "::warning::Primary registry failed for $image, trying fallback: $fallback"
             for attempt in 1 2 3; do
               if bash hack/bounded-run.sh 300 -- docker pull --platform linux/amd64 "$fallback"; then
-                docker tag "$fallback" "$image"
+                bash hack/bounded-run.sh 60 -- docker tag "$fallback" "$image"
                 bash hack/bounded-run.sh 180 -- docker save "$image" -o "$tarball"
                 return 0
               fi

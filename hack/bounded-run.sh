@@ -10,28 +10,48 @@
 # is still alive, so the caller is not held until the job cap.
 #
 # Usage: bounded-run.sh DURATION -- command...
-# DURATION is seconds, or a number with an s or m suffix (5m, 30s).
+# DURATION is seconds, or a number with an s, m, or h suffix (30s, 5m, 1h).
+# A fractional suffix is allowed (2.5m). 1d and other units are rejected.
 # Exit status is the command status, or 124 when the bound fires.
+# SIGINT exits 130 and SIGTERM exits 143, after the child group is signaled.
 # BOUNDED_KILL_AFTER_SEC (default 15) is the pause between TERM and KILL.
 # BOUNDED_ABANDON_SEC (default 2) is how long to notice that KILL did
 # not reap the child before this process returns anyway.
 
 bounded_duration_secs() {
   local v="$1"
-  if [[ "${v}" =~ ^([0-9]+)m$ ]]; then
-    echo $((BASH_REMATCH[1] * 60))
+  if [[ ! "${v}" =~ ^([0-9]+)(\.([0-9]+))?(s|m|h)?$ ]]; then
+    echo "bounded-run: bad duration ${v}" >&2
+    return 2
+  fi
+  # 10# forces decimal. Bash otherwise treats a leading zero as octal,
+  # so 1.08m and 08s abort or parse as the wrong number of seconds.
+  local whole=$((10#${BASH_REMATCH[1]}))
+  local frac_raw="${BASH_REMATCH[3]}"
+  local unit="${BASH_REMATCH[4]}"
+  local mult=1
+  case "${unit}" in
+    "" | s) mult=1 ;;
+    m) mult=60 ;;
+    h) mult=3600 ;;
+  esac
+  if [[ -z "${frac_raw}" ]]; then
+    echo $((whole * mult))
     return 0
   fi
-  if [[ "${v}" =~ ^([0-9]+)s$ ]]; then
-    echo "${BASH_REMATCH[1]}"
-    return 0
+  local frac=$((10#${frac_raw}))
+  local scale=1
+  local n=${#frac_raw}
+  while [[ "${n}" -gt 0 ]]; do
+    scale=$((scale * 10))
+    n=$((n - 1))
+  done
+  local result=$((whole * mult + frac * mult / scale))
+  # 0.9s truncates to 0 and would kill the command on the first poll.
+  if [[ "${result}" -eq 0 && "${frac}" -ne 0 ]]; then
+    result=1
   fi
-  if [[ "${v}" =~ ^[0-9]+$ ]]; then
-    echo "${v}"
-    return 0
-  fi
-  echo "bounded-run: bad duration ${v}" >&2
-  return 2
+  echo "${result}"
 }
 
 bounded_kill_group() {
@@ -65,6 +85,10 @@ bounded_run() {
   set -m
   "$@" &
   local pid=$!
+  # The child is not in this shell's foreground group, so Ctrl-C and a
+  # cancelled job would otherwise leave docker or k3d running.
+  trap 'bounded_kill_group TERM "${pid}"; bounded_kill_group KILL "${pid}"; trap - INT TERM; exit 130' INT
+  trap 'bounded_kill_group TERM "${pid}"; bounded_kill_group KILL "${pid}"; trap - INT TERM; exit 143' TERM
   local start now signaled term_at polls
   start=$(date +%s)
   signaled=0
@@ -81,6 +105,7 @@ bounded_run() {
       while [[ "${polls}" -lt $((abandon * 5)) ]]; do
         if ! kill -0 "${pid}" 2>/dev/null; then
           wait "${pid}" 2>/dev/null || true
+          trap - INT TERM
           return 124
         fi
         sleep 0.2
@@ -88,12 +113,14 @@ bounded_run() {
       done
       # Still alive after KILL. Returning reparents a D-state child
       # instead of waiting for the Docker syscall to finish.
+      trap - INT TERM
       return 124
     fi
     sleep 0.2
   done
   local status=0
   wait "${pid}" || status=$?
+  trap - INT TERM
   if [[ "${signaled}" -eq 1 ]]; then
     return 124
   fi
