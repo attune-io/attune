@@ -53,6 +53,25 @@ for rel, pat in files.items():
 verify = (root / "hack/e2e-verify-resize-subresource.sh").read_text().splitlines()
 if not any("bounded-run.sh" in line and "cluster create" in line for line in verify):
     bad.append("hack/e2e-verify-resize-subresource.sh: cluster create is not under bounded-run.sh")
+# A sparse checkout that calls the helper must list the helper file.
+# The image mirror only fetched ci.yaml, so the push to main failed
+# with "hack/bounded-run.sh: No such file or directory" (run 42403006288).
+for rel in (".github/workflows/mirror-e2e-images.yaml",):
+    lines = (root / rel).read_text().splitlines()
+    calls_helper = any("bounded-run.sh" in line for line in lines)
+    for i, line in enumerate(lines):
+        if "sparse-checkout:" not in line or "cone-mode" in line:
+            continue
+        indent = len(line) - len(line.lstrip())
+        block = [line]
+        for nxt in lines[i + 1 :]:
+            if nxt.strip() == "":
+                continue
+            if len(nxt) - len(nxt.lstrip()) <= indent:
+                break
+            block.append(nxt)
+        if calls_helper and not any("hack/bounded-run.sh" in item for item in block):
+            bad.append(f"{rel}: sparse-checkout does not include hack/bounded-run.sh")
 if bad:
     print("\n".join(bad))
     sys.exit(1)
