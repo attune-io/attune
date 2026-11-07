@@ -8,6 +8,63 @@ Maintainers: before publishing a release after multi-version product changes,
 run the full E2E Nightly matrix on tip of `main` (see
 [Releasing: full E2E matrix](../contributing/releasing.md#1b-full-e2e-matrix-required-before-tagging-a-product-release)).
 
+## v0.1.35 to v0.1.36
+
+Existing policy YAML still applies. When 0.1.36 is published, upgrade the
+chart to 0.1.36, or set the image tag to `0.1.36` or `v0.1.36`. The image
+is built with Go 1.27.3.
+
+Apply the 0.1.36 CRDs before or with the controller. Helm does not update
+CRDs on `helm upgrade`. The CRD text for `export.configMap` and
+`workloadErrors` changed. The schema still accepts the same YAML.
+
+### Export sides inherit separately
+
+`updateStrategy.export.configMap` and `updateStrategy.export.pullRequest`
+inherit from AttuneDefaults when that side is omitted. A policy that
+already has an `export` block and only sets `configMap` now also inherits
+`pullRequest`. If cluster defaults enable pull requests, that policy
+starts opening them after the upgrade.
+
+Explicit `configMap: false` stays off. To keep pull requests off on a
+policy that should only write ConfigMaps, set `pullRequest.enabled: false`
+on that policy.
+
+### Savings gauges are the current request gap
+
+`attune_savings_cpu_cores_total`, `attune_savings_memory_bytes_total`,
+and `attune_savings_estimated_monthly_dollars` each have a `policy`
+label. The value is live request minus the current recommendation.
+A pod already at the recommendation adds nothing, so the gauge is 0
+after a successful in-place resize. It is not lifetime savings.
+
+Alerts and dashboard queries that used the old series without `policy`
+still work as a sum, but the number means the remaining gap. The
+overview stats are titled "CPU request gap", "Memory request gap",
+and "Estimated monthly request gap".
+
+### Schedule, quota, and template writes
+
+A schedule with days of week and no windows still blocks the other
+days. `ScheduleBlocked` stays set on those days.
+
+`OnRecommendation` waits until the schedule window is open before it
+patches the template. `AfterSuccessfulResize` can retry a template
+write outside the window.
+
+A later failed resize does not copy that attempt's limits onto the
+template. The last applied request is not lowered to an older template
+limit. That limit is raised to the request.
+
+Quota headroom already reserved in the cycle counts against the next
+container. A skip is still an operator log and a `ResizeSkipped` event.
+
+### A finished revert does not rewrite an older success
+
+If the newest history row for a container is already `Reverted` or
+`Failed`, a later failed revert does not mark an older `Success` row
+as `Failed`.
+
 ## v0.1.34 to v0.1.35
 
 No CRD change and no policy YAML change. Upgrade the chart to 0.1.35,

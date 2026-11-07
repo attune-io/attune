@@ -204,6 +204,14 @@ func TestCapWorkloadErrors_PrefersUnlistedWithinMax(t *testing.T) {
 
 	assert.Nil(t, capWorkloadErrors(nil, nil, attunev1alpha1.MaxWorkloadErrors))
 	assert.Nil(t, capWorkloadErrors(existing, extra, 0))
+
+	sameName := capWorkloadErrors(
+		[]attunev1alpha1.WorkloadError{{Workload: "rollout", Error: "workloadRef Deployment ns/missing: not found"}},
+		[]attunev1alpha1.WorkloadError{{Workload: "rollout", Error: "pod selector: bad"}},
+		attunev1alpha1.MaxWorkloadErrors,
+	)
+	require.Len(t, sameName, 1)
+	assert.Equal(t, "workloadRef Deployment ns/missing: not found", sameName[0].Error)
 }
 
 func workloadNames(errs []attunev1alpha1.WorkloadError) []string {

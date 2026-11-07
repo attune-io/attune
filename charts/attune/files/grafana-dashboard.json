@@ -131,7 +131,7 @@
           ]
         }
       },
-      "title": "CPU Cores Saved",
+      "title": "CPU request gap",
       "type": "stat",
       "targets": [
         {
@@ -171,7 +171,7 @@
           ]
         }
       },
-      "title": "Memory Saved",
+      "title": "Memory request gap",
       "type": "stat",
       "targets": [
         {
@@ -211,7 +211,7 @@
           ]
         }
       },
-      "title": "Estimated Monthly Savings",
+      "title": "Estimated monthly request gap",
       "type": "stat",
       "targets": [
         {
