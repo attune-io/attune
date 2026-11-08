@@ -93,7 +93,7 @@
     {
       "id": 4,
       "type": "stat",
-      "title": "Estimated monthly savings (USD) by cluster",
+      "title": "Estimated monthly request gap (USD) by cluster",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -111,7 +111,7 @@
     {
       "id": 5,
       "type": "stat",
-      "title": "CPU savings cores by cluster",
+      "title": "CPU request gap cores by cluster",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -129,7 +129,7 @@
     {
       "id": 6,
       "type": "stat",
-      "title": "Memory savings bytes by cluster",
+      "title": "Memory request gap bytes by cluster",
       "gridPos": {
         "h": 8,
         "w": 12,

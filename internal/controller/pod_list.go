@@ -149,8 +149,6 @@ func (r *AttunePolicyReconciler) claimPodsOnce(ctx context.Context, logger logr.
 	for _, w := range workloads {
 		byName[w.GetName()] = w
 	}
-	rsOwner := r.replicaSetOwners(ctx, logger, workloads)
-	jobOwner := r.jobCronJobOwners(ctx, logger, workloads)
 	names := make([]string, 0, len(out))
 	for name := range out {
 		names = append(names, name)
@@ -169,6 +167,11 @@ func (r *AttunePolicyReconciler) claimPodsOnce(ctx context.Context, logger logr.
 		}
 		out[name] = []corev1.Pod{}
 	}
+	var rsOwner, jobOwner map[types.UID]string
+	if podClaimOverlaps(grouped) {
+		rsOwner = r.replicaSetOwners(ctx, logger, workloads)
+		jobOwner = r.jobCronJobOwners(ctx, logger, workloads)
+	}
 	for _, key := range keys {
 		cands := grouped[key]
 		winner := cands[0].name
@@ -176,7 +179,12 @@ func (r *AttunePolicyReconciler) claimPodsOnce(ctx context.Context, logger logr.
 		if ref, ok := controllerOwner(&pod); ok {
 			switch ref.Kind {
 			case "ReplicaSet":
+				// A Deployment or Rollout owns the pod through its ReplicaSet.
+				// A standalone ReplicaSet policy has no such parent, so the
+				// ReplicaSet name itself is the owner.
 				if name := rsOwner[ref.UID]; name != "" && candHas(cands, name) {
+					winner = name
+				} else if name, ok := directOwner(cands, byName, ref); ok {
 					winner = name
 				}
 			case "Job":
@@ -216,6 +224,15 @@ func (r *AttunePolicyReconciler) claimPodsOnce(ctx context.Context, logger logr.
 type podCand struct {
 	name string
 	pod  corev1.Pod
+}
+
+func podClaimOverlaps(grouped map[string][]podCand) bool {
+	for _, cands := range grouped {
+		if len(cands) > 1 {
+			return true
+		}
+	}
+	return false
 }
 
 func directOwner(cands []podCand, byName map[string]client.Object, ref metav1.OwnerReference) (string, bool) {

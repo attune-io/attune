@@ -277,8 +277,8 @@ Panels include:
 |-------|--------|
 | Resize success / fail by cluster | `attune_resize_total` |
 | Reverts by cluster | `attune_reverts_total` |
-| Estimated monthly savings by cluster | `attune_savings_estimated_monthly_dollars` |
-| CPU / memory savings by cluster | savings gauges |
+| Estimated monthly request gap by cluster | `attune_savings_estimated_monthly_dollars` |
+| CPU / memory request gap by cluster | savings gauges |
 | Fleet report export failures | `attune_fleet_report_export_total` |
 
 Point the dashboard datasource at the **global** Thanos/Mimir/AMP query
@@ -310,7 +310,7 @@ Example org PromQL:
 # Resizes succeeded across the fleet (last hour)
 sum(increase(attune_resize_total{result="success"}[1h]))
 
-# Estimated monthly savings by cluster (approximate)
+# Estimated monthly request gap by cluster (approximate)
 sum by (cluster) (attune:savings:estimated_monthly_dollars)
 ```
 

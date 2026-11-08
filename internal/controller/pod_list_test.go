@@ -19,6 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -330,6 +331,95 @@ func TestListPodsForWorkloads_OverlappingCronJobsPreferJobOwner(t *testing.T) {
 	assert.Empty(t, out["a"])
 	require.Len(t, out["b"], 1)
 	assert.Equal(t, "shared", out["b"][0].Name)
+}
+
+func TestListPodsForWorkloads_OverlappingReplicaSetsPreferController(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	yes := true
+	rs := func(name string) *appsv1.ReplicaSet {
+		return &appsv1.ReplicaSet{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ns", UID: types.UID("uid-" + name)},
+			Spec: appsv1.ReplicaSetSpec{
+				Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "web"}},
+			},
+		}
+	}
+	a := rs("a")
+	b := rs("b")
+	shared := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "shared",
+			Namespace: "ns",
+			UID:       "uid-shared",
+			Labels:    map[string]string{"app": "web"},
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: "apps/v1",
+				Kind:       "ReplicaSet",
+				Name:       "b",
+				UID:        "uid-b",
+				Controller: &yes,
+			}},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(a, b, shared).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+	out, failed := r.listPodsForWorkloads(context.Background(), []client.Object{a, b})
+	assert.Empty(t, failed)
+	assert.Empty(t, out["a"])
+	require.Len(t, out["b"], 1)
+	assert.Equal(t, "shared", out["b"][0].Name)
+}
+
+type ownerListCounter struct {
+	client.Client
+	replicaSets int
+	jobs        int
+}
+
+func (c *ownerListCounter) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	switch list.(type) {
+	case *appsv1.ReplicaSetList:
+		c.replicaSets++
+	case *batchv1.JobList:
+		c.jobs++
+	}
+	return c.Client.List(ctx, list, opts...)
+}
+
+func TestListPodsForWorkloads_SkipsOwnerLookupWithoutOverlap(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	dep := func(name, app string) *appsv1.Deployment {
+		return &appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ns"},
+			Spec: appsv1.DeploymentSpec{
+				Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": app}},
+			},
+		}
+	}
+	pod := func(name, app string) *corev1.Pod {
+		return &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ns", UID: types.UID("uid-" + name), Labels: map[string]string{"app": app}},
+			Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+		}
+	}
+	a := dep("a", "a")
+	b := dep("b", "b")
+	inner := fake.NewClientBuilder().WithScheme(scheme).WithObjects(a, b, pod("pa", "a"), pod("pb", "b")).Build()
+	counter := &ownerListCounter{Client: inner}
+	r := NewAttunePolicyReconciler()
+	r.Client = counter
+	out, failed := r.listPodsForWorkloads(context.Background(), []client.Object{a, b})
+	assert.Empty(t, failed)
+	require.Len(t, out["a"], 1)
+	require.Len(t, out["b"], 1)
+	assert.Zero(t, counter.replicaSets)
+	assert.Zero(t, counter.jobs)
 }
 
 func TestMetricsPodRegex_SamplesWhenLarge(t *testing.T) {

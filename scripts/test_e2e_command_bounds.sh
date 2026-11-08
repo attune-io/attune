@@ -21,8 +21,8 @@ python3 - "${ROOT}" <<'PY'
 import pathlib, re, sys
 root = pathlib.Path(sys.argv[1])
 e2e = re.compile(
-    r"\b(?:docker\s+(?:pull|save|load|exec|tag|builder\s+prune|system\s+prune)"
-    r"|k3d\s+cluster\s+create)\b"
+    r"\b(?:docker\s+(?:pull|save|load|exec|tag|inspect|builder\s+prune|system\s+prune)"
+    r"|k3d\s+cluster\s+(?:create|list)|k3d\s+kubeconfig)\b"
 )
 mirror = re.compile(r"\bdocker\s+(?:pull|push|tag)\b")
 security = re.compile(r"\bdocker\s+(?:buildx\s+build|build|save)\b")
@@ -134,6 +134,32 @@ def run(sig, want):
 run(signal.SIGINT, 130)
 run(signal.SIGTERM, 143)
 print("OK: signals stop the child")
+
+print("PLAN: the wrapper stays the terminal foreground group")
+import fcntl, pty, struct, termios
+pid, fd = pty.fork()
+if pid == 0:
+    os.execv("/bin/bash", ["bash", script, "30", "--", "sleep", "30"])
+time.sleep(0.5)
+tpgid = struct.unpack("i", fcntl.ioctl(fd, termios.TIOCGPGRP, b"\0"*4))[0]
+if tpgid != pid:
+    os.kill(pid, signal.SIGKILL)
+    os.waitpid(pid, 0)
+    raise SystemExit(f"FAIL: terminal foreground group is {tpgid}, wrapper is {pid}")
+os.killpg(tpgid, signal.SIGINT)
+deadline = time.time() + 4
+while time.time() < deadline:
+    wpid, status = os.waitpid(pid, os.WNOHANG)
+    if wpid == pid:
+        code = os.waitstatus_to_exitcode(status)
+        if code != 130:
+            raise SystemExit(f"FAIL: foreground SIGINT exit want 130 got {code}")
+        print("OK: foreground SIGINT stops the child")
+        raise SystemExit(0)
+    time.sleep(0.1)
+os.kill(pid, signal.SIGKILL)
+os.waitpid(pid, 0)
+raise SystemExit("FAIL: foreground SIGINT did not stop bounded-run")
 PY
 
 echo "DONE: ok=true"

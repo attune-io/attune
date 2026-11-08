@@ -152,9 +152,14 @@ jobs:
           # Delete any k3d cluster that has been running for more than 1 hour.
           # Stale clusters from crashed/cancelled jobs waste Docker resources
           # and cause container name conflicts during creation.
-          for cluster in $(k3d cluster list -o json 2>/dev/null | jq -r '.[].name // empty'); do
+          clusters_json="$(mktemp)"
+          if ! bash hack/bounded-run.sh 30 -- k3d cluster list -o json >"$clusters_json"; then
+            rm -f "$clusters_json"
+            echo "::warning::k3d cluster list timed out; skipping stale cleanup"
+          else
+          for cluster in $(jq -r '.[].name // empty' "$clusters_json"); do
             # Get the server container start time; skip if we cannot determine age.
-            started=$(docker inspect --format '{{.State.StartedAt}}' "k3d-${cluster}-server-0" 2>/dev/null) || continue
+            started=$(bash hack/bounded-run.sh 15 -- docker inspect --format '{{.State.StartedAt}}' "k3d-${cluster}-server-0") || continue
             started_epoch=$(date -d "$started" +%s 2>/dev/null) || continue
             age=$(( $(date +%s) - started_epoch ))
             if (( age > 3600 )); then
@@ -162,6 +167,8 @@ jobs:
               bash hack/k3d-delete.sh "$cluster"
             fi
           done
+          rm -f "$clusters_json"
+          fi
           bash hack/bounded-run.sh 120 -- docker builder prune -f || true
           bash hack/bounded-run.sh 120 -- docker system prune -f || true
 
@@ -276,7 +283,7 @@ jobs:
             fi
             break
           done
-          k3d kubeconfig merge "$CLUSTER_NAME" --output "$KUBECONFIG" --overwrite
+          bash hack/bounded-run.sh 30 -- k3d kubeconfig merge "$CLUSTER_NAME" --output "$KUBECONFIG" --overwrite
 
       - name: Wait for node Ready
         shell: bash -Eeuo pipefail -x {0}

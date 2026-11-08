@@ -687,6 +687,11 @@ func resolveCronJobOwner(ctx context.Context, c client.Reader, namespace, jobNam
 	if err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: jobName}, job); err != nil {
 		return "", "", err
 	}
+	// kubectl create job --from sets this. That Job is a Job target, not
+	// a scheduled CronJob child, so CREATE sizing must not walk to the CronJob.
+	if job.Annotations["cronjob.kubernetes.io/instantiate"] == "manual" {
+		return "", "", nil
+	}
 	for _, ref := range job.OwnerReferences {
 		if ref.Kind == "CronJob" && ref.Name != "" {
 			return "CronJob", ref.Name, nil
