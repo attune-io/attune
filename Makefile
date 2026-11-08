@@ -269,6 +269,7 @@ python-test: ## Run helper script tests (fossa-filter, run-fuzz classifier, go-v
 	bash scripts/test_release_image_tags.sh
 	bash scripts/test_e2e_install_cert_manager.sh
 	bash scripts/test_e2e_download_cert_manager.sh
+	bash scripts/test_e2e_pull_prometheus_chart.sh
 	bash scripts/test_e2e_wait_cadvisor.sh
 	bash scripts/test_wait_cluster_quiet.sh
 	bash scripts/test_e2e_verify_resize_subresource.sh

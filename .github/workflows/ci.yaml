@@ -129,6 +129,7 @@ jobs:
               - '.github/actions/setup-e2e-cluster/**'
               - 'hack/e2e-install-cert-manager.sh'
               - 'hack/e2e-wait-cadvisor.sh'
+              - 'hack/e2e-pull-prometheus-chart.sh'
               - 'hack/k3d-delete.sh'
               # A helper-only change must still run PR E2E. The bounds
               # classifier lives under scripts/, so it does not wake this
@@ -155,6 +156,7 @@ jobs:
               - 'scripts/**'
               - 'hack/e2e-install-cert-manager.sh'
               - 'hack/e2e-wait-cadvisor.sh'
+              - 'hack/e2e-pull-prometheus-chart.sh'
               - 'hack/e2e-nightly-matrix.sh'
               - 'hack/k3d-delete.sh'
               # A helper-only change must still run the bounds classifier

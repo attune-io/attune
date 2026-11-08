@@ -261,13 +261,15 @@ Fuzz targets are defined in `internal/recommendation/fuzz_test.go`
 (`scripts/test_verify_helm_image_tag.sh`), the release dual-tag
 classifier (`scripts/test_release_image_tags.sh`), the cert-manager
 manifest download classifier
-(`scripts/test_e2e_download_cert_manager.sh`), and the Dependabot
-rebase-outdated classifier
+(`scripts/test_e2e_download_cert_manager.sh`), the Prometheus chart
+pull classifier (`scripts/test_e2e_pull_prometheus_chart.sh`), and the
+Dependabot rebase-outdated classifier
 (`scripts/test_rebase_outdated_dependabot.sh`). The last one locks
 App-token git rebase (no `@dependabot rebase` comments). Those catch a `v`-prefix
 regression on the default Helm image tag, a dropped bare SemVer alias
-on the next release, and a GitHub Releases 500 leaving nightly without
-`cert-manager.yaml` (issue #726). When bumping
+on the next release, a GitHub Releases 500 leaving nightly without
+`cert-manager.yaml` (issue #726), and a restored Prometheus chart
+tarball skipping `helm pull` (issue #1125). When bumping
 `CERT_MANAGER_VERSION`, add a matching
 `hack/testdata/cert-manager-<version>.yaml`.
 
