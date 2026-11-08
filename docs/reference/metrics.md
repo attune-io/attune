@@ -482,7 +482,7 @@ See [Bin packing](../guides/bin-packing.md#reclaimed-capacity-signals).
 
 ### attune_savings_cpu_cores_total
 
-Current CPU request gap for one policy: the sum of (live request minus recommended) across pods that still count. A pod already at the recommendation adds nothing, so the gauge is 0 after a successful in-place resize. `sum by (namespace)` is the namespace total.
+Current CPU request gap for one policy: the sum of (live request minus recommended) for running pods that are not deleting and not in a startup boost. Succeeded, Failed, and deleting pods add nothing. A successful list with no such pods adds nothing. A pod already at the recommendation adds nothing, so the gauge is 0 after a successful in-place resize. A list or selector failure keeps one recommendation diff for that workload. `sum by (namespace)` is the namespace total.
 
 | Label | Description |
 |-------|-------------|
@@ -491,7 +491,7 @@ Current CPU request gap for one policy: the sum of (live request minus recommend
 
 ### attune_savings_memory_bytes_total
 
-Current memory request gap in bytes for one policy: the sum of (live request minus recommended) across pods that still count. A pod already at the recommendation adds nothing, so the gauge is 0 after a successful in-place resize. `sum by (namespace)` is the namespace total.
+Current memory request gap in bytes for one policy. The pods in the sum are the same as `attune_savings_cpu_cores_total`: running, not deleting, and not in a startup boost. A successful empty list adds nothing. A pod already at the recommendation adds nothing, so the gauge is 0 after a successful in-place resize. `sum by (namespace)` is the namespace total.
 
 | Label | Description |
 |-------|-------------|

@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -267,6 +268,68 @@ func TestListPodsForWorkloads_RolloutReplicaSetDoesNotClaimDeployment(t *testing
 	assert.Empty(t, failed)
 	require.Len(t, out["a"], 1, "a Rollout ReplicaSet must not assign the pod to Deployment b")
 	assert.Empty(t, out["b"])
+}
+
+func TestListPodsForWorkloads_OverlappingCronJobsPreferJobOwner(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, batchv1.AddToScheme(scheme))
+	yes := true
+	cron := func(name string) *batchv1.CronJob {
+		return &batchv1.CronJob{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ns"},
+			Spec: batchv1.CronJobSpec{
+				Schedule: "* * * * *",
+				JobTemplate: batchv1.JobTemplateSpec{
+					Spec: batchv1.JobSpec{
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "web"}},
+						},
+					},
+				},
+			},
+		}
+	}
+	a := cron("a")
+	b := cron("b")
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "b-28491000",
+			Namespace: "ns",
+			UID:       "uid-job",
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: "batch/v1",
+				Kind:       "CronJob",
+				Name:       "b",
+				Controller: &yes,
+			}},
+		},
+	}
+	shared := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "shared",
+			Namespace: "ns",
+			UID:       "uid-shared",
+			Labels:    map[string]string{"app": "web"},
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: "batch/v1",
+				Kind:       "Job",
+				Name:       "b-28491000",
+				UID:        "uid-job",
+				Controller: &yes,
+			}},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(a, b, job, shared).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+	// a sorts first. The Job is owned by b, so b keeps the pod.
+	out, failed := r.listPodsForWorkloads(context.Background(), []client.Object{a, b})
+	assert.Empty(t, failed)
+	assert.Empty(t, out["a"])
+	require.Len(t, out["b"], 1)
+	assert.Equal(t, "shared", out["b"][0].Name)
 }
 
 func TestMetricsPodRegex_SamplesWhenLarge(t *testing.T) {
