@@ -33,8 +33,10 @@ the same pods are not counted twice.
 If two workloads in one policy match the same pod, savings and the
 resize loop use that pod once. The workload that owns the pod keeps
 it. For a Deployment or Rollout, ownership is the ReplicaSet that
-controls the pod. When neither workload owns the pod, the name that
-sorts first keeps it. Selectors that do not overlap are unchanged.
+controls the pod. For a CronJob, ownership is the Job that controls
+the pod, when that Job's owner is the CronJob. When neither workload
+owns the pod, the name that sorts first keeps it. Selectors that do
+not overlap are unchanged.
 
 ## v0.1.35 to v0.1.36
 
@@ -62,9 +64,14 @@ on that policy.
 
 `attune_savings_cpu_cores_total`, `attune_savings_memory_bytes_total`,
 and `attune_savings_estimated_monthly_dollars` each have a `policy`
-label. The value is live request minus the current recommendation.
-A pod already at the recommendation adds nothing, so the gauge is 0
-after a successful in-place resize. It is not lifetime savings.
+label. The value is live request minus the current recommendation,
+summed over running pods that are not deleting and not in a startup
+boost. Succeeded pods, Failed pods, and pods with a deletion timestamp
+add nothing. A successful list with no such pods adds nothing. A pod
+already at the recommendation adds nothing, so the gauge is 0 after a
+successful in-place resize. It is not lifetime savings. A list or
+selector failure keeps one recommendation diff for that workload
+instead of publishing zero.
 
 Alerts and dashboard queries that used the old series without `policy`
 still work as a sum, but the number means the remaining gap. The

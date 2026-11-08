@@ -150,6 +150,7 @@ func (r *AttunePolicyReconciler) claimPodsOnce(ctx context.Context, logger logr.
 		byName[w.GetName()] = w
 	}
 	rsOwner := r.replicaSetOwners(ctx, logger, workloads)
+	jobOwner := r.jobCronJobOwners(ctx, logger, workloads)
 	names := make([]string, 0, len(out))
 	for name := range out {
 		names = append(names, name)
@@ -173,17 +174,23 @@ func (r *AttunePolicyReconciler) claimPodsOnce(ctx context.Context, logger logr.
 		winner := cands[0].name
 		pod := cands[0].pod
 		if ref, ok := controllerOwner(&pod); ok {
-			if ref.Kind == "ReplicaSet" {
+			switch ref.Kind {
+			case "ReplicaSet":
 				if name := rsOwner[ref.UID]; name != "" && candHas(cands, name) {
 					winner = name
 				}
-			} else {
-				for _, c := range cands {
-					w := byName[c.name]
-					if w != nil && objectKind(w) == ref.Kind && ref.Name == c.name {
-						winner = c.name
-						break
-					}
+			case "Job":
+				// A CronJob pod's controller is the Job. Prefer that CronJob
+				// when it is one of the matches. Otherwise a Job policy still
+				// matches the Job by name.
+				if name := jobOwner[ref.UID]; name != "" && candHas(cands, name) {
+					winner = name
+				} else if name, ok := directOwner(cands, byName, ref); ok {
+					winner = name
+				}
+			default:
+				if name, ok := directOwner(cands, byName, ref); ok {
+					winner = name
 				}
 			}
 		}
@@ -209,6 +216,16 @@ func (r *AttunePolicyReconciler) claimPodsOnce(ctx context.Context, logger logr.
 type podCand struct {
 	name string
 	pod  corev1.Pod
+}
+
+func directOwner(cands []podCand, byName map[string]client.Object, ref metav1.OwnerReference) (string, bool) {
+	for _, c := range cands {
+		w := byName[c.name]
+		if w != nil && objectKind(w) == ref.Kind && ref.Name == c.name {
+			return c.name, true
+		}
+	}
+	return "", false
 }
 
 func candHas(cands []podCand, name string) bool {
@@ -294,6 +311,60 @@ func (r *AttunePolicyReconciler) replicaSetOwners(ctx context.Context, logger lo
 				}
 				if rs.UID != "" {
 					out[rs.UID] = ref.Name
+				}
+			}
+		}
+	}
+	return out
+}
+
+// jobCronJobOwners maps a Job UID to the CronJob name in this policy that
+// controls it. A CronJob pod's controller is the Job, not the CronJob.
+// A list error leaves the map empty and claimPodsOnce falls back to a
+// direct Job name, then to alphabetical names.
+func (r *AttunePolicyReconciler) jobCronJobOwners(ctx context.Context, logger logr.Logger, workloads []client.Object) map[types.UID]string {
+	out := map[types.UID]string{}
+	if r == nil || r.Client == nil {
+		return out
+	}
+	type ownerKey struct {
+		kind string
+		name string
+	}
+	byNS := map[string]map[ownerKey]struct{}{}
+	for _, w := range workloads {
+		if objectKind(w) != "CronJob" {
+			continue
+		}
+		ns := w.GetNamespace()
+		if byNS[ns] == nil {
+			byNS[ns] = map[ownerKey]struct{}{}
+		}
+		byNS[ns][ownerKey{kind: "CronJob", name: w.GetName()}] = struct{}{}
+	}
+	for ns, owners := range byNS {
+		var list batchv1.JobList
+		if err := r.List(ctx, &list, client.InNamespace(ns)); err != nil {
+			logger.Error(err, "Failed to list Jobs for pod ownership", "namespace", ns)
+			continue
+		}
+		for i := range list.Items {
+			job := &list.Items[i]
+			for _, ref := range job.OwnerReferences {
+				if ref.Controller == nil || !*ref.Controller || ref.Name == "" {
+					continue
+				}
+				if ref.Kind != "CronJob" {
+					continue
+				}
+				if ref.APIVersion != "batch/v1" && ref.APIVersion != "batch/v1beta1" {
+					continue
+				}
+				if _, ok := owners[ownerKey{kind: ref.Kind, name: ref.Name}]; !ok {
+					continue
+				}
+				if job.UID != "" {
+					out[job.UID] = ref.Name
 				}
 			}
 		}

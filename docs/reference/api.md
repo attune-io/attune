@@ -267,9 +267,9 @@ spec:
 | `recommendations[].stale` | `bool` | `true` when the newest finite sample is older than `3 * queryStep` (default 15m), or when the last rec was reused after an empty query. Resize, boost, initial sizing webhook, template persistence, ConfigMap rewrite, kubectl preview/diff/wizard, and GitOps drift are skipped until fresh data arrives. Stale recs do not count toward Ready or savings. Reuse expires after the same freshness bound |
 | `recommendations[].lastDataTime` | `Time` | Timestamp of the most recent Prometheus data point |
 
-| `savings.cpuRequestReduction` | `string` | Sum of (live request - recommended) CPU across the pods for each workload. A pod already at the recommendation adds nothing (e.g. "1200m"). |
+| `savings.cpuRequestReduction` | `string` | Sum of (live request - recommended) CPU for running pods that are not deleting and not in a startup boost. Succeeded, Failed, and deleting pods add nothing. A successful list with no such pods adds nothing. A pod already at the recommendation adds nothing. A list or selector failure keeps one recommendation diff for that workload (e.g. "1200m"). |
 | `savings.cpuRequestTotal` | `string` | Sum of those live CPU requests (e.g. "2") |
-| `savings.memoryRequestReduction` | `string` | Sum of (live request - recommended) memory across those pods (e.g. "2Gi") |
+| `savings.memoryRequestReduction` | `string` | Sum of (live request - recommended) memory for the same pods (e.g. "2Gi") |
 | `savings.memoryRequestTotal` | `string` | Sum of those live memory requests (e.g. "2Gi") |
 | `savings.estimatedMonthlySavings` | `string` | Monthly cost of that pod sum at default or configured prices |
 | `savings.cpuRequestIncrease` | `string` | Total CPU increase for under-provisioned workloads (e.g. "500m") |
