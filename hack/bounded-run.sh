@@ -54,6 +54,15 @@ bounded_duration_secs() {
   echo "${result}"
 }
 
+# A foreground sleep becomes the terminal's foreground group after
+# monitor mode, so Ctrl-C never reaches this script. A background
+# sleep is not that group. The shell stays in the foreground and the
+# INT trap runs.
+bounded_pause() {
+  sleep 0.2 &
+  wait "$!" || true
+}
+
 bounded_kill_group() {
   local sig="$1"
   local pid="$2"
@@ -82,9 +91,13 @@ bounded_run() {
   abandon="${BOUNDED_ABANDON_SEC:-2}"
 
   # A separate process group so one signal reaches docker and k3d children.
+  # Monitor mode also makes a later foreground sleep the terminal's
+  # foreground group, so Ctrl-C would hit that sleep and miss this trap.
+  # Turn it off once the child has its own group.
   set -m
   "$@" &
   local pid=$!
+  set +m
   # The child is not in this shell's foreground group, so Ctrl-C and a
   # cancelled job would otherwise leave docker or k3d running.
   trap 'bounded_kill_group TERM "${pid}"; bounded_kill_group KILL "${pid}"; trap - INT TERM; exit 130' INT
@@ -108,7 +121,7 @@ bounded_run() {
           trap - INT TERM
           return 124
         fi
-        sleep 0.2
+        bounded_pause
         polls=$((polls + 1))
       done
       # Still alive after KILL. Returning reparents a D-state child
@@ -116,7 +129,7 @@ bounded_run() {
       trap - INT TERM
       return 124
     fi
-    sleep 0.2
+    bounded_pause
   done
   local status=0
   wait "${pid}" || status=$?

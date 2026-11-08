@@ -2066,7 +2066,8 @@ skipped.
 
 If two workloads in one policy match the same pod, Attune keeps that pod
 on the workload that owns it. A Deployment or Rollout owns the pod when
-its ReplicaSet is the pod's controller. A CronJob owns the pod when the
+its ReplicaSet is the pod's controller. A standalone ReplicaSet owns
+the pod when it is the controller. A CronJob owns the pod when the
 pod's controller is a Job and that Job's owner is the CronJob. A
 StatefulSet, DaemonSet, or Job owns the pod when it is the controller.
 Savings count the pod once, and the resize loop sees it once. If neither
