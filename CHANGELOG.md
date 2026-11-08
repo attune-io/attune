@@ -6,6 +6,18 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.37](https://github.com/attune-io/attune/compare/v0.1.36...v0.1.37) (2026-11-08)
+
+
+### Bug Fixes
+
+* check out bounded-run.sh for the image mirror ([#1112](https://github.com/attune-io/attune/issues/1112)) ([647c8a0](https://github.com/attune-io/attune/commit/647c8a0e2d66e775cbf79ae41f4f22ff5357ef04))
+* cut errors on characters and bound wedged docker commands ([#1110](https://github.com/attune-io/attune/issues/1110)) ([d778e3f](https://github.com/attune-io/attune/commit/d778e3f1d961de39e408e538e37e5d2c8bfdd8b7))
+* finish pod claim, manual Job sizing, and command bounds ([#1124](https://github.com/attune-io/attune/issues/1124)) ([c83ba98](https://github.com/attune-io/attune/commit/c83ba982b838b6034221d9b31f9411c6d7f3d1ca))
+* keep manual Jobs and bound wedged commands ([#1122](https://github.com/attune-io/attune/issues/1122)) ([65c61cb](https://github.com/attune-io/attune/commit/65c61cbe83384f88376041d1299a81ab9ee32892))
+* let a CronJob keep the pod its Job owns ([#1123](https://github.com/attune-io/attune/issues/1123)) ([cc26bc8](https://github.com/attune-io/attune/commit/cc26bc83bfd11ca7a4fed35c3918693dd09efdee))
+* skip Jobs a CronJob already owns ([#1113](https://github.com/attune-io/attune/issues/1113)) ([f170d71](https://github.com/attune-io/attune/commit/f170d71f4e74044d05f6eced157947b06a69c9dd))
+
 ## [0.1.36](https://github.com/attune-io/attune/compare/v0.1.35...v0.1.36) (2026-11-07)
 
 
