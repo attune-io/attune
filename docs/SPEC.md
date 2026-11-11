@@ -1299,7 +1299,8 @@ Jobs:
 
   dockerhub-readme:
     - Runs after release succeeds, and only when inputs.tag is empty
-    - Updates the Docker Hub description from docker/README.md
+    - Updates the Docker Hub image description from docker/README.md
+    - Updates the Docker Hub chart overview from docker/chart-README.md
 
   release-notify:
     - Runs when release succeeded

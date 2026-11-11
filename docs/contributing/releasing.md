@@ -117,7 +117,8 @@ cosign verify \
 
 The release workflow also pushes the same multi-arch image to Docker Hub
 at `docker.io/attuneio/attune`. The Docker Hub README is synced from
-`docker/README.md` on each release.
+`docker/README.md` on each release. The chart repository overview is
+synced from `docker/chart-README.md` to `attuneio/attune-chart`.
 
 Both the GHCR and Docker Hub images share the same digest and are
 cosign-signed independently.

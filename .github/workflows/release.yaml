@@ -609,6 +609,29 @@ jobs:
           readme-filepath: docker/README.md
           short-description: "Safe, in-place Kubernetes pod resource right-sizing. VPA done right."
 
+      # __CHART_VERSION__ is the only token. 0.1.23 in the old-tag
+      # warning must stay literal.
+      - name: Pin chart overview examples to this release
+        env:
+          RELEASE_TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          test -n "$version"
+          grep -q '__CHART_VERSION__' docker/chart-README.md
+          sed -i "s/__CHART_VERSION__/${version}/g" docker/chart-README.md
+          grep -q "$version" docker/chart-README.md
+          ! grep -q '__CHART_VERSION__' docker/chart-README.md
+
+      - name: Update Docker Hub chart overview
+        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: attuneio/attune-chart
+          readme-filepath: docker/chart-README.md
+          short-description: "Helm chart for Attune, in-place Kubernetes pod right-sizing."
+
   # Create a GitHub Issue if any optional post-release job failed.
   # This prevents silent failures from going unnoticed.
   release-notify:
