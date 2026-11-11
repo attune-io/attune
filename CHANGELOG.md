@@ -6,6 +6,13 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.38](https://github.com/attune-io/attune/compare/v0.1.37...v0.1.38) (2026-11-11)
+
+
+### Bug Fixes
+
+* publish the helm chart overview on docker hub ([#1128](https://github.com/attune-io/attune/issues/1128)) ([1047e60](https://github.com/attune-io/attune/commit/1047e606e38023e094aed8f95758ef6e367d9680))
+
 ## [0.1.37](https://github.com/attune-io/attune/compare/v0.1.36...v0.1.37) (2026-11-08)
 
 
