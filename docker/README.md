@@ -36,8 +36,10 @@ conflicts, graduated safety controls.
 
 ## How to use this image
 
-> **Recommended registry**: For production use, pull from GHCR to avoid
-> Docker Hub rate limits:
+> **Pulls of this image**: `docker pull attuneio/attune` does not count
+> against the Docker Hub pull limit. That limit is on the account or
+> IP doing the pull, and it still applies to other Hub images. The
+> project install guide uses GHCR:
 > ```bash
 > ghcr.io/attune-io/attune:latest
 > ```
