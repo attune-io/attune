@@ -67,12 +67,12 @@ in-place resize. It exists to make VPA obsolete by delivering:
 <a id="technology-decisions"></a>
 ## 2. Technology Decisions
 
-### 2.1 Language: Go 1.27.3
+### 2.1 Language: Go 1.27.4
 
 | Factor | Decision |
 |--------|----------|
-| Language | Go 1.27.3 |
-| Module directive | `go 1.27.3` |
+| Language | Go 1.27.4 |
+| Module directive | `go 1.27.4` |
 | Rationale | 85%+ of production K8s operators use Go. Largest ecosystem, hiring pool, and controller-runtime support. Green Tea GC (1.26) provides lower latency. |
 | What competitors use | right-sizer: Go 1.25, OptiPod: Go 1.24.6, VPA: Go |
 | What model operators use | CloudNativePG: Go 1.26.3, Kyverno: Go 1.26.2 |
@@ -110,7 +110,7 @@ The official Prometheus Go client for querying (not exposing metrics). Returns t
 ### 2.4 Complete Dependency Table
 
 ```
-go 1.27.3
+go 1.27.4
 
 # Core
 sigs.k8s.io/controller-runtime          v0.25.2
@@ -1299,7 +1299,8 @@ Jobs:
 
   dockerhub-readme:
     - Runs after release succeeds, and only when inputs.tag is empty
-    - Updates the Docker Hub description from docker/README.md
+    - Updates the Docker Hub image description from docker/README.md
+    - Updates the Docker Hub chart overview from docker/chart-README.md
 
   release-notify:
     - Runs when release succeeded
