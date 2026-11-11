@@ -87,8 +87,10 @@ helm install attune \
 
 !!! info "Also available on Docker Hub"
     The container image is also published to Docker Hub at
-    `docker.io/attuneio/attune` for discoverability. For production
-    use, GHCR is recommended (no rate limits on public packages).
+    `docker.io/attuneio/attune`. A pull of this image does not count
+    against the Docker Hub pull limit. That limit is on the account
+    or IP doing the pull, and it still applies to other Hub images.
+    The install commands on this page use GHCR.
 
 ### Upgrading
 
