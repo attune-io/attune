@@ -111,4 +111,31 @@ mut_on="$(extract_on "${tmpdir}/ci-with-push.yaml")"
 grep -q '^  push:' <<<"${mut_on}" || fail "mutation did not add push: to on-block"
 echo "OK: extract_on detects an injected push trigger"
 
+echo "DO: ci-gate fails unless Detect Changes succeeded"
+awk '
+  /^  ci-gate:/ {injob=1; next}
+  injob && /^  [A-Za-z0-9-]+:/ {exit}
+  injob {print}
+' "${CI}" > "${tmpdir}/ci-gate.txt"
+grep -q -- '- changes' "${tmpdir}/ci-gate.txt" || fail "ci-gate needs list missing changes"
+grep -F -q 'needs.changes.result }}" != "success"' "${tmpdir}/ci-gate.txt" || \
+  fail "ci-gate does not fail when changes is not success"
+echo "OK: ci-gate requires a successful changes job"
+
+echo "DO: e2e helper scripts are in the e2e and scripts path filters"
+assert_filter_path() {
+  local name="$1" path="$2"
+  awk -v name="$name" -v path="$path" '
+    $0 ~ "^            " name ":" {inblock=1; next}
+    inblock && $0 ~ "^            [a-z0-9-]+:" {exit}
+    inblock && index($0, path) {found=1}
+    END {exit found ? 0 : 1}
+  ' "${CI}" || fail "filter ${name} missing ${path}"
+}
+for path in hack/wait-cluster-quiet.sh hack/e2e-download-cert-manager.sh; do
+  assert_filter_path e2e "$path"
+  assert_filter_path scripts "$path"
+done
+echo "OK: both helpers wake e2e and scripts"
+
 echo "DONE: ok=true"
