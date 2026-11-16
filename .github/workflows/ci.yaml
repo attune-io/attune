@@ -131,6 +131,8 @@ jobs:
               - 'hack/e2e-wait-cadvisor.sh'
               - 'hack/e2e-pull-prometheus-chart.sh'
               - 'hack/k3d-delete.sh'
+              - 'hack/wait-cluster-quiet.sh'
+              - 'hack/e2e-download-cert-manager.sh'
               # A helper-only change must still run PR E2E. The bounds
               # classifier lives under scripts/, so it does not wake this
               # filter by itself.
@@ -159,6 +161,8 @@ jobs:
               - 'hack/e2e-pull-prometheus-chart.sh'
               - 'hack/e2e-nightly-matrix.sh'
               - 'hack/k3d-delete.sh'
+              - 'hack/wait-cluster-quiet.sh'
+              - 'hack/e2e-download-cert-manager.sh'
               # A helper-only change must still run the bounds classifier
               # (Lint, scripts=true) and not only nightly.
               - 'hack/bounded-run.sh'
@@ -1062,6 +1066,7 @@ jobs:
     timeout-minutes: 5
     if: always()
     needs:
+      - changes
       - lint
       - lint-chainsaw
       - docs-check
@@ -1079,6 +1084,13 @@ jobs:
       - name: Check job results
         shell: bash -Eeuo pipefail {0}
         run: |
+          # Every gated job needs `changes`. If it fails or is cancelled,
+          # they are all skipped, and skipped counts as passing below.
+          # Require it explicitly so a broken filter cannot open the gate.
+          if [[ "${{ needs.changes.result }}" != "success" ]]; then
+            echo "::error::CI gate failed: Detect Changes reported '${{ needs.changes.result }}'"
+            exit 1
+          fi
           results=( \
             "${{ needs.lint.result }}" \
             "${{ needs.lint-chainsaw.result }}" \
