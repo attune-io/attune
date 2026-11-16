@@ -369,6 +369,8 @@ Collectors must ignore unknown fields. Metric:
 If the operator is scoped with `--watch-namespaces` / `watchNamespaces`, the
 report only includes policies in watched namespaces (partial cluster view).
 For a full-cluster report, leave watchNamespaces empty.
+The ConfigMap read is live, so `fleetReport.namespace` (or the operator
+namespace when that value is empty) can sit outside `watchNamespaces`.
 
 With HA (`replicaCount` > 1), enable leader election so only one pod writes
 the ConfigMap.
