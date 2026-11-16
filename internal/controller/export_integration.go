@@ -55,3 +55,13 @@ func (r *AttunePolicyReconciler) WorkloadCooldownActiveForTest(
 ) bool {
 	return r.isWorkloadCooldownActive(policy, workload)
 }
+
+// ExportRecommendationConfigMapsForTest exposes exportRecommendationConfigMaps
+// so envtest can check that the apiserver accepts the export labels (#1136).
+func (r *AttunePolicyReconciler) ExportRecommendationConfigMapsForTest(
+	ctx context.Context,
+	policy *attunev1alpha1.AttunePolicy,
+	recommendations []attunev1alpha1.WorkloadRecommendation,
+) {
+	r.exportRecommendationConfigMaps(ctx, policy, recommendations)
+}

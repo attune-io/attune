@@ -1065,13 +1065,17 @@ func printExportList(ctx context.Context, dynClient dynamic.Interface, namespace
 		ns := cm.GetNamespace()
 		name := cm.GetName()
 		labels := cm.GetLabels()
-		policy := labels["attune.io/policy"]
-		if policy == "" {
-			policy = "-"
-		}
 		data, found, _ := unstructured.NestedStringMap(cm.Object, "data")
 		if !found {
 			data = map[string]string{}
+		}
+		// Data holds the full name; the label may be shortened (#1136).
+		policy := data["policy"]
+		if policy == "" {
+			policy = labels["attune.io/policy"]
+		}
+		if policy == "" {
+			policy = "-"
 		}
 		workload := workloadFromConfigMap(name, labels, data)
 		if workload == "" {

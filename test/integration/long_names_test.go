@@ -25,7 +25,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	"github.com/attune-io/attune/internal/controller"
@@ -74,4 +77,50 @@ func TestMarkResizeTime_LongWorkloadNamePersists(t *testing.T) {
 	assert.True(t, r.WorkloadCooldownActiveForTest(&stored, long),
 		"cooldown is read back from the persisted stamp")
 	assert.True(t, r.WorkloadCooldownActiveForTest(&stored, "short-app"))
+}
+
+// TestExportRecommendationConfigMaps_LongWorkloadName exports a
+// recommendation for a workload whose name is longer than a label value
+// may be (#1136). The real apiserver validates labels, so before the fix
+// Create was rejected and no ConfigMap was written.
+func TestExportRecommendationConfigMaps_LongWorkloadName(t *testing.T) {
+	long := "workload-" + strings.Repeat("w", 64)
+	require.Greater(t, len(long), 63)
+
+	policy := newTestPolicy("long-name-export", "integration-test", long)
+	require.NoError(t, k8sClient.Create(ctx, policy))
+	t.Cleanup(func() { _ = k8sClient.Delete(ctx, policy) })
+
+	r := controller.NewAttunePolicyReconciler()
+	r.Client = k8sClient
+	r.Scheme = k8sClient.Scheme()
+
+	cpu, err := resource.ParseQuantity("200m")
+	require.NoError(t, err)
+	mem, err := resource.ParseQuantity("256Mi")
+	require.NoError(t, err)
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: long,
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name:        "main",
+			Confidence:  0.9,
+			Recommended: attunev1alpha1.ResourceValues{CPURequest: cpu, MemoryRequest: mem},
+		}},
+	}}
+
+	// Twice: the second pass takes the Patch path and runs orphan cleanup
+	// against the stored, shortened label.
+	r.ExportRecommendationConfigMapsForTest(ctx, policy, recs)
+	r.ExportRecommendationConfigMapsForTest(ctx, policy, recs)
+
+	cmName := policy.Name + "-" + long + "-recommendations"
+	var cm corev1.ConfigMap
+	require.NoError(t, k8sClient.Get(ctx, client.ObjectKey{Namespace: policy.Namespace, Name: cmName}, &cm),
+		"apiserver must accept the export ConfigMap labels")
+	t.Cleanup(func() { _ = k8sClient.Delete(ctx, &cm) })
+	assert.Equal(t, long, cm.Data["workload"], "full name stays in Data")
+	assert.Equal(t, policy.Name, cm.Labels["attune.io/policy"], "short policy name keeps its label")
+	assert.LessOrEqual(t, len(cm.Labels["attune.io/workload"]), 63)
+	assert.NotEqual(t, long, cm.Labels["attune.io/workload"])
 }
