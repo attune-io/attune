@@ -567,7 +567,7 @@ This creates 15 alerts covering the key operational signals, and a sixteenth
 | `AttuneGitOpsPRFailures` | GitOps pull request automation failed for 5m | warning |
 | `AttuneMemoryLimitUnsafe` | Memory limit decrease floored or skipped as unsafe for 1h | info |
 | `AttuneOOMBumpCapped` | One or more OOM bumps capped at maxBumps or clamped to maxAllowed in the last hour, pending 5m | info |
-| `AttuneOperatorDown` | The operator metrics Service has no successful scrape (`up == 0` or absent) for 5m. Needs `metrics.serviceMonitor.enabled` | warning |
+| `AttuneOperatorDown` | No scrape of the operator metrics Service is up, for 5m. A down standby does not fire while another replica is still scraped. Needs `metrics.serviceMonitor.enabled` | warning |
 
 Individual alerts can be disabled or tuned:
 

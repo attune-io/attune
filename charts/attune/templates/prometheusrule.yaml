@@ -247,7 +247,7 @@ spec:
         {{- if and .Values.metrics.serviceMonitor.enabled .Values.metrics.prometheusRule.rules.operatorDown .Values.metrics.prometheusRule.rules.operatorDown.enabled }}
         {{- $up := printf "up{namespace=%q, service=%q}" .Release.Namespace (printf "%s-metrics" (include "attune.fullname" .)) }}
         - alert: AttuneOperatorDown
-          expr: ({{ $up }} == 0) or absent({{ $up }})
+          expr: absent({{ $up }} == 1)
           for: {{ .Values.metrics.prometheusRule.rules.operatorDown.for }}
           labels:
             severity: {{ .Values.metrics.prometheusRule.rules.operatorDown.severity }}
@@ -255,9 +255,10 @@ spec:
             summary: attune operator metrics are not being scraped
             description: >-
               Prometheus has no successful scrape of the attune metrics Service
-              in namespace {{ .Release.Namespace }}. The operator is down,
-              crash-looping, or not selected by the ServiceMonitor. While it is
-              down no policy is reconciled and no safety revert runs.
+              in namespace {{ .Release.Namespace }}. Every target is down, or
+              the ServiceMonitor is not selecting it. A down standby does not
+              fire while another replica is still scraped. While no scrape is
+              up, no policy is reconciled and no safety revert runs.
         {{- end }}
     {{- if .Values.metrics.prometheusRule.fleetRecordingRules.enabled }}
 

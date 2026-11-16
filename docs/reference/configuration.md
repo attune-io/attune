@@ -95,7 +95,8 @@ Each alert rule supports `enabled`, `for`, and `severity`. Some rules have addit
 | `prometheusUnreachable` | warning | 10m | | Fires when Prometheus queries fail |
 | `degraded` | critical | 5m | | Fires when workloads are in Degraded state |
 | `highRevertRate` | critical | 15m | `threshold` (default `"0.5"`) | Fires when revert rate exceeds 50% |
-| `reconcileStale` | warning | 5m | `staleDuration` (default `30m`) | Fires when no reconcile completes within the stale duration |
+| `reconcileStale` | warning | 5m | `staleDuration` (default `30m`) | Fires when the reconcile counter is flat for the stale duration while the series is still present. A crashed operator reports no series, so this rule does not see it. |
+| `operatorDown` | warning | 5m | | Fires when no scrape of the operator metrics Service is up. Rendered only when `metrics.serviceMonitor.enabled` is true. A down standby does not fire while another replica is still scraped. |
 | `budgetExhausted` | warning | 30m | | Fires when a policy's increase budget refuses resizes, either deferred (`BudgetExhausted`) or blocked by a cap smaller than one increase (`IncreaseExceedsBudget`) |
 | `dataQuality` | warning | 30m | | Fires when NaN/Inf values are detected in Prometheus data |
 | `requestsClamped` | info | 1h | | Fires when recommended requests are clamped to limits |

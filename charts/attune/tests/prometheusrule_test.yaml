@@ -292,7 +292,7 @@ tests:
           value: AttuneOperatorDown
       - equal:
           path: spec.groups[0].rules[15].expr
-          value: '(up{namespace="attune-system", service="attune-metrics"} == 0) or absent(up{namespace="attune-system", service="attune-metrics"})'
+          value: 'absent(up{namespace="attune-system", service="attune-metrics"} == 1)'
       - equal:
           path: spec.groups[0].rules[15].labels.severity
           value: warning

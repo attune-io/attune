@@ -207,10 +207,10 @@ metrics:
         for: 5m
         severity: info
       operatorDown:
-        # -- Fire when Prometheus has no successful scrape of the operator metrics Service (up == 0 or absent).
+        # -- Fire when no scrape of the operator metrics Service is up.
         # Rendered only when metrics.serviceMonitor.enabled is true, because the rule matches the
-        # ServiceMonitor target labels (namespace, service). Catches a crashed operator, which
-        # reconcileStale cannot see.
+        # ServiceMonitor target labels (namespace, service). A down standby does not fire while
+        # another replica is still scraped. reconcileStale cannot see a crashed operator.
         enabled: true
         for: 5m
         severity: warning
