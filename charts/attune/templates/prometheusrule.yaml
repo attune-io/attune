@@ -81,8 +81,10 @@ spec:
             summary: attune has not reconciled recently
             description: >-
               No successful reconciliation has completed in the last
-              {{ .Values.metrics.prometheusRule.rules.reconcileStale.staleDuration }}.
-              The operator may be stuck, crashed, or unable to process policies.
+              {{ .Values.metrics.prometheusRule.rules.reconcileStale.staleDuration }}
+              while the operator is still reporting. It may be stuck or unable
+              to process policies. A crashed or unscraped operator reports no
+              series, so this rule cannot see it; AttuneOperatorDown covers that.
         {{- end }}
         {{- if and .Values.metrics.prometheusRule.rules.weeklyReportStale .Values.metrics.prometheusRule.rules.weeklyReportStale.enabled }}
         - alert: AttuneWeeklyReportStale
@@ -241,6 +243,22 @@ spec:
               When maxAllowed is omitted, maxBumps is the only cap. This alert
               does not turn memory.oomBump on. See troubleshooting
               "Memory request rose after OOMKilled".
+        {{- end }}
+        {{- if and .Values.metrics.serviceMonitor.enabled .Values.metrics.prometheusRule.rules.operatorDown .Values.metrics.prometheusRule.rules.operatorDown.enabled }}
+        {{- $up := printf "up{namespace=%q, service=%q}" .Release.Namespace (printf "%s-metrics" (include "attune.fullname" .)) }}
+        - alert: AttuneOperatorDown
+          expr: absent({{ $up }} == 1)
+          for: {{ .Values.metrics.prometheusRule.rules.operatorDown.for }}
+          labels:
+            severity: {{ .Values.metrics.prometheusRule.rules.operatorDown.severity }}
+          annotations:
+            summary: attune operator metrics are not being scraped
+            description: >-
+              Prometheus has no successful scrape of the attune metrics Service
+              in namespace {{ .Release.Namespace }}. Every target is down, or
+              the ServiceMonitor is not selecting it. A down standby does not
+              fire while another replica is still scraped. While no scrape is
+              up, no policy is reconciled and no safety revert runs.
         {{- end }}
     {{- if .Values.metrics.prometheusRule.fleetRecordingRules.enabled }}
 

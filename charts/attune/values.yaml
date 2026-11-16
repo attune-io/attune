@@ -206,6 +206,14 @@ metrics:
         enabled: true
         for: 5m
         severity: info
+      operatorDown:
+        # -- Fire when no scrape of the operator metrics Service is up.
+        # Rendered only when metrics.serviceMonitor.enabled is true, because the rule matches the
+        # ServiceMonitor target labels (namespace, service). A down standby does not fire while
+        # another replica is still scraped. reconcileStale cannot see a crashed operator.
+        enabled: true
+        for: 5m
+        severity: warning
     # -- Recording rules for multi-cluster / federated Prometheus rollups.
     # Safe to enable on single-cluster installs (cluster label may be empty).
     fleetRecordingRules:

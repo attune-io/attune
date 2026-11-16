@@ -547,7 +547,8 @@ helm upgrade attune oci://ghcr.io/attune-io/charts/attune \
   --set metrics.prometheusRule.enabled=true
 ```
 
-This creates 15 alerts covering the key operational signals:
+This creates 15 alerts covering the key operational signals, and a sixteenth
+(`AttuneOperatorDown`) when `metrics.serviceMonitor.enabled` is also true:
 
 | Alert | Fires when | Default severity |
 |-------|-----------|-----------------|
@@ -555,7 +556,7 @@ This creates 15 alerts covering the key operational signals:
 | `AttunePrometheusUnreachable` | Prometheus query errors sustained for 10m | warning |
 | `AttuneDegraded` | A workload is reverted more than 3 times in 15 minutes, for 5m | critical |
 | `AttuneHighRevertRate` | More than 50% of resizes in the last hour were reverted, for 15m | critical |
-| `AttuneReconcileStale` | No successful reconcile in the last 30m, for 5m | warning |
+| `AttuneReconcileStale` | No successful reconcile in the last 30m while the operator still reports, for 5m. A crashed operator reports nothing, so this rule does not fire for it | warning |
 | `AttuneBudgetExhausted` | Increase budget refused a resize in the last hour, for 30m: `BudgetExhausted` (retried later) or `IncreaseExceedsBudget` (larger than a per-minute or per-cycle cap) | warning |
 | `AttunePodsInfeasible` | Pods stuck Infeasible for in-place resize for 30m | warning |
 | `AttunePodsDeferred` | Pods stuck Deferred for in-place resize for 1h | warning |
@@ -566,6 +567,7 @@ This creates 15 alerts covering the key operational signals:
 | `AttuneGitOpsPRFailures` | GitOps pull request automation failed for 5m | warning |
 | `AttuneMemoryLimitUnsafe` | Memory limit decrease floored or skipped as unsafe for 1h | info |
 | `AttuneOOMBumpCapped` | One or more OOM bumps capped at maxBumps or clamped to maxAllowed in the last hour, pending 5m | info |
+| `AttuneOperatorDown` | No scrape of the operator metrics Service is up, for 5m. A down standby does not fire while another replica is still scraped. Needs `metrics.serviceMonitor.enabled` | warning |
 
 Individual alerts can be disabled or tuned:
 
