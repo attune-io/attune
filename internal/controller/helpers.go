@@ -44,6 +44,7 @@ import (
 	"github.com/attune-io/attune/internal/recommendation"
 	"github.com/attune-io/attune/internal/resize"
 	"github.com/attune-io/attune/internal/safety"
+	"github.com/attune-io/attune/internal/textutil"
 )
 
 const (
@@ -563,9 +564,21 @@ func (r *AttunePolicyReconciler) parseCooldown(policy *attunev1alpha1.AttunePoli
 	return defaultCooldown
 }
 
+// annotationKeyNameMaxLen is the Kubernetes limit on the name part of an
+// annotation key (after the "attune.io/" prefix).
+const annotationKeyNameMaxLen = 63
+
+// lastResizeWorkloadMaxLen is how much of the key name is left for the
+// workload name (46 characters).
+const lastResizeWorkloadMaxLen = annotationKeyNameMaxLen -
+	(len(lastResizeAnnotationPrefix) - len("attune.io/"))
+
 // lastResizeAnnotationKey returns the per-workload last-resize annotation.
+// Workload names that fit (46 characters) are used as is, so existing
+// stamps stay readable. Longer names are cut and suffixed with a hash of
+// the full name so the key stays a valid qualified name (#1135).
 func lastResizeAnnotationKey(workload string) string {
-	return lastResizeAnnotationPrefix + workload
+	return lastResizeAnnotationPrefix + textutil.ShortenWithHash(workload, lastResizeWorkloadMaxLen)
 }
 
 // parseLastResizeTime parses an RFC3339 last-resize annotation.

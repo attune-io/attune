@@ -284,7 +284,9 @@ sequenceDiagram
 After any resize operation (successful or reverted), the operator records
 `attune.io/last-resize-time` (policy-wide) and
 `attune.io/last-resize-time.<workload>` (per app). A later resize of app A
-does not lock app B.
+does not lock app B. Annotation key names are limited to 63 characters,
+so a workload name longer than 46 characters is cut to 35 characters
+and suffixed with `-` and a 10-character hash of the full name.
 
 On the next reconciliation, each workload is skipped while
 `now - lastResizeTime.<app> < effectiveCooldown` (base cooldown times
