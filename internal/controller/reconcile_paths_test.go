@@ -1258,6 +1258,150 @@ func TestReconcile_Schedule_SkipsOnRecommendationPersist(t *testing.T) {
 	}
 }
 
+func TestReconcile_StartupBoostIgnoresClosedSchedule(t *testing.T) {
+	// Wednesday 02:00-06:00 UTC. 10:00 is closed. 03:00 is open.
+	closed := time.Date(2026, 1, 7, 10, 0, 0, 0, time.UTC)
+	open := time.Date(2026, 1, 7, 3, 0, 0, 0, time.UTC)
+	schedule := &attunev1alpha1.ResizeSchedule{
+		Windows:    []attunev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
+		DaysOfWeek: []string{"Wednesday"},
+		Timezone:   "UTC",
+	}
+	qty := func(s string) resource.Quantity {
+		q, err := resource.ParseQuantity(s)
+		require.NoError(t, err)
+		return q
+	}
+	podCPU := func(name, cpu string, created time.Time, boostAt string) *corev1.Pod {
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              name,
+				Namespace:         "default",
+				Labels:            map[string]string{"app": "api-server"},
+				CreationTimestamp: metav1.NewTime(created),
+			},
+			Status: corev1.PodStatus{Phase: corev1.PodRunning},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    qty(cpu),
+							corev1.ResourceMemory: qty("128Mi"),
+						},
+					},
+				}},
+			},
+		}
+		if boostAt != "" {
+			pod.Annotations = map[string]string{annotationStartupBoostAt: boostAt}
+		}
+		return pod
+	}
+	liveCPU := func(tb testing.TB, cs *kubefake.Clientset, name string) resource.Quantity {
+		tb.Helper()
+		got, err := cs.CoreV1().Pods("default").Get(context.Background(), name, metav1.GetOptions{})
+		require.NoError(tb, err)
+		return got.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+	}
+
+	t.Run("closed window still applies and expires", func(t *testing.T) {
+		policy := newTestPolicy("test-policy", "default")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+		policy.Spec.UpdateStrategy.AutoRevert = boolPtr(false)
+		policy.Spec.UpdateStrategy.Schedule = schedule
+		allow := true
+		policy.Spec.CPU.AllowDecrease = &allow
+		policy.Spec.CPU.StartupBoost = &attunev1alpha1.StartupBoost{
+			Multiplier: "2.0",
+			Duration:   metav1.Duration{Duration: 2 * time.Minute},
+		}
+		deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+		young := podCPU("api-young", "100m", closed.Add(-30*time.Second), "")
+		expired := podCPU("api-expired", "3000m", closed.Add(-2*time.Hour), closed.Add(-10*time.Minute).Format(time.RFC3339))
+		steady := podCPU("api-steady", "500m", closed.Add(-2*time.Hour), "")
+		ns := newTestNamespace("default", nil)
+		mc := &mockCollector{
+			queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+				return generateSamples(200, 2.0), nil
+			},
+		}
+		scheme := testScheme()
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(policy, deploy, young, expired, steady, ns).
+			WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
+			Build()
+		clientset := kubefake.NewSimpleClientset(young.DeepCopy(), expired.DeepCopy(), steady.DeepCopy())
+		reconciler := newReconcilerForReconcileWithClient(mc, fakeClient, scheme)
+		reconciler.Clientset = clientset
+		reconciler.SetNowFunc(func() time.Time { return closed })
+
+		_, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+			NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+		})
+		require.NoError(t, err)
+
+		var updated attunev1alpha1.AttunePolicy
+		require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+			Name: "test-policy", Namespace: "default",
+		}, &updated))
+		cond := meta.FindStatusCondition(updated.Status.Conditions, attunev1alpha1.ConditionScheduleBlocked)
+		require.NotNil(t, cond)
+		assert.Equal(t, attunev1alpha1.ReasonOutsideWindow, cond.Reason)
+
+		youngCPU := liveCPU(t, clientset, "api-young")
+		expiredCPU := liveCPU(t, clientset, "api-expired")
+		steadyCPU := liveCPU(t, clientset, "api-steady")
+		youngStart := qty("100m")
+		expiredStart := qty("3000m")
+		steadyStart := qty("500m")
+		assert.True(t, youngCPU.Cmp(youngStart) > 0,
+			"a new pod is boosted while the window is closed")
+		assert.True(t, expiredCPU.Cmp(expiredStart) < 0,
+			"an expired boost returns toward steady state while the window is closed")
+		assert.True(t, steadyCPU.Equal(steadyStart),
+			"steady-state resize stays gated while the window is closed")
+	})
+
+	t.Run("open window still resizes steady state", func(t *testing.T) {
+		policy := newTestPolicy("test-policy", "default")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+		policy.Spec.UpdateStrategy.AutoRevert = boolPtr(false)
+		policy.Spec.UpdateStrategy.Schedule = schedule
+		allow := true
+		policy.Spec.CPU.AllowDecrease = &allow
+		deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+		steady := podCPU("api-steady", "500m", open.Add(-2*time.Hour), "")
+		ns := newTestNamespace("default", nil)
+		mc := &mockCollector{
+			queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+				return generateSamples(200, 2.0), nil
+			},
+		}
+		scheme := testScheme()
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(policy, deploy, steady, ns).
+			WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
+			Build()
+		clientset := kubefake.NewSimpleClientset(steady.DeepCopy())
+		reconciler := newReconcilerForReconcileWithClient(mc, fakeClient, scheme)
+		reconciler.Clientset = clientset
+		reconciler.SetNowFunc(func() time.Time { return open })
+
+		_, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+			NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+		})
+		require.NoError(t, err)
+
+		steadyCPU := liveCPU(t, clientset, "api-steady")
+		steadyStart := qty("500m")
+		assert.False(t, steadyCPU.Equal(steadyStart),
+			"an open window still applies the steady-state recommendation")
+	})
+}
+
 func TestReconcile_InsufficientDataRequeuesAtQueryStep(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	// Use a long cooldown to make the difference obvious.

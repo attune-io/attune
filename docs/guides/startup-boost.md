@@ -169,5 +169,12 @@ includes a Startup Boost panel that visualizes this metric.
   Canary). CREATE webhook boost also applies in Recommend mode when
   the pod owner is a CronJob or Job, because those pods cannot be
   resized in place. Observe mode never applies a boost.
+- `updateStrategy.schedule` does not gate startup boost. Apply, expiry,
+  and the CREATE webhook still run while the window is closed. A pod
+  that starts outside the window gets the boost, and a boost that
+  reaches `duration` is removed even if the window is closed. The log
+  `Outside resize window, skipping resize` is the steady-state skip. It
+  can print in the same cycle as a boost. Freeze still stops boosts.
+  Steady-state resizes stay inside the window.
 
 See [`examples/14-startup-boost.yaml`](https://github.com/attune-io/attune/blob/main/examples/14-startup-boost.yaml) for a complete example.

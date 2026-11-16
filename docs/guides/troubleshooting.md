@@ -1771,6 +1771,9 @@ sum(rate(attune_reconcile_errors_total{error_type="safety_observation"}[5m])) > 
 **Symptom**: Operator logs "Outside resize window, skipping resize" even
 though you expect the window to be open.
 
+That log is the steady-state skip. A startup boost can still apply or
+expire in the same cycle. Freeze is what stops boosts.
+
 **Cause**: The `schedule.timezone` does not match your local time.
 Windows are evaluated in the configured timezone (default: UTC).
 
