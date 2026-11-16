@@ -135,7 +135,7 @@ For the alert list and how to tune each rule, see the
 | `metrics.prometheusRule.fleetRecordingRules.enabled` | bool | `false` | Emit `attune:*` recording rules for org-wide PromQL rollups (safe when `cluster` label is empty). |
 | `fleetReport.enabled` | bool | `false` | Periodically write a versioned fleet summary ConfigMap for multi-cluster collectors. |
 | `fleetReport.configMapName` | string | `attune-fleet-report` | Fleet report ConfigMap name. |
-| `fleetReport.namespace` | string | `""` | ConfigMap namespace (empty = release namespace). |
+| `fleetReport.namespace` | string | `""` | ConfigMap namespace (empty = release namespace). The read is live, so this namespace can sit outside `watchNamespaces`. The report still lists only watched policies. |
 | `fleetReport.clusterId` | string | `""` | Optional stable cluster id written into the report. |
 | `fleetReport.interval` | string | `5m` | Refresh interval for the fleet report. |
 | `weeklyReport.enabled` | bool | `false` | Post one cluster rightsizing report per ISO week. Off unless enabled. |

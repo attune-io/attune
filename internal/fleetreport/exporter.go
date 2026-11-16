@@ -34,7 +34,13 @@ import (
 // Exporter periodically writes a fleet report ConfigMap.
 // Implements manager.Runnable (Start blocks until context is cancelled).
 type Exporter struct {
-	Client    client.Client
+	// Client lists AttunePolicies (cached) and writes the ConfigMap.
+	Client client.Client
+	// APIReader reads the existing ConfigMap. It must not go through the
+	// manager cache: with --watch-namespaces the cache does not know the
+	// operator namespace, and a cached Get there fails with an error that is
+	// not NotFound. Falls back to Client when nil (tests).
+	APIReader client.Reader
 	Log       logr.Logger
 	Namespace string
 	Name      string
@@ -107,9 +113,16 @@ func (e *Exporter) ExportOnce(ctx context.Context) {
 		"schema", report.SchemaVersion)
 }
 
+func (e *Exporter) reader() client.Reader {
+	if e.APIReader != nil {
+		return e.APIReader
+	}
+	return e.Client
+}
+
 func (e *Exporter) applyConfigMap(ctx context.Context, desired *corev1.ConfigMap) error {
 	var existing corev1.ConfigMap
-	err := e.Client.Get(ctx, types.NamespacedName{Namespace: desired.Namespace, Name: desired.Name}, &existing)
+	err := e.reader().Get(ctx, types.NamespacedName{Namespace: desired.Namespace, Name: desired.Name}, &existing)
 	if apierrors.IsNotFound(err) {
 		if createErr := e.Client.Create(ctx, desired); createErr != nil {
 			return fmt.Errorf("create: %w", createErr)
