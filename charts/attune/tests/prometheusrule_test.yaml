@@ -259,6 +259,60 @@ tests:
           path: spec.groups[0].rules[5].expr
           pattern: "max\\(attune_weekly_report_last_success_timestamp_seconds\\) > 0 and .*last_skip_timestamp_seconds"
 
+  - it: should not render the operator-down alert without a ServiceMonitor
+    set:
+      metrics:
+        enabled: true
+        prometheusRule:
+          enabled: true
+    asserts:
+      - notContains:
+          path: spec.groups[0].rules
+          content:
+            alert: AttuneOperatorDown
+          any: true
+
+  - it: should render the operator-down alert for the ServiceMonitor target
+    release:
+      name: attune
+      namespace: attune-system
+    set:
+      metrics:
+        enabled: true
+        serviceMonitor:
+          enabled: true
+        prometheusRule:
+          enabled: true
+    asserts:
+      - lengthEqual:
+          path: spec.groups[0].rules
+          count: 16
+      - equal:
+          path: spec.groups[0].rules[15].alert
+          value: AttuneOperatorDown
+      - equal:
+          path: spec.groups[0].rules[15].expr
+          value: '(up{namespace="attune-system", service="attune-metrics"} == 0) or absent(up{namespace="attune-system", service="attune-metrics"})'
+      - equal:
+          path: spec.groups[0].rules[15].labels.severity
+          value: warning
+
+  - it: should drop the operator-down alert when disabled
+    set:
+      metrics:
+        enabled: true
+        serviceMonitor:
+          enabled: true
+        prometheusRule:
+          enabled: true
+          rules:
+            operatorDown:
+              enabled: false
+    asserts:
+      - lengthEqual:
+          path: spec.groups[0].rules
+          count: 15
+
   - it: should include fleet recording rules when enabled
     set:
       metrics:

@@ -636,6 +636,29 @@
                       ]
                     }
                   }
+                },
+                "operatorDown": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "for": {
+                      "type": "string",
+                      "default": "5m"
+                    },
+                    "severity": {
+                      "type": "string",
+                      "default": "warning",
+                      "enum": [
+                        "critical",
+                        "warning",
+                        "info"
+                      ]
+                    }
+                  }
                 }
               }
             },
