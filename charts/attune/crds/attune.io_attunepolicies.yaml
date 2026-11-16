@@ -1745,9 +1745,13 @@ spec:
                     type: string
                   schedule:
                     description: |-
-                      Schedule restricts when resize operations can occur. Recommendations
-                      are always computed; only resize execution is gated. If omitted,
-                      resizes can occur at any time (current behavior).
+                      Schedule restricts when steady-state resize operations can occur.
+                      Recommendations are always computed. Steady-state resize execution
+                      is gated. Startup boost apply and expiry ignore the window, and so
+                      does the CREATE webhook. The log "Outside resize window, skipping
+                      resize" is that steady-state skip and can print in the same cycle
+                      as a boost. Freeze still stops boosts. If omitted, resizes can
+                      occur at any time.
                     properties:
                       daysOfWeek:
                         description: |-

@@ -160,6 +160,10 @@ Key behavior:
 - If `windows` is omitted, all times are allowed (only day filtering applies).
 - Overnight windows work: `start: "22:00", end: "06:00"` wraps past midnight.
 - The `ScheduleBlocked` status condition is set when outside the window.
+- Startup boost apply and expiry ignore the window, and so does the
+  CREATE webhook. The log `Outside resize window, skipping resize` is
+  the steady-state skip and can print in the same cycle as a boost.
+  Freeze still stops boosts.
 - An invalid timezone name fails open (resizes are allowed) to prevent
   silent lockout from a typo.
 

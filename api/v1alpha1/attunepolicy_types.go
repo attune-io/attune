@@ -535,6 +535,8 @@ type ResourceConfig struct {
 }
 
 // StartupBoost configures temporary CPU inflation for cold-start optimization.
+// Apply, expiry, and the CREATE webhook ignore updateStrategy.schedule.
+// Freeze still stops them. Steady-state resizes stay inside the window.
 // +kubebuilder:validation:XValidation:rule="duration(self.duration) >= duration('10s') && duration(self.duration) <= duration('1h')",message="startupBoost.duration must be between 10s and 1h"
 type StartupBoost struct {
 	// Multiplier scales the recommended CPU request during startup.
@@ -721,9 +723,13 @@ type UpdateStrategy struct {
 	// +optional
 	ResizeMethod ResizeMethodType `json:"resizeMethod,omitempty"`
 
-	// Schedule restricts when resize operations can occur. Recommendations
-	// are always computed; only resize execution is gated. If omitted,
-	// resizes can occur at any time (current behavior).
+	// Schedule restricts when steady-state resize operations can occur.
+	// Recommendations are always computed. Steady-state resize execution
+	// is gated. Startup boost apply and expiry ignore the window, and so
+	// does the CREATE webhook. The log "Outside resize window, skipping
+	// resize" is that steady-state skip and can print in the same cycle
+	// as a boost. Freeze still stops boosts. If omitted, resizes can
+	// occur at any time.
 	// +optional
 	Schedule *ResizeSchedule `json:"schedule,omitempty"`
 
