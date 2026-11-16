@@ -378,7 +378,14 @@ func validateResourceConfigFields(prefix string, rc *attunev1alpha1.ResourceConf
 		return fmt.Errorf("%s.percentile %d is not supported; must be one of: 50, 90, 95, 99", prefix, p)
 	}
 
-	// Bounds (minAllowed/maxAllowed)
+	// Bounds (minAllowed/maxAllowed). A negative quantity would clamp a
+	// CREATE startup boost down to that cap and the pod create is rejected.
+	if err := validateNonNegativeQuantity(prefix+".minAllowed", rc.MinAllowed); err != nil {
+		return err
+	}
+	if err := validateNonNegativeQuantity(prefix+".maxAllowed", rc.MaxAllowed); err != nil {
+		return err
+	}
 	if rc.MinAllowed != nil && rc.MaxAllowed != nil {
 		if rc.MinAllowed.Cmp(*rc.MaxAllowed) > 0 {
 			return fmt.Errorf("%s.minAllowed (%s) must be <= %s.maxAllowed (%s)",
@@ -453,6 +460,13 @@ func validateResourceMaxAllowedCap(prefix string, rc *attunev1alpha1.ResourceCon
 			prefix, rc.MaxAllowed.String(), human)
 	}
 	return nil
+}
+
+func validateNonNegativeQuantity(field string, q *resource.Quantity) error {
+	if q == nil || q.Sign() >= 0 {
+		return nil
+	}
+	return fmt.Errorf("%s must not be negative, got %s", field, q.String())
 }
 
 func validatePositiveFloat(field, value string) error {

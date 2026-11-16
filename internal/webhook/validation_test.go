@@ -167,6 +167,26 @@ func TestValidate_CPUBoundsInvalid(t *testing.T) {
 	assert.Empty(t, warnings)
 }
 
+func TestValidate_NegativeBoundsRejected(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	neg, err := resource.ParseQuantity("-1")
+	require.NoError(t, err)
+
+	cpu := validPolicy()
+	cpu.Spec.CPU.MaxAllowed = &neg
+	_, err = validator.ValidateCreate(context.Background(), cpu)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cpu.maxAllowed")
+	assert.Contains(t, err.Error(), "must not be negative")
+
+	mem := validPolicy()
+	mem.Spec.Memory.MinAllowed = &neg
+	_, err = validator.ValidateCreate(context.Background(), mem)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "memory.minAllowed")
+	assert.Contains(t, err.Error(), "must not be negative")
+}
+
 func TestValidate_MemoryBoundsInvalid(t *testing.T) {
 	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
