@@ -181,6 +181,50 @@ func TestExporter_ExportOnce_GetErrorDoesNotWrite(t *testing.T) {
 	assert.True(t, apierrors.IsNotFound(err), "Get failure must not persist a fleet report ConfigMap")
 }
 
+// TestExporter_ExportOnce_ReadsConfigMapThroughAPIReader covers #1137: the
+// cached client cannot Get in a namespace outside --watch-namespaces, so the
+// existing-ConfigMap read must use APIReader. Policy listing stays on Client.
+func TestExporter_ExportOnce_ReadsConfigMapThroughAPIReader(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "attune-system"}}
+	policy := &attunev1alpha1.AttunePolicy{ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "default"}}
+	backing := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, policy).Build()
+
+	cachedGets, apiGets := 0, 0
+	cached := interceptor.NewClient(backing, interceptor.Funcs{
+		Get: func(_ context.Context, _ client.WithWatch, key client.ObjectKey, _ client.Object, _ ...client.GetOption) error {
+			cachedGets++
+			return fmt.Errorf("unable to get: %s because of unknown namespace for the cache", key)
+		},
+	})
+	apiReader := interceptor.NewClient(backing, interceptor.Funcs{
+		Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			apiGets++
+			return cl.Get(ctx, key, obj, opts...)
+		},
+	})
+
+	e := testExporter(cached)
+	e.APIReader = apiReader
+	key := types.NamespacedName{Namespace: "attune-system", Name: "attune-fleet-report"}
+
+	e.ExportOnce(context.Background())
+	var cm corev1.ConfigMap
+	require.NoError(t, backing.Get(context.Background(), key, &cm), "first export must create the ConfigMap")
+	assert.Contains(t, cm.Data["report.json"], `"policyCount": 1`, "policies must still be listed through Client")
+
+	e.Now = func() time.Time { return time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC) }
+	e.ExportOnce(context.Background())
+	require.NoError(t, backing.Get(context.Background(), key, &cm))
+	assert.Equal(t, "2026-08-04T00:00:00Z", cm.Data["generated-at"], "second export must patch the ConfigMap")
+
+	assert.Equal(t, 2, apiGets, "each export reads the existing ConfigMap through APIReader")
+	assert.Zero(t, cachedGets, "the existing ConfigMap must not be read through the cached client")
+}
+
 func TestExporter_ExportOnce_PatchErrorKeepsExistingData(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, attunev1alpha1.AddToScheme(scheme))

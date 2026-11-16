@@ -420,6 +420,7 @@ func main() {
 		}
 		exporter := &fleetreport.Exporter{
 			Client:    mgr.GetClient(),
+			APIReader: mgr.GetAPIReader(),
 			Log:       setupLog.WithName("fleet-report"),
 			Namespace: ns,
 			Name:      fleetReportName,
