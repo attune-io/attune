@@ -217,6 +217,10 @@ key renames require a schema bump and docs update.
 | `last-updated` / `generated-at` | RFC3339 generation time. These keys do not move while `status.recommendations[].stale` is true (the operator does not rewrite the ConfigMap). |
 
 Labels: `attune.io/policy`, `attune.io/workload`, `attune.io/export-schema=v1`.
+Label values are limited to 63 characters. A longer policy or workload
+name is cut and suffixed with `-` and a 10-character hash of the full
+name in the label. Read the full names from the `policy` and `workload`
+data keys.
 
 Example ConfigMap content:
 

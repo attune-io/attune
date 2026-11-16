@@ -29,6 +29,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/api/validate/content"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -526,4 +527,60 @@ func TestExportRecommendationConfigMaps_NaNInfConfidenceWritesZero(t *testing.T)
 			_ = fakeClient.Delete(context.Background(), &cm)
 		})
 	}
+}
+
+// #1136: label values are limited to 63 characters, names to 253.
+func TestExportRecommendationConfigMaps_LongNamesGetValidLabels(t *testing.T) {
+	scheme := testScheme()
+	policyName := "policy-" + strings.Repeat("p", 63)
+	longWL := "workload-" + strings.Repeat("w", 64)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: policyName, Namespace: "default", UID: "abc-123"},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+
+	rec := func(w string) attunev1alpha1.WorkloadRecommendation {
+		return attunev1alpha1.WorkloadRecommendation{
+			Workload: w,
+			Kind:     "Deployment",
+			Containers: []attunev1alpha1.ContainerRecommendation{
+				{Name: "main", Confidence: 0.9, Recommended: attunev1alpha1.ResourceValues{
+					CPURequest:    resource.MustParse("200m"),
+					MemoryRequest: resource.MustParse("256Mi"),
+				}},
+			},
+		}
+	}
+	longName := policyName + "-" + longWL + "-recommendations"
+	shortName := policyName + "-my-app-recommendations"
+
+	ctx := context.Background()
+	r.exportRecommendationConfigMaps(ctx, policy, []attunev1alpha1.WorkloadRecommendation{rec(longWL), rec("my-app")})
+
+	var cm corev1.ConfigMap
+	require.NoError(t, fakeClient.Get(ctx, client.ObjectKey{Namespace: "default", Name: longName}, &cm))
+	for k, v := range cm.Labels {
+		assert.Empty(t, content.IsLabelValue(v), "label %s=%q", k, v)
+	}
+	assert.NotEqual(t, longWL, cm.Labels["attune.io/workload"])
+	assert.Equal(t, longWL, cm.Data["workload"], "full name stays in Data")
+	assert.Equal(t, policyName, cm.Data["policy"])
+
+	var short corev1.ConfigMap
+	require.NoError(t, fakeClient.Get(ctx, client.ObjectKey{Namespace: "default", Name: shortName}, &short))
+	assert.Equal(t, "my-app", short.Labels["attune.io/workload"], "names that fit keep today's label")
+
+	// A second pass with both workloads must not treat the shortened
+	// label as an orphan.
+	r.exportRecommendationConfigMaps(ctx, policy, []attunev1alpha1.WorkloadRecommendation{rec(longWL), rec("my-app")})
+	require.NoError(t, fakeClient.Get(ctx, client.ObjectKey{Namespace: "default", Name: longName}, &cm))
+
+	// Once the long workload leaves, cleanup finds it by the shortened labels.
+	r.exportRecommendationConfigMaps(ctx, policy, []attunev1alpha1.WorkloadRecommendation{rec("my-app")})
+	err := fakeClient.Get(ctx, client.ObjectKey{Namespace: "default", Name: longName}, &cm)
+	assert.True(t, apierrors.IsNotFound(err), "orphaned long-name ConfigMap should be deleted")
+	require.NoError(t, fakeClient.Get(ctx, client.ObjectKey{Namespace: "default", Name: shortName}, &short))
 }

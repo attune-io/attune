@@ -4690,6 +4690,59 @@ func TestPrintExportList(t *testing.T) {
 	assert.Greater(t, fancyIdx, stsIdx, "my-app rows should sort before my-cool-app")
 }
 
+func TestPrintExportList_ShortPolicyLabelUsesData(t *testing.T) {
+	scheme := runtime.NewScheme()
+	full := "payments-" + strings.Repeat("p", 70)
+	shortLabel := "shortened-policy-label"
+	cm := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]interface{}{
+				"name":      "long-policy-api-recommendations",
+				"namespace": "production",
+				"labels": map[string]interface{}{
+					"attune.io/policy":   shortLabel,
+					"attune.io/workload": "api",
+				},
+			},
+			"data": map[string]interface{}{
+				"policy":           full,
+				"workload":         "api",
+				"kind":             "Deployment",
+				"main.cpu-request": "100m",
+				"last-updated":     "2026-11-16T12:00:00Z",
+			},
+		},
+	}
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:   "AttunePolicyList",
+			cmGVR: "ConfigMapList",
+		},
+		cm,
+	)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	err = printExportList(context.Background(), dynClient, "production", false)
+	require.NoError(t, err)
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, full,
+		"POLICY column must use data.policy when the label is shortened")
+	assert.NotContains(t, output, shortLabel,
+		"shortened label must not replace the policy name")
+}
+
 func TestPrintExportList_AllNamespaces(t *testing.T) {
 	scheme := runtime.NewScheme()
 

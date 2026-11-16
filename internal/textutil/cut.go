@@ -14,7 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package textutil cuts strings without producing invalid UTF-8.
+// Package textutil cuts and shortens strings without producing invalid
+// UTF-8.
 package textutil
 
 import (

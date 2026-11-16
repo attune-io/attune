@@ -24,17 +24,28 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/validate/content"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/textutil"
 )
 
 // RecommendationExportSchemaVersion is the stable version of the ConfigMap
 // export data schema. Bump when keys or semantics change in a breaking way.
 const RecommendationExportSchemaVersion = "v1"
+
+// exportLabelValue fits a policy or workload name into a label value.
+// Names up to 63 characters are kept as is, so existing ConfigMaps are
+// still found by orphan cleanup. Longer names (up to 253) are cut and
+// suffixed with a hash of the full name; the full name stays in Data
+// (#1136).
+func exportLabelValue(name string) string {
+	return textutil.ShortenWithHash(name, content.LabelValueMaxLength)
+}
 
 // exportRecommendationConfigMaps creates or updates ConfigMaps with
 // recommendation data for GitOps workflows.
@@ -94,8 +105,8 @@ func (r *AttunePolicyReconciler) exportRecommendationConfigMaps(
 				Name:      cmName,
 				Namespace: policy.Namespace,
 				Labels: map[string]string{
-					"attune.io/policy":        policy.Name,
-					"attune.io/workload":      rec.Workload,
+					"attune.io/policy":        exportLabelValue(policy.Name),
+					"attune.io/workload":      exportLabelValue(rec.Workload),
 					"attune.io/export-schema": RecommendationExportSchemaVersion,
 				},
 			},
@@ -156,12 +167,12 @@ func (r *AttunePolicyReconciler) cleanupOrphanedRecommendationConfigMaps(
 	existingCMs := &corev1.ConfigMapList{}
 	listOpts := []client.ListOption{
 		client.InNamespace(policy.Namespace),
-		client.MatchingLabels{"attune.io/policy": policy.Name},
+		client.MatchingLabels{"attune.io/policy": exportLabelValue(policy.Name)},
 	}
 	if err := r.List(ctx, existingCMs, listOpts...); err == nil {
 		currentWorkloads := map[string]bool{}
 		for _, rec := range recommendations {
-			currentWorkloads[rec.Workload] = true
+			currentWorkloads[exportLabelValue(rec.Workload)] = true
 		}
 		deleted := 0
 		for i := range existingCMs.Items {

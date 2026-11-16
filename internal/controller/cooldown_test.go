@@ -18,11 +18,14 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/validate/content"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubefake "k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -304,4 +307,44 @@ func TestExecuteResizes_CooldownSkipsOnlyCoolingWorkload(t *testing.T) {
 	}
 	assert.Equal(t, 0, aOK, "app-a is cooling and must not resize")
 	assert.Greater(t, bOK, 0, "app-b has no per-app stamp and must still resize")
+}
+
+// #1135: the key name after "attune.io/" is limited to 63 characters.
+func TestLastResizeAnnotationKey_ShortNamesUnchanged(t *testing.T) {
+	assert.Equal(t, "attune.io/last-resize-time.app-a", lastResizeAnnotationKey("app-a"))
+	fits := strings.Repeat("a", 46)
+	assert.Equal(t, "attune.io/last-resize-time."+fits, lastResizeAnnotationKey(fits),
+		"names that were valid before must keep byte-identical keys")
+}
+
+func TestLastResizeAnnotationKey_LongNamesValid(t *testing.T) {
+	for _, n := range []int{47, 60, 63, 120, 253} {
+		name := strings.Repeat("w", n-1) + "1"
+		key := lastResizeAnnotationKey(name)
+		assert.Empty(t, content.IsLabelKey(key), "len %d: %q", n, key)
+		assert.True(t, strings.HasPrefix(key, lastResizeAnnotationPrefix))
+		assert.Equal(t, key, lastResizeAnnotationKey(name), "deterministic")
+	}
+	a := strings.Repeat("w", 60) + "-a"
+	b := strings.Repeat("w", 60) + "-b"
+	assert.NotEqual(t, lastResizeAnnotationKey(a), lastResizeAnnotationKey(b))
+}
+
+func TestMarkResizeTime_LongWorkloadNameRoundTrips(t *testing.T) {
+	now := time.Date(2026, 11, 16, 10, 0, 0, 0, time.UTC)
+	policy := newTestPolicy("long", "default")
+	policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: time.Hour}
+	r := newReconcilerWithClient(policy)
+	r.SetNowFunc(func() time.Time { return now })
+
+	long := "payments-reconciliation-ledger-worker-eu-west-primary-blue"
+	require.Greater(t, len(long), 46)
+	require.NoError(t, r.markResizeTime(context.Background(), policy, long, "short"))
+
+	for k := range policy.Annotations {
+		assert.Empty(t, content.IsLabelKey(k), "annotation key %q", k)
+	}
+	assert.True(t, r.isWorkloadCooldownActive(policy, long))
+	assert.True(t, r.isWorkloadCooldownActive(policy, "short"))
+	assert.False(t, r.isWorkloadCooldownActive(policy, long+"-other"))
 }

@@ -40,3 +40,28 @@ func (r *AttunePolicyReconciler) PersistResizeAnnotationsForTest(
 ) (string, error) {
 	return r.persistResizeAnnotations(ctx, pod, containerRec, policyName, workloadName, now, restartCount, "")
 }
+
+// MarkResizeTimeForTest exposes markResizeTime so envtest can check that
+// the apiserver accepts the per-workload cooldown annotation keys (#1135).
+func (r *AttunePolicyReconciler) MarkResizeTimeForTest(
+	ctx context.Context, policy *attunev1alpha1.AttunePolicy, workloads ...string,
+) error {
+	return r.markResizeTime(ctx, policy, workloads...)
+}
+
+// WorkloadCooldownActiveForTest exposes isWorkloadCooldownActive.
+func (r *AttunePolicyReconciler) WorkloadCooldownActiveForTest(
+	policy *attunev1alpha1.AttunePolicy, workload string,
+) bool {
+	return r.isWorkloadCooldownActive(policy, workload)
+}
+
+// ExportRecommendationConfigMapsForTest exposes exportRecommendationConfigMaps
+// so envtest can check that the apiserver accepts the export labels (#1136).
+func (r *AttunePolicyReconciler) ExportRecommendationConfigMapsForTest(
+	ctx context.Context,
+	policy *attunev1alpha1.AttunePolicy,
+	recommendations []attunev1alpha1.WorkloadRecommendation,
+) {
+	r.exportRecommendationConfigMaps(ctx, policy, recommendations)
+}
