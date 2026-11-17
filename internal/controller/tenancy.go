@@ -175,6 +175,13 @@ func (r *AttunePolicyReconciler) unwindRejectedTenantMetrics(ctx context.Context
 		policy.Spec.CPU.StartupBoost == nil || len(policy.Status.Recommendations) == 0 {
 		return
 	}
+	// Freeze skips startup boost, including expiry. Safety revert above
+	// still runs. A missing namespace read fails closed.
+	var applyFrozen bool
+	var freezeErr error
+	if !r.applyNotFrozen(ctx, policy.Namespace, &applyFrozen, &freezeErr) {
+		return
+	}
 	podsByWorkload, _ := r.listPodsForWorkloads(ctx, workloads)
 	resizer := resize.NewPodResizer(r.Clientset, logger)
 	resizer.AllowInPlaceMemoryLimitDecrease = r.AllowInPlaceMemoryLimitDecrease
