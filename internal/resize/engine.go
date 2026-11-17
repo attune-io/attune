@@ -38,6 +38,11 @@ import (
 // MethodInPlace is the resize method for in-place pod resize.
 const MethodInPlace = "InPlace"
 
+const (
+	resizeConfirmTimeout  = 2 * time.Second
+	resizeConfirmAttempts = 2
+)
+
 // Pod resize condition type and reason constants matching kubelet's condition names.
 const (
 	condPodResizeInProgress = "PodResizeInProgress"
@@ -100,7 +105,7 @@ func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container s
 	// the error is not a conflict. The caller treats that as success
 	// when a follow-up Get already shows the target, so safety still
 	// runs and the budget stays spent. A rejected write leaves confirm
-	// unset. A canceled context fails the follow-up Get and stays an error.
+	// unset. A canceled parent context still confirms on a detached Get.
 	var current, applied corev1.ResourceRequirements
 	var confirm *corev1.ResourceRequirements
 	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
@@ -296,17 +301,31 @@ func resourceListEqual(a, b corev1.ResourceList) bool {
 	return true
 }
 
-// resizeTargetLanded is a live Get, not the informer cache. A canceled
-// context or a spec that is still at the old size returns false.
+// resizeTargetLanded is a live Get, not the informer cache. The parent
+// context may already be canceled after UpdateResize committed, so the
+// Get uses a detached timeout. A spec that is still at the old size
+// returns false.
 func (r *PodResizer) resizeTargetLanded(ctx context.Context, namespace, name, container string, want corev1.ResourceRequirements) bool {
 	if r.client == nil {
 		return false
 	}
-	fresh, err := r.client.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return false
+	confirmCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), resizeConfirmTimeout)
+	defer cancel()
+	for attempt := 0; attempt < resizeConfirmAttempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-confirmCtx.Done():
+				return false
+			case <-time.After(50 * time.Millisecond):
+			}
+		}
+		fresh, err := r.client.CoreV1().Pods(namespace).Get(confirmCtx, name, metav1.GetOptions{})
+		if err != nil {
+			continue
+		}
+		return ContainerResourcesMatch(fresh, container, want)
 	}
-	return ContainerResourcesMatch(fresh, container, want)
+	return false
 }
 
 // ResizeApplyOutstanding reports that an accepted resize is still not

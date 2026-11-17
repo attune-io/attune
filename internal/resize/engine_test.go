@@ -76,6 +76,22 @@ func resizeReactor(action k8stesting.Action) (bool, runtime.Object, error) {
 	return true, action.(k8stesting.UpdateAction).GetObject(), nil
 }
 
+func TestResizeTargetLanded_CancelledParent(t *testing.T) {
+	pod := newTestPod("web-0", "default", "app", "250m", "512Mi", "500m", "1Gi")
+	want := pod.Spec.Containers[0].Resources.DeepCopy()
+	fakeClient := fake.NewSimpleClientset(pod)
+	resizer := NewPodResizer(fakeClient, testr.New(t))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	assert.True(t, resizer.resizeTargetLanded(ctx, "default", "web-0", "app", *want),
+		"a canceled parent still sees a committed target")
+
+	miss := want.DeepCopy()
+	miss.Requests[corev1.ResourceCPU] = resource.MustParse("10m")
+	assert.False(t, resizer.resizeTargetLanded(ctx, "default", "web-0", "app", *miss))
+}
+
 func TestResizePod_CallsUpdateResize(t *testing.T) {
 	pod := newTestPod("web-0", "default", "app", "100m", "128Mi", "200m", "256Mi")
 	fakeClient := fake.NewSimpleClientset(pod)
