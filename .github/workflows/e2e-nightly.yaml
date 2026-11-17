@@ -345,10 +345,11 @@ jobs:
         run: |
           bash hack/e2e-pull-prometheus-chart.sh \
             "/tmp/prometheus-${PROMETHEUS_CHART_VERSION}.tgz"
+          PROM_TAG="${PROMETHEUS_IMAGE##*:}"
           helm install prometheus "/tmp/prometheus-${PROMETHEUS_CHART_VERSION}.tgz" \
             --namespace monitoring --create-namespace \
             --set server.image.repository=quay.io/prometheus/prometheus \
-            --set server.image.tag=v3.4.1 \
+            --set server.image.tag="${PROM_TAG}" \
             --set server.persistentVolume.enabled=false \
             --set alertmanager.enabled=false \
             --set prometheus-pushgateway.enabled=false \
