@@ -263,6 +263,8 @@ func apiVersionForKind(kind string) string {
 	switch kind {
 	case "CronJob", "Job":
 		return "batch/v1"
+	case "Rollout":
+		return "argoproj.io/v1alpha1"
 	default:
 		return "apps/v1"
 	}

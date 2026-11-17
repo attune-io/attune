@@ -266,7 +266,10 @@ stateDiagram-v2
 
 - **Eviction respects PDBs.** The operator uses the Kubernetes Eviction API
   (`EvictV1`), which enforces PodDisruptionBudgets. If the PDB would be
-  violated, the eviction is denied and the pod stays as-is.
+  violated, the eviction is denied and the pod stays as-is. The eviction
+  names the pod UID, so a same-name replacement is not evicted. A resize
+  re-fetch that sees a different UID is skipped. The next reconcile
+  handles the new pod.
 
 - **Last replica protection.** The operator never evicts the last live
   Running replica of a workload, even if the PDB would allow it. The

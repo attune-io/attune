@@ -117,9 +117,9 @@ func TestStartupBoostBlocksCPUDecrease_MalformedAnnotation(t *testing.T) {
 			corev1.ResourceCPU: cpuTarget,
 		},
 	}
-	assert.Equal(t, "startup boost window",
+	assert.Empty(t,
 		startupBoostBlocksCPUDecrease(policy, pod, "app", target, now),
-		"malformed startup-boost-at must block CPU decrease")
+		"malformed startup-boost-at must not block CPU decrease")
 }
 
 func TestApplyStartupBoosts_IdleScaledToZeroLeavesRunningPods(t *testing.T) {
@@ -2300,6 +2300,10 @@ func TestApplyStartupBoosts_MalformedAnnotationSkipsGracefully(t *testing.T) {
 		assert.NotEqual(t, "resize", a.GetSubresource(),
 			"no resize should be attempted for a pod with malformed boost annotation")
 	}
+	var stored corev1.Pod
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, &stored))
+	assert.Empty(t, stored.Annotations[annotationStartupBoostAt],
+		"a malformed stamp is cleared")
 }
 
 func TestApplyStartupBoosts_SkipsWhenExceedsNodeAllocatable(t *testing.T) {

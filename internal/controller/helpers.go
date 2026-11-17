@@ -1121,21 +1121,22 @@ func (r *AttunePolicyReconciler) setDegradedCondition(policy *attunev1alpha1.Att
 func (r *AttunePolicyReconciler) checkQuotaCompatibility(ctx context.Context, namespace string, currentResources, target corev1.ResourceRequirements) error {
 	logger := log.FromContext(ctx)
 	requestIncrease := resourcesIncreaseRequests(currentResources, target)
+	limitIncrease := resourcesIncreaseLimits(currentResources, target)
 
 	// Check LimitRange per-container min/max.
 	var limitRangeList corev1.LimitRangeList
 	if err := r.List(ctx, &limitRangeList, client.InNamespace(namespace)); err != nil {
 		logger.V(1).Info("Could not list LimitRanges", "error", err)
-		if requestIncrease {
-			return fmt.Errorf("LimitRange list unavailable; skipping request increase; check RBAC list/watch on resourcequotas and limitranges")
+		if requestIncrease || limitIncrease {
+			return fmt.Errorf("LimitRange list unavailable; skipping request or limit increase; check RBAC list/watch on resourcequotas and limitranges")
 		}
 	}
 
 	var quotaList corev1.ResourceQuotaList
 	if err := r.List(ctx, &quotaList, client.InNamespace(namespace)); err != nil {
 		logger.V(1).Info("Could not list ResourceQuotas", "error", err)
-		if requestIncrease {
-			return fmt.Errorf("ResourceQuota list unavailable; skipping request increase; check RBAC list/watch on resourcequotas and limitranges")
+		if requestIncrease || limitIncrease {
+			return fmt.Errorf("ResourceQuota list unavailable; skipping request or limit increase; check RBAC list/watch on resourcequotas and limitranges")
 		}
 	}
 
@@ -1374,6 +1375,13 @@ func resourcesIncreaseRequests(current, target corev1.ResourceRequirements) bool
 		return true
 	}
 	return target.Requests.Memory().Value() > current.Requests.Memory().Value()
+}
+
+func resourcesIncreaseLimits(current, target corev1.ResourceRequirements) bool {
+	if target.Limits.Cpu().MilliValue() > current.Limits.Cpu().MilliValue() {
+		return true
+	}
+	return target.Limits.Memory().Value() > current.Limits.Memory().Value()
 }
 
 // markLatestCycleReverted marks history entries from the most recent resize

@@ -997,7 +997,8 @@ ended, and the CPU recommendation is still high.
 
 **Cause**: Compare `attune.io/startup-boost-at` with the pod's
 `creationTimestamp`. The window starts at that stamp when it is present
-and not before creation. Samples between creation and the stamp stay, so
+and not before creation. A value that is not RFC3339 does not hold the
+CPU decrease window. The operator clears that stamp. Samples between creation and the stamp stay, so
 a spike in that gap still trains the percentile. Samples from the stamp
 until stamp plus `startupBoost.duration` plus the rate window are
 dropped. A missing or unreadable stamp starts at creation, so a spike
@@ -1290,7 +1291,7 @@ later container is skipped instead of being sent and rejected.
 
 **Symptom**: Operator logs `quota list unavailable; skipping request increase`
 or `ResourceQuota list unavailable` / `LimitRange list unavailable`.
-Request increases are skipped.
+Request increases and limit increases are skipped.
 
 **Cause**: The controller could not list ResourceQuotas or LimitRanges in
 the pod namespace, usually because the operator ServiceAccount is missing
@@ -2368,7 +2369,9 @@ branch) leaves the live template unchanged, so drift stays true.
 4. On Attune versions that include the unchanged-drift skip, the
    condition is `PullRequestUnchanged` instead of another empty PR.
    A dry-run of the same table does not block the first live PR (no
-   `gitops-pr-url` yet). If a 0.1.24 dry-run already wrote
+   `gitops-pr-url` yet). A dry-run must not freeze an open PR when the
+   table changed: the stored fingerprint stays until the next live
+   cycle. If a 0.1.24 dry-run already wrote
    `attune.io/gitops-pr-last-attempt`, delete that annotation or wait
    out `cooldown` before the first live open.
 5. v0.1.24 wrote `attune.io/gitops-pr-drift` only after opening a PR.

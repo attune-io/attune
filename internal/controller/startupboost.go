@@ -63,10 +63,6 @@ func startupBoostBlocksCPUDecrease(
 	}
 	boostAt, err := time.Parse(time.RFC3339, boostAtStr)
 	if err != nil {
-		c := findContainerByName(pod, containerName)
-		if c != nil && target.Requests.Cpu().MilliValue() < c.Resources.Requests.Cpu().MilliValue() {
-			return "startup boost window"
-		}
 		return ""
 	}
 	dur := policy.Spec.CPU.StartupBoost.Duration.Duration
@@ -212,8 +208,12 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 				var parseErr error
 				boostAt, parseErr = time.Parse(time.RFC3339, boostAtStr)
 				if parseErr != nil {
-					logger.Error(parseErr, "Malformed startup boost annotation, skipping expiry check",
+					logger.Error(parseErr, "Malformed startup boost annotation, clearing stamp",
 						"pod", pod.Name, "value", boostAtStr)
+					if clearErr := r.clearStartupBoostStamp(ctx, pod); clearErr != nil {
+						logger.Error(clearErr, "Failed to clear malformed startup boost annotation",
+							"pod", pod.Name)
+					}
 					continue
 				}
 				boostAtOK = true

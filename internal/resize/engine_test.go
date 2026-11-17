@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -74,6 +75,22 @@ func resizeReactor(action k8stesting.Action) (bool, runtime.Object, error) {
 		return false, nil, nil
 	}
 	return true, action.(k8stesting.UpdateAction).GetObject(), nil
+}
+
+func TestResizeTargetLanded_CancelledParent(t *testing.T) {
+	pod := newTestPod("web-0", "default", "app", "250m", "512Mi", "500m", "1Gi")
+	want := pod.Spec.Containers[0].Resources.DeepCopy()
+	fakeClient := fake.NewSimpleClientset(pod)
+	resizer := NewPodResizer(fakeClient, testr.New(t))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	assert.True(t, resizer.resizeTargetLanded(ctx, "default", "web-0", "app", *want),
+		"a canceled parent still sees a committed target")
+
+	miss := want.DeepCopy()
+	miss.Requests[corev1.ResourceCPU] = resource.MustParse("10m")
+	assert.False(t, resizer.resizeTargetLanded(ctx, "default", "web-0", "app", *miss))
 }
 
 func TestResizePod_CallsUpdateResize(t *testing.T) {
@@ -1183,6 +1200,50 @@ func TestResizeDeferredSince(t *testing.T) {
 	}
 	assert.True(t, ts.Time.Equal(ResizeDeferredSince(pod)))
 	assert.True(t, ResizeDeferredSince(&corev1.Pod{}).IsZero())
+}
+
+func TestResizePod_SkipsReplacementUID(t *testing.T) {
+	original := newTestPod("web-0", "default", "app", "100m", "128Mi", "200m", "256Mi")
+	original.UID = "uid-old"
+	replacement := original.DeepCopy()
+	replacement.UID = "uid-new"
+	fakeClient := fake.NewSimpleClientset(replacement)
+	fakeClient.PrependReactor("update", "pods", resizeReactor)
+	resizer := NewPodResizer(fakeClient, testr.New(t))
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("250m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+	}
+
+	_, err := resizer.ResizePod(context.Background(), original, "app", target)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "uid")
+	for _, action := range fakeClient.Actions() {
+		assert.NotEqual(t, "resize", action.GetSubresource(),
+			"a replacement pod must not be resized")
+	}
+}
+
+func TestEvictPod_SetsUIDPrecondition(t *testing.T) {
+	pod := newTestPod("worker-0", "default", "app", "100m", "128Mi", "200m", "256Mi")
+	pod.UID = "uid-live"
+	fakeClient := fake.NewSimpleClientset(pod)
+	resizer := NewPodResizer(fakeClient, testr.New(t))
+	require.NoError(t, resizer.EvictPod(context.Background(), pod))
+
+	var eviction *policyv1.Eviction
+	for _, action := range fakeClient.Actions() {
+		if action.GetVerb() == "create" && action.GetSubresource() == "eviction" {
+			eviction = action.(k8stesting.CreateAction).GetObject().(*policyv1.Eviction)
+		}
+	}
+	require.NotNil(t, eviction)
+	require.NotNil(t, eviction.DeleteOptions)
+	require.NotNil(t, eviction.DeleteOptions.Preconditions)
+	require.NotNil(t, eviction.DeleteOptions.Preconditions.UID)
+	assert.Equal(t, pod.UID, *eviction.DeleteOptions.Preconditions.UID)
 }
 
 func TestEvictPod_CallsEvictionAPI(t *testing.T) {

@@ -38,6 +38,11 @@ import (
 // MethodInPlace is the resize method for in-place pod resize.
 const MethodInPlace = "InPlace"
 
+const (
+	resizeConfirmTimeout  = 2 * time.Second
+	resizeConfirmAttempts = 2
+)
+
 // Pod resize condition type and reason constants matching kubelet's condition names.
 const (
 	condPodResizeInProgress = "PodResizeInProgress"
@@ -100,13 +105,16 @@ func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container s
 	// the error is not a conflict. The caller treats that as success
 	// when a follow-up Get already shows the target, so safety still
 	// runs and the budget stays spent. A rejected write leaves confirm
-	// unset. A canceled context fails the follow-up Get and stays an error.
+	// unset. A canceled parent context still confirms on a detached Get.
 	var current, applied corev1.ResourceRequirements
 	var confirm *corev1.ResourceRequirements
 	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 		fresh, fetchErr := r.client.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 		if fetchErr != nil {
 			return fmt.Errorf("re-fetching pod %s/%s before resize: %w", pod.Namespace, pod.Name, fetchErr)
+		}
+		if pod.UID != "" && fresh.UID != pod.UID {
+			return fmt.Errorf("pod %s/%s uid %s replaced live uid %s", pod.Namespace, pod.Name, pod.UID, fresh.UID)
 		}
 
 		idx, isInit := findContainer(fresh, container)
@@ -296,17 +304,31 @@ func resourceListEqual(a, b corev1.ResourceList) bool {
 	return true
 }
 
-// resizeTargetLanded is a live Get, not the informer cache. A canceled
-// context or a spec that is still at the old size returns false.
+// resizeTargetLanded is a live Get, not the informer cache. The parent
+// context may already be canceled after UpdateResize committed, so the
+// Get uses a detached timeout. A spec that is still at the old size
+// returns false.
 func (r *PodResizer) resizeTargetLanded(ctx context.Context, namespace, name, container string, want corev1.ResourceRequirements) bool {
 	if r.client == nil {
 		return false
 	}
-	fresh, err := r.client.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return false
+	confirmCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), resizeConfirmTimeout)
+	defer cancel()
+	for attempt := 0; attempt < resizeConfirmAttempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-confirmCtx.Done():
+				return false
+			case <-time.After(50 * time.Millisecond):
+			}
+		}
+		fresh, err := r.client.CoreV1().Pods(namespace).Get(confirmCtx, name, metav1.GetOptions{})
+		if err != nil {
+			continue
+		}
+		return ContainerResourcesMatch(fresh, container, want)
 	}
-	return ContainerResourcesMatch(fresh, container, want)
+	return false
 }
 
 // ResizeApplyOutstanding reports that an accepted resize is still not
@@ -430,12 +452,19 @@ func ResizeDeferredSince(pod *corev1.Pod) time.Time {
 func (r *PodResizer) EvictPod(ctx context.Context, pod *corev1.Pod) error {
 	r.logger.Info("evicting pod for resize fallback",
 		"pod", pod.Name, "namespace", pod.Namespace)
-	return r.client.CoreV1().Pods(pod.Namespace).EvictV1(ctx, &policyv1.Eviction{
+	eviction := &policyv1.Eviction{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pod.Name,
 			Namespace: pod.Namespace,
 		},
-	})
+	}
+	if pod.UID != "" {
+		uid := pod.UID
+		eviction.DeleteOptions = &metav1.DeleteOptions{
+			Preconditions: &metav1.Preconditions{UID: &uid},
+		}
+	}
+	return r.client.CoreV1().Pods(pod.Namespace).EvictV1(ctx, eviction)
 }
 
 // ClampMemoryLimitForPolicy prevents memory limit decreases when the

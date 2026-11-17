@@ -43,6 +43,35 @@ func TestReconcileGitOpsPullRequest_DryRunThenLiveOpensPR(t *testing.T) {
 	assert.Equal(t, 1, forge.createsBefore)
 }
 
+func TestReconcileGitOpsPullRequest_DryRunDoesNotFreezeOpenPR(t *testing.T) {
+	t.Parallel()
+	start := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	policy := gitOpsEnabledPolicy("authentik", "ns-open-dry", false, nil)
+	dep := gitOpsDriftDeployment("api", "ns-open-dry", "1")
+	r, c, forge := gitOpsLiveReconciler(t, policy, dep)
+	r.SetNowFunc(func() time.Time { return start })
+
+	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, gitOpsCPURec("api", "100m"))
+	require.Equal(t, 1, forge.createsBefore)
+	oldFP := policy.Annotations[annotationGitOpsPRDrift]
+	require.NotEmpty(t, oldFP)
+	require.NotEmpty(t, gitOpsStoredURL(policy))
+
+	gitOpsReload(t, c, policy)
+	later := start.Add(25 * time.Hour)
+	r.SetNowFunc(func() time.Time { return later })
+	*policy.Spec.UpdateStrategy.Export.PullRequest.DryRun = true
+	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, gitOpsCPURec("api", "50m"))
+	assert.Equal(t, attunev1alpha1.ReasonGitOpsPRDryRun, gitOpsPRReason(policy))
+	assert.Equal(t, oldFP, policy.Annotations[annotationGitOpsPRDrift],
+		"dry-run must not replace the fingerprint of an open PR")
+
+	gitOpsReload(t, c, policy)
+	*policy.Spec.UpdateStrategy.Export.PullRequest.DryRun = false
+	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, gitOpsCPURec("api", "50m"))
+	assert.Equal(t, 2, forge.createsBefore, "the next live cycle updates the open PR")
+}
+
 func TestReconcileGitOpsPullRequest_LiveAfterDryRunWithLastAttemptStillCools(t *testing.T) {
 	t.Parallel()
 	start := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)

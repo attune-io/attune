@@ -147,10 +147,14 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 			"head", head, "base", base, "driftCount", len(drifts))
 		setGitOpsPRCondition(policy, metav1.ConditionTrue, attunev1alpha1.ReasonGitOpsPRDryRun,
 			fmt.Sprintf("Dry-run: would open/update PR on %s (%d drifted resources)", cfg.Repository, len(drifts)))
-		// Fingerprint only. last-attempt would block the first live PR
-		// for the default 24h cooldown (docs: turn off dry-run, then open).
-		setGitOpsPRDriftAnnotation(policy, fp)
-		r.persistGitOpsPRAnnotations(ctx, policy)
+		// Fingerprint only when no PR URL is stored. last-attempt would
+		// block the first live PR for the default 24h cooldown.
+		// A stored URL means an open PR. Writing the new fingerprint
+		// here would make the next live cycle look unchanged.
+		if gitOpsStoredURL(policy) == "" {
+			setGitOpsPRDriftAnnotation(policy, fp)
+			r.persistGitOpsPRAnnotations(ctx, policy)
+		}
 		operatormetrics.GitOpsPRTotal.WithLabelValues(policy.Namespace, policy.Name, "dry_run").Inc()
 		return
 	}
