@@ -330,6 +330,31 @@ func TestGitHubClient_UpdateExisting(t *testing.T) {
 	assert.Contains(t, methods, http.MethodPatch)
 }
 
+func TestGitHubClient_UnmatchedListDoesNotPatch(t *testing.T) {
+	t.Parallel()
+	var patched []string
+	client := &GitHubClient{
+		Token:      "tok",
+		Repository: "org/repo",
+		HTTP: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.Method == http.MethodPatch {
+				patched = append(patched, r.URL.Path)
+			}
+			if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/pulls") {
+				body := `[{"number":9,"html_url":"https://github.com/org/repo/pull/9","head":{"ref":"someone-else"}}]`
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+			}
+			return &http.Response{StatusCode: 500, Body: io.NopCloser(strings.NewReader(`{}`)), Header: make(http.Header)}, nil
+		}),
+	}
+	_, err := client.CreateOrUpdate(context.Background(), PRRequest{
+		Title: "t", Body: "b", Head: "attune/x", Base: "main",
+	})
+	require.Error(t, err)
+	assert.Empty(t, patched, "a list with no matching head must not patch an unrelated pull")
+	assert.NotContains(t, err.Error(), "pull/9")
+}
+
 func TestGitHubClient_MissingConfigAndListError(t *testing.T) {
 	t.Parallel()
 	_, err := (&GitHubClient{}).CreateOrUpdate(context.Background(), PRRequest{})
