@@ -1219,7 +1219,8 @@ func TestResizePod_SkipsReplacementUID(t *testing.T) {
 
 	_, err := resizer.ResizePod(context.Background(), original, "app", target)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "uid")
+	assert.Contains(t, err.Error(), "live uid uid-new")
+	assert.Contains(t, err.Error(), "expected uid-old")
 	for _, action := range fakeClient.Actions() {
 		assert.NotEqual(t, "resize", action.GetSubresource(),
 			"a replacement pod must not be resized")

@@ -114,7 +114,7 @@ func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container s
 			return fmt.Errorf("re-fetching pod %s/%s before resize: %w", pod.Namespace, pod.Name, fetchErr)
 		}
 		if pod.UID != "" && fresh.UID != pod.UID {
-			return fmt.Errorf("pod %s/%s uid %s replaced live uid %s", pod.Namespace, pod.Name, pod.UID, fresh.UID)
+			return fmt.Errorf("pod %s/%s was replaced: live uid %s, expected %s", pod.Namespace, pod.Name, fresh.UID, pod.UID)
 		}
 
 		idx, isInit := findContainer(fresh, container)
