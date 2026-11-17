@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
@@ -284,7 +285,10 @@ func (r *AttunePolicyReconciler) oomBumpRevertGate(
 	if policy == nil || policy.Spec.Memory.OOMBump == nil {
 		return record, false
 	}
-	live := r.livePodForBumpGate(ctx, pod)
+	live, err := r.livePodForBumpGate(ctx, pod)
+	if err != nil {
+		return record, true
+	}
 	decision := oomBumpRevertDecisionFor(live, record.Container, reason, record.ResizedAt, now, oomBumpMaxBumps(policy))
 	if decision.Suppress {
 		return record, true
@@ -321,16 +325,19 @@ func raiseMemoryFloor(src corev1.ResourceRequirements, floorBytes int64, raiseLi
 
 // livePodForBumpGate reads the pod from the API server when a clientset is
 // set, so a stale cache cannot revert an in-hold bump. Tests pass a nil
-// clientset and the pod they built.
-func (r *AttunePolicyReconciler) livePodForBumpGate(ctx context.Context, pod *corev1.Pod) *corev1.Pod {
+// clientset and the pod they built. A Get error is not the cached pod.
+func (r *AttunePolicyReconciler) livePodForBumpGate(ctx context.Context, pod *corev1.Pod) (*corev1.Pod, error) {
 	if pod == nil || r == nil || r.Clientset == nil {
-		return pod
+		return pod, nil
 	}
 	fresh, err := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
-	if err != nil || fresh == nil {
-		return pod
+	if err != nil {
+		return nil, err
 	}
-	return fresh
+	if fresh == nil {
+		return nil, fmt.Errorf("live pod %s/%s was empty", pod.Namespace, pod.Name)
+	}
+	return fresh, nil
 }
 
 func (r *AttunePolicyReconciler) peekOOMBump(
@@ -885,7 +892,10 @@ func (r *AttunePolicyReconciler) maybeClearOOMBumpAfterRevert(
 	}
 	now := r.now()
 	maxBumps := oomBumpMaxBumps(policy)
-	live := r.livePodForBumpGate(ctx, pod)
+	live, err := r.livePodForBumpGate(ctx, pod)
+	if err != nil {
+		return
+	}
 	target := pod
 	if oomBumpShouldClearAfterRevert(live, record.Container, reason, record.ResizedAt, now, maxBumps) {
 		target = live
