@@ -696,7 +696,10 @@ func (m *Monitor) RevertPod(ctx context.Context, record ResizeRecord) error {
 		return nil
 	})
 	if err != nil && confirm != nil {
-		fresh, getErr := m.client.CoreV1().Pods(record.Namespace).Get(ctx, record.PodName, metav1.GetOptions{})
+		// UpdateResize can return after the apiserver stored the revert
+		// and the caller context is already canceled. The confirm read
+		// uses its own timeout, same as resize confirmation.
+		fresh, getErr := confirmPodGet(ctx, m.client.CoreV1().Pods(record.Namespace), record.PodName)
 		if getErr == nil && resize.ContainerResourcesMatch(fresh, record.Container, *confirm) {
 			m.logger.Info("revert write error after the apiserver committed the original resources; treating as success",
 				"pod", record.PodName, "namespace", record.Namespace, "container", record.Container, "writeError", err.Error())
@@ -704,4 +707,18 @@ func (m *Monitor) RevertPod(ctx context.Context, record ResizeRecord) error {
 		}
 	}
 	return err
+}
+
+// podGetter is the pod read used to confirm a revert.
+type podGetter interface {
+	Get(ctx context.Context, name string, opts metav1.GetOptions) (*corev1.Pod, error)
+}
+
+// confirmPodGet reads a pod after a resize write. The parent context may
+// already be canceled, so the Get uses a detached timeout. Tests replace
+// this to prove RevertPod uses the detached read.
+var confirmPodGet = func(ctx context.Context, pods podGetter, name string) (*corev1.Pod, error) {
+	confirmCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+	return pods.Get(confirmCtx, name, metav1.GetOptions{})
 }
