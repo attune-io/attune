@@ -282,6 +282,7 @@ python-test: ## Run helper script tests (fossa-filter, run-fuzz classifier, go-v
 	python3 scripts/test_nightly_failure_issue.py
 	bash scripts/test_verify_chainsaw_scripts.sh
 	bash scripts/test_ci_build_once.sh
+	bash scripts/test_demo_wait.sh
 	bash scripts/test_rebase_outdated_dependabot.sh
 	python3 scripts/test_apply_release_notes.py
 

@@ -106,7 +106,7 @@ banner "Step 2: Install cert-manager and Prometheus"
 info "Installing cert-manager..."
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.21.1/cert-manager.yaml >/dev/null
 wait_for "cert-manager webhook ready" 120 \
-  "kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=5s"
+  kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=5s
 
 info "Installing Prometheus..."
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
@@ -119,7 +119,7 @@ helm install prometheus prometheus-community/prometheus \
   --wait --timeout 3m >/dev/null 2>&1 || true
 
 wait_for "Prometheus server ready" 180 \
-  "kubectl wait --for=condition=Available deployment/prometheus-server -n monitoring --timeout=5s"
+  kubectl wait --for=condition=Available deployment/prometheus-server -n monitoring --timeout=5s
 echo
 
 # ── Step 3: Build and deploy attune ──────────────────────────────────
@@ -143,7 +143,7 @@ helm install attune ./charts/attune \
   --wait --timeout 2m >/dev/null
 
 wait_for "operator ready" 60 \
-  "kubectl wait --for=condition=Available deployment/attune -n attune-system --timeout=5s"
+  kubectl wait --for=condition=Available deployment/attune -n attune-system --timeout=5s
 run kubectl get pods -n attune-system
 echo
 
@@ -155,7 +155,7 @@ info "(Actual usage will be ~100m CPU / ~80Mi memory -- 80% over-provisioned)"
 run kubectl apply -f hack/demo-workload.yaml
 
 wait_for "all pods running" 120 \
-  "kubectl wait --for=condition=Ready pod -l app=web-api -n demo-app --timeout=5s"
+  kubectl wait --for=condition=Ready pod -l app=web-api -n demo-app --timeout=5s
 run kubectl get pods -n demo-app
 echo
 
