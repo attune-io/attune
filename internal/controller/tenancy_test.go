@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/conflict"
 	rsmetrics "github.com/attune-io/attune/internal/metrics"
 	"github.com/attune-io/attune/internal/safety"
 	"github.com/attune-io/attune/internal/validation"
@@ -504,7 +505,8 @@ func TestReconcile_RejectedTenantMetricsExpiresBoostWithoutRaising(t *testing.T)
 	fresh.CreationTimestamp = metav1.NewTime(time.Now())
 	fresh.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("100m")
 	deploy := newTestDeployment("api-server", "default", nil)
-	r, _, clientset := rejectedTenantReconciler(t, policy, deploy, expired, fresh)
+	r, c, clientset := rejectedTenantReconciler(t, policy, deploy, expired, fresh)
+	require.NoError(t, c.Create(context.Background(), newTestNamespace("default", nil)))
 
 	_, err := r.Reconcile(context.Background(), ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "probe", Namespace: "default"},
@@ -532,6 +534,40 @@ func TestReconcile_RejectedTenantMetricsExpiresBoostWithoutRaising(t *testing.T)
 	}
 	assert.Equal(t, 1, expiredResize, "an expired boost still steps down to the stored recommendation")
 	assert.Zero(t, freshResize, "a rejected metrics source does not raise a new boost")
+}
+
+func TestReconcile_RejectedTenantMetricsFrozenNamespaceDoesNotExpireBoost(t *testing.T) {
+	policy := rejectedVPAPolicy("probe", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.CPU.StartupBoost = &attunev1alpha1.StartupBoost{
+		Multiplier: "2",
+		Duration:   metav1.Duration{Duration: time.Minute},
+	}
+	policy.Status.Recommendations = []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api-server",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "main",
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest: resource.MustParse("100m"),
+			},
+		}},
+	}}
+	expired := rejectedTrackedPod("expired-pod", time.Now().Add(-2*time.Hour).UTC().Format(time.RFC3339))
+	expired.Annotations[annotationStartupBoostAt] = time.Now().Add(-2 * time.Hour).UTC().Format(time.RFC3339)
+	expired.Annotations[annotationStartupBoostContainers] = "main"
+	expired.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("400m")
+	deploy := newTestDeployment("api-server", "default", nil)
+	r, c, clientset := rejectedTenantReconciler(t, policy, deploy, expired)
+	require.NoError(t, c.Create(context.Background(), newTestNamespace("default", map[string]string{
+		conflict.AnnotationFreeze: "true",
+	})))
+
+	_, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "probe", Namespace: "default"},
+	})
+	require.NoError(t, err)
+	assert.Zero(t, resizeCount(clientset), "freeze skips boost expiry as well as a new boost")
 }
 
 func TestReconcile_RejectedTenantMetricsPersistsLaterRevert(t *testing.T) {

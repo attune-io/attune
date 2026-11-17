@@ -583,7 +583,8 @@ metadata:
 | `attune.io/skip=true` | Workload | Skip that workload entirely (no recommendations). Independent of freeze. |
 
 If the operator cannot read the namespace, apply is skipped (fail closed)
-and the same `NamespaceFrozen` reason is set. Freeze is not a rollback of
+and the same `NamespaceFrozen` reason is set. A rejected metrics source
+does not expire a startup boost while the namespace is frozen. Freeze is not a rollback of
 already-applied successful recommendations. Pending safety observation
 still reverts unsafe pods and restores AfterSuccessfulResize templates.
 Remove the annotation to resume apply on the next reconcile.
