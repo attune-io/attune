@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -28,8 +29,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	kubefake "k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -653,6 +656,36 @@ func TestOOMBumpRevertGate(t *testing.T) {
 	assert.False(t, suppress)
 	assert.Equal(t, qtyBytes(t, "150Mi"), adjusted.OriginalResources.Requests.Memory().Value())
 	assert.Equal(t, qtyBytes(t, "200Mi"), adjusted.OriginalResources.Limits.Memory().Value())
+}
+
+func TestOOMBumpRevertGate_LiveGetErrorSkips(t *testing.T) {
+	now := oomWireNow()
+	oomAt := now.Add(-time.Minute)
+	floor := int64(314572800)
+	raw := oomWireRaw(t, 1, qtyBytes(t, "200Mi"), floor, oomAt, now.Add(24*time.Hour), 1)
+	pod := oomBumpPod("p", "app", "300Mi", oomKilledStatus(oomAt, 1), raw, false)
+	policy := oomWirePolicy("oom-wire-revert")
+	cs := kubefake.NewSimpleClientset(&pod)
+	cs.PrependReactor("get", "pods", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("apiserver unavailable")
+	})
+	r := &AttunePolicyReconciler{Clientset: cs}
+	record := safety.ResizeRecord{
+		PodName:   pod.Name,
+		Namespace: pod.Namespace,
+		Container: "app",
+		ResizedAt: now.Add(-time.Minute),
+		OriginalResources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{corev1.ResourceMemory: parsedQty(t, "150Mi")},
+			Limits:   corev1.ResourceList{corev1.ResourceMemory: parsedQty(t, "200Mi")},
+		},
+	}
+
+	adjusted, suppress := r.oomBumpRevertGate(context.Background(), policy, &pod, record, "throttle", now)
+	assert.True(t, suppress, "a live Get error skips the revert this pass")
+	want := parsedQty(t, "150Mi")
+	got := adjusted.OriginalResources.Requests.Memory()
+	assert.True(t, want.Equal(*got))
 }
 
 func TestOOMBumpRevertGate_ContainerMode(t *testing.T) {
