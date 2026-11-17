@@ -551,6 +551,7 @@ func TestApiVersionForKind(t *testing.T) {
 		{kind: "ReplicaSet", want: "apps/v1"},
 		{kind: "CronJob", want: "batch/v1"},
 		{kind: "Job", want: "batch/v1"},
+		{kind: "Rollout", want: "argoproj.io/v1alpha1"},
 	}
 
 	for _, tt := range tests {
