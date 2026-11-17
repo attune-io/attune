@@ -1624,7 +1624,7 @@ func TestCheckQuotaCompatibility_ListError(t *testing.T) {
 			current:   zeroCurrent,
 			target:    increase,
 			wantErr:   true,
-			errSubstr: "ResourceQuota list unavailable; skipping request increase; check RBAC list/watch on resourcequotas and limitranges",
+			errSubstr: "ResourceQuota list unavailable; skipping request or limit increase; check RBAC list/watch on resourcequotas and limitranges",
 		},
 		{
 			name: "ResourceQuota list error allows decrease",
@@ -1644,7 +1644,23 @@ func TestCheckQuotaCompatibility_ListError(t *testing.T) {
 			current:   zeroCurrent,
 			target:    increase,
 			wantErr:   true,
-			errSubstr: "LimitRange list unavailable; skipping request increase; check RBAC list/watch on resourcequotas and limitranges",
+			errSubstr: "LimitRange list unavailable; skipping request or limit increase; check RBAC list/watch on resourcequotas and limitranges",
+		},
+		{
+			name: "LimitRange list error blocks limit increase",
+			failOn: func(list client.ObjectList) bool {
+				_, ok := list.(*corev1.LimitRangeList)
+				return ok
+			},
+			current: currentHigh,
+			target: corev1.ResourceRequirements{
+				Requests: currentHigh.Requests,
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU: cpu500,
+				},
+			},
+			wantErr:   true,
+			errSubstr: "LimitRange list unavailable; skipping request or limit increase; check RBAC list/watch on resourcequotas and limitranges",
 		},
 		{
 			name: "LimitRange list error allows decrease",
