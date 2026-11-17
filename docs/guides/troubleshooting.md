@@ -1291,7 +1291,7 @@ later container is skipped instead of being sent and rejected.
 
 **Symptom**: Operator logs `quota list unavailable; skipping request increase`
 or `ResourceQuota list unavailable` / `LimitRange list unavailable`.
-Request increases are skipped.
+Request increases and limit increases are skipped.
 
 **Cause**: The controller could not list ResourceQuotas or LimitRanges in
 the pod namespace, usually because the operator ServiceAccount is missing
