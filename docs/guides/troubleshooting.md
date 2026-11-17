@@ -997,7 +997,8 @@ ended, and the CPU recommendation is still high.
 
 **Cause**: Compare `attune.io/startup-boost-at` with the pod's
 `creationTimestamp`. The window starts at that stamp when it is present
-and not before creation. Samples between creation and the stamp stay, so
+and not before creation. A value that is not RFC3339 does not hold the
+CPU decrease window. The operator clears that stamp. Samples between creation and the stamp stay, so
 a spike in that gap still trains the percentile. Samples from the stamp
 until stamp plus `startupBoost.duration` plus the rate window are
 dropped. A missing or unreadable stamp starts at creation, so a spike
