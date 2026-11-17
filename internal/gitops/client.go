@@ -161,16 +161,15 @@ func (c *GitHubClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 	if err := json.Unmarshal(body, &existing); err != nil {
 		return PRResult{}, fmt.Errorf("github list PRs decode: %w", err)
 	}
-	if len(existing) > 0 {
-		pr := existing[0]
-		// Prefer an entry whose head ref matches when the response still includes
-		// unrelated PRs (older GitHub or ignored head filter).
-		for i := range existing {
-			if existing[i].Head.Ref == req.Head {
-				pr = existing[i]
-				break
-			}
+	match := -1
+	for i := range existing {
+		if existing[i].Head.Ref == req.Head {
+			match = i
+			break
 		}
+	}
+	if match >= 0 {
+		pr := existing[match]
 		patchURL := fmt.Sprintf("%s/repos/%s/pulls/%d", base, c.Repository, pr.Number)
 		payload := map[string]string{"title": req.Title, "body": req.Body}
 		_, code, err := c.doJSON(ctx, httpClient, http.MethodPatch, patchURL, payload)
