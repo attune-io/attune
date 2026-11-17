@@ -372,6 +372,13 @@ func (v *AttunePolicyValidator) validate(ctx context.Context, old, policy *attun
 	return warnings, nil
 }
 
+// templatePersistenceOnRecommendation reports the Recommend-mode path
+// that still honors updateStrategy.schedule.
+func templatePersistenceOnRecommendation(policy *attunev1alpha1.AttunePolicy) bool {
+	tp := policy.Spec.UpdateStrategy.TemplatePersistence
+	return tp != nil && tp.When == attunev1alpha1.TemplatePersistenceOnRecommendation
+}
+
 // warnIneffectiveSettings detects configuration combinations that are
 // technically valid but have no effect, helping users catch typos and
 // misunderstandings before they wonder why nothing is happening.
@@ -405,7 +412,11 @@ func warnIneffectiveSettings(policy *attunev1alpha1.AttunePolicy) admission.Warn
 			w = append(w, fmt.Sprintf("sloGuardrails have no effect in %s mode; no resizes occur to guard", mode))
 		}
 		if policy.Spec.UpdateStrategy.Schedule != nil {
-			w = append(w, fmt.Sprintf("schedule has no effect in %s mode; no resizes occur to schedule", mode))
+			if mode == attunev1alpha1.UpdateTypeRecommend && templatePersistenceOnRecommendation(policy) {
+				w = append(w, "schedule does not gate resizes in Recommend mode; it still gates template updates when templatePersistence.when is OnRecommendation")
+			} else {
+				w = append(w, fmt.Sprintf("schedule has no effect in %s mode; no resizes occur to schedule", mode))
+			}
 		}
 		if policy.Spec.UpdateStrategy.ResizeMethod != "" {
 			w = append(w, fmt.Sprintf("resizeMethod has no effect in %s mode; no resizes occur", mode))

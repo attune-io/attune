@@ -297,17 +297,17 @@ try to use the feature or when improvement cycles audit docs.
 9. `docs/reference/metrics.md` - Document new metric label values
    (e.g., new revert reasons)
 10. `docs/guides/` - Add or update the feature guide (e.g.,
-    `slo-guardrails.md`, `scheduling.md`)
-11. `docs/guides/quickstart.md` - Mention the feature in the overview
+    `slo-guardrails.md`, `auto-mode.md`)
+11. `docs/getting-started/quickstart.md` - Mention the feature in the overview
 12. `docs/guides/troubleshooting.md` - Add diagnostic entries for
     common user-visible failure modes
 13. `docs/architecture/safety.md` or relevant architecture doc -
     Explain the feature's flow and interactions
 14. `docs/architecture/resize-api.md` - Update flow diagrams if the
     feature adds a new step to the resize lifecycle
-15. `docs/getting-started/why-attune.md` - Update feature list and
+15. `docs/why-attune.md` - Update feature list and
     comparison table with competitors
-16. `SPEC.md` - Update specification with new behavior, directory
+16. `docs/SPEC.md` - Update specification with new behavior, directory
     tree, and safety checklists
 17. `test/e2e/` - Add Chainsaw E2E test for the feature
 18. `charts/attune/` - Helm values, templates, and tests if the

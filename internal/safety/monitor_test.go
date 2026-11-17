@@ -1485,6 +1485,94 @@ func TestRevertPod_TimeoutAfterCommitIsSuccess(t *testing.T) {
 	assert.True(t, gotMem.Equal(resource.MustParse("256Mi")), "memory %s", gotMem.String())
 }
 
+type stubPodGetter struct {
+	get func(ctx context.Context, name string, opts metav1.GetOptions) (*corev1.Pod, error)
+}
+
+func (s stubPodGetter) Get(ctx context.Context, name string, opts metav1.GetOptions) (*corev1.Pod, error) {
+	return s.get(ctx, name, opts)
+}
+
+func TestConfirmPodGet_DetachesCanceledParent(t *testing.T) {
+	parent, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	var sawErr error
+	pod, err := confirmPodGet(parent, stubPodGetter{get: func(ctx context.Context, name string, opts metav1.GetOptions) (*corev1.Pod, error) {
+		sawErr = ctx.Err()
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: name}}, nil
+	}}, "test-pod")
+	require.NoError(t, err)
+	require.NotNil(t, pod)
+	require.NoError(t, sawErr)
+}
+
+func TestRevertPod_CanceledParentAfterCommitIsSuccess(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "app",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("750m"),
+							corev1.ResourceMemory: resource.MustParse("512Mi"),
+						},
+					},
+				},
+			},
+		},
+	}
+	clientset := fake.NewSimpleClientset(pod)
+	ctx, cancel := context.WithCancel(context.Background())
+	clientset.PrependReactor("update", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() != "resize" {
+			return false, nil, nil
+		}
+		obj := action.(k8stesting.UpdateAction).GetObject()
+		if err := clientset.Tracker().Update(corev1.SchemeGroupVersion.WithResource("pods"), obj, action.GetNamespace()); err != nil {
+			return true, nil, err
+		}
+		cancel()
+		return true, nil, context.Canceled
+	})
+
+	called := 0
+	orig := confirmPodGet
+	t.Cleanup(func() { confirmPodGet = orig })
+	confirmPodGet = func(ctx context.Context, pods podGetter, name string) (*corev1.Pod, error) {
+		called++
+		return orig(ctx, pods, name)
+	}
+
+	monitor := NewMonitor(clientset, testr.New(t))
+	record := ResizeRecord{
+		PodName:   "test-pod",
+		Namespace: "default",
+		Container: "app",
+		OriginalResources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("500m"),
+				corev1.ResourceMemory: resource.MustParse("256Mi"),
+			},
+		},
+		ResizedAt: time.Now().Add(-1 * time.Minute),
+	}
+
+	err := monitor.RevertPod(ctx, record)
+	require.NoError(t, err)
+	assert.Equal(t, 1, called)
+
+	stored, getErr := clientset.CoreV1().Pods("default").Get(context.Background(), "test-pod", metav1.GetOptions{})
+	require.NoError(t, getErr)
+	gotCPU := stored.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+	assert.True(t, gotCPU.Equal(resource.MustParse("500m")), "cpu %s", gotCPU.String())
+}
+
 func TestRevertPod_RetriesOnConflict(t *testing.T) {
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},

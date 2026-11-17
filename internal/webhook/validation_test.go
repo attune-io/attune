@@ -2213,6 +2213,23 @@ func TestWarn_CanaryConfigInAutoMode(t *testing.T) {
 	assert.Contains(t, w, "canary configuration has no effect in Auto mode")
 }
 
+func TestWarn_ScheduleInRecommendModeStillGatesTemplate(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeRecommend
+	policy.Spec.UpdateStrategy.Schedule = &attunev1alpha1.ResizeSchedule{
+		Timezone: "UTC",
+	}
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		When: attunev1alpha1.TemplatePersistenceOnRecommendation,
+	}
+
+	w, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+	assert.Contains(t, w, "schedule does not gate resizes in Recommend mode; it still gates template updates when templatePersistence.when is OnRecommendation")
+	assert.NotContains(t, w, "schedule has no effect in Recommend mode; no resizes occur to schedule")
+}
+
 func TestWarn_ScheduleInObserveMode(t *testing.T) {
 	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
