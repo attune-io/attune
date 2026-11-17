@@ -50,7 +50,11 @@ func (e *PercentileEstimator) Estimate(profile metrics.UsageProfile, current res
 		}
 		return current
 	}
-	return quantityFromFloat(maxVal, e.IsCPU)
+	q, ok := quantityFromFloat(maxVal, e.IsCPU)
+	if !ok {
+		return current
+	}
+	return q
 }
 
 // selectedMax is the highest configured percentile across the overall
@@ -103,10 +107,21 @@ func (e *PercentileEstimator) selectPercentile(ps metrics.PercentileSet) float64
 // quantityFromFloat converts a float64 value to a resource.Quantity.
 // CPU values are in cores and use millicore precision with DecimalSI.
 // Memory values are in bytes and use integer bytes with BinarySI.
-func quantityFromFloat(val float64, isCPU bool) resource.Quantity {
-	if isCPU {
-		millis := int64(math.Ceil(val * 1000))
-		return *resource.NewMilliQuantity(millis, resource.DecimalSI)
+// quantityFromFloat converts a finite float64 to a resource.Quantity.
+// CPU values are cores and use millicore precision. Memory values are
+// bytes. Values that do not fit in int64 saturate at MaxInt64. NaN and
+// Inf are rejected.
+func quantityFromFloat(val float64, isCPU bool) (resource.Quantity, bool) {
+	if math.IsNaN(val) || math.IsInf(val, 0) {
+		return resource.Quantity{}, false
 	}
-	return *resource.NewQuantity(int64(math.Ceil(val)), resource.BinarySI)
+	factor := 1.0
+	if isCPU {
+		factor = 1000
+	}
+	scaled := safeIntScale(val, factor)
+	if isCPU {
+		return *resource.NewMilliQuantity(scaled, resource.DecimalSI), true
+	}
+	return *resource.NewQuantity(scaled, resource.BinarySI), true
 }

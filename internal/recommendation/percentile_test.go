@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/attune-io/attune/internal/metrics"
@@ -147,17 +148,36 @@ func TestPercentileEstimator_MemoryConversion(t *testing.T) {
 
 func TestQuantityFromFloat_CPUSubMillicore(t *testing.T) {
 	// 0.0005 cores = 0.5m, ceil should round up to 1m.
-	q := quantityFromFloat(0.0005, true)
+	q, ok := quantityFromFloat(0.0005, true)
+	require.True(t, ok)
 	assert.Equal(t, int64(1), q.MilliValue(),
 		"sub-millicore CPU should round up to 1m")
 }
 
 func TestQuantityFromFloat_MemoryFractional(t *testing.T) {
 	// 100.3 bytes should round up to 101 bytes.
-	q := quantityFromFloat(100.3, false)
+	q, ok := quantityFromFloat(100.3, false)
+	require.True(t, ok)
 	assert.Equal(t, int64(101), q.Value(),
 		"fractional bytes should round up")
 	assert.Equal(t, resource.BinarySI, q.Format)
+}
+
+func TestQuantityFromFloat_HugeFiniteSaturates(t *testing.T) {
+	q, ok := quantityFromFloat(float64(math.MaxInt64), true)
+	require.True(t, ok)
+	assert.Equal(t, int64(math.MaxInt64), q.MilliValue(),
+		"a finite sample above MaxInt64/1000 saturates")
+	assert.Greater(t, q.MilliValue(), int64(0))
+}
+
+func TestQuantityFromFloat_RejectsNaNAndInf(t *testing.T) {
+	_, ok := quantityFromFloat(math.NaN(), true)
+	assert.False(t, ok)
+	_, ok = quantityFromFloat(math.Inf(1), false)
+	assert.False(t, ok)
+	_, ok = quantityFromFloat(math.Inf(-1), true)
+	assert.False(t, ok)
 }
 
 func TestPercentileEstimator_ObservedZeroIsZero(t *testing.T) {
