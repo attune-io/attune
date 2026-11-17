@@ -3116,6 +3116,22 @@ func TestPrintExplain_ObservationPeriodFromCanaryShowsConfigured(t *testing.T) {
 	// When canary.observationPeriod is set but safetyObservationPeriod is not,
 	// the configured value should show the canary period, not <unset>.
 	assert.Contains(t, output, "Observation period: 10m0s (source: policy, configured: 10m)")
+	assert.Contains(t, output, "Canary: 10% for",
+		"explain must print the numeric canary percentage")
+}
+
+func TestConfiguredCanaryPercentage_Float64JSON(t *testing.T) {
+	item := unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{
+			"updateStrategy": map[string]interface{}{
+				"canary": map[string]interface{}{
+					"percentage": float64(25),
+				},
+			},
+		},
+	}}
+	assert.Equal(t, "25", configuredCanaryPercentage(item))
+	assert.Equal(t, "", getNestedString(item, "spec", "updateStrategy", "canary", "percentage"))
 }
 
 func TestEffectiveCooldown_ZeroAndSubMinute(t *testing.T) {
