@@ -2,7 +2,7 @@ name: Auto Approve
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch: {}
 
 permissions:
@@ -53,7 +53,9 @@ jobs:
           permission-pull-requests: write
 
       # The merge API rejects a draft pull request.
-      # Skip this step. The approve step above still runs on a same-repo draft.
+      # Skip this step. ready_for_review runs the workflow again when
+      # the pull is marked ready. The approve step above still runs
+      # on a same-repo draft.
       - name: Enable auto-merge
         if: >-
           !github.event.pull_request.draft &&
@@ -66,4 +68,4 @@ jobs:
       - name: Skip auto-merge for draft PRs
         if: github.event.pull_request.draft
         run: |
-          echo "Draft PR ${{ github.event.pull_request.number }}: auto-merge deferred until ready for review."
+          echo "Draft PR ${{ github.event.pull_request.number }}: auto-merge waits for ready_for_review."
