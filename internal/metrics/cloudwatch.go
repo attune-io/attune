@@ -200,6 +200,16 @@ func (c *CloudWatchCollector) QueryRangeGrouped(ctx context.Context, query strin
 				continue
 			}
 
+			if limit > 0 && seriesKept >= limit {
+				c.logger.Info("CloudWatch GetMetricData series capped",
+					"metric", spec.Metric,
+					"namespace", spec.Namespace,
+					"limit", limit,
+					"series", seriesKept,
+					"pages", page)
+				return grouped, fmt.Errorf("%w: kept %d series", ErrSeriesCapped, seriesKept)
+			}
+
 			hadPoints := false
 			before := len(grouped[container])
 			grouped[container] = growSamples(grouped[container], len(result.Values))
@@ -216,6 +226,9 @@ func (c *CloudWatchCollector) QueryRangeGrouped(ctx context.Context, query strin
 			seriesKept++
 		}
 
+		if output.NextToken == nil {
+			break
+		}
 		if limit > 0 && seriesKept >= limit {
 			c.logger.Info("CloudWatch GetMetricData series capped",
 				"metric", spec.Metric,
@@ -224,10 +237,6 @@ func (c *CloudWatchCollector) QueryRangeGrouped(ctx context.Context, query strin
 				"series", seriesKept,
 				"pages", page)
 			return grouped, fmt.Errorf("%w: kept %d series", ErrSeriesCapped, seriesKept)
-		}
-
-		if output.NextToken == nil {
-			break
 		}
 		if page >= maxPages {
 			c.logger.Info("CloudWatch GetMetricData page cap reached",
