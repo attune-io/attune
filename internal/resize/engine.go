@@ -108,6 +108,9 @@ func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container s
 		if fetchErr != nil {
 			return fmt.Errorf("re-fetching pod %s/%s before resize: %w", pod.Namespace, pod.Name, fetchErr)
 		}
+		if pod.UID != "" && fresh.UID != pod.UID {
+			return fmt.Errorf("pod %s/%s uid %s replaced live uid %s", pod.Namespace, pod.Name, pod.UID, fresh.UID)
+		}
 
 		idx, isInit := findContainer(fresh, container)
 		if idx == -1 {
@@ -430,12 +433,19 @@ func ResizeDeferredSince(pod *corev1.Pod) time.Time {
 func (r *PodResizer) EvictPod(ctx context.Context, pod *corev1.Pod) error {
 	r.logger.Info("evicting pod for resize fallback",
 		"pod", pod.Name, "namespace", pod.Namespace)
-	return r.client.CoreV1().Pods(pod.Namespace).EvictV1(ctx, &policyv1.Eviction{
+	eviction := &policyv1.Eviction{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pod.Name,
 			Namespace: pod.Namespace,
 		},
-	})
+	}
+	if pod.UID != "" {
+		uid := pod.UID
+		eviction.DeleteOptions = &metav1.DeleteOptions{
+			Preconditions: &metav1.Preconditions{UID: &uid},
+		}
+	}
+	return r.client.CoreV1().Pods(pod.Namespace).EvictV1(ctx, eviction)
 }
 
 // ClampMemoryLimitForPolicy prevents memory limit decreases when the
