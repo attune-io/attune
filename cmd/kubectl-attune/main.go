@@ -787,6 +787,14 @@ func getNestedString(obj unstructured.Unstructured, fields ...string) string {
 	return val
 }
 
+func configuredCanaryPercentage(item unstructured.Unstructured) string {
+	pct, ok := nestedInt(item, "spec", "updateStrategy", "canary", "percentage")
+	if !ok || pct == 0 {
+		return ""
+	}
+	return strconv.FormatInt(pct, 10)
+}
+
 func getNestedInt64(obj unstructured.Unstructured, fields ...string) int64 {
 	val, found, err := unstructured.NestedInt64(obj.Object, fields...)
 	if err != nil || !found {
@@ -1513,8 +1521,7 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 	// Canary config display
 	if canary := effective.Spec.UpdateStrategy.Canary; canary != nil {
 		canaryDesc := fmt.Sprintf("%d%% for %s (autoPromote=%v)", canary.Percentage, canary.ObservationPeriod.Duration.String(), canary.AutoPromote)
-		configuredCanary := getNestedString(item, "spec", "updateStrategy", "canary", "percentage")
-		printEffectiveField("Canary", configuredCanary, canaryDesc, selected, updateDefaults != nil && updateDefaults.Canary != nil)
+		printEffectiveField("Canary", configuredCanaryPercentage(item), canaryDesc, selected, updateDefaults != nil && updateDefaults.Canary != nil)
 	}
 
 	// SLO guardrails display
@@ -2808,8 +2815,7 @@ func printPreview(ctx context.Context, dynClient dynamic.Interface, namespace, p
 	}
 
 	// Show canary pod count if policy is in Canary mode.
-	canaryPct := getNestedString(*item, "spec", "updateStrategy", "canary", "percentage")
-	if canaryPct != "" {
+	if canaryPct := configuredCanaryPercentage(*item); canaryPct != "" {
 		fmt.Fprintf(os.Stderr, "\nCanary percentage: %s%% of eligible pods will be resized first.\n", canaryPct)
 	}
 
