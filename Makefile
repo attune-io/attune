@@ -285,6 +285,7 @@ python-test: ## Run helper script tests (fossa-filter, run-fuzz classifier, go-v
 	bash scripts/test_ci_build_once.sh
 	bash scripts/test_demo_wait.sh
 	bash scripts/test_auto_approve_triggers.sh
+	python3 scripts/test_olm_image_digest.py
 	bash scripts/test_rebase_outdated_dependabot.sh
 	python3 scripts/test_apply_release_notes.py
 
@@ -487,8 +488,8 @@ generate-olm-bundle: manifests ## Generate OLM bundle for OperatorHub submission
 	@VERSION=$${VERSION:-$(shell git describe --tags --abbrev=0 | sed "s/^v//")} && \
 	if [ -z "$${IMAGE_DIGEST:-}" ]; then \
 		echo "Resolving image digest for ghcr.io/attune-io/attune:v$$VERSION..." && \
-		IMAGE_DIGEST=$$(docker manifest inspect "ghcr.io/attune-io/attune:v$$VERSION" 2>/dev/null \
-			| python3 -c "import sys,json,hashlib; d=sys.stdin.buffer.read(); print('sha256:'+hashlib.sha256(d).hexdigest())") && \
+		IMAGE_DIGEST=$$(docker manifest inspect -v "ghcr.io/attune-io/attune:v$$VERSION" 2>/dev/null \
+			| python3 hack/olm_image_digest.py) && \
 		if [ -z "$$IMAGE_DIGEST" ] || [ "$$IMAGE_DIGEST" = "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" ]; then \
 			echo "ERROR: Could not resolve image digest. Set IMAGE_DIGEST manually." >&2; exit 1; \
 		fi; \
