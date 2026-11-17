@@ -231,7 +231,9 @@ Use this ordered path when turning on PR automation for the first time.
 6. **Turn off dry-run** (`dryRun: false` or omit). On the first live run
    with drift, Attune **bootstraps the head branch** if missing, then
    opens the PR. A prior dry-run of the same table records the fingerprint
-   only; it does not set a PR URL, so it does not block that first live PR:
+   only; it does not set a PR URL, so it does not block that first live PR.
+   A dry-run while a PR URL is already stored does not replace that
+   fingerprint, so a changed table still updates the open PR:
    - **GitHub:** empty bootstrap commit on
      `attune/recommendations-<ns>-<policy>` (same tree as `baseBranch`).
    - **GitLab:** branch from `baseBranch` plus
