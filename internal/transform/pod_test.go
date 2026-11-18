@@ -158,6 +158,20 @@ func TestStripPodFields_NonPodObject(t *testing.T) {
 	assert.Equal(t, "not a pod", result)
 }
 
+// Overhead is part of the pod's node reservation; the capacity pre-check
+// reads it from the cached pod.
+func TestStripPodFields_KeepsOverhead(t *testing.T) {
+	pod := &corev1.Pod{Spec: corev1.PodSpec{Overhead: corev1.ResourceList{
+		corev1.ResourceCPU:    resource.MustParse("250m"),
+		corev1.ResourceMemory: resource.MustParse("64Mi"),
+	}}}
+	result, err := StripPodFields(pod)
+	require.NoError(t, err)
+	stripped := result.(*corev1.Pod)
+	assert.Equal(t, "250m", stripped.Spec.Overhead.Cpu().String())
+	assert.Equal(t, "64Mi", stripped.Spec.Overhead.Memory().String())
+}
+
 func TestStripPodFields_NilContainers(t *testing.T) {
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "empty-pod"},

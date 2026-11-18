@@ -13,14 +13,23 @@ bin-packing / reclaimed capacity signals (#431 / #446).
 For a pod on node `N` with target container `C` and proposed target requests
 `T_cpu`, `T_mem`:
 
-1. Build the set of **running** containers:
-   - All `spec.containers`
-   - Init containers with `restartPolicy: Always` (native sidecars)
-   - Traditional init containers that have finished are **not** counted
-2. For each running container `X`:
-   - If `X == C`, use proposed targets `T_*`
-   - Else use current requests of `X`
-3. Sum CPU millicores and memory bytes → `sum_cpu`, `sum_mem`
+1. Build the **planned** pod, the shape Attune would write:
+   - Merge `T_*` into `C`'s requests. A resource the target omits keeps
+     its current value
+   - When in-place pod-level resize is on and the pod has
+     `spec.resources`, raise that envelope to cover the containers, as the
+     resize does
+2. Take the planned pod's **effective request**, the scheduler's formula
+   (`k8s.io/component-helpers/resource.PodRequests`):
+   - The sum of `spec.containers` and native sidecars (init containers
+     with `restartPolicy: Always`)
+   - Or, if larger, each regular init container plus the native sidecars
+     declared before it. A finished init container still counts: the
+     scheduler and kubelet resize admission do not check the phase
+   - Pod-level `spec.resources.requests` replace that result for each
+     resource they set
+   - Plus `spec.overhead` (RuntimeClass overhead)
+3. That gives CPU millicores and memory bytes → `sum_cpu`, `sum_mem`
 4. Read `N.status.allocatable` for CPU and memory
 5. **Skip resize** if `sum_cpu > allocatable_cpu` OR `sum_mem > allocatable_mem`
 
@@ -32,10 +41,17 @@ Metric: `attune_capacity_skip_total{reason="allocatable"}`.
 
 For a **request increase** on a scheduled pod (`spec.nodeName` set):
 
-1. List other pods on the same node (all namespaces)
-2. Sum running-container requests of those pods (same running-container
-   set as above). Neighbors with no requests add zero
-3. Skip if `this_pod_new + neighbor_sum` exceeds allocatable CPU or memory
+1. List the pods on the same node (all namespaces), leaving out
+   `Succeeded` and `Failed` pods
+2. Sum the effective request of each listed pod (same formula as step 2
+   above, from its current spec), then subtract this pod's own entry as
+   listed → `neighbor_sum`. Neighbors with no requests add zero
+3. Skip if `sum_* + neighbor_sum` exceeds allocatable CPU or memory
+
+Known limit: kubelet sizes a pod with a pending resize from its
+allocated resources, not its spec. Attune reads the spec only, so a
+neighbor in the middle of a decrease is under-counted and a `Deferred`
+increase is over-counted until kubelet catches up.
 
 Reason string: `node free request budget exceeded by neighbors`.
 

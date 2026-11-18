@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	kubefake "k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/events"
@@ -41,7 +42,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/cluster"
 	"github.com/attune-io/attune/internal/operatormetrics"
+	"github.com/attune-io/attune/internal/transform"
 )
 
 func TestRecordCapacitySkip(t *testing.T) {
@@ -1155,4 +1158,202 @@ func TestNeighborRequestTotals_SingleFlightOneList(t *testing.T) {
 	}
 	wg.Wait()
 	assert.Equal(t, int32(1), lists.Load(), "two workers on one node must share one List")
+}
+
+// effectiveRequestCase is one CPU increase of container "main" on a node
+// shared with neighbors, every pod listed on the Clientset as in a live
+// cluster.
+type effectiveRequestCase struct {
+	policy    string
+	nodeCPU   string
+	self      *corev1.Pod
+	neighbors []*corev1.Pod
+	curCPU    string
+	recCPU    string
+	inPlace   bool
+}
+
+// runEffectiveRequestCase returns the applied count and how much the
+// neighbors capacity skip metric grew.
+func runEffectiveRequestCase(t *testing.T, tc effectiveRequestCase) (count int, neighborSkips float64) {
+	t.Helper()
+	const nodeName = "eff-node"
+	node := neighborTestNode(nodeName, tc.nodeCPU, "8Gi")
+	tc.self.Spec.NodeName = nodeName
+	tc.self.UID = "self-uid"
+	deploy := newTestDeployment("app", "default", map[string]string{"app": "app"})
+
+	objs := make([]runtime.Object, 0, 2+len(tc.neighbors))
+	objs = append(objs, tc.self.DeepCopy(), node.DeepCopy())
+	ctrlObjs := make([]client.Object, 0, 2+len(tc.neighbors))
+	ctrlObjs = append(ctrlObjs, deploy, node)
+	for i, n := range tc.neighbors {
+		n.Spec.NodeName = nodeName
+		n.UID = types.UID(fmt.Sprintf("neighbor-uid-%d", i))
+		objs = append(objs, n.DeepCopy())
+		ctrlObjs = append(ctrlObjs, n)
+	}
+	reconciler, _ := newResizeReconciler(tc.self, ctrlObjs...)
+	reconciler.Clientset = kubefake.NewSimpleClientset(objs...)
+	if tc.inPlace {
+		reconciler.Capabilities = &cluster.Capabilities{InPlacePodLevelResources: true}
+	}
+
+	policy := newTestPolicy(tc.policy, "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("app", tc.curCPU, "512Mi", "4000m", "2Gi", tc.recCPU, "512Mi", "4000m", "2Gi"),
+	}
+	metric := operatormetrics.CapacitySkipTotal.WithLabelValues("default", tc.policy, "neighbors")
+	before := testutil.ToFloat64(metric)
+	count, _ = reconciler.executeResizes(context.Background(), policy,
+		[]client.Object{deploy}, recs, podMap("app", tc.self), nil, nil)
+	return count, testutil.ToFloat64(metric) - before
+}
+
+func effSelf(cpu string) *corev1.Pod {
+	return newResizePod("app", cpu, "512Mi", "4000m", "2Gi")
+}
+
+func withRegularInit(p *corev1.Pod, cpu string) *corev1.Pod {
+	p.Spec.InitContainers = append(p.Spec.InitContainers, corev1.Container{
+		Name:  "setup",
+		Image: "busybox",
+		Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{
+			corev1.ResourceCPU: resource.MustParse(cpu),
+		}},
+	})
+	return p
+}
+
+// The scheduler and kubelet count a running pod's regular init container
+// (max of init and containers), so a neighbor whose effective request comes
+// from a large init container fills the node.
+func TestExecuteResizes_NeighborBudget_NeighborInitContainerCounts(t *testing.T) {
+	count, skips := runEffectiveRequestCase(t, effectiveRequestCase{
+		policy:    "eff-nb-init",
+		nodeCPU:   "4000m",
+		self:      effSelf("500m"),
+		neighbors: []*corev1.Pod{withRegularInit(neighborPod("batch", "", "100m", "64Mi"), "3000m")},
+		curCPU:    "500m",
+		recCPU:    "1500m",
+	})
+	assert.Equal(t, 0, count, "neighbor effective 3000m + 1500m exceeds 4000m")
+	assert.Equal(t, float64(1), skips, "neighbors capacity skip must fire")
+}
+
+// Guard: a small init container does not change the neighbor's total.
+func TestExecuteResizes_NeighborBudget_NeighborSmallInitAllowsIncrease(t *testing.T) {
+	count, skips := runEffectiveRequestCase(t, effectiveRequestCase{
+		policy:    "eff-nb-small-init",
+		nodeCPU:   "4000m",
+		self:      effSelf("500m"),
+		neighbors: []*corev1.Pod{withRegularInit(neighborPod("batch", "", "100m", "64Mi"), "100m")},
+		curCPU:    "500m",
+		recCPU:    "1500m",
+	})
+	assert.Equal(t, 1, count, "neighbor effective 100m + 1500m fits 4000m")
+	assert.Equal(t, float64(0), skips)
+}
+
+// A neighbor with pod-level requests and no container requests reserves its
+// pod-level request; summing containers counts it as zero.
+func TestExecuteResizes_NeighborBudget_NeighborPodLevelRequestsCount(t *testing.T) {
+	n := neighborPod("pod-level", "", "0", "0")
+	n.Spec.Resources = &corev1.ResourceRequirements{Requests: corev1.ResourceList{
+		corev1.ResourceCPU: resource.MustParse("3000m"),
+	}}
+	count, skips := runEffectiveRequestCase(t, effectiveRequestCase{
+		policy:    "eff-nb-podlevel",
+		nodeCPU:   "4000m",
+		self:      effSelf("500m"),
+		neighbors: []*corev1.Pod{n},
+		curCPU:    "500m",
+		recCPU:    "1500m",
+	})
+	assert.Equal(t, 0, count, "neighbor pod-level 3000m + 1500m exceeds 4000m")
+	assert.Equal(t, float64(1), skips, "neighbors capacity skip must fire")
+}
+
+// RuntimeClass overhead is part of a neighbor's reservation.
+func TestExecuteResizes_NeighborBudget_NeighborOverheadCounts(t *testing.T) {
+	n := neighborPod("sandboxed", "", "100m", "64Mi")
+	n.Spec.Overhead = corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3000m")}
+	count, skips := runEffectiveRequestCase(t, effectiveRequestCase{
+		policy:    "eff-nb-overhead",
+		nodeCPU:   "4000m",
+		self:      effSelf("500m"),
+		neighbors: []*corev1.Pod{n},
+		curCPU:    "500m",
+		recCPU:    "1500m",
+	})
+	assert.Equal(t, 0, count, "neighbor 100m + 3000m overhead + 1500m exceeds 4000m")
+	assert.Equal(t, float64(1), skips, "neighbors capacity skip must fire")
+}
+
+// The reconciled pod comes from the stripped informer cache. Its own
+// RuntimeClass overhead must survive the transform and count against
+// allocatable: 1500m + 3000m overhead exceeds 4000m.
+func TestExecuteResizes_OwnOverheadCountsThroughCacheTransform(t *testing.T) {
+	self := effSelf("500m")
+	self.Spec.Overhead = corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3000m")}
+	cached, err := transform.StripPodFields(self)
+	require.NoError(t, err)
+	count, _ := runEffectiveRequestCase(t, effectiveRequestCase{
+		policy:  "eff-own-overhead",
+		nodeCPU: "4000m",
+		self:    cached.(*corev1.Pod),
+		curCPU:  "500m",
+		recCPU:  "1500m",
+	})
+	assert.Equal(t, 0, count, "own 1500m + 3000m overhead exceeds 4000m")
+}
+
+// Guard: the target pod's own entry in the node list must be subtracted
+// exactly as listed. Own effective 2000m (init) + neighbor 1000m: 1500m
+// fits, 3500m does not. Subtracting a recomputed planned entry instead
+// would let 3500m through.
+func TestExecuteResizes_NeighborBudget_OwnInitContainerExcludedExactly(t *testing.T) {
+	tests := []struct {
+		name      string
+		recCPU    string
+		wantCount int
+		wantSkips float64
+	}{
+		{name: "increase that fits is applied", recCPU: "1500m", wantCount: 1, wantSkips: 0},
+		{name: "increase that does not fit is skipped", recCPU: "3500m", wantCount: 0, wantSkips: 1},
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			count, skips := runEffectiveRequestCase(t, effectiveRequestCase{
+				policy:    fmt.Sprintf("eff-own-init-%d", i),
+				nodeCPU:   "4000m",
+				self:      withRegularInit(effSelf("500m"), "2000m"),
+				neighbors: []*corev1.Pod{neighborPod("other", "", "1000m", "64Mi")},
+				curCPU:    "500m",
+				recCPU:    tt.recCPU,
+			})
+			assert.Equal(t, tt.wantCount, count)
+			assert.Equal(t, tt.wantSkips, skips)
+		})
+	}
+}
+
+// Guard: with in-place pod-level resize the engine raises spec.resources to
+// cover the increase, so the own total is the raised envelope. Counting the
+// unraised envelope (500m) would let 1500m + 1000m through on a 2000m node.
+func TestExecuteResizes_NeighborBudget_OwnRaisedEnvelopeCounts(t *testing.T) {
+	self := withPodEnvelope(effSelf("500m"), "500m", "512Mi", "", "")
+	self.Status.QOSClass = corev1.PodQOSBurstable
+	count, skips := runEffectiveRequestCase(t, effectiveRequestCase{
+		policy:    "eff-own-envelope",
+		nodeCPU:   "2000m",
+		self:      self,
+		neighbors: []*corev1.Pod{neighborPod("other", "", "1000m", "64Mi")},
+		curCPU:    "500m",
+		recCPU:    "1500m",
+		inPlace:   true,
+	})
+	assert.Equal(t, 0, count, "raised envelope 1500m + neighbor 1000m exceeds 2000m")
+	assert.Equal(t, float64(1), skips, "neighbors capacity skip must fire")
 }
