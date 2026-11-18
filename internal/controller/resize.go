@@ -2114,21 +2114,12 @@ func (r *AttunePolicyReconciler) shouldSkipResize(
 				return true, reason
 			}
 			if len(node.Status.Allocatable) > 0 {
-				totalCPU := int64(0)
-				totalMem := int64(0)
-				// Only count containers that consume resources at runtime:
-				// native sidecars (restartPolicy=Always) + regular containers.
-				// Completed traditional init containers are not running.
-				running := append(nativeSidecars(pod.Spec.InitContainers), pod.Spec.Containers...)
-				for _, c := range running {
-					if c.Name == containerRec.Name {
-						totalCPU += target.Requests.Cpu().MilliValue()
-						totalMem += target.Requests.Memory().Value()
-					} else {
-						totalCPU += c.Resources.Requests.Cpu().MilliValue()
-						totalMem += c.Resources.Requests.Memory().Value()
-					}
-				}
+				// The pod's effective request after this resize, as the
+				// scheduler sizes it: regular init containers, pod-level
+				// requests and overhead count, and the planned pod carries
+				// the envelope PodResizer would raise.
+				planned := resize.PlannedPod(pod, containerRec.Name, target, r.inPlacePodLevelResources())
+				totalCPU, totalMem := resize.PodRequestTotals(planned)
 				if totalCPU > node.Status.Allocatable.Cpu().MilliValue() ||
 					totalMem > node.Status.Allocatable.Memory().Value() {
 					return true, "total pod requests would exceed node allocatable"
@@ -2295,12 +2286,13 @@ func (r *AttunePolicyReconciler) listNodeNeighbors(ctx context.Context, nodeName
 			if p.Status.Phase == corev1.PodSucceeded || p.Status.Phase == corev1.PodFailed {
 				continue
 			}
+			// Effective request from the spec, the scheduler's formula.
+			// Kubelet sizes a pod with a pending resize from its
+			// allocated resources instead; spec-only is kept on purpose
+			// (see resize.PodRequestTotals). The target pod's own entry
+			// is computed here too, so exclude subtracts it exactly.
 			req := neighborReq{ns: p.Namespace, name: p.Name}
-			running := append(nativeSidecars(p.Spec.InitContainers), p.Spec.Containers...)
-			for _, c := range running {
-				req.cpu += c.Resources.Requests.Cpu().MilliValue()
-				req.mem += c.Resources.Requests.Memory().Value()
-			}
+			req.cpu, req.mem = resize.PodRequestTotals(p)
 			out.totalCPU += req.cpu
 			out.totalMem += req.mem
 			if p.UID != "" {
@@ -2327,8 +2319,8 @@ func (c nodeNeighborCache) exclude(pod *corev1.Pod) (cpu, mem int64) {
 	return c.totalCPU, c.totalMem
 }
 
-// neighborRequestTotals sums running-container requests of other pods on
-// the same node. The target pod is excluded. Empty nodeName returns zeros.
+// neighborRequestTotals sums the effective requests (resize.PodRequestTotals)
+// of other pods on the same node. The target pod is excluded. Empty nodeName returns zeros.
 // A list error is returned so increases can fail closed.
 func (r *AttunePolicyReconciler) neighborRequestTotals(ctx context.Context, pod *corev1.Pod, checks *resizePreChecks) (cpu, mem int64, err error) {
 	if pod.Spec.NodeName == "" {

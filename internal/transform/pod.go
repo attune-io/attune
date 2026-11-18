@@ -28,7 +28,7 @@ import (
 //
 // Preserved fields (used by the controller):
 //   - metadata (name, namespace, labels, annotations, resourceVersion, uid, deletionTimestamp)
-//   - spec.nodeName
+//   - spec.nodeName, .overhead (counted in node-capacity checks)
 //   - spec.containers[].name, .resources, .resizePolicy
 //   - spec.initContainers[].name, .resources, .restartPolicy (native sidecars)
 //   - status.phase, .conditions, .containerStatuses, .initContainerStatuses, .qosClass
@@ -45,7 +45,6 @@ func StripPodFields(obj any) (any, error) {
 	pod.Spec.Volumes = nil
 	pod.Spec.ImagePullSecrets = nil
 	pod.Spec.HostAliases = nil
-	pod.Spec.Overhead = nil
 	pod.Spec.TopologySpreadConstraints = nil
 
 	// Strip unused fields from each container, keeping only name, resources,

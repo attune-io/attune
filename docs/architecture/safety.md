@@ -299,9 +299,10 @@ destabilize workloads.
 
 ## Node capacity pre-check
 
-Before submitting a resize, the controller sums all container requests in the
-pod (applying the new target for the container being resized) and compares the
-total against the node's allocatable resources:
+Before submitting a resize, the controller takes the pod's effective request
+as the scheduler computes it (applying the new target for the container being
+resized, and counting init containers, pod-level requests and overhead) and
+compares the total against the node's allocatable resources:
 
 ```go
 if totalCPU > allocCPU || totalMem > allocMem {
