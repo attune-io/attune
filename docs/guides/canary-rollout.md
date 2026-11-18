@@ -127,8 +127,8 @@ When `autoPromote: true`, the operator handles promotion automatically:
 2. On the next reconcile, all eligible pods are resized (same as Auto mode).
 3. If any revert occurs during observation, promotion is blocked, the
    observation clock is cleared, and a new watch starts after the next
-   successful in-place resize. The operator continues resizing only the
-   canary subset until that new watch passes.
+   successful in-place resize after the revert. The operator continues
+   resizing only the canary subset until that new watch passes.
 
 Check the canary phase:
 

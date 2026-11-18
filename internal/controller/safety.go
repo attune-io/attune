@@ -650,6 +650,7 @@ func (r *AttunePolicyReconciler) revertAndRestoreAfterSafety(
 			eventFmt, pod.Name, record.Container, message)
 	}
 	markLatestCycleReverted(policy.Status.ResizeHistory, trackedWorkload, record.Container, reason)
+	resetCanaryWatchAfterRevert(policy, trackedWorkload)
 	workload := record.WorkloadName
 	if workload == "" {
 		workload = trackedWorkload
@@ -666,6 +667,23 @@ func (r *AttunePolicyReconciler) revertAndRestoreAfterSafety(
 		return err
 	}
 	return nil
+}
+
+// resetCanaryWatchAfterRevert clears one app's canary clock after a
+// safety revert. The revert flips that cycle's history rows in place and
+// keeps their resize timestamp. When the app resized again after that
+// cycle, history alone still shows a success after the newest revert, so
+// the resolver would keep the old clock. With StartTime cleared, the
+// resolver waits for startCanaryWatch on the next in-place success.
+// Other apps' rows and promoted rows stay as they are.
+func resetCanaryWatchAfterRevert(policy *attunev1alpha1.AttunePolicy, workload string) {
+	ws := policy.Status.Canary.WorkloadStatus(workload)
+	if ws == nil || ws.Phase == attunev1alpha1.CanaryPhaseFullRollout {
+		return
+	}
+	ws.StartTime = nil
+	ws.Pods = nil
+	policy.Status.Canary.SyncRollupClock()
 }
 
 // retryTemplateRestoreIfAlreadyReverted restores an AfterSuccessfulResize

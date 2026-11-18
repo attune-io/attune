@@ -720,3 +720,103 @@ func TestAcquireEvictionLock_SerializesSameKey(t *testing.T) {
 	_, ok := r.evictionLocks.Load(key)
 	assert.False(t, ok, "map must be empty after both holders release")
 }
+
+func revertCanaryTestPolicy() *attunev1alpha1.AttunePolicy {
+	policy := canaryAutoPromotePolicy(10 * time.Minute)
+	policy.Name = "p"
+	start := metav1.NewTime(time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC))
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase:     attunev1alpha1.CanaryPhaseInProgress,
+		StartTime: &start,
+		Workloads: []attunev1alpha1.CanaryWorkloadStatus{
+			{Workload: "api", Phase: attunev1alpha1.CanaryPhaseInProgress, StartTime: &start, Pods: []string{"api-abc"}},
+			{Workload: "web", Phase: attunev1alpha1.CanaryPhaseInProgress, StartTime: &start, Pods: []string{"web-1"}},
+		},
+	}
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{{
+		Timestamp: start,
+		Workload:  "api",
+		Container: "app",
+		Resource:  "memory",
+		Method:    "InPlace",
+		Result:    attunev1alpha1.ResizeResultSuccess,
+	}}
+	return policy
+}
+
+func TestRevertAndRestoreAfterSafety_ResetsRevertedAppCanaryWatch(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+
+	policy := revertCanaryTestPolicy()
+	deploy := persistAtRec64MiDeployment()
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy, deploy).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+
+	var livePolicy attunev1alpha1.AttunePolicy
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(policy), &livePolicy))
+	livePolicy.Status = *revertCanaryTestPolicy().Status.DeepCopy()
+
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "api-abc", Namespace: "default"}}
+	err := r.revertAndRestoreAfterSafety(
+		log.IntoContext(context.Background(), logr.Discard()),
+		func(safety.ResizeRecord) error { return nil },
+		&livePolicy, []client.Object{deploy}, original256MiRecord(), pod,
+		"api", "oomkill", "OOMKilled",
+		"Failed to revert pod during safety observation",
+		"Safety observation reverted resize on pod %s/%s: %s",
+	)
+	require.NoError(t, err)
+	require.Equal(t, attunev1alpha1.ResizeResultReverted, livePolicy.Status.ResizeHistory[0].Result)
+
+	api := livePolicy.Status.Canary.WorkloadStatus("api")
+	assert.Nil(t, api.StartTime, "a safety revert must clear the reverted app's canary clock")
+	assert.Empty(t, api.Pods, "a safety revert must clear the reverted app's canary pods")
+	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, api.Phase)
+
+	web := livePolicy.Status.Canary.WorkloadStatus("web")
+	assert.NotNil(t, web.StartTime, "another app's canary clock must stay")
+	assert.Equal(t, []string{"web-1"}, web.Pods)
+
+	require.NotNil(t, livePolicy.Status.Canary.StartTime)
+	assert.Equal(t, web.StartTime.Time, livePolicy.Status.Canary.StartTime.Time,
+		"the policy-wide clock must follow the apps still watching")
+	assert.Equal(t, []string{"web-1"}, livePolicy.Status.Canary.Pods)
+}
+
+func TestResetCanaryWatchAfterRevert_KeepsPromotedRow(t *testing.T) {
+	policy := revertCanaryTestPolicy()
+	api := policy.Status.Canary.WorkloadStatus("api")
+	api.Phase = attunev1alpha1.CanaryPhaseFullRollout
+	start := *api.StartTime
+
+	resetCanaryWatchAfterRevert(policy, "api")
+
+	api = policy.Status.Canary.WorkloadStatus("api")
+	require.NotNil(t, api.StartTime, "a promoted app's row must stay as it is")
+	assert.Equal(t, start.Time, api.StartTime.Time)
+	assert.Equal(t, []string{"api-abc"}, api.Pods)
+}
+
+func TestRevertAndRestoreAfterSafety_FailedRevertKeepsCanaryWatch(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+	policy := revertCanaryTestPolicy()
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "api-abc", Namespace: "default"}}
+
+	err := r.revertAndRestoreAfterSafety(
+		log.IntoContext(context.Background(), logr.Discard()),
+		func(safety.ResizeRecord) error { return fmt.Errorf("resize subresource rejected") },
+		policy, nil, original256MiRecord(), pod,
+		"api", "oomkill", "OOMKilled",
+		"Failed to revert pod during safety observation",
+		"Safety observation reverted resize on pod %s/%s: %s",
+	)
+	require.Error(t, err)
+	api := policy.Status.Canary.WorkloadStatus("api")
+	assert.NotNil(t, api.StartTime, "a failed revert must not clear the canary clock")
+	assert.Equal(t, []string{"api-abc"}, api.Pods)
+}
