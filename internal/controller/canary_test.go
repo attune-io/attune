@@ -1251,3 +1251,79 @@ func TestResolveCanaryPhase_NoResetWhenGenerationMatches(t *testing.T) {
 	assert.Equal(t, attunev1alpha1.UpdateTypeAuto, mode, "same generation should promote normally")
 	assert.Equal(t, attunev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
 }
+
+// lateRevertCanaryPolicy builds the #1166 shape: app "x" resized c1 at
+// t0 and c2 at t1, and its watch started at t1. The safety monitor then
+// reverts c1's cycle at t3 > t1. The flip keeps c1's row at t0, so the
+// history alone still shows a success after the newest revert. App "y"
+// has a clean success whose wait has passed.
+func lateRevertCanaryPolicy(t0, t1, yStart time.Time) *attunev1alpha1.AttunePolicy {
+	policy := canaryAutoPromotePolicy(10 * time.Minute)
+	xStart := metav1.NewTime(t1)
+	yStartTS := metav1.NewTime(yStart)
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase:     attunev1alpha1.CanaryPhaseInProgress,
+		StartTime: &yStartTS,
+		Workloads: []attunev1alpha1.CanaryWorkloadStatus{
+			{Workload: "x", Phase: attunev1alpha1.CanaryPhaseInProgress, StartTime: &xStart, Pods: []string{"x-1"}},
+			{Workload: "y", Phase: attunev1alpha1.CanaryPhaseInProgress, StartTime: &yStartTS, Pods: []string{"y-1"}},
+		},
+	}
+	c1 := flippedSuccessRevert("x", "InPlace", t0, "oomkill")
+	c1.Container = "c1"
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{
+		c1,
+		{Workload: "x", Container: "c2", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(t1)},
+		{Workload: "y", Container: "app", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: yStartTS},
+	}
+	return policy
+}
+
+func TestResolveCanaryPhase_LateRevertKeepsAppInCanary(t *testing.T) {
+	t0 := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
+	t1 := t0.Add(2 * time.Minute)
+	wait := 10 * time.Minute
+	policy := lateRevertCanaryPolicy(t0, t1, t0.Add(-30*time.Minute))
+
+	// Safety revert of c1's cycle at t3 > t1.
+	resetCanaryWatchAfterRevert(policy, "x")
+
+	r := NewAttunePolicyReconciler()
+	r.SetNowFunc(func() time.Time { return t1.Add(wait + time.Second) })
+	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, false)
+
+	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode)
+	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.WorkloadStatus("x").Phase,
+		"a late safety revert must keep x in canary until a new watch passes")
+	assert.Equal(t, attunev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.WorkloadStatus("y").Phase,
+		"another app's clean watch must still promote")
+}
+
+func TestResolveCanaryPhase_LateRevertPromotesAfterNewWatch(t *testing.T) {
+	t0 := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
+	t1 := t0.Add(2 * time.Minute)
+	t3 := t1.Add(2 * time.Minute)
+	t4 := t3.Add(time.Minute)
+	wait := 10 * time.Minute
+	policy := lateRevertCanaryPolicy(t0, t1, t0.Add(-30*time.Minute))
+	resetCanaryWatchAfterRevert(policy, "x")
+
+	r := NewAttunePolicyReconciler()
+	r.SetNowFunc(func() time.Time { return t4 })
+	policy.Status.ResizeHistory = append(policy.Status.ResizeHistory, attunev1alpha1.ResizeHistoryEntry{
+		Workload: "x", Container: "c1", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(t4),
+	})
+	r.startCanaryWatch(policy, "x-2", "x")
+
+	r.SetNowFunc(func() time.Time { return t4.Add(wait - time.Second) })
+	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, false)
+	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode)
+	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.WorkloadStatus("x").Phase,
+		"the new watch must run a full wait from the resize after the revert")
+
+	r.SetNowFunc(func() time.Time { return t4.Add(wait) })
+	mode = r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary, false)
+	assert.Equal(t, attunev1alpha1.UpdateTypeAuto, mode)
+	assert.Equal(t, attunev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.WorkloadStatus("x").Phase,
+		"x must promote once the new watch has passed")
+}
