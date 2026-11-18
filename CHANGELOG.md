@@ -6,6 +6,22 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.38](https://github.com/attune-io/attune/compare/v0.1.37...v0.1.38) (2026-11-18)
+
+
+### Bug Fixes
+
+* alert when the operator stops reporting metrics ([#1142](https://github.com/attune-io/attune/issues/1142)) ([2d39951](https://github.com/attune-io/attune/commit/2d3995193aeca16fcb9e3bb576e083e70035ed76))
+* confirm committed reverts and correct the recommend schedule warning ([#1163](https://github.com/attune-io/attune/issues/1163)) ([18f7bd4](https://github.com/attune-io/attune/commit/18f7bd4f00ada2745e102554ecec7ccce235f426))
+* correct low-severity resize, gitops, and ci defects ([#1162](https://github.com/attune-io/attune/issues/1162)) ([4856f19](https://github.com/attune-io/attune/commit/4856f194eb550e2bc94dc032c68bc7bb0e124c4e))
+* count effective pod requests in the node-capacity pre-check ([#1169](https://github.com/attune-io/attune/issues/1169)) ([f16d29c](https://github.com/attune-io/attune/commit/f16d29c9e56dbf476c10dc4127efc302d9e140cb))
+* do not expire a startup boost while the namespace is frozen ([#1164](https://github.com/attune-io/attune/issues/1164)) ([694393f](https://github.com/attune-io/attune/commit/694393f8f441834a2e0c77c09626f90a1b342a26))
+* keep cooldown keys and export labels within Kubernetes length limits ([#1144](https://github.com/attune-io/attune/issues/1144)) ([e544431](https://github.com/attune-io/attune/commit/e5444319c6304797059aa745b718fc2eadb67f9e))
+* name the live pod uid in the replacement error ([#1165](https://github.com/attune-io/attune/issues/1165)) ([23dea06](https://github.com/attune-io/attune/commit/23dea06b6200ad9bc47307ddbf8328c5abb87c55))
+* publish the helm chart overview on docker hub ([#1128](https://github.com/attune-io/attune/issues/1128)) ([1047e60](https://github.com/attune-io/attune/commit/1047e606e38023e094aed8f95758ef6e367d9680))
+* read the fleet report ConfigMap without the namespace-scoped cache ([#1143](https://github.com/attune-io/attune/issues/1143)) ([26c11b3](https://github.com/attune-io/attune/commit/26c11b35fcd82dd407faedd094f489c2e630a441))
+* restart an app's canary watch after a late revert ([#1168](https://github.com/attune-io/attune/issues/1168)) ([42aefeb](https://github.com/attune-io/attune/commit/42aefeb1dad7ad4fc7a831e2758c5784d9d6faa6)), closes [#1166](https://github.com/attune-io/attune/issues/1166)
+
 ## [0.1.37](https://github.com/attune-io/attune/compare/v0.1.36...v0.1.37) (2026-11-08)
 
 
