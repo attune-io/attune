@@ -19,6 +19,7 @@ package resize
 import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	resourcehelper "k8s.io/component-helpers/resource"
 )
 
 // ReasonEnvelopeConstraint is the resize history reason when a container
@@ -246,17 +247,21 @@ func applyPlannedContainer(pod *corev1.Pod, container string, target corev1.Reso
 	return planned
 }
 
+// sumContainerRequests is the container aggregate admission compares with
+// spec.resources.requests. AggregateContainerRequests keeps a one-shot init
+// as a competing maximum and adds only the native sidecars declared before
+// that init. PodRequests is the wrong call here: a set pod-level request
+// replaces this sum, and overhead is included.
 func sumContainerRequests(pod *corev1.Pod, res corev1.ResourceName) resource.Quantity {
-	sum := zeroQuantity(res)
-	eachRunningContainerResources(pod, func(rr corev1.ResourceRequirements) {
-		if q, ok := envelopeQuantity(rr.Requests, res); ok {
-			sum.Add(q)
-		}
-	})
-	if maxInit, ok := maxRegularInitRequest(pod, res); ok && maxInit.Cmp(sum) > 0 {
-		return maxInit
+	if pod == nil {
+		return zeroQuantity(res)
 	}
-	return sum
+	reqs := resourcehelper.AggregateContainerRequests(pod, resourcehelper.PodResourcesOptions{})
+	q, ok := reqs[res]
+	if !ok {
+		return zeroQuantity(res)
+	}
+	return q.DeepCopy()
 }
 
 func maxContainerLimit(pod *corev1.Pod, res corev1.ResourceName) (resource.Quantity, bool) {
@@ -285,46 +290,6 @@ func eachContainerResources(pod *corev1.Pod, fn func(corev1.ResourceRequirements
 	for i := range pod.Spec.Containers {
 		fn(pod.Spec.Containers[i].Resources)
 	}
-}
-
-func isNativeSidecar(c corev1.Container) bool {
-	return c.RestartPolicy != nil && *c.RestartPolicy == corev1.ContainerRestartPolicyAlways
-}
-
-func eachRunningContainerResources(pod *corev1.Pod, fn func(corev1.ResourceRequirements)) {
-	if pod == nil {
-		return
-	}
-	for i := range pod.Spec.InitContainers {
-		if isNativeSidecar(pod.Spec.InitContainers[i]) {
-			fn(pod.Spec.InitContainers[i].Resources)
-		}
-	}
-	for i := range pod.Spec.Containers {
-		fn(pod.Spec.Containers[i].Resources)
-	}
-}
-
-func maxRegularInitRequest(pod *corev1.Pod, res corev1.ResourceName) (resource.Quantity, bool) {
-	if pod == nil {
-		return resource.Quantity{}, false
-	}
-	var max resource.Quantity
-	found := false
-	for i := range pod.Spec.InitContainers {
-		if isNativeSidecar(pod.Spec.InitContainers[i]) {
-			continue
-		}
-		q, ok := envelopeQuantity(pod.Spec.InitContainers[i].Resources.Requests, res)
-		if !ok {
-			continue
-		}
-		if !found || q.Cmp(max) > 0 {
-			max = q.DeepCopy()
-			found = true
-		}
-	}
-	return max, found
 }
 
 func containerResources(pod *corev1.Pod, name string) corev1.ResourceRequirements {

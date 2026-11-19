@@ -87,9 +87,15 @@ Before calling `UpdateResize`, the controller runs several safety checks:
 7. **Pod-level envelope**: If the pod already has `spec.resources`, Attune
    never invents an envelope and never shrinks one. When in-place
    pod-level resize is on, the same `UpdateResize` writes the container
-   target and a raised envelope (requests cover the container sum; an
-   existing limit covers the max of current limit, needed request, and
-   the max single container limit, and stays at least the request).
+   target and a raised envelope. The request is the container aggregate
+   admission checks: app containers plus native sidecars, or, when
+   larger, each regular init plus the native sidecars declared before
+   it. A one-shot init is not added on top of the app containers. A
+   sidecar declared after an init is not part of that init's total.
+   The current pod-level request and `spec.overhead` are not part of
+   this sum. An existing limit covers the max of the current limit,
+   the needed request, and the max single container limit, and stays
+   at least the request.
    When the field is present but in-place raise is off, a container
    increase that would exceed the current envelope is skipped. Under
    RequestsOnly plus Burstable, Attune skips rather than lift an

@@ -323,9 +323,12 @@ This is **not** document-and-skip on 1.36+. Document-and-skip is only the 1.32â€
 New helpers in `internal/resize/envelope.go` (unit-tested, `resource.ParseQuantity`, DecimalSI CPU / BinarySI memory):
 
 ```go
-// SumContainerRequests sums requests for r across regular containers
-// and native sidecars (restartPolicy=Always init). Excluded names still
-// count: they occupy the envelope even when Attune will not resize them.
+// SumContainerRequests is the container aggregate admission checks:
+// app containers plus native sidecars, or, when larger, each regular
+// init plus the native sidecars declared before it. A one-shot init
+// is not added on top of the app containers. The current pod-level
+// request and overhead are excluded. Excluded names still count:
+// they occupy the envelope even when Attune will not resize them.
 func SumContainerRequests(spec *corev1.PodSpec, r corev1.ResourceName) resource.Quantity
 
 // MaxContainerLimit is the highest single-container limit for r.
