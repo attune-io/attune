@@ -25,9 +25,9 @@ Under-requesting fails where people notice it: throttling, restarts, an out-of-m
 
 Attune measures usage and recommends a new reservation. Nothing is resized until you change the policy out of **Recommend** mode. When you do, the usual path is [in-place resize](https://kubernetes.io/blog/2025/12/19/kubernetes-v1-35-in-place-pod-resize-ga/). Attune requires **Kubernetes 1.32+**. On 1.32 the `InPlacePodVerticalScaling` feature gate is required. On 1.33–1.34 that gate is beta and on by default. On **1.35+** in-place resize is generally available and the gate is locked on.
 
-A Windows pod, a pod under the static CPU or memory manager, and a memory change that must restart the container cannot take the in-place path. If the kubelet rejects the resize, you can opt into an eviction fallback.
+A Windows pod, or a pod under the static CPU or memory manager, cannot take the in-place path. A `RestartContainer` policy still goes through `/resize` and restarts that container. Eviction is only the fallback when `resizeMethod` is `InPlaceOrRecreate` and the kubelet reports the resize infeasible.
 
-Attune can run beside the Horizontal Pod Autoscaler. Lowering a CPU request still raises utilization, so that autoscaler may add pods. Attune can retarget the HPA percentage so the absolute threshold stays put. See the [HPA guide](docs/guides/hpa-coexistence.md).
+Attune can run beside the Horizontal Pod Autoscaler. Lowering a CPU request still raises utilization, so that autoscaler may add pods. Retarget of the HPA percentage is off unless that HPA has `attune.io/auto-tune: "true"`. With the annotation, Attune keeps the absolute threshold put, inside the limit cap. See the [HPA guide](docs/guides/hpa-coexistence.md).
 
 ---
 
@@ -48,7 +48,7 @@ In-place apply is the shared primitive (Kubernetes `/resize`). Attune is the
 | | VPA | Goldilocks | Attune |
 |---|---|---|---|
 | Resize method | Eviction-based Auto historically; newer modes can use in-place where supported | No resize (recommend only) | **In-place by default** (optional eviction fallback) |
-| HPA compatible | Risky on the same metric (death spirals) | N/A | Retargets the HPA percentage. A same-metric HPA can still add pods |
+| HPA compatible | Risky on the same metric (death spirals) | N/A | Opt-in retarget with `attune.io/auto-tune: "true"`. Without it, a same-metric HPA can still add pods |
 | Safety | Minimal guardrails | N/A | **Auto-revert** (OOM, throttle, restarts, NotReady) + **SLO PromQL guardrails** |
 | Blast radius | All targeted pods | N/A | **Canary** fraction with observation and optional auto-promote |
 | Cold start | None | N/A | **Startup boost** (temporary CPU headroom, then scale back) |
@@ -155,9 +155,12 @@ kubectl attune savings -n production
 ```
 
 > **Note:** The rows and the `$72.40` figure above are a sample, not a
-> measured cluster. Recommend mode can show a lower memory number.
-> Canary and Auto will not lower memory unless `memory.allowDecrease`
-> is `true` (it defaults to `false`).
+> measured cluster. They assume `memory.allowDecrease: true`. The default
+> is `false`, and then the published memory recommendation stays at the
+> live request, so the memory columns would not drop. CPU can still show
+> a lower request in Recommend, and nothing is resized until the policy
+> leaves Recommend. When the memory flag is `true`, OneShot, Canary, and
+> Auto apply that lower memory request.
 >
 > `minimumDataPoints` counts Prometheus range-query samples, not
 > hours. With the default `queryStep: 5m`, `minimumDataPoints: 48` needs about
@@ -315,10 +318,10 @@ The dashboard includes:
   accumulates. No premature optimization.
 - Time-of-day awareness: hourly usage profiles ensure recommendations
   cover peak hours, not just the average.
-- HPA coexistence: adjusts base resource requests and can retarget the
-  HPA percentage so the absolute threshold stays put. A same-metric HPA
-  can still add pods when a request goes down. See the
-  [HPA guide](docs/guides/hpa-coexistence.md).
+- HPA coexistence: adjusts base resource requests. Percentage retarget
+  runs only when the HPA has `attune.io/auto-tune: "true"`. Without that
+  annotation, a same-metric HPA can still add pods when a CPU request
+  goes down. See the [HPA guide](docs/guides/hpa-coexistence.md).
 - Resource bounds: `minAllowed` and `maxAllowed` are set per policy. Omitted
   minimums floor at 1m CPU and 4Mi memory. Omitted maximums are not capped.
 
