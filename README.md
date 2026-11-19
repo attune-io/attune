@@ -19,7 +19,9 @@
 [![GHCR](https://img.shields.io/badge/ghcr.io-attune-blue?logo=github)](https://github.com/attune-io/attune/pkgs/container/attune)
 [![kubectl plugin](https://img.shields.io/badge/kubectl_plugin-krew-blue)](https://krew.sigs.k8s.io/plugins/)
 
-**See how much reserved CPU you can give back, without restarting the pod.**
+**Attune is a Kubernetes operator that right-sizes pod CPU and memory requests.**
+
+It shows the numbers first, and applies them in place when you turn that on. See how much reserved CPU you can give back.
 
 Under-requesting gets someone paged: the process is throttled or killed for running out of memory. Over-requesting means fewer apps fit on each machine, so you pay for more machines.
 
@@ -39,8 +41,9 @@ You need Kubernetes 1.32 or newer. Prometheus is the usual metrics source. Datad
 
 ## How It's Different
 
-In-place apply is the shared primitive (Kubernetes `/resize`). Attune is the
-**safe unattended loop** on top: measure, decide, canary, verify, and revert.
+In-place apply is the shared primitive (Kubernetes `/resize`). Attune adds
+the loop on top: measure, decide, canary, verify, and revert. Pods change
+only after you leave Recommend for Canary or Auto.
 
 | | VPA | Goldilocks | Attune |
 |---|---|---|---|
