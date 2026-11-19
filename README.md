@@ -19,14 +19,15 @@
 [![GHCR](https://img.shields.io/badge/ghcr.io-attune-blue?logo=github)](https://github.com/attune-io/attune/pkgs/container/attune)
 [![kubectl plugin](https://img.shields.io/badge/kubectl_plugin-krew-blue)](https://krew.sigs.k8s.io/plugins/)
 
-**Safe, in-place Kubernetes pod resource right-sizing. VPA done right.**
+**Keep each pod's reserved CPU and memory close to what it uses, without restarting the pod.**
 
-Attune is a Kubernetes operator that automatically right-sizes pod
-resource requests and limits using [In-Place Pod Resize](https://kubernetes.io/blog/2025/12/19/kubernetes-v1-35-in-place-pod-resize-ga/)
-(**GA** in Kubernetes 1.35; beta and enabled by default in 1.33–1.34; alpha
-since 1.27, still feature-gated on 1.32). Attune requires **Kubernetes 1.32+**
-for the `/resize` subresource path. In-place by default, optional eviction
-fallback for infeasible resizes, and no HPA conflicts.
+Under-requesting fails where people notice it: throttling, restarts, an out-of-memory kill, a page at night. Over-requesting fails on the bill: fewer apps fit on each machine, so you pay for more machines. People still pay it, because the alternative was a kill at 3 AM.
+
+Attune measures usage and recommends a new reservation. Nothing is resized until you change the policy out of **Recommend** mode. When you do, the usual path is [in-place resize](https://kubernetes.io/blog/2025/12/19/kubernetes-v1-35-in-place-pod-resize-ga/). Attune requires **Kubernetes 1.32+**. On 1.32 the `InPlacePodVerticalScaling` feature gate is required. On 1.33–1.34 that gate is beta and on by default. On **1.35+** in-place resize is generally available and the gate is locked on.
+
+A Windows pod, a pod under the static CPU or memory manager, and a memory change that must restart the container cannot take the in-place path. If the kubelet rejects the resize, you can opt into an eviction fallback.
+
+Attune can run beside the Horizontal Pod Autoscaler. Lowering a CPU request still raises utilization, so that autoscaler may add pods. Attune can retarget the HPA percentage so the absolute threshold stays put. See the [HPA guide](docs/guides/hpa-coexistence.md).
 
 ---
 
@@ -36,7 +37,7 @@ fallback for infeasible resizes, and no HPA conflicts.
 |---------|--------|
 | Average CPU utilization is **8%** | Most requested compute sits idle ([CAST AI 2026](https://cast.ai/reports/state-of-kubernetes-optimization/)) |
 | **70%** cite overprovisioning among top cost drivers | Resources allocated "just in case" never reclaimed ([CNCF 2023](https://www.cncf.io/blog/2023/12/20/cncf-cloud-native-finops-cloud-financial-management-microsurvey/)) |
-| **<1%** run VPA in production | VPA historically evicts pods, conflicts with HPA, and is hard to run unattended ([ScaleOps 2026](https://scaleops.com/blog/why-pod-rightsizing-fails-in-production-a-deep-dive-into-vpa-and-what-actually-works/)) |
+| VPA can resize in place | `InPlaceOrRecreate` has been generally available since VPA 1.6. Eviction is the fallback, and a memory limit decrease can still recreate the pod |
 | In-Place Pod Resize is **GA** (K8s 1.35; beta 1.33–1.34; alpha since 1.27) | Non-disruptive right-sizing is a stable Kubernetes primitive |
 
 ## How It's Different
@@ -47,12 +48,12 @@ In-place apply is the shared primitive (Kubernetes `/resize`). Attune is the
 | | VPA | Goldilocks | Attune |
 |---|---|---|---|
 | Resize method | Eviction-based Auto historically; newer modes can use in-place where supported | No resize (recommend only) | **In-place by default** (optional eviction fallback) |
-| HPA compatible | Risky on the same metric (death spirals) | N/A | **Yes** (adjusts base requests, not HPA %) |
+| HPA compatible | Risky on the same metric (death spirals) | N/A | Retargets the HPA percentage. A same-metric HPA can still add pods |
 | Safety | Minimal guardrails | N/A | **Auto-revert** (OOM, throttle, restarts, NotReady) + **SLO PromQL guardrails** |
 | Blast radius | All targeted pods | N/A | **Canary** fraction with observation and optional auto-promote |
 | Cold start | None | N/A | **Startup boost** (temporary CPU headroom, then scale back) |
 | Algorithm | Backward-looking histograms | VPA recommender | **Time-of-day-aware + burst detection + confidence scaling** |
-| Production path | <1% run in production | Manual apply | **Observe → Recommend → Canary → Auto** |
+| Production path | Often left on `Off` | Manual apply | **Observe → Recommend → Canary → Auto** |
 
 > **Migrating from VPA?** See the step-by-step [migration guide](docs/guides/migrating-from-vpa.md) for field-by-field mapping, mode matrix, side-by-side YAML, and zero-downtime cutover.
 >
@@ -73,15 +74,14 @@ In-place apply is the shared primitive (Kubernetes `/resize`). Attune is the
 
 ```bash
 # Requires cert-manager when webhooks stay enabled (the default).
-# First-run footguns:
 #   --set webhooks.enabled=false          # skip cert-manager
 #   --set networkPolicy.prometheusPort=80 # if Prometheus Service is on :80
 #                                         # (chart default allows only :9090)
-# Chart 0.1.23 defaults to :0.1.23 (never published). Pin that
-# chart with --set image.tag=v0.1.23. 0.1.24+ can omit the pin.
 helm install attune oci://ghcr.io/attune-io/charts/attune \
   --namespace attune-system --create-namespace
 ```
+
+Chart 0.1.23 is the exception: it defaults to image tag `:0.1.23`, which was never published. Pin that chart with `--set image.tag=v0.1.23`. Chart 0.1.24 and newer can omit the pin.
 
 Also available via [OperatorHub.io](https://operatorhub.io/operator/attune)
 (OLM package **`attune`**) and on OpenShift 4.19+ in the built-in OperatorHub
@@ -154,7 +154,12 @@ kubectl attune savings -n production
 # production  api-services  830m       1012Mi        34%      $72.40
 ```
 
-> **Note:** `minimumDataPoints` counts Prometheus range-query samples, not
+> **Note:** The rows and the `$72.40` figure above are a sample, not a
+> measured cluster. Recommend mode can show a lower memory number.
+> Canary and Auto will not lower memory unless `memory.allowDecrease`
+> is `true` (it defaults to `false`).
+>
+> `minimumDataPoints` counts Prometheus range-query samples, not
 > hours. With the default `queryStep: 5m`, `minimumDataPoints: 48` needs about
 > 4 hours of data. If you increase `queryStep`, the wall-clock time rises too.
 > See the [quickstart guide](docs/getting-started/quickstart.md) for details.
@@ -310,8 +315,10 @@ The dashboard includes:
   accumulates. No premature optimization.
 - Time-of-day awareness: hourly usage profiles ensure recommendations
   cover peak hours, not just the average.
-- HPA coexistence: adjusts base resource requests without interfering
-  with HPA's percentage-based scaling. No death spirals.
+- HPA coexistence: adjusts base resource requests and can retarget the
+  HPA percentage so the absolute threshold stays put. A same-metric HPA
+  can still add pods when a request goes down. See the
+  [HPA guide](docs/guides/hpa-coexistence.md).
 - Resource bounds: `minAllowed` and `maxAllowed` are set per policy. Omitted
   minimums floor at 1m CPU and 4Mi memory. Omitted maximums are not capped.
 
