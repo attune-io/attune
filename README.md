@@ -19,13 +19,13 @@
 [![GHCR](https://img.shields.io/badge/ghcr.io-attune-blue?logo=github)](https://github.com/attune-io/attune/pkgs/container/attune)
 [![kubectl plugin](https://img.shields.io/badge/kubectl_plugin-krew-blue)](https://krew.sigs.k8s.io/plugins/)
 
-**Keep each pod's reserved CPU and memory close to what it uses, without restarting the pod.**
+**See how much reserved CPU you can give back, without restarting the pod.**
 
-Under-requesting pages someone at night. Over-requesting means fewer apps fit on each machine, so you pay for more machines.
+Under-requesting gets someone paged: the process is throttled or killed for running out of memory. Over-requesting means fewer apps fit on each machine, so you pay for more machines.
 
-Attune watches usage and shows the reservation it would set. Nothing changes until you leave **Recommend**. Canary tries a fraction of the pods first. Auto takes the rest. The usual apply path is [in-place resize](https://kubernetes.io/blog/2025/12/19/kubernetes-v1-35-in-place-pod-resize-ga/), so the pod keeps running.
+Attune watches usage and shows the reservation it would set. Nothing changes until you leave **Recommend**. Canary tries a fraction of the pods first. Auto takes the rest. The usual apply path is [in-place resize](https://kubernetes.io/blog/2025/12/19/kubernetes-v1-35-in-place-pod-resize-ga/), so the pod keeps running. A lower memory reservation stays off until you set `memory.allowDecrease: true`.
 
-You need Kubernetes 1.32 or newer, and Prometheus. The [install guide](docs/getting-started/installation.md) has the version gate. Pods that cannot resize in place, and running next to a Horizontal Pod Autoscaler, are in [in-place limits](docs/architecture/resize-api.md#limits-and-caveats) and the [HPA guide](docs/guides/hpa-coexistence.md).
+You need Kubernetes 1.32 or newer. Prometheus is the usual metrics source. Datadog and CloudWatch work too. The [install guide](docs/getting-started/installation.md) has the version gate. Pods that cannot resize in place, and running next to a Horizontal Pod Autoscaler, are in [in-place limits](docs/architecture/resize-api.md#limits-and-caveats) and the [HPA guide](docs/guides/hpa-coexistence.md).
 
 ---
 
@@ -35,7 +35,7 @@ You need Kubernetes 1.32 or newer, and Prometheus. The [install guide](docs/gett
 |---------|--------|
 | Average CPU utilization is **8%** | Most requested compute sits idle ([CAST AI 2026](https://cast.ai/reports/state-of-kubernetes-optimization/)) |
 | **70%** cite overprovisioning among top cost drivers | Resources allocated "just in case" never reclaimed ([CNCF 2023](https://www.cncf.io/blog/2023/12/20/cncf-cloud-native-finops-cloud-financial-management-microsurvey/)) |
-| In-place resize is generally available | Kubernetes 1.35 and newer can change CPU and memory on a running pod |
+| In-place resize ships with Kubernetes | 1.33 and 1.34 have it on by default. 1.35 and newer are generally available. 1.32 needs the feature gate |
 
 ## How It's Different
 

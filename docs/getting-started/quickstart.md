@@ -45,8 +45,8 @@ Start in **Recommend** mode so that no pods are modified. The operator will
 collect metrics and write recommendations to the resource status.
 `memory.allowDecrease` defaults to false, so the published memory
 recommendation stays at the live request. CPU can show a lower number.
-Set `memory.allowDecrease: true` before Canary or Auto if you want memory
-to go down.
+Set `memory.allowDecrease: true` before OneShot, Canary, or Auto if you
+want memory to go down.
 
 All fields have production-ready defaults: P95 CPU, P99 memory, 20% CPU
 overhead, and 30% memory overhead. Omitted minimums floor at 1m CPU and

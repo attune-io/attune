@@ -21,8 +21,12 @@ pods. Because in-place resize modifies cgroup limits on running pods without
 restarting them, the HPA's utilization metric reflects the new allocation
 immediately.
 
-The conflict detector identifies HPAs targeting the same workload and logs a
-notice:
+That does not by itself stop an HPA from adding pods. Utilization is
+usage divided by the request. A lower request raises the percentage.
+
+The conflict detector identifies HPAs targeting the same workload and logs
+this notice. The sentence is the event text. It is not a promise that the
+percentage stays put:
 
 ```text
 HPA my-hpa targets the same Deployment/my-app; attune will adjust
@@ -53,8 +57,11 @@ spec:
 
 ### QoS-aware HPA target adjustment
 
-When Attune changes a pod's CPU request, it recalculates the HPA target to
-preserve the same absolute CPU threshold:
+This math runs only when the HPA has `attune.io/auto-tune: "true"`.
+Without that annotation, Attune does not change the HPA percentage.
+
+When that annotation is set and Attune changes a pod's CPU request, it
+recalculates the HPA target to preserve the same absolute CPU threshold:
 
 ```
 newTarget = originalTarget * (originalRequest / newRequest)
