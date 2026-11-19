@@ -1051,8 +1051,10 @@ func printExportList(ctx context.Context, dynClient dynamic.Interface, namespace
 		if apierrors.IsForbidden(err) {
 			return fmt.Errorf("insufficient RBAC permissions to list ConfigMaps (check ServiceAccount/ClusterRole)")
 		}
-		if apierrors.IsNotFound(err) || isNoResourceMatch(err) {
-			return fmt.Errorf("failed to list ConfigMaps (unexpected API error)")
+		// ConfigMaps are a core type. NotFound here is a missing namespace,
+		// not a missing Attune install. Keep the API error either way.
+		if apierrors.IsNotFound(err) && effectiveNS != "" {
+			return fmt.Errorf("namespace %q was not found while listing recommendation ConfigMaps (kubectl get namespace %s): %w", effectiveNS, effectiveNS, err)
 		}
 		return fmt.Errorf("listing recommendation ConfigMaps: %w", err)
 	}
