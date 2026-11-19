@@ -21,9 +21,9 @@
 
 **Attune is a Kubernetes operator that right-sizes pod CPU and memory requests.**
 
-It shows the numbers first, and applies them in place when you turn that on. See how much reserved CPU you can give back.
+Using it is likely to save money. Pods usually reserve more CPU than they use, and that empty reservation is what you pay for. Attune shows how much you can give back. It applies the new numbers in place when you turn that on. The bill moves once the same work fits on fewer machines.
 
-Under-requesting gets someone paged: the process is throttled or killed for running out of memory. Over-requesting means fewer apps fit on each machine, so you pay for more machines.
+Under-requesting gets someone paged: the process is throttled or killed for running out of memory. That is why the reservations start too high.
 
 Attune watches usage and shows the reservation it would set. Nothing changes until you leave **Recommend**. Canary tries a fraction of the pods first. Auto takes the rest. The usual apply path is [in-place resize](https://kubernetes.io/blog/2025/12/19/kubernetes-v1-35-in-place-pod-resize-ga/), so the pod keeps running. A lower memory reservation stays off until you set `memory.allowDecrease: true`.
 
