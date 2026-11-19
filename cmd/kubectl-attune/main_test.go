@@ -36,6 +36,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
+	clienttesting "k8s.io/client-go/testing"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	pkgdefaults "github.com/attune-io/attune/pkg/defaults"
@@ -4586,6 +4587,41 @@ func TestRun_ExportList_HappyPath(t *testing.T) {
 	// CI trigger commit.
 	code := runExportList(context.Background(), dynClient, "default", false, []string{"list"})
 	assert.Equal(t, 0, code)
+}
+
+func TestPrintExportList_NotFoundNamesTheNamespace(t *testing.T) {
+	notFound := apierrors.NewNotFound(schema.GroupResource{Resource: "namespaces"}, "payments")
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
+		map[schema.GroupVersionResource]string{cmGVR: "ConfigMapList"})
+	dynClient.PrependReactor("list", "configmaps", func(clienttesting.Action) (bool, runtime.Object, error) {
+		return true, nil, notFound
+	})
+
+	err := printExportList(context.Background(), dynClient, "payments", false)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, notFound)
+	assert.Contains(t, err.Error(), `namespace "payments"`)
+	assert.Contains(t, err.Error(), "kubectl get namespace payments")
+	assert.NotContains(t, err.Error(), "unexpected API error")
+
+	err = printExportList(context.Background(), dynClient, "", true)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, notFound)
+	assert.Contains(t, err.Error(), "listing recommendation ConfigMaps")
+	assert.NotContains(t, err.Error(), `namespace ""`)
+	assert.NotContains(t, err.Error(), "unexpected API error")
+
+	noMatch := fmt.Errorf("the server could not find the requested resource")
+	dynClient = dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
+		map[schema.GroupVersionResource]string{cmGVR: "ConfigMapList"})
+	dynClient.PrependReactor("list", "configmaps", func(clienttesting.Action) (bool, runtime.Object, error) {
+		return true, nil, noMatch
+	})
+	err = printExportList(context.Background(), dynClient, "payments", false)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, noMatch)
+	assert.Contains(t, err.Error(), "the server could not find the requested resource")
+	assert.NotContains(t, err.Error(), "unexpected API error")
 }
 
 func TestPrintExportList(t *testing.T) {
