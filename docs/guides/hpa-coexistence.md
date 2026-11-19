@@ -1,7 +1,10 @@
 # HPA Coexistence
 
-Attune is designed to work alongside Horizontal Pod Autoscalers
-(HPAs) without causing scaling conflicts or death spirals.
+Attune is designed to run alongside a Horizontal Pod Autoscaler.
+Lowering a CPU request still raises utilization, so an HPA on that
+same percentage can add pods. Retarget, which keeps the absolute
+threshold put, runs only when the HPA has `attune.io/auto-tune: "true"`.
+The chart does not set that annotation.
 
 ## Why HPA + VPA was problematic
 

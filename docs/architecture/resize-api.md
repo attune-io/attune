@@ -317,8 +317,13 @@ stateDiagram-v2
   (`restartPolicy: Always`) are CREATE-sized, in-place resized, and
   startup-boosted. They are still subject to `excludeKnownSidecars`. See
   [Istio integration](../guides/istio-integration.md).
-- **Restart policy**: Containers with `resizePolicy: RestartContainer` will
-  be restarted by the kubelet when their resources change.
+- **Restart policy**: Containers with `resizePolicy: RestartContainer` still
+  resize through `/resize`. The kubelet restarts that container. Attune does
+  not treat that restart as a rejected resize. Eviction is only the fallback
+  when `resizeMethod` is `InPlaceOrRecreate` and the kubelet reports the
+  resize infeasible.
+- **Windows and the static CPU or memory manager**: those pods cannot resize
+  in place. The kubelet rejects the call.
 - **Prometheus address limit**: The operator caches at most 64 unique
   Prometheus collector instances. If more than 64 distinct addresses are
   configured across all policies, additional addresses are rejected with
