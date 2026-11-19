@@ -17,8 +17,11 @@ For a pod on node `N` with target container `C` and proposed target requests
    - Merge `T_*` into `C`'s requests. A resource the target omits keeps
      its current value
    - When in-place pod-level resize is on and the pod has
-     `spec.resources`, raise that envelope to cover the containers, as the
-     resize does
+     `spec.resources`, raise that envelope to the same container
+     aggregate (app containers plus native sidecars, or each regular
+     init plus the sidecars declared before it). The raise does not
+     replace that sum with the current pod-level request, and it does
+     not add overhead
 2. Take the planned pod's **effective request**, the scheduler's formula
    (`k8s.io/component-helpers/resource.PodRequests`):
    - The sum of `spec.containers` and native sidecars (init containers

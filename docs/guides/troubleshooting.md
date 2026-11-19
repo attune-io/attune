@@ -1177,7 +1177,10 @@ envelope would be exceeded". History reason is `envelope_constraint`.
 memory envelope). Raising a container request past that envelope is
 rejected by the API. Attune does not invent an envelope. When in-place
 pod-level resize is on, one `/resize` writes the container target and
-raises envelope requests to cover the container sum. Existing envelope
+raises envelope requests to the container aggregate admission checks:
+app containers plus native sidecars, or, when larger, each regular init
+plus the native sidecars declared before it. A sidecar declared after
+an init is not part of that init's total. Existing envelope
 limits are raised only as far as needed (max of the current limit, the
 needed request, and the max single container limit, never the sum of
 limits) and stay at least the request. When the field exists but

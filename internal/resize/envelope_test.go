@@ -575,6 +575,91 @@ func TestSumContainerRequests_NativeSidecarCounts(t *testing.T) {
 		"native sidecar must count in the running sum, got %s", sum.String())
 }
 
+func TestSumContainerRequests_SidecarDeclaredBeforeInit(t *testing.T) {
+	always := corev1.ContainerRestartPolicyAlways
+	initReq := func(name, cpu, mem string, sidecar bool) corev1.Container {
+		t.Helper()
+		c := corev1.Container{
+			Name:      name,
+			Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+		}
+		if cpu != "" {
+			c.Resources.Requests[corev1.ResourceCPU] = qty(t, cpu)
+		}
+		if mem != "" {
+			c.Resources.Requests[corev1.ResourceMemory] = qty(t, mem)
+		}
+		if sidecar {
+			c.RestartPolicy = &always
+		}
+		return c
+	}
+
+	pod := newTestPod("web-0", "default", "app", "200m", "128Mi", "200m", "256Mi")
+	pod.Spec.InitContainers = []corev1.Container{
+		initReq("proxy", "100m", "32Mi", true),
+		initReq("migrate", "500m", "256Mi", false),
+	}
+	cpuSum := sumContainerRequests(pod, corev1.ResourceCPU)
+	assert.True(t, cpuSum.Equal(qty(t, "600m")),
+		"sidecar before init: want 600m got %s", cpuSum.String())
+	memSum := sumContainerRequests(pod, corev1.ResourceMemory)
+	assert.True(t, memSum.Equal(qty(t, "288Mi")),
+		"sidecar before init: want 288Mi got %s", memSum.String())
+
+	big := newTestPod("web-0", "default", "app", "100m", "64Mi", "100m", "64Mi")
+	big.Spec.InitContainers = []corev1.Container{
+		initReq("proxy", "500m", "", true),
+		initReq("migrate", "2", "", false),
+	}
+	bigSum := sumContainerRequests(big, corev1.ResourceCPU)
+	assert.True(t, bigSum.Equal(qty(t, "2500m")),
+		"sidecar before 2 CPU init: want 2500m got %s", bigSum.String())
+
+	after := newTestPod("web-0", "default", "app", "200m", "128Mi", "200m", "256Mi")
+	after.Spec.InitContainers = []corev1.Container{
+		initReq("migrate", "500m", "", false),
+		initReq("proxy", "100m", "", true),
+	}
+	afterSum := sumContainerRequests(after, corev1.ResourceCPU)
+	assert.True(t, afterSum.Equal(qty(t, "500m")),
+		"sidecar after init: want 500m got %s", afterSum.String())
+
+	between := newTestPod("web-0", "default", "app", "50m", "64Mi", "50m", "64Mi")
+	between.Spec.InitContainers = []corev1.Container{
+		initReq("setup", "200m", "", false),
+		initReq("proxy", "100m", "", true),
+		initReq("migrate", "400m", "", false),
+	}
+	betweenSum := sumContainerRequests(between, corev1.ResourceCPU)
+	assert.True(t, betweenSum.Equal(qty(t, "500m")),
+		"sidecar between inits: want 500m got %s", betweenSum.String())
+
+	pod.Spec.Resources = &corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    qty(t, "200m"),
+			corev1.ResourceMemory: qty(t, "64Mi"),
+		},
+	}
+	raised := RaiseToCover(pod)
+	require.NotNil(t, raised)
+	assert.True(t, raised.Requests.Cpu().Equal(qty(t, "600m")),
+		"RaiseToCover cpu: want 600m got %s", raised.Requests.Cpu().String())
+	assert.True(t, raised.Requests.Memory().Equal(qty(t, "288Mi")),
+		"RaiseToCover memory: want 288Mi got %s", raised.Requests.Memory().String())
+
+	guard := pod.DeepCopy()
+	guard.Spec.Resources.Requests[corev1.ResourceCPU] = qty(t, "550m")
+	guard.Spec.Resources.Requests[corev1.ResourceMemory] = qty(t, "1Gi")
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceCPU: qty(t, "250m")},
+	}
+	planned := applyPlannedContainer(guard, "app", target)
+	assert.True(t, increaseExceedsCurrentEnvelope(guard, planned, "app", target),
+		"550m envelope is below the 600m sidecar-plus-init aggregate")
+	assert.True(t, containersExceedEnvelope(planned, planned.Spec.Resources))
+}
+
 func TestContainerResources_NilAndMissing(t *testing.T) {
 	assert.Empty(t, containerResources(nil, "app").Requests)
 	pod := newTestPod("web-0", "default", "app", "100m", "128Mi", "200m", "256Mi")
