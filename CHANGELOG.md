@@ -6,6 +6,14 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.39](https://github.com/attune-io/attune/compare/v0.1.38...v0.1.39) (2026-11-20)
+
+
+### Bug Fixes
+
+* count sidecars declared before an init in the pod envelope ([#1172](https://github.com/attune-io/attune/issues/1172)) ([0382ab8](https://github.com/attune-io/attune/commit/0382ab818f085162420e030b828faa292807cc68))
+* name the namespace when export list cannot find it ([#1175](https://github.com/attune-io/attune/issues/1175)) ([0f318c1](https://github.com/attune-io/attune/commit/0f318c17e5429cf5db82ef34a64377d6a33eaaac))
+
 ## [0.1.38](https://github.com/attune-io/attune/compare/v0.1.37...v0.1.38) (2026-11-18)
 
 
