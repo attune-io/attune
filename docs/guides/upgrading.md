@@ -8,6 +8,39 @@ Maintainers: before publishing a release after multi-version product changes,
 run the full E2E Nightly matrix on tip of `main` (see
 [Releasing: full E2E matrix](../contributing/releasing.md#1b-full-e2e-matrix-required-before-tagging-a-product-release)).
 
+## v0.1.38 to v0.1.39
+
+No CRD change. Existing policy YAML still applies. Upgrade the chart to
+0.1.39, or set the image tag to `0.1.39` or `v0.1.39`. The image is
+built with Go 1.27.4.
+
+Kubernetes support stays 1.32 and newer. On 1.33, an in-place memory
+limit decrease is still refused when the resize policy is `NotRequired`.
+Use `RestartContainer` or move to 1.34 or newer.
+
+### A sidecar declared before a larger init counts in the pod-level request
+
+A native sidecar (an init container with `restartPolicy: Always`) that
+is declared before a larger regular init is included in that init's
+total. The pod-level request is raised to that total, so a resize the
+API server used to reject can now succeed.
+
+A sidecar declared after that init is still left out of the init's
+total. A one-shot init is still not added on top of the app containers.
+
+### Export list names a missing namespace
+
+`kubectl attune export list` in a namespace that does not exist names
+that namespace and keeps the API error. It no longer prints
+`failed to list ConfigMaps (unexpected API error)`.
+
+### A fresh install does not resize yet
+
+Recommend mode is the default. Nothing is resized until you leave that
+mode. A same-metric Horizontal Pod Autoscaler can still add pods. The
+sample savings table in the README is a sample, not a measured result
+from your cluster.
+
 ## v0.1.36 to v0.1.37
 
 No CRD change. Existing policy YAML still applies. A Job policy that
