@@ -76,9 +76,8 @@ check_default "minimumDataPoints (API ref)" \
 check_default "minimumDataPoints (quickstart)" \
   "minimumDataPoints: 48" \
   "docs/getting-started/quickstart.md"
-check_default "minimumDataPoints (README)" \
-  "minimumDataPoints: 48" \
-  "README.md"
+# The README is the pitch. The 48-sample default stays in the quickstart
+# and the API reference, not on the first screen.
 
 minimum_data_points_crd_files=(
   "config/crd/bases/attune.io_attunepolicies.yaml"
@@ -101,9 +100,6 @@ check_default "minimumDataPoints timing (Go godoc)" \
 check_default "minimumDataPoints timing (Go godoc)" \
   "4 hours of data" \
   "api/v1alpha1/attunepolicy_types.go"
-check_default "minimumDataPoints timing (README)" \
-  "4 hours of data" \
-  "README.md"
 check_default "minimumDataPoints timing (Prometheus guide)" \
   "4 hours of data" \
   "docs/guides/prometheus-setup.md"
@@ -229,9 +225,9 @@ check_default "collectorTTL (Helm values)" \
 check_default "prometheusPort (values.yaml)" \
   "prometheusPort: 9090" \
   "charts/attune/values.yaml"
-check_default "prometheusPort (README)" \
+check_default "prometheusPort (installation)" \
   'prometheusPort.*9090' \
-  "README.md"
+  "docs/getting-started/installation.md"
 
 # --- why-attune.md: pricing, overheads ---
 check_default "cpuPricing (why page)" \
@@ -337,12 +333,6 @@ if end is None:
 PY
 
 # --- controller-applied defaults explanation ---
-check_default "controller-applied defaults (README)" \
-  "controller at reconcile time" \
-  "README.md"
-check_default "runtime behavior guidance (README)" \
-  "built-in and inherited runtime" \
-  "README.md"
 check_default "controller-applied defaults (quickstart)" \
   "controller at reconcile time" \
   "docs/getting-started/quickstart.md"

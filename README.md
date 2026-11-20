@@ -19,14 +19,15 @@
 [![GHCR](https://img.shields.io/badge/ghcr.io-attune-blue?logo=github)](https://github.com/attune-io/attune/pkgs/container/attune)
 [![kubectl plugin](https://img.shields.io/badge/kubectl_plugin-krew-blue)](https://krew.sigs.k8s.io/plugins/)
 
-**Safe, in-place Kubernetes pod resource right-sizing. VPA done right.**
+**Attune is a Kubernetes operator that right-sizes pod CPU and memory requests.**
 
-Attune is a Kubernetes operator that automatically right-sizes pod
-resource requests and limits using [In-Place Pod Resize](https://kubernetes.io/blog/2025/12/19/kubernetes-v1-35-in-place-pod-resize-ga/)
-(**GA** in Kubernetes 1.35; beta and enabled by default in 1.33–1.34; alpha
-since 1.27, still feature-gated on 1.32). Attune requires **Kubernetes 1.32+**
-for the `/resize` subresource path. In-place by default, optional eviction
-fallback for infeasible resizes, and no HPA conflicts.
+Using it is likely to save money. Pods usually reserve more CPU than they use, and that empty reservation is what you pay for. Attune shows how much you can give back. It applies the new numbers in place when you turn that on. The bill moves once the same work fits on fewer machines.
+
+Under-requesting gets someone paged: the process is throttled or killed for running out of memory. That is why the reservations start too high.
+
+Attune watches usage and shows the reservation it would set. Nothing changes until you leave **Recommend**. Canary tries a fraction of the pods first. Auto takes the rest. The usual apply path is [in-place resize](https://kubernetes.io/blog/2025/12/19/kubernetes-v1-35-in-place-pod-resize-ga/), so the pod keeps running. A lower memory reservation stays off until you set `memory.allowDecrease: true`.
+
+You need Kubernetes 1.32 or newer. Prometheus is the usual metrics source. Datadog and CloudWatch work too. The [install guide](docs/getting-started/installation.md) has the version gate. Pods that cannot resize in place, and running next to a Horizontal Pod Autoscaler, are in [in-place limits](docs/architecture/resize-api.md#limits-and-caveats) and the [HPA guide](docs/guides/hpa-coexistence.md).
 
 ---
 
@@ -36,23 +37,23 @@ fallback for infeasible resizes, and no HPA conflicts.
 |---------|--------|
 | Average CPU utilization is **8%** | Most requested compute sits idle ([CAST AI 2026](https://cast.ai/reports/state-of-kubernetes-optimization/)) |
 | **70%** cite overprovisioning among top cost drivers | Resources allocated "just in case" never reclaimed ([CNCF 2023](https://www.cncf.io/blog/2023/12/20/cncf-cloud-native-finops-cloud-financial-management-microsurvey/)) |
-| **<1%** run VPA in production | VPA historically evicts pods, conflicts with HPA, and is hard to run unattended ([ScaleOps 2026](https://scaleops.com/blog/why-pod-rightsizing-fails-in-production-a-deep-dive-into-vpa-and-what-actually-works/)) |
-| In-Place Pod Resize is **GA** (K8s 1.35; beta 1.33–1.34; alpha since 1.27) | Non-disruptive right-sizing is a stable Kubernetes primitive |
+| In-place resize ships with Kubernetes | 1.33 and 1.34 have it on by default. 1.35 and newer are generally available. 1.32 needs the feature gate |
 
 ## How It's Different
 
-In-place apply is the shared primitive (Kubernetes `/resize`). Attune is the
-**safe unattended loop** on top: measure, decide, canary, verify, and revert.
+In-place apply is the shared primitive (Kubernetes `/resize`). Attune adds
+the loop on top: measure, decide, canary, verify, and revert. Pods change
+only after you leave Recommend for Canary or Auto.
 
 | | VPA | Goldilocks | Attune |
 |---|---|---|---|
-| Resize method | Eviction-based Auto historically; newer modes can use in-place where supported | No resize (recommend only) | **In-place by default** (optional eviction fallback) |
-| HPA compatible | Risky on the same metric (death spirals) | N/A | **Yes** (adjusts base requests, not HPA %) |
+| Resize method | Eviction-based Auto historically; newer modes can use in-place where supported | No resize (recommend only) | **In-place by default** |
+| HPA compatible | Risky on the same metric (death spirals) | N/A | Runs beside HPA. [Guide](docs/guides/hpa-coexistence.md) |
 | Safety | Minimal guardrails | N/A | **Auto-revert** (OOM, throttle, restarts, NotReady) + **SLO PromQL guardrails** |
 | Blast radius | All targeted pods | N/A | **Canary** fraction with observation and optional auto-promote |
 | Cold start | None | N/A | **Startup boost** (temporary CPU headroom, then scale back) |
 | Algorithm | Backward-looking histograms | VPA recommender | **Time-of-day-aware + burst detection + confidence scaling** |
-| Production path | <1% run in production | Manual apply | **Observe → Recommend → Canary → Auto** |
+| Production path | Often left on `Off` | Manual apply | **Observe → Recommend → Canary → Auto** |
 
 > **Migrating from VPA?** See the step-by-step [migration guide](docs/guides/migrating-from-vpa.md) for field-by-field mapping, mode matrix, side-by-side YAML, and zero-downtime cutover.
 >
@@ -72,13 +73,6 @@ In-place apply is the shared primitive (Kubernetes `/resize`). Attune is the
 ### Install
 
 ```bash
-# Requires cert-manager when webhooks stay enabled (the default).
-# First-run footguns:
-#   --set webhooks.enabled=false          # skip cert-manager
-#   --set networkPolicy.prometheusPort=80 # if Prometheus Service is on :80
-#                                         # (chart default allows only :9090)
-# Chart 0.1.23 defaults to :0.1.23 (never published). Pin that
-# chart with --set image.tag=v0.1.23. 0.1.24+ can omit the pin.
 helm install attune oci://ghcr.io/attune-io/charts/attune \
   --namespace attune-system --create-namespace
 ```
@@ -154,30 +148,12 @@ kubectl attune savings -n production
 # production  api-services  830m       1012Mi        34%      $72.40
 ```
 
-> **Note:** `minimumDataPoints` counts Prometheus range-query samples, not
-> hours. With the default `queryStep: 5m`, `minimumDataPoints: 48` needs about
-> 4 hours of data. If you increase `queryStep`, the wall-clock time rises too.
-> See the [quickstart guide](docs/getting-started/quickstart.md) for details.
->
-> This sample does not set `maxAllowed`. Add one when you want a cap.
->
-> **Effective defaults:** Most defaultable policy fields are applied by the
-> controller at reconcile time so that `AttuneDefaults` and
-> `AttuneNamespaceDefaults` can override them. Those fields may appear empty
-> in `kubectl get attunepolicy -o yaml`, but the policy still follows the
-> built-in and inherited runtime behavior unless you override those fields.
-> Use `kubectl attune explain -n <namespace> <policy>` to inspect the
-> effective values for the key controller-applied defaults and see whether each
-> one came from the policy, a namespace default, a cluster default, or the
-> built-in default.
-
-> **Upgrading?** Review the [changelog](CHANGELOG.md) for breaking changes.
->
-> **Helm installs:** If you use restrictive cluster networking, review the
-> chart's [Helm README](charts/attune/README.md#networkpolicy)
-> before installing with `networkPolicy.enabled=true` (the default). The
-> policy allows webhook, metrics, DNS, API server, and Prometheus egress
-> on `networkPolicy.prometheusPort` (default `9090`).
+> **Sample, not a measured cluster.** The memory cuts in that table
+> require `memory.allowDecrease: true`. The default is `false`, so a real
+> Recommend view keeps memory at the live request. CPU can show a lower
+> number immediately, and nothing is resized until you leave Recommend.
+> Timing, empty-looking defaults, and the Prometheus port are in the
+> [quickstart](docs/getting-started/quickstart.md).
 
 ### Upgrade to Canary Mode
 
@@ -310,8 +286,8 @@ The dashboard includes:
   accumulates. No premature optimization.
 - Time-of-day awareness: hourly usage profiles ensure recommendations
   cover peak hours, not just the average.
-- HPA coexistence: adjusts base resource requests without interfering
-  with HPA's percentage-based scaling. No death spirals.
+- HPA coexistence: runs beside the Horizontal Pod Autoscaler. See the
+  [HPA guide](docs/guides/hpa-coexistence.md).
 - Resource bounds: `minAllowed` and `maxAllowed` are set per policy. Omitted
   minimums floor at 1m CPU and 4Mi memory. Omitted maximums are not capped.
 
@@ -356,8 +332,8 @@ The dashboard includes:
 - Pause reconciliation: `spec.paused: true` halts all activity without
   reverting existing resizes.
 - Namespace freeze: annotate the namespace `attune.io/freeze=true` to skip new apply (resize, persist, CREATE). Pending safety revert still runs. Recommendations stay in status.
-- Webhook warnings: 13 admission-time warnings for nonsensical config
-  combinations with 31 runtime K8s events and per-policy suppression.
+- Admission warnings when a combination of fields will not do what it
+  looks like.
 
 ## Documentation
 
