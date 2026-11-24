@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -687,7 +688,7 @@ func TestAcquireReleaseEvictionLock_DeletesWhenIdle(t *testing.T) {
 	mu := r.acquireEvictionLock(key)
 	_, ok := r.evictionLocks.Load(key)
 	assert.True(t, ok, "held lock must be in the map")
-	assert.False(t, mu.TryLock(), "acquired lock must be held")
+	assert.False(t, mu.mu.TryLock(), "acquired lock must be held")
 	r.releaseEvictionLock(key, mu)
 	_, ok = r.evictionLocks.Load(key)
 	assert.False(t, ok, "idle eviction lock must be removed")
@@ -716,6 +717,43 @@ func TestAcquireEvictionLock_SerializesSameKey(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("second acquire must proceed after release")
+	}
+	_, ok := r.evictionLocks.Load(key)
+	assert.False(t, ok, "map must be empty after both holders release")
+}
+
+func TestEvictionLock_ReleaseGapDoesNotAdmitSecondAcquire(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+	key := "default/api"
+	entered := make(chan struct{})
+	finishGap := make(chan struct{})
+	var once sync.Once
+	r.evictionLockGap = func() {
+		once.Do(func() {
+			close(entered)
+			<-finishGap
+		})
+	}
+	mu := r.acquireEvictionLock(key)
+	go r.releaseEvictionLock(key, mu)
+	<-entered
+
+	got := make(chan struct{})
+	go func() {
+		mu2 := r.acquireEvictionLock(key)
+		close(got)
+		r.releaseEvictionLock(key, mu2)
+	}()
+	select {
+	case <-got:
+		t.Fatal("second acquire ran while the first release still held the lock")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(finishGap)
+	select {
+	case <-got:
+	case <-time.After(time.Second):
+		t.Fatal("second acquire did not proceed after release")
 	}
 	_, ok := r.evictionLocks.Load(key)
 	assert.False(t, ok, "map must be empty after both holders release")

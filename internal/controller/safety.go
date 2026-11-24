@@ -175,24 +175,47 @@ func (r *AttunePolicyReconciler) tryEvictionFallback(
 	return true, ""
 }
 
-// acquireEvictionLock returns the per-workload mutex and holds it. Release
-// with releaseEvictionLock so the map entry is removed when idle.
-func (r *AttunePolicyReconciler) acquireEvictionLock(key string) *sync.Mutex {
+// evictionLockEntry is one workload's eviction mutex. refs counts
+// goroutines inside List+Evict and is changed only while mu is held.
+type evictionLockEntry struct {
+	mu   sync.Mutex
+	refs int
+}
+
+// acquireEvictionLock returns the per-workload lock and holds it. Release
+// with releaseEvictionLock. The map entry is removed only after the last
+// holder unlocks, so a second goroutine cannot lock a replacement mutex
+// while the first critical section is still open.
+func (r *AttunePolicyReconciler) acquireEvictionLock(key string) *evictionLockEntry {
 	for {
-		v, _ := r.evictionLocks.LoadOrStore(key, &sync.Mutex{})
-		mu := v.(*sync.Mutex)
-		mu.Lock()
+		v, _ := r.evictionLocks.LoadOrStore(key, &evictionLockEntry{})
+		e := v.(*evictionLockEntry)
+		e.mu.Lock()
 		cur, ok := r.evictionLocks.Load(key)
-		if ok && cur == mu {
-			return mu
+		if !ok || cur != e {
+			e.mu.Unlock()
+			continue
 		}
-		mu.Unlock()
+		e.refs++
+		return e
 	}
 }
 
-func (r *AttunePolicyReconciler) releaseEvictionLock(key string, mu *sync.Mutex) {
-	r.evictionLocks.Delete(key)
-	mu.Unlock()
+func (r *AttunePolicyReconciler) releaseEvictionLock(key string, e *evictionLockEntry) {
+	e.refs--
+	if e.refs > 0 {
+		e.mu.Unlock()
+		return
+	}
+	if r.evictionLockGap != nil {
+		r.evictionLockGap()
+	}
+	e.mu.Unlock()
+	e.mu.Lock()
+	if e.refs == 0 {
+		r.evictionLocks.CompareAndDelete(key, e)
+	}
+	e.mu.Unlock()
 }
 
 // countLiveRunningReplicas lists matching pods through the typed Clientset

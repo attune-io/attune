@@ -311,8 +311,14 @@ type AttunePolicyReconciler struct {
 
 	// evictionLocks serializes last-replica List+Evict per workload so two
 	// concurrent resize goroutines cannot both observe running==2 and evict.
-	// Key is namespace+"/"+workloadName. Entries are deleted on release.
-	evictionLocks sync.Map // map[string]*sync.Mutex
+	// Key is namespace+"/"+workloadName. The entry stays until the last
+	// holder has unlocked, then it is removed.
+	evictionLocks sync.Map // map[string]*evictionLockEntry
+
+	// evictionLockGap, when set, runs on the last release while that
+	// workload's mutex is still held. Tests use it to widen the window
+	// where a second acquire must still block. Production leaves it nil.
+	evictionLockGap func()
 
 	// increaseRates holds per-policy wall-clock token buckets for
 	// maxCpuIncreasePerMinute / maxMemoryIncreasePerMinute.
