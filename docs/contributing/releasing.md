@@ -159,8 +159,7 @@ you to set for 0.1.23.
 
 Re-pushing a chart replaces its OCI digest and drops the Cosign signature
 on the old digest. The republish workflow signs the new digest on GHCR and
-on Docker Hub. Dispatch
-[Republish chart images](https://github.com/attune-io/attune/actions/workflows/republish-chart-images.yaml)
+on Docker Hub. Dispatch `.github/workflows/republish-chart-images.yaml`
 with `push` left false to print the plan. Dispatch it with `push` true to
 publish. The workflow does not run on pull requests or on pushes to main.
 An install that pinned the chart by digest must pick up the new digest.

@@ -56,11 +56,15 @@ jobs:
       - name: Login to GHCR
         if: inputs.push
         shell: bash -Eeuo pipefail {0}
+        env:
+          # github.actor stays in env. Expanding it inside run: is a
+          # zizmor template-injection finding.
+          REGISTRY_USER: ${{ github.actor }}
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
-            --username "${{ github.actor }}" --password-stdin
+            --username "$REGISTRY_USER" --password-stdin
           echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io \
-            --username "${{ github.actor }}" --password-stdin
+            --username "$REGISTRY_USER" --password-stdin
 
       - name: Login to Docker Hub
         if: inputs.push
