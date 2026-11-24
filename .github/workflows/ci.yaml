@@ -168,6 +168,8 @@ jobs:
               - 'hack/bounded-run.sh'
               - 'hack/k3d-image-import.sh'
               - 'hack/apply-release-notes.sh'
+              - 'hack/republish-chart-images.sh'
+              - 'hack/repoint_chart_image.py'
               # Lint (scripts=true) runs these via python-test / make.
               - 'hack/verify-prometheusrule-metrics.sh'
               - 'hack/verify-helm-schema-fields.sh'
