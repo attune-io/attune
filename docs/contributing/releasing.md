@@ -143,6 +143,28 @@ cosign sign --yes ghcr.io/attune-io/charts/attune:0.2.0
 cosign sign --yes docker.io/attuneio/attune-chart:0.2.0
 ```
 
+Artifact Hub reads `artifacthub.io/images` from the chart archive, not from
+git. A version published while that annotation said
+`ghcr.io/attune-io/attune:latest` keeps that string until the archive is
+replaced. Artifact Hub then runs Trivy on `:latest` for every such version
+and emails the repository owners when the scan fails.
+
+`hack/republish-chart-images.sh` pulls a published chart, renders the
+default operator image, and rewrites only that annotation. The chosen tag
+is the rendered image when the tag exists. Chart 0.1.24 renders
+`v0.1.24`. Charts 0.1.26 and newer render the bare `appVersion`. Charts
+through 0.1.23 render a bare tag that was never published, so the script
+uses the `v` tag that exists. That is the same tag the install guide tells
+you to set for 0.1.23.
+
+Re-pushing a chart replaces its OCI digest and drops the Cosign signature
+on the old digest. The republish workflow signs the new digest on GHCR and
+on Docker Hub. Dispatch `.github/workflows/republish-chart-images.yaml`
+with `push` left false to print the plan. Dispatch it with `push` true to
+publish. The workflow does not run on pull requests or on pushes to main.
+An install that pinned the chart by digest must pick up the new digest.
+An install by chart tag (`0.1.26`) keeps that tag.
+
 ### 7. Static install manifest
 
 Generate the combined install manifest for users who do not use Helm:

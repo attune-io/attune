@@ -424,7 +424,8 @@ jobs:
     # and GitHub Actions propagates skips transitively through the needs chain.
     # Without this, downstream jobs are skipped even when release succeeded.
     # Skip on re-releases (inputs.tag set) since re-releases only fix release
-    # artifacts; Helm chart versions are immutable once published.
+    # artifacts. Replace a published chart annotation with
+    # republish-chart-images.yaml, which signs the new digest.
     if: ${{ !cancelled() && needs.release.result == 'success' && inputs.tag == '' }}
     permissions:
       contents: read
