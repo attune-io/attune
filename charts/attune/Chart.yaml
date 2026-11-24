@@ -47,6 +47,6 @@ annotations:
       url: https://attune-io.github.io/attune/
     - name: Source
       url: https://github.com/attune-io/attune
-  artifacthub.io/images: |
-    - name: attune
-      image: ghcr.io/attune-io/attune:latest
+  # x-release-please-version keeps this tag on appVersion. The marker
+  # stays outside the quoted string so Artifact Hub does not see it.
+  artifacthub.io/images: "- name: attune\n  image: ghcr.io/attune-io/attune:0.1.39" # x-release-please-version

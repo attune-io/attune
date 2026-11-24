@@ -16,6 +16,10 @@
           "type": "yaml",
           "path": "charts/attune/Chart.yaml",
           "jsonpath": "$.appVersion"
+        },
+        {
+          "type": "generic",
+          "path": "charts/attune/Chart.yaml"
         }
       ]
     }

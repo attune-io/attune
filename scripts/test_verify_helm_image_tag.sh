@@ -50,6 +50,7 @@ TMPV="$(mktemp -d)"
 trap 'rm -rf "${TMP}" "${TMPV}"' EXIT
 cp -R "${ROOT}/charts" "${TMPV}/"
 sed -i.bak 's/^appVersion: .*/appVersion: v0.1.23/' "${TMPV}/charts/attune/Chart.yaml"
+sed -i.bak 's#ghcr.io/attune-io/attune:[^" ]*#ghcr.io/attune-io/attune:0.1.23#' "${TMPV}/charts/attune/Chart.yaml"
 rm -f "${TMPV}/charts/attune/Chart.yaml.bak"
 if ! bash "${SCRIPT}" --root "${TMPV}"; then
   echo "FAIL: v-prefixed appVersion must render 0.1.23, not v0.1.23"
@@ -57,6 +58,20 @@ if ! bash "${SCRIPT}" --root "${TMPV}"; then
   exit 1
 fi
 echo "OK: v-prefixed appVersion rendered bare SemVer"
+
+echo "DO: artifacthub.io/images :latest must fail"
+TMPL="$(mktemp -d)"
+trap 'rm -rf "${TMP}" "${TMPV}" "${TMPL}"' EXIT
+cp -R "${ROOT}/charts" "${TMPL}/"
+sed -i.bak 's#ghcr.io/attune-io/attune:[^" ]*#ghcr.io/attune-io/attune:latest#' \
+  "${TMPL}/charts/attune/Chart.yaml"
+rm -f "${TMPL}/charts/attune/Chart.yaml.bak"
+if bash "${SCRIPT}" --root "${TMPL}"; then
+  echo "FAIL: :latest annotation passed; Artifact Hub would scan a moving tag"
+  echo "DONE: ok=false reason=latest-annotation-false-negative"
+  exit 1
+fi
+echo "OK: :latest annotation failed as expected"
 
 echo "DONE: ok=true"
 echo "NEXT: none"
