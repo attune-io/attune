@@ -4,7 +4,9 @@
 #
 # Verify the Helm chart default image tag is Chart.appVersion (bare
 # SemVer). Releases publish both vX.Y.Z and X.Y.Z. Empty image.tag
-# must not add a v prefix.
+# must not add a v prefix. artifacthub.io/images must name that same
+# image. A :latest pin makes Artifact Hub scan a moving tag for every
+# published chart version.
 #
 # This is the gate that would have caught attune-io/attune#546 (and
 # a later v-prefix regression): helm lint and helm-unittest did not
@@ -105,6 +107,43 @@ if [[ "${OVERRIDE_IMAGE}" != "${REPO}:e2e" ]]; then
   exit 1
 fi
 echo "OK: explicit tag e2e left unchanged"
+
+echo "DO: artifacthub.io/images matches the default install image"
+AH_RAW="$(awk '
+  /artifacthub.io\/images:/ {
+    if (match($0, /"[^"]*"/)) {
+      s = substr($0, RSTART + 1, RLENGTH - 2)
+      gsub(/\\n/, "\n", s)
+      printf "%s\n", s
+      exit
+    }
+    in_block = 1
+    next
+  }
+  in_block {
+    if ($0 ~ /^[^ \t#]/) exit
+    print
+  }
+' "${CHART_YAML}")"
+AH_IMAGE="$(printf '%s\n' "${AH_RAW}" | awk '/image:/{print $2; exit}')"
+AH_IMAGE="${AH_IMAGE%\"}"
+AH_IMAGE="${AH_IMAGE%%#*}"
+AH_IMAGE="${AH_IMAGE//[[:space:]]/}"
+EXPECTED_IMAGE="${REPO}:${EXPECTED_TAG}"
+if [[ -z "${AH_IMAGE}" ]]; then
+  echo "FAIL: artifacthub.io/images has no image"
+  echo "DONE: ok=false reason=missing-artifacthub-image"
+  echo "NEXT: set charts/attune/Chart.yaml artifacthub.io/images to ${EXPECTED_IMAGE}"
+  exit 1
+fi
+if [[ "${AH_IMAGE}" != "${EXPECTED_IMAGE}" ]]; then
+  echo "FAIL: artifacthub.io/images ${AH_IMAGE} != default install ${EXPECTED_IMAGE}"
+  echo "HINT: Artifact Hub scans this annotation. :latest scans a moving tag for every chart version."
+  echo "DONE: ok=false reason=artifacthub-image-drift got=${AH_IMAGE} want=${EXPECTED_IMAGE}"
+  echo "NEXT: set the annotation image to ${EXPECTED_IMAGE}"
+  exit 1
+fi
+echo "OK: artifacthub_image=${AH_IMAGE}"
 
 echo "DONE: ok=true default=${DEFAULT_IMAGE}"
 echo "NEXT: none"
