@@ -130,7 +130,7 @@ The Helm chart is published as an OCI artifact to two registries:
 - **GHCR:** `ghcr.io/attune-io/charts/attune` (primary)
 - **Docker Hub:** `docker.io/attuneio/attune-chart` (separate from the container image repo)
 
-The chart version in `charts/attune/Chart.yaml` is bumped automatically by release-please.
+The chart version in `charts/attune/Chart.yaml` is bumped automatically by release-please. `version`, `appVersion`, and the `artifacthub.io/images` tag each have `x-release-please-version` on that same line, after the value. `release-please-config.json` uses only the generic updater for this file. The yaml updater rewrites the file and deletes comments, so the image tag would stay on the previous version while `appVersion` moved. Do not add a yaml extra-file for `charts/attune/Chart.yaml`.
 
 The CI pipeline packages, pushes to GHCR, mirrors to Docker Hub via `oras cp`,
 and cosign-signs both copies:

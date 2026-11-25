@@ -8,16 +8,6 @@
       "bump-patch-for-minor-pre-major": true,
       "extra-files": [
         {
-          "type": "yaml",
-          "path": "charts/attune/Chart.yaml",
-          "jsonpath": "$.version"
-        },
-        {
-          "type": "yaml",
-          "path": "charts/attune/Chart.yaml",
-          "jsonpath": "$.appVersion"
-        },
-        {
           "type": "generic",
           "path": "charts/attune/Chart.yaml"
         }

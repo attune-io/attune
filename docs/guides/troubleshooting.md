@@ -2498,9 +2498,12 @@ kubectl describe attunepolicy <name>
 
 Check operator metrics:
 
+The default listener is HTTPS on port 8080. A plain `curl -s http://localhost:8080/metrics` prints nothing, because `curl -s` hides the error and the process rejects HTTP. The caller needs `get` on the non-resource URL `/metrics`. Use the Prometheus ServiceAccount named in `metrics.serviceMonitor.serviceAccountName`, or any account with that rule. `metrics.secure=false` is the old open HTTP listener.
+
 ```bash
+TOKEN=$(kubectl create token <prometheus-sa> -n <prometheus-namespace>)
 kubectl -n attune-system port-forward svc/attune-metrics 8080:8080 >/tmp/attune-metrics-pf.log 2>&1 &
 PF_PID=$!
 trap 'kill "$PF_PID" 2>/dev/null || true' EXIT
-curl -s localhost:8080/metrics | grep attune
+curl -skf -H "Authorization: Bearer ${TOKEN}" https://127.0.0.1:8080/metrics | grep attune_
 ```
