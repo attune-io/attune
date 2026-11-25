@@ -1,0 +1,95 @@
+name: Artifact Hub reindex marker
+
+# Artifact Hub's OCI Helm tracker hashes the list of semver tags. It does
+# not re-read a chart when that list is unchanged, so a republish of the
+# same versions never refreshes containers_images. Adding one marker tag
+# changes the hash. The next tracker run then reloads every version whose
+# chart digest changed. Removing the marker drops it from the version list.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "add publishes 0.0.0-ah1181. remove deletes that tag."
+        required: true
+        type: choice
+        options:
+          - add
+          - remove
+        default: add
+
+concurrency:
+  group: artifact-hub-reindex-marker
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  marker:
+    name: Artifact Hub reindex marker
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5
+        if: inputs.action == 'add'
+        with:
+          version: v4.1.4
+
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        if: inputs.action == 'add'
+
+      - name: Login to GHCR
+        if: inputs.action == 'add'
+        shell: bash -Eeuo pipefail {0}
+        env:
+          REGISTRY_USER: ${{ github.actor }}
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
+            --username "$REGISTRY_USER" --password-stdin
+
+      - name: Publish marker chart
+        if: inputs.action == 'add'
+        shell: bash -Eeuo pipefail {0}
+        run: |
+          work="$(mktemp -d)"
+          mkdir -p "$work/attune"
+          printf '%s\n' \
+            'apiVersion: v2' \
+            'name: attune' \
+            'description: Marker so Artifact Hub re-reads existing chart versions. Not for install.' \
+            'type: application' \
+            'version: 0.0.0-ah1181' \
+            'appVersion: "0.0.0"' \
+            'annotations:' \
+            '  artifacthub.io/images: |' \
+            '    - name: attune' \
+            '      image: ghcr.io/attune-io/attune:0.1.39' \
+            > "$work/attune/Chart.yaml"
+          tgz="$(helm package "$work/attune" --destination "$work" | awk -F': ' '/saved it to/{print $2}')"
+          helm push "$tgz" oci://ghcr.io/attune-io/charts
+          cosign sign --yes ghcr.io/attune-io/charts/attune:0.0.0-ah1181
+
+      - name: Delete marker chart
+        if: inputs.action == 'remove'
+        shell: bash -Eeuo pipefail {0}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          id="$(gh api --paginate "/orgs/attune-io/packages/container/charts%2Fattune/versions" \
+            --jq '.[] | select(any(.metadata.container.tags[]?; . == "0.0.0-ah1181")) | .id' \
+            | head -n 1)"
+          if [[ -z "$id" ]]; then
+            echo "OK: marker tag is already gone"
+            exit 0
+          fi
+          gh api --method DELETE "/orgs/attune-io/packages/container/charts%2Fattune/versions/${id}"
+          echo "OK: deleted package version ${id}"
