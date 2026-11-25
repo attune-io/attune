@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: metrics-endpoint
 spec:
-  description: Verify that the operator exposes Prometheus metrics at the /metrics endpoint
+  description: Verify that the operator exposes authenticated HTTPS Prometheus metrics at /metrics
   timeouts:
     apply: 30s
     assert: 1m
@@ -12,12 +12,24 @@ spec:
     - name: scrape-metrics
       try:
         - script:
-            timeout: 60s
+            timeout: 90s
             content: |
               set -e
               # HistogramVec and CounterVec omit unused label sets. Require a
               # series controller-runtime emits at registration, not after
               # the first successful reconcile.
+              # The default listener is HTTPS and rejects anonymous HTTP.
+              # The certificate is for localhost only, so verification is skipped.
+              kubectl create serviceaccount e2e-metrics-scraper -n attune-system \
+                --dry-run=client -o yaml | kubectl apply -f -
+              kubectl create clusterrole e2e-attune-metrics-reader \
+                --verb=get --non-resource-url=/metrics \
+                --dry-run=client -o yaml | kubectl apply -f -
+              kubectl create clusterrolebinding e2e-attune-metrics-reader \
+                --clusterrole=e2e-attune-metrics-reader \
+                --serviceaccount=attune-system:e2e-metrics-scraper \
+                --dry-run=client -o yaml | kubectl apply -f -
+              TOKEN=$(kubectl create token e2e-metrics-scraper -n attune-system --duration=10m)
               METRICS_PORT=$(kubectl get svc attune-metrics -n attune-system \
                 -o jsonpath='{.spec.ports[0].port}')
               kubectl port-forward -n attune-system svc/attune-metrics \
@@ -32,7 +44,8 @@ spec:
                   cat /tmp/e2e-metrics-pf.log
                   exit 1
                 fi
-                if curl -sf http://localhost:18080/metrics \
+                if curl -skf -H "Authorization: Bearer ${TOKEN}" \
+                  "https://127.0.0.1:18080/metrics" \
                   > /tmp/e2e-metrics.txt 2>/tmp/e2e-metrics.err; then
                   if grep -q "$NEED" /tmp/e2e-metrics.txt; then
                     found=1

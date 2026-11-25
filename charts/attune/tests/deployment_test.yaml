@@ -59,6 +59,12 @@ tests:
       - equal:
           path: spec.replicas
           value: 3
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints[0].maxSkew
+          value: 1
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints[0].whenUnsatisfiable
+          value: ScheduleAnyway
 
   - it: should enable leader election when set
     set:
@@ -531,3 +537,173 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: weeklyReport.endpoints must not share a Secret key
+
+  - it: should pass metrics-secure by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --metrics-bind-address=:8080
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --metrics-secure=true
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            mountPath: /tmp/k8s-metrics-server/serving-certs
+
+  - it: should pass metrics-secure false without a cert volume
+    set:
+      metrics.secure: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --metrics-secure=false
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            mountPath: /tmp/k8s-metrics-server/serving-certs
+
+  - it: should omit metrics-secure when metrics are disabled
+    set:
+      metrics.enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --metrics-bind-address=0
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --metrics-secure
+          any: true
+
+  - it: should omit spread when one replica is rendered
+    asserts:
+      - notExists:
+          path: spec.template.spec.topologySpreadConstraints
+
+  - it: should omit spread for the small and medium presets
+    set:
+      clusterSize: small
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 1
+      - notExists:
+          path: spec.template.spec.topologySpreadConstraints
+
+  - it: should omit spread for the medium preset
+    set:
+      clusterSize: medium
+    asserts:
+      - notExists:
+          path: spec.template.spec.topologySpreadConstraints
+
+  - it: should spread large preset replicas
+    set:
+      clusterSize: large
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 2
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints
+          value:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: ScheduleAnyway
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: attune
+                  app.kubernetes.io/instance: RELEASE-NAME
+
+  - it: should spread xlarge preset replicas
+    set:
+      clusterSize: xlarge
+    asserts:
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints[0].whenUnsatisfiable
+          value: ScheduleAnyway
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints[0].labelSelector.matchLabels
+          value:
+            app.kubernetes.io/name: attune
+            app.kubernetes.io/instance: RELEASE-NAME
+
+  - it: should spread an explicit replica count of 2
+    set:
+      replicaCount: 2
+    asserts:
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints[0].topologyKey
+          value: kubernetes.io/hostname
+
+  - it: should spread replicaCount 3 and large with replicaCount 3
+    set:
+      clusterSize: large
+      replicaCount: 3
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints[0].maxSkew
+          value: 1
+
+  - it: should inject spread when the constraint list is empty
+    set:
+      replicaCount: 2
+      topologySpreadConstraints: []
+    asserts:
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints[0].whenUnsatisfiable
+          value: ScheduleAnyway
+
+  - it: should keep a user spread constraint
+    set:
+      replicaCount: 2
+      topologySpreadConstraints:
+        - maxSkew: 2
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: custom
+    asserts:
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints
+          value:
+            - maxSkew: 2
+              topologyKey: topology.kubernetes.io/zone
+              whenUnsatisfiable: DoNotSchedule
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: custom
+      - notContains:
+          path: spec.template.spec.topologySpreadConstraints
+          content:
+            topologyKey: kubernetes.io/hostname
+
+  - it: should keep a user constraint when one replica is rendered
+    set:
+      replicaCount: 1
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: attune
+    asserts:
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints[0].topologyKey
+          value: topology.kubernetes.io/zone
+
+  - it: should use nameOverride on the injected selector
+    set:
+      replicaCount: 2
+      nameOverride: custom
+    asserts:
+      - equal:
+          path: spec.template.spec.topologySpreadConstraints[0].labelSelector.matchLabels
+          value:
+            app.kubernetes.io/name: custom
+            app.kubernetes.io/instance: RELEASE-NAME

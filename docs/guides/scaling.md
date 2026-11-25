@@ -524,16 +524,31 @@ For production clusters, run two replicas with leader election:
 replicaCount: 2
 leaderElection:
   enabled: true
-priorityClassName: system-cluster-critical
 ```
 
 The `large` and `xlarge` presets automatically set `replicaCount: 2`.
 Only one replica is active at a time; the standby takes over in ~15 seconds
 if the leader fails.
 
-Consider adding a `PodDisruptionBudget` (the chart creates one when
-`replicaCount > 1`) and `topologySpreadConstraints` to spread replicas
-across nodes:
+The chart creates a PodDisruptionBudget when it renders more than one
+replica. It also adds this hostname spread unless
+`topologySpreadConstraints` is non-empty:
+
+```yaml
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: attune
+        app.kubernetes.io/instance: attune
+```
+
+`ScheduleAnyway` still places both pods on a one-node cluster. The chart
+does not use `DoNotSchedule`. On a multi-node cluster you can replace
+the list. Keep both selector labels. `app.kubernetes.io/instance` is the
+Helm release name.
 
 ```yaml
 topologySpreadConstraints:
@@ -543,6 +558,7 @@ topologySpreadConstraints:
     labelSelector:
       matchLabels:
         app.kubernetes.io/name: attune
+        app.kubernetes.io/instance: attune
 ```
 
 ## Monitoring the Operator
@@ -551,11 +567,20 @@ Enable the ServiceMonitor for Prometheus Operator integration:
 
 ```yaml
 metrics:
+  secure: true
   serviceMonitor:
     enabled: true
     additionalLabels:
       release: prometheus   # match your Prometheus Operator selector
+    serviceAccountName: prometheus
+    serviceAccountNamespace: monitoring
 ```
+
+Replace the ServiceAccount name and namespace. The chart then creates a
+ClusterRoleBinding that allows that account to `get` `/metrics`. The
+ServiceMonitor uses HTTPS and skips verification because the default
+certificate is for `localhost` only. `additionalLabels` does not grant
+scrape access.
 
 Enable the Grafana dashboard for an at-a-glance view:
 

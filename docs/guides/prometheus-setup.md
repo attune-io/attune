@@ -129,7 +129,9 @@ token. See [OpenShift: Thanos Querier](openshift.md#thanos-querier).
 
 OperatorHub and the kustomize install already pass
 `--prometheus-use-service-account-token` and
-`--prometheus-query-service-account=attune-prometheus-query`. Bind
+`--prometheus-query-service-account=attune-prometheus-query`. Pods
+should not use this ServiceAccount: automount is off, and the manager
+still creates short-lived tokens with TokenRequest. Bind
 `cluster-monitoring-view` to `attune-prometheus-query` once:
 
 ```bash
@@ -501,11 +503,30 @@ within the default `historyWindow: 168h`.
 
 ## Operator metrics (what Attune exposes)
 
-Attune itself exposes Prometheus metrics on its `:8080/metrics`
-endpoint. To scrape these, either:
+Attune itself exposes Prometheus metrics on HTTPS port 8080, path
+`/metrics`. The caller must present a token that can `get` the
+non-resource URL `/metrics`. Anonymous scrapes are rejected.
 
-- Enable the Helm chart's **ServiceMonitor** (`metrics.serviceMonitor.enabled: true`), or
-- Add a scrape annotation to the operator pod
+Enable the Helm chart ServiceMonitor and name the Prometheus
+ServiceAccount:
+
+```yaml
+metrics:
+  secure: true
+  serviceMonitor:
+    enabled: true
+    serviceAccountName: prometheus
+    serviceAccountNamespace: monitoring
+```
+
+The ServiceMonitor sets `scheme: https`, sends the Prometheus pod's
+token from `authorization.credentialsFile`, and sets
+`tlsConfig.insecureSkipVerify: true`. Verification is skipped because
+the default certificate is for `localhost` only. The chart creates
+`<release>-metrics-reader` and binds it to that ServiceAccount.
+
+`metrics.secure=false` keeps unauthenticated HTTP. There is no scrape
+annotation on the operator pod.
 
 See [Metrics Reference](../reference/metrics.md) for the full list of
 `attune_*` metrics.

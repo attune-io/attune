@@ -12,3 +12,10 @@ spec:
   endpoints:
     - port: metrics
       interval: 30s
+      path: /metrics
+      scheme: https
+      authorization:
+        type: Bearer
+        credentialsFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      tlsConfig:
+        insecureSkipVerify: true

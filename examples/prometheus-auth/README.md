@@ -60,7 +60,9 @@ prometheusAuth:
 
 OperatorHub and the kustomize install already pass
 `--prometheus-use-service-account-token` and
-`--prometheus-query-service-account=attune-prometheus-query`. Bind
+`--prometheus-query-service-account=attune-prometheus-query`. Pods
+should not use this ServiceAccount: automount is off, and the manager
+still creates short-lived tokens with TokenRequest. Bind
 OpenShift `cluster-monitoring-view` once:
 
 ```bash

@@ -222,7 +222,9 @@ OperatorHub and the kustomize install create a query ServiceAccount
 named `attune-prometheus-query`, a Role that lets the manager
 TokenRequest that account, and they pass
 `--prometheus-query-service-account=attune-prometheus-query` and
-`--prometheus-use-service-account-token`. Bind `cluster-monitoring-view`
+`--prometheus-use-service-account-token`. Pods should not use this
+ServiceAccount: automount is off, and the manager still creates
+short-lived tokens with TokenRequest. Bind `cluster-monitoring-view`
 to the query account:
 
 ```bash

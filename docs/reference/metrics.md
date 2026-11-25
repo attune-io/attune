@@ -1,5 +1,9 @@
-All metrics are exposed on the operator's metrics endpoint (default port
-8080) and use the `attune_` prefix.
+Operator metrics use the `attune_` prefix. The default listener is HTTPS
+on port 8080, path `/metrics`. The operator authenticates the caller with
+TokenReview and authorizes `get` on the non-resource URL `/metrics`.
+Anonymous clients are rejected. Set Helm `metrics.secure=false` (or
+`--metrics-secure=false`) to keep the legacy unauthenticated HTTP
+listener. Health probes stay on port 8081 and are not authenticated.
 
 ## Counters
 

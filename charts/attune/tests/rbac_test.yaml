@@ -6,6 +6,9 @@ tests:
     asserts:
       - isKind:
           of: ClusterRole
+      - lengthEqual:
+          path: rules
+          count: 24
 
   - it: should include attunepolicies status patch for gitopsPR
     asserts:
@@ -216,6 +219,9 @@ tests:
               - apiservers
             verbs:
               - list
+      - lengthEqual:
+          path: rules
+          count: 25
 
   - it: should include secret get-only permissions for bearer token
     asserts:
@@ -305,5 +311,83 @@ tests:
               - argoproj.io
             resources:
               - rollouts
+            verbs:
+              - watch
+
+  - it: should include tokenreviews create for metrics authentication
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - authentication.k8s.io
+            resources:
+              - tokenreviews
+            verbs:
+              - create
+
+  - it: should include pods get list patch update watch
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - ""
+            resources:
+              - pods
+            verbs:
+              - get
+              - list
+              - patch
+              - update
+              - watch
+      - notContains:
+          path: rules
+          content:
+            resources:
+              - pods
+            verbs:
+              - delete
+      - notContains:
+          path: rules
+          content:
+            resources:
+              - pods
+            verbs:
+              - create
+
+  - it: should include pods eviction create only
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - ""
+            resources:
+              - pods/eviction
+            verbs:
+              - create
+      - notContains:
+          path: rules
+          content:
+            resources:
+              - pods/eviction
+            verbs:
+              - get
+
+  - it: should not list or watch secrets
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            resources:
+              - secrets
+            verbs:
+              - list
+      - notContains:
+          path: rules
+          content:
+            resources:
+              - secrets
             verbs:
               - watch

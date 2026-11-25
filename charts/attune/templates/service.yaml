@@ -12,6 +12,9 @@ spec:
       targetPort: metrics
       protocol: TCP
       name: metrics
+      {{- if .Values.metrics.secure }}
+      appProtocol: https
+      {{- end }}
   selector:
     {{- include "attune.selectorLabels" . | nindent 4 }}
 {{- end }}

@@ -127,6 +127,8 @@ func assertManagerQueryArgs(t *testing.T, dep appsv1.Deployment) {
 func TestQueryServiceAccountManifests(t *testing.T) {
 	sa := decodeNamed[corev1.ServiceAccount](t, "config/rbac/prometheus_query_service_account.yaml", "ServiceAccount", "prometheus-query")
 	assert.Equal(t, "prometheus-query", sa.Name)
+	require.NotNil(t, sa.AutomountServiceAccountToken)
+	assert.False(t, *sa.AutomountServiceAccountToken)
 
 	role := decodeNamed[rbacv1.Role](t, "config/rbac/prometheus_query_token_role.yaml", "Role", "prometheus-query-token")
 	assertQueryTokenRole(t, role, "attune-prometheus-query")
@@ -199,6 +201,8 @@ func TestQueryServiceAccountManifests(t *testing.T) {
 
 	renderedSA := decodeNamed[corev1.ServiceAccount](t, "dist/install.yaml", "ServiceAccount", "attune-prometheus-query")
 	assert.Equal(t, "attune-prometheus-query", renderedSA.Name)
+	require.NotNil(t, renderedSA.AutomountServiceAccountToken)
+	assert.False(t, *renderedSA.AutomountServiceAccountToken)
 	renderedRole := decodeNamed[rbacv1.Role](t, "dist/install.yaml", "Role", "attune-prometheus-query-token")
 	assertQueryTokenRole(t, renderedRole, "attune-prometheus-query")
 	renderedBinding := decodeNamed[rbacv1.RoleBinding](t, "dist/install.yaml", "RoleBinding", "attune-prometheus-query-token")

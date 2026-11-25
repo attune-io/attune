@@ -279,7 +279,9 @@ Thanos Querier on port 9091 wants the **operator** ServiceAccount with
 `openshift.bindClusterMonitoringView: true` and
 `prometheusAuth.queryServiceAccount.create: true`. OperatorHub and the
 kustomize install already pass `--prometheus-use-service-account-token`
-and `--prometheus-query-service-account=attune-prometheus-query`. Bind
+and `--prometheus-query-service-account=attune-prometheus-query`. Pods
+should not use this ServiceAccount: automount is off, and the manager
+still creates short-lived tokens with TokenRequest. Bind
 `cluster-monitoring-view` to `attune-prometheus-query`, not the manager
 ServiceAccount. Keep the Thanos address and TLS on `AttuneDefaults`. See
 [OpenShift: Thanos Querier](openshift.md#thanos-querier).

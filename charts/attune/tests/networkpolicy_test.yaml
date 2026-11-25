@@ -94,6 +94,22 @@ tests:
               - port: 8080
                 protocol: TCP
 
+  - it: should include metrics ingress port when metrics are secure
+    set:
+      networkPolicy:
+        enabled: true
+      metrics:
+        enabled: true
+        secure: true
+        port: 8080
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            ports:
+              - port: 8080
+                protocol: TCP
+
   - it: should not include metrics ingress port when metrics disabled
     set:
       networkPolicy:

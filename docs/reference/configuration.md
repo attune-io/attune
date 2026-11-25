@@ -59,7 +59,7 @@ This page documents every value in the Helm chart's `values.yaml`.
 | `nodeSelector` | object | `{}` | Node selector for operator pods |
 | `tolerations` | list | `[]` | Tolerations for operator pods |
 | `affinity` | object | `{}` | Affinity rules for operator pods |
-| `topologySpreadConstraints` | list | `[]` | Topology spread constraints for operator pods |
+| `topologySpreadConstraints` | list | `[]` | Topology spread constraints. Empty injects one hostname `ScheduleAnyway` constraint when the rendered replica count is greater than 1. A non-empty list is used as written. |
 | `priorityClassName` | string | `""` | Priority class name for the operator pod (recommended: `system-cluster-critical` for production) |
 
 ## Leader election
@@ -74,9 +74,12 @@ This page documents every value in the Helm chart's `values.yaml`.
 |-----|------|---------|-------------|
 | `metrics.enabled` | bool | `true` | Expose operator metrics endpoint |
 | `metrics.port` | int | `8080` | Metrics endpoint port |
+| `metrics.secure` | bool | `true` | Serve metrics with HTTPS, TokenReview, and SubjectAccessReview. `false` is the legacy unauthenticated HTTP listener. |
 | `metrics.serviceMonitor.enabled` | bool | `false` | Create a Prometheus Operator ServiceMonitor |
-| `metrics.serviceMonitor.additionalLabels` | object | `{}` | Extra labels for the ServiceMonitor |
+| `metrics.serviceMonitor.additionalLabels` | object | `{}` | Extra labels for the ServiceMonitor. These select the monitor. They do not grant scrape access. |
 | `metrics.serviceMonitor.interval` | string | `30s` | Scrape interval |
+| `metrics.serviceMonitor.serviceAccountName` | string | `""` | Prometheus ServiceAccount that may `get` non-resource URL `/metrics`. Set with `serviceAccountNamespace`. |
+| `metrics.serviceMonitor.serviceAccountNamespace` | string | `""` | Namespace of that ServiceAccount. Both fields empty skips the reader ClusterRole. One field, or either field while metrics are disabled or not secure, fails the render. |
 
 ### PrometheusRule alerts
 
@@ -204,7 +207,7 @@ Cluster-wide credentials belong on the operator. A policy
 | `prometheusAuth.useServiceAccountToken` | bool | `false` | Send operator Prometheus bearer auth for addresses from cluster `AttuneDefaults`. Not used for policy or namespace-defaults addresses, auto-discovery, or when `Authorization` headers are already set (`--prometheus-use-service-account-token`). |
 | `prometheusAuth.existingSecret.name` | string | `""` | Secret in the **operator** namespace (`--prometheus-bearer-token-secret`). Same address rules as `useServiceAccountToken`. Empty disables. A policy-set `bearerTokenSecret` is read in the policy namespace and does not fall back. An inherited cluster name falls back only on NotFound. Attune trims both ends of the token and keeps interior spaces. |
 | `prometheusAuth.existingSecret.key` | string | `token` | Key in that Secret (`--prometheus-bearer-token-key`). |
-| `prometheusAuth.queryServiceAccount.create` | bool | `false` | Create a dedicated query ServiceAccount and TokenRequest it instead of the manager token (`--prometheus-query-service-account`). |
+| `prometheusAuth.queryServiceAccount.create` | bool | `false` | Create a dedicated query ServiceAccount and TokenRequest it instead of the manager token (`--prometheus-query-service-account`). The account does not mount a token into pods. |
 | `prometheusAuth.queryServiceAccount.name` | string | `""` | Query SA name. Empty uses `<release>-prometheus-query` when create is true. |
 
 ## Datadog query auth
@@ -937,10 +940,13 @@ replicaCount: 2
 leaderElection:
   enabled: true
 metrics:
+  secure: true
   serviceMonitor:
     enabled: true
     additionalLabels:
       release: prometheus
+    serviceAccountName: prometheus
+    serviceAccountNamespace: monitoring
 resources:
   limits:
     cpu: 1
@@ -949,3 +955,9 @@ resources:
     cpu: 200m
     memory: 128Mi
 ```
+
+With more than one rendered replica and an empty `topologySpreadConstraints`
+list, the chart injects a hostname `ScheduleAnyway` spread. You do not
+paste that block for this example. Replace `prometheus` and `monitoring`
+with the ServiceAccount that scrapes the operator. `additionalLabels`
+only matches your Prometheus `serviceMonitorSelector`.

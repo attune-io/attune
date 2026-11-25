@@ -5208,6 +5208,7 @@ metadata:
   namespace: attune-system
 ---
 apiVersion: v1
+automountServiceAccountToken: false
 kind: ServiceAccount
 metadata:
   name: attune-prometheus-query
@@ -5379,6 +5380,12 @@ rules:
   - patch
   - update
 - apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
   - authorization.k8s.io
   resources:
   - subjectaccessreviews
@@ -5435,6 +5442,16 @@ rules:
   - get
   - list
   - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: attune-metrics-reader
+rules:
+- nonResourceURLs:
+  - /metrics
+  verbs:
+  - get
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -5538,6 +5555,7 @@ spec:
         - --leader-elect
         - --enable-webhooks=false
         - --health-probe-bind-address=:8081
+        - --metrics-secure=true
         - --prometheus-use-service-account-token
         - --prometheus-query-service-account=attune-prometheus-query
         env:

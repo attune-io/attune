@@ -1,0 +1,91 @@
+suite: metrics reader rbac
+templates:
+  - templates/metrics-reader-rbac.yaml
+tests:
+  - it: should not render a reader role by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should bind the named prometheus service account
+    set:
+      metrics:
+        enabled: true
+        secure: true
+        serviceMonitor:
+          serviceAccountName: prometheus
+          serviceAccountNamespace: monitoring
+    asserts:
+      - hasDocuments:
+          count: 2
+      - documentIndex: 0
+        isKind:
+          of: ClusterRole
+      - documentIndex: 0
+        equal:
+          path: metadata.name
+          value: RELEASE-NAME-attune-metrics-reader
+      - documentIndex: 0
+        equal:
+          path: rules
+          value:
+            - nonResourceURLs:
+                - /metrics
+              verbs:
+                - get
+      - documentIndex: 0
+        notExists:
+          path: metadata.labels["rbac.authorization.k8s.io/aggregate-to-admin"]
+      - documentIndex: 0
+        notExists:
+          path: metadata.labels["rbac.authorization.k8s.io/aggregate-to-edit"]
+      - documentIndex: 0
+        notExists:
+          path: metadata.labels["rbac.authorization.k8s.io/aggregate-to-view"]
+      - documentIndex: 1
+        isKind:
+          of: ClusterRoleBinding
+      - documentIndex: 1
+        equal:
+          path: subjects[0].name
+          value: prometheus
+      - documentIndex: 1
+        equal:
+          path: subjects[0].namespace
+          value: monitoring
+      - documentIndex: 1
+        equal:
+          path: roleRef.name
+          value: RELEASE-NAME-attune-metrics-reader
+
+  - it: should fail when only the service account name is set
+    set:
+      metrics.serviceMonitor.serviceAccountName: prometheus
+    asserts:
+      - failedTemplate:
+          errorMessage: metrics.serviceMonitor.serviceAccountName and metrics.serviceMonitor.serviceAccountNamespace must both be set, and only when metrics.enabled and metrics.secure are true
+
+  - it: should fail when only the namespace is set
+    set:
+      metrics.serviceMonitor.serviceAccountNamespace: monitoring
+    asserts:
+      - failedTemplate:
+          errorMessage: metrics.serviceMonitor.serviceAccountName and metrics.serviceMonitor.serviceAccountNamespace must both be set, and only when metrics.enabled and metrics.secure are true
+
+  - it: should fail when the account is set but metrics are not secure
+    set:
+      metrics.secure: false
+      metrics.serviceMonitor.serviceAccountName: prometheus
+      metrics.serviceMonitor.serviceAccountNamespace: monitoring
+    asserts:
+      - failedTemplate:
+          errorMessage: metrics.serviceMonitor.serviceAccountName and metrics.serviceMonitor.serviceAccountNamespace must both be set, and only when metrics.enabled and metrics.secure are true
+
+  - it: should fail when the account is set but metrics are disabled
+    set:
+      metrics.enabled: false
+      metrics.serviceMonitor.serviceAccountName: prometheus
+      metrics.serviceMonitor.serviceAccountNamespace: monitoring
+    asserts:
+      - failedTemplate:
+          errorMessage: metrics.serviceMonitor.serviceAccountName and metrics.serviceMonitor.serviceAccountNamespace must both be set, and only when metrics.enabled and metrics.secure are true

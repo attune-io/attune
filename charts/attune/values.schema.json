@@ -216,6 +216,10 @@
           "maximum": 65535,
           "default": 8080
         },
+        "secure": {
+          "type": "boolean",
+          "default": true
+        },
         "serviceMonitor": {
           "type": "object",
           "additionalProperties": false,
@@ -223,6 +227,14 @@
             "enabled": {
               "type": "boolean",
               "default": false
+            },
+            "serviceAccountName": {
+              "type": "string",
+              "default": ""
+            },
+            "serviceAccountNamespace": {
+              "type": "string",
+              "default": ""
             },
             "additionalLabels": {
               "type": "object",
