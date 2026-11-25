@@ -86,6 +86,8 @@ jobs:
               - 'charts/**'
               - 'hack/verify-helm-image-tag.sh'
               - 'scripts/test_verify_helm_image_tag.sh'
+              - 'scripts/test_release_please_chart_image.sh'
+              - 'release-please-config.json'
               - 'hack/release-image-tags.sh'
               - 'scripts/test_release_image_tags.sh'
               # role.yaml-only diffs skip go. Helm Lint is the only CI
@@ -916,6 +918,7 @@ jobs:
         shell: bash -Eeuo pipefail {0}
         run: |
           bash scripts/test_verify_helm_image_tag.sh
+          bash scripts/test_release_please_chart_image.sh
           bash hack/verify-helm-image-tag.sh
           bash scripts/test_release_image_tags.sh
 

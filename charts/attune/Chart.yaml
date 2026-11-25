@@ -2,8 +2,8 @@ apiVersion: v2
 name: attune
 description: Safe, in-place Kubernetes pod resource right-sizing operator
 type: application
-version: 0.1.39
-appVersion: 0.1.39
+version: 0.1.39 # x-release-please-version
+appVersion: 0.1.39 # x-release-please-version
 icon: https://raw.githubusercontent.com/attune-io/attune/main/docs/logo.png
 home: https://github.com/attune-io/attune
 sources:
@@ -47,6 +47,7 @@ annotations:
       url: https://attune-io.github.io/attune/
     - name: Source
       url: https://github.com/attune-io/attune
-  # x-release-please-version keeps this tag on appVersion. The marker
-  # stays outside the quoted string so Artifact Hub does not see it.
+  # The marker on this line is outside the quotes. release-please must
+  # use the generic updater only. The yaml updater rewrites the file
+  # and deletes the marker, so the image tag stays on the old version.
   artifacthub.io/images: "- name: attune\n  image: ghcr.io/attune-io/attune:0.1.39" # x-release-please-version
