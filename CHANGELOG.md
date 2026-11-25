@@ -6,6 +6,17 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.40](https://github.com/attune-io/attune/compare/v0.1.39...v0.1.40) (2026-11-25)
+
+
+### Bug Fixes
+
+* authenticate operator metrics and harden the default install ([#1191](https://github.com/attune-io/attune/issues/1191)) ([086dd48](https://github.com/attune-io/attune/commit/086dd48eba555476791be79f7c23debc5f50be8a))
+* bump cel-go to v0.30.0 ([#1193](https://github.com/attune-io/attune/issues/1193)) ([a497c1c](https://github.com/attune-io/attune/commit/a497c1cacfb6e3c82e75683dd1f1b6f636f3ab86))
+* hold the eviction lock through release and pin the chart image scan ([#1182](https://github.com/attune-io/attune/issues/1182)) ([3e4ff22](https://github.com/attune-io/attune/commit/3e4ff22a1ee7cf7a3b0fec775292fc15f3a9c948))
+* keep the chart image tag on the released appVersion ([#1192](https://github.com/attune-io/attune/issues/1192)) ([4c3a86c](https://github.com/attune-io/attune/commit/4c3a86c5dca55f0dcfe0a9c5c59b7387f40d0e95))
+* republish chart annotations off the latest image tag ([#1184](https://github.com/attune-io/attune/issues/1184)) ([01d8289](https://github.com/attune-io/attune/commit/01d828913e96f1efa5409f3da70426e280cd7612))
+
 ## [0.1.39](https://github.com/attune-io/attune/compare/v0.1.38...v0.1.39) (2026-11-20)
 
 
