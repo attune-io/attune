@@ -87,7 +87,9 @@ tolerations: []
 # -- Affinity rules
 affinity: {}
 
-# -- Topology spread constraints
+# -- Topology spread constraints for operator pods.
+# Empty injects one hostname ScheduleAnyway constraint when the rendered
+# replica count is greater than 1. A non-empty list replaces that constraint.
 topologySpreadConstraints: []
 
 # -- Leader election (enable for HA with replicaCount > 1)
@@ -101,6 +103,9 @@ leaderElection:
 metrics:
   enabled: true
   port: 8080
+  # -- Serve metrics with HTTPS, TokenReview, and SubjectAccessReview.
+  # false keeps the legacy unauthenticated HTTP listener.
+  secure: true
   serviceMonitor:
     # -- Create a ServiceMonitor for Prometheus Operator
     enabled: false
@@ -108,6 +113,13 @@ metrics:
     additionalLabels: {}
     # -- Scrape interval
     interval: 30s
+    # -- Prometheus ServiceAccount that may GET /metrics.
+    # Set this together with serviceAccountNamespace, and only when
+    # metrics are enabled and secure. Empty renders no binding.
+    # additionalLabels does not grant scrape access.
+    serviceAccountName: ""
+    # -- Namespace of that Prometheus ServiceAccount.
+    serviceAccountNamespace: ""
   prometheusRule:
     # -- Create a PrometheusRule for out-of-the-box alerting.
     # Requires the Prometheus Operator CRDs (monitoring.coreos.com/v1).

@@ -39,6 +39,7 @@ spec:
             - --health-probe-bind-address=:8081
             {{- if .Values.metrics.enabled }}
             - --metrics-bind-address=:{{ .Values.metrics.port }}
+            - --metrics-secure={{ .Values.metrics.secure }}
             {{- else }}
             - --metrics-bind-address=0
             {{- end }}
@@ -236,7 +237,15 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.topologySpreadConstraints }}
+      {{- if .Values.topologySpreadConstraints }}
       topologySpreadConstraints:
-        {{- toYaml . | nindent 8 }}
+        {{- toYaml .Values.topologySpreadConstraints | nindent 8 }}
+      {{- else if gt (include "attune.replicaCount" . | int) 1 }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "attune.selectorLabels" . | nindent 14 }}
       {{- end }}

@@ -17,6 +17,17 @@ tests:
       - equal:
           path: spec.ports[0].port
           value: 8080
+      - equal:
+          path: spec.ports[0].appProtocol
+          value: https
+
+  - it: should omit appProtocol when metrics are not secure
+    set:
+      metrics.enabled: true
+      metrics.secure: false
+    asserts:
+      - notExists:
+          path: spec.ports[0].appProtocol
 
   - it: should not render when metrics disabled
     set:

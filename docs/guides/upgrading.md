@@ -8,6 +8,32 @@ Maintainers: before publishing a release after multi-version product changes,
 run the full E2E Nightly matrix on tip of `main` (see
 [Releasing: full E2E matrix](../contributing/releasing.md#1b-full-e2e-matrix-required-before-tagging-a-product-release)).
 
+## v0.1.39 to v0.1.40
+
+No CRD change. Existing policy YAML still applies.
+
+### Operator metrics require a token
+
+The manager serves metrics on HTTPS port 8080 and rejects anonymous
+clients. An image-only upgrade does this too, because `--metrics-secure`
+defaults to true.
+
+Scrapes of `http://<operator>:8080/metrics` fail until Prometheus uses
+HTTPS, sends its pod token (`authorization.credentialsFile`), sets
+`tlsConfig.insecureSkipVerify: true`, and has `get` on the non-resource
+URL `/metrics`. The certificate is for `localhost` only, so a CA bundle
+does not make the Service name verify.
+
+Helm `metrics.secure=false`, or `--metrics-secure=false`, keeps the
+legacy unauthenticated HTTP listener.
+
+To keep the secure default, set
+`metrics.serviceMonitor.serviceAccountName` and
+`metrics.serviceMonitor.serviceAccountNamespace` to the Prometheus
+ServiceAccount. The chart creates the reader ClusterRoleBinding only
+when both are set. Health probes stay on port 8081 with no
+authentication.
+
 ## v0.1.38 to v0.1.39
 
 No CRD change. Existing policy YAML still applies. Upgrade the chart to

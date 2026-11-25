@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	webhookserver "sigs.k8s.io/controller-runtime/pkg/webhook"
 
@@ -73,6 +74,7 @@ func init() {
 
 func main() {
 	var metricsAddr string
+	var metricsSecure bool
 	var probeAddr string
 	var enableLeaderElection bool
 	var enableWebhooks bool
@@ -97,6 +99,8 @@ func main() {
 	var weeklyReportEndpoints stringList
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to.")
+	flag.BoolVar(&metricsSecure, "metrics-secure", true,
+		"Serve metrics with TLS, TokenReview, and SubjectAccessReview. Set false for the legacy unauthenticated HTTP listener. Bind address 0 still disables the server.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the health probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
@@ -240,10 +244,8 @@ func main() {
 	}
 
 	mgrOpts := ctrl.Options{
-		Scheme: scheme,
-		Metrics: metricsserver.Options{
-			BindAddress: metricsAddr,
-		},
+		Scheme:                 scheme,
+		Metrics:                metricsServerOptions(metricsAddr, metricsSecure),
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "attune.attune.io",
@@ -548,4 +550,17 @@ func (s *stringList) String() string {
 func (s *stringList) Set(value string) error {
 	*s = append(*s, value)
 	return nil
+}
+
+// metricsServerOptions is what main passes to the manager. Bind address 0
+// disables the server and does not install the auth filter. The default
+// certificate stays in memory (localhost only).
+func metricsServerOptions(bindAddress string, secure bool) metricsserver.Options {
+	opts := metricsserver.Options{BindAddress: bindAddress}
+	if bindAddress == "0" || !secure {
+		return opts
+	}
+	opts.SecureServing = true
+	opts.FilterProvider = filters.WithAuthenticationAndAuthorization
+	return opts
 }

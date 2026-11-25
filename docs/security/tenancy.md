@@ -81,3 +81,60 @@ manifests are named `policy-viewer` and `policy-editor`, so the install
 creates `attune-policy-viewer` and `attune-policy-editor`. Bind those
 names. The roles have no aggregate labels, so a default install does
 not grant every `edit` user `AttunePolicy` create.
+
+## Operator ServiceAccount
+
+The controller ServiceAccount is a separate trust level from the people
+who create policies. If the manager process is compromised, this is what
+that account can do. The Helm test
+`charts/attune/tests/rbac_test.yaml` pins the full rule list. The writes
+below are the ones that matter. They are not the only rules.
+
+These stay on a default install. A field on `AttunePolicy` or
+`AttuneDefaults` turns the behavior on after the chart is installed, so
+the chart does not hide the rule behind a Helm value:
+
+- `pods/resize` update and patch. In-place resize calls `UpdateResize`.
+- `pods/eviction` create. Used when `resizeMethod` is `InPlaceOrRecreate`.
+  The chart default `InPlaceOnly` does not make the rule optional.
+- `pods` get, list, patch, update, and watch. Deletion cleanup
+  merge-patches tracking annotations. This page does not remove `update`.
+- Deployments and StatefulSets patch and update, and Argo Rollouts get,
+  list, patch, and update. Template persistence uses the same policy
+  field for all three. Rollouts are not watched.
+- HorizontalPodAutoscalers get, list, patch, update, and watch. Retune
+  after a resize calls `Update`. It is not a Helm value.
+- ConfigMaps create, delete, get, list, patch, update, and watch.
+  Recommendation export is off until `export.configMap` is set on a
+  policy or on cluster `AttuneDefaults`. The fleet-report writer also
+  patches a ConfigMap. The `update` verb stays even though the exporter
+  uses Create, Get, Patch, and Delete.
+
+Secret `get` has no `resourceNames`. The operator can read any Secret
+by name in every namespace. There is no list or watch. The validating
+webhook's SubjectAccessReview checks the policy author. It does not
+replace this get. Prometheus bearer tokens and the weekly report Secret
+use it.
+
+What is already narrower:
+
+- No wildcard verb or resource on the ClusterRole.
+- Leader election is a namespaced Role in the release namespace, only
+  when `leaderElection.enabled` is true. Lease get, update, and delete
+  are limited to the name `attune.attune.io`. Lease create is not
+  name-limited. That Role also creates and patches core Events in the
+  release namespace.
+- The query-account TokenRequest is a namespaced Role, only when
+  `prometheusAuth.queryServiceAccount.create` is true. It can create
+  tokens for that one ServiceAccount. The account does not mount a
+  token into pods.
+- `config.openshift.io/apiservers` get is added only when
+  `openshift.enabled` is true.
+- Metrics scrapes are a different ClusterRole,
+  `<release>-metrics-reader`, with `get` on non-resource URL `/metrics`.
+  Helm renders it only when the Prometheus ServiceAccount name and
+  namespace are both set. It is not on the operator role, and it does
+  not aggregate into `view`, `edit`, or `admin`.
+
+`rbac.aggregateToEdit` and `rbac.aggregateToView` default to false.
+That is the viewer and editor section above, not a new rule.

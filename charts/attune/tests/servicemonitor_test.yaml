@@ -34,6 +34,39 @@ tests:
           path: spec.endpoints[0].interval
           value: 15s
 
+  - it: should scrape https with the prometheus pod token when secure
+    set:
+      metrics.enabled: true
+      metrics.secure: true
+      metrics.serviceMonitor.enabled: true
+    asserts:
+      - equal:
+          path: spec.endpoints[0].scheme
+          value: https
+      - equal:
+          path: spec.endpoints[0].authorization.type
+          value: Bearer
+      - equal:
+          path: spec.endpoints[0].authorization.credentialsFile
+          value: /var/run/secrets/kubernetes.io/serviceaccount/token
+      - equal:
+          path: spec.endpoints[0].tlsConfig.insecureSkipVerify
+          value: true
+
+  - it: should scrape http when metrics are not secure
+    set:
+      metrics.enabled: true
+      metrics.secure: false
+      metrics.serviceMonitor.enabled: true
+    asserts:
+      - equal:
+          path: spec.endpoints[0].scheme
+          value: http
+      - notExists:
+          path: spec.endpoints[0].authorization
+      - notExists:
+          path: spec.endpoints[0].tlsConfig
+
   - it: should include additional labels
     set:
       metrics.enabled: true

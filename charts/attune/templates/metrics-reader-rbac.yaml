@@ -1,0 +1,36 @@
+{{- $saName := .Values.metrics.serviceMonitor.serviceAccountName | default "" }}
+{{- $saNS := .Values.metrics.serviceMonitor.serviceAccountNamespace | default "" }}
+{{- $ready := and .Values.metrics.enabled .Values.metrics.secure $saName $saNS }}
+{{- if or $saName $saNS }}
+{{- if not $ready }}
+{{- fail "metrics.serviceMonitor.serviceAccountName and metrics.serviceMonitor.serviceAccountNamespace must both be set, and only when metrics.enabled and metrics.secure are true" }}
+{{- end }}
+{{- end }}
+{{- if $ready }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "attune.fullname" . }}-metrics-reader
+  labels:
+    {{- include "attune.labels" . | nindent 4 }}
+rules:
+  - nonResourceURLs:
+      - /metrics
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "attune.fullname" . }}-metrics-reader
+  labels:
+    {{- include "attune.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "attune.fullname" . }}-metrics-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ $saName }}
+    namespace: {{ $saNS }}
+{{- end }}

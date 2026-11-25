@@ -342,7 +342,8 @@ typically set via the Helm chart `values.yaml` rather than directly.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--metrics-bind-address` | `:8080` | Address the Prometheus metrics endpoint binds to |
+| `--metrics-bind-address` | `:8080` | Address the Prometheus metrics endpoint binds to. The listener is HTTPS with auth unless `--metrics-secure=false`. |
+| `--metrics-secure` | `true` | Serve metrics with TLS, TokenReview, and SubjectAccessReview. `false` is the legacy unauthenticated HTTP listener. Bind address `0` still disables the server. |
 | `--health-probe-bind-address` | `:8081` | Address the health/readiness probe endpoint binds to |
 | `--leader-elect` | `false` | Enable leader election (required for HA with multiple replicas) |
 | `--enable-webhooks` | `true` | Enable admission webhooks for defaulting and validation (requires cert-manager) |

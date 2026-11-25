@@ -211,6 +211,13 @@ rules:
       - subjectaccessreviews
     verbs:
       - create
+  # TokenReview: authenticate scrapes of the metrics server
+  - apiGroups:
+      - authentication.k8s.io
+    resources:
+      - tokenreviews
+    verbs:
+      - create
   # ResourceQuotas and LimitRanges: read-only (pre-resize compatibility checks)
   - apiGroups:
       - ""

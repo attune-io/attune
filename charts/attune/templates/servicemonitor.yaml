@@ -16,4 +16,14 @@ spec:
     - port: metrics
       interval: {{ .Values.metrics.serviceMonitor.interval | default "30s" }}
       path: /metrics
+      {{- if .Values.metrics.secure }}
+      scheme: https
+      authorization:
+        type: Bearer
+        credentialsFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      tlsConfig:
+        insecureSkipVerify: true
+      {{- else }}
+      scheme: http
+      {{- end }}
 {{- end }}
